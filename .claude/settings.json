@@ -1,0 +1,49 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(docker *)",
+      "Bash(docker compose *)",
+      "Bash(npm *)",
+      "Bash(pip *)",
+      "Bash(uvicorn *)",
+      "Bash(pytest *)",
+      "Bash(alembic *)",
+      "Bash(python *)",
+      "Bash(mkdir -p *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(node *)",
+      "Bash(npx *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Task*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[Hook] Remember: Read CLAUDE.md before starting any task in this project.'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash(git commit *)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[Hook] Committed. Run pytest to verify tests still pass.'"
+          }
+        ]
+      }
+    ]
+  }
+}
