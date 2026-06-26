@@ -1,6 +1,6 @@
 export type CapStyle = 'snapback' | 'trucker' | 'bucket' | 'beanie' | 'visor'
 export type DecorationStyle = 'embroidery' | 'print'
-export type PlacementZone = 'front' | 'side' | 'back' | 'under-brim'
+export type PlacementZone = 'auto' | 'front' | 'side' | 'back' | 'under-brim'
 
 export interface ColourSwatch {
   name: string

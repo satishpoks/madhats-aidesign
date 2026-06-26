@@ -3,7 +3,7 @@ import type { Product, ColourSwatch, PlacementZone, DecorationStyle } from '../d
 
 export type View = 'picker' | 'studio' | 'refine' | 'worn'
 export type AngleView = 'front' | 'left' | 'right' | 'back'
-type InputTab = 'describe' | 'upload'
+type InputTab = 'describe' | 'upload' | 'references'
 type GenerationState = 'idle' | 'generating' | 'done' | 'error'
 
 export interface ChatMessage {
@@ -24,6 +24,8 @@ interface StudioState {
   promptText: string
   uploadedFile: File | null
   uploadedPreview: string | null
+  referenceFiles: File[]
+  referencePreviews: string[]
   placementZone: PlacementZone
   decorationStyle: DecorationStyle
   generationState: GenerationState
@@ -46,6 +48,8 @@ interface StudioState {
   setInputTab: (tab: InputTab) => void
   setPromptText: (text: string) => void
   setUploadedFile: (file: File, preview: string) => void
+  addReferenceFiles: (files: File[], previews: string[]) => void
+  removeReferenceFile: (index: number) => void
   setPlacementZone: (zone: PlacementZone) => void
   setDecorationStyle: (style: DecorationStyle) => void
   setActiveAngle: (angle: AngleView) => void
@@ -96,7 +100,9 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   promptText: '',
   uploadedFile: null,
   uploadedPreview: null,
-  placementZone: 'front',
+  referenceFiles: [],
+  referencePreviews: [],
+  placementZone: 'auto',
   decorationStyle: 'embroidery',
   generationState: 'idle',
   viewImages: { ...EMPTY_VIEWS },
@@ -114,6 +120,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setInputTab: (tab) => set({ inputTab: tab }),
   setPromptText: (text) => set({ promptText: text }),
   setUploadedFile: (file, preview) => set({ uploadedFile: file, uploadedPreview: preview }),
+  addReferenceFiles: (files, previews) => set(s => ({
+    referenceFiles: [...s.referenceFiles, ...files],
+    referencePreviews: [...s.referencePreviews, ...previews],
+  })),
+  removeReferenceFile: (index) => set(s => ({
+    referenceFiles: s.referenceFiles.filter((_, i) => i !== index),
+    referencePreviews: s.referencePreviews.filter((_, i) => i !== index),
+  })),
   setPlacementZone: (zone) => set({ placementZone: zone }),
   setDecorationStyle: (style) => set({ decorationStyle: style }),
   setActiveAngle: (angle) => set({ activeAngle: angle }),
@@ -211,6 +225,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     promptText: '',
     uploadedFile: null,
     uploadedPreview: null,
+    referenceFiles: [],
+    referencePreviews: [],
     generationState: 'idle',
     viewImages: { ...EMPTY_VIEWS },
     activeAngle: 'front',
