@@ -82,10 +82,26 @@ async def confirm_verification(token: str) -> dict:
     lead = sb.table("leads").select("*").eq("id", lead_id).limit(1).execute().data[0]
     session_id = lead["session_id"]
 
-    _post_verification_actions(lead, session_id)
+    # The email is verified at this point; sending the preview / sales emails is
+    # a best-effort side effect that must never turn a successful verification
+    # into a 500 for the customer clicking the link.
+    try:
+        _post_verification_actions(lead, session_id)
+    except Exception as exc:  # noqa: BLE001
+        log.error("post_verification_actions_failed", lead_id=lead_id, error=str(exc))
 
     log.info("lead_verified", lead_id=lead_id, session_id=session_id)
     return {"verified": True, "session_id": session_id}
+
+
+def _to_signed(path: str | None) -> str:
+    """Sign a storage path; pass through external URLs (e.g. the stub adapter's
+    placehold.co links, which are not storage objects). Empty/None → ""."""
+    if not path:
+        return ""
+    if path.startswith("http"):
+        return path
+    return generate_signed_url(path)
 
 
 def _post_verification_actions(lead: dict, session_id: str) -> None:
@@ -107,8 +123,8 @@ def _post_verification_actions(lead: dict, session_id: str) -> None:
     )
     watermarked_url = clean_url = ""
     if gen.data:
-        watermarked_url = generate_signed_url(gen.data[0].get("watermarked_url") or "")
-        clean_url = generate_signed_url(gen.data[0].get("image_url") or "")
+        watermarked_url = _to_signed(gen.data[0].get("watermarked_url"))
+        clean_url = _to_signed(gen.data[0].get("image_url"))
 
     email_service.send_preview_email(lead["email"], lead["name"], watermarked_url)
 
