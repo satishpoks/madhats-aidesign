@@ -23,11 +23,28 @@ vi.mock('../lib/api', () => ({
     asset_hash: 'abc123',
   }),
   addPin: vi.fn().mockResolvedValue({ pin_id: 'pin-1' }),
+  generatePreview: vi.fn().mockResolvedValue({ job_id: 'job-1' }),
+  generationStatus: vi.fn().mockResolvedValue({
+    status: 'complete',
+    image_url: 'https://cdn.example.com/clean.png',
+    watermarked_url: 'https://cdn.example.com/wm.png',
+  }),
+  createLead: vi.fn().mockResolvedValue({ lead_id: 'lead-1' }),
+  sendVerify: vi.fn().mockResolvedValue({ sent: true }),
 }))
 
-import { sendChat, uploadLogo, addPin } from '../lib/api'
+import {
+  sendChat,
+  uploadLogo,
+  addPin,
+  generatePreview,
+  generationStatus,
+  createLead,
+  sendVerify,
+} from '../lib/api'
 import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
+import { useGenerationStore } from '../store/generationStore'
 import { ChatPanel } from '../components/ChatPanel'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +102,15 @@ beforeEach(() => {
     asset_hash: 'abc123',
   })
   vi.mocked(addPin).mockResolvedValue({ pin_id: 'pin-1' })
+  vi.mocked(generatePreview).mockResolvedValue({ job_id: 'job-1' })
+  vi.mocked(generationStatus).mockResolvedValue({
+    status: 'complete',
+    image_url: 'https://cdn.example.com/clean.png',
+    watermarked_url: 'https://cdn.example.com/wm.png',
+  })
+  vi.mocked(createLead).mockResolvedValue({ lead_id: 'lead-1' })
+  vi.mocked(sendVerify).mockResolvedValue({ sent: true })
+  useGenerationStore.getState().reset()
 })
 
 // ---------------------------------------------------------------------------
@@ -382,19 +408,49 @@ describe('ChatPanel special state banners', () => {
     expect(document.querySelector('input[type="file"]')).toBeInTheDocument()
   })
 
-  it('shows a placeholder note when state is generating', async () => {
+  it('triggers generation and renders the watermarked preview when state is generating', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'Generating your design now…',
       state: 'generating',
       data: { trigger_generation: true },
     })
     render(<ChatPanel />)
-    // The reply text appears in the chat bubble
     await screen.findByText('Generating your design now…')
-    // The component renders this specific placeholder string (not the reply text)
-    expect(
-      screen.getByText('Generating your design… (preview coming next)'),
-    ).toBeInTheDocument()
+    // Generation is kicked off through the API…
+    await waitFor(() => expect(generatePreview).toHaveBeenCalledWith('sess-test-123'))
+    // …and the watermarked preview image is shown once complete.
+    const img = (await screen.findByAltText(
+      'Generated cap design preview',
+    )) as HTMLImageElement
+    expect(img.src).toBe('https://cdn.example.com/wm.png')
+  })
+
+  it('captures contact details at ask_email and advances the chat', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'What is your email?',
+      state: 'ask_email',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByLabelText('Email address')
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Sam' } })
+    fireEvent.change(screen.getByLabelText('Email address'), {
+      target: { value: 'sam@example.com' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send my design/i }))
+
+    await waitFor(() =>
+      expect(createLead).toHaveBeenCalledWith('sess-test-123', {
+        name: 'Sam',
+        email: 'sam@example.com',
+        phone: undefined,
+      }),
+    )
+    await waitFor(() => expect(sendVerify).toHaveBeenCalledWith('lead-1'))
+    // Advancing the chat after capture.
+    await waitFor(() =>
+      expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'Here are my details'),
+    )
   })
 })
 

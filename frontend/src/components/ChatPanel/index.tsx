@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
-import { uploadLogo, addPin } from '../../lib/api'
+import { useGenerationStore } from '../../store/generationStore'
+import { uploadLogo, addPin, createLead, sendVerify } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
 // TypingIndicator
@@ -285,6 +286,121 @@ export function PinAnnotator({
 }
 
 // ---------------------------------------------------------------------------
+// GenerationPanel — shown while/after the design renders (state 'generating')
+// ---------------------------------------------------------------------------
+
+function GenerationPanel() {
+  const status = useGenerationStore(s => s.status)
+  const previewUrl = useGenerationStore(s => s.previewUrl)
+  const error = useGenerationStore(s => s.error)
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border rounded-xl">
+      {(status === 'generating' || status === 'idle') && (
+        <div className="flex items-center gap-3 py-2">
+          <span className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-textMuted">Generating your design…</span>
+        </div>
+      )}
+      {status === 'done' && previewUrl && (
+        <div className="flex flex-col gap-2">
+          <img
+            src={previewUrl}
+            alt="Generated cap design preview"
+            className="w-full rounded-lg border border-border"
+          />
+          <p className="text-xs text-textMuted text-center">
+            Preview — watermarked. The MadHats team reviews every design before quoting.
+          </p>
+        </div>
+      )}
+      {status === 'error' && (
+        <p className="text-sm text-red-400">{error ?? 'Generation failed.'}</p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// LeadCaptureForm — contact capture (state 'ask_email')
+// ---------------------------------------------------------------------------
+
+interface LeadCaptureFormProps {
+  sessionId: string
+  onDone: () => void
+  onError: (msg: string) => void
+}
+
+function LeadCaptureForm({ sessionId, onDone, onError }: LeadCaptureFormProps) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (submitting || !email.trim() || !name.trim()) return
+    setSubmitting(true)
+    try {
+      const { lead_id } = await createLead(sessionId, {
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+      })
+      await sendVerify(lead_id)
+      onDone()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not save your details')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      aria-label="Contact details"
+      className="flex flex-col gap-2 p-4 bg-surface border border-border rounded-xl"
+    >
+      <p className="text-sm text-textSub font-medium">
+        Where should we send your design?
+      </p>
+      <input
+        type="text"
+        value={name}
+        onChange={e => setName(e.target.value)}
+        placeholder="Your name"
+        aria-label="Your name"
+        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
+      />
+      <input
+        type="email"
+        value={email}
+        onChange={e => setEmail(e.target.value)}
+        placeholder="Email address"
+        aria-label="Email address"
+        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
+      />
+      <input
+        type="tel"
+        value={phone}
+        onChange={e => setPhone(e.target.value)}
+        placeholder="Phone (optional)"
+        aria-label="Phone (optional)"
+        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
+      />
+      <button
+        type="submit"
+        disabled={submitting || !email.trim() || !name.trim()}
+        className="bg-accent hover:bg-accentHover text-white px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+      >
+        {submitting ? 'Sending…' : 'Send my design'}
+      </button>
+    </form>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // ChatPanel — main component
 // ---------------------------------------------------------------------------
 
@@ -307,6 +423,9 @@ export function ChatPanel() {
   const dismissError = useChatStore(s => s.dismissError)
   const setError = useChatStore(s => s.setError)
 
+  // Generation store
+  const startGeneration = useGenerationStore(s => s.startGeneration)
+
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -316,6 +435,14 @@ export function ChatPanel() {
       void kickoff(sessionId)
     }
   }, [sessionId, kickoff])
+
+  // Trigger async generation when the flow reaches the generating state.
+  // startGeneration() is internally once-guarded per session.
+  useEffect(() => {
+    if (sessionId && (triggerGeneration || chatState === 'generating')) {
+      void startGeneration(sessionId)
+    }
+  }, [sessionId, triggerGeneration, chatState, startGeneration])
 
   // Auto-scroll to the newest message
   useEffect(() => {
@@ -448,11 +575,16 @@ export function ChatPanel() {
           />
         )}
 
-        {/* Special state: generation placeholder */}
-        {(chatState === 'generating' || triggerGeneration) && (
-          <p className="text-center text-textMuted text-xs py-2 px-4 bg-surface border border-border rounded-lg">
-            Generating your design… (preview coming next)
-          </p>
+        {/* Special state: generation + preview */}
+        {(chatState === 'generating' || triggerGeneration) && <GenerationPanel />}
+
+        {/* Special state: contact capture */}
+        {chatState === 'ask_email' && sessionId && (
+          <LeadCaptureForm
+            sessionId={sessionId}
+            onDone={() => void sendMessage(sessionId, 'Here are my details')}
+            onError={setError}
+          />
         )}
 
         {/* Option chip rows */}

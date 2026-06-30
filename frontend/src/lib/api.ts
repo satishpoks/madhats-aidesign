@@ -1,4 +1,10 @@
-import type { Product, ProductPage, CreateSessionResponse, ChatResponse } from './types'
+import type {
+  Product,
+  ProductPage,
+  CreateSessionResponse,
+  ChatResponse,
+  GenerationStatus,
+} from './types'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
 const STORE_KEY = (import.meta.env.VITE_STORE_KEY as string | undefined) ?? ''
@@ -97,5 +103,37 @@ export function addPin(
   return request<{ pin_id: string }>(`/uploads/pin/${sessionId}`, {
     method: 'POST',
     body: JSON.stringify(pin),
+  })
+}
+
+/** Kick off an async preview generation. Returns the job id to poll. */
+export function generatePreview(sessionId: string): Promise<{ job_id: string }> {
+  return request<{ job_id: string }>(`/generate/preview/${sessionId}`, {
+    method: 'POST',
+    body: JSON.stringify({ tier: 'preview' }),
+  })
+}
+
+/** Poll a generation job. image_url/watermarked_url are signed URLs once complete. */
+export function generationStatus(jobId: string): Promise<GenerationStatus> {
+  return request<GenerationStatus>(`/generate/status/${jobId}`)
+}
+
+/** Create a lead (contact capture) for the session. */
+export function createLead(
+  sessionId: string,
+  lead: { name: string; email: string; phone?: string },
+): Promise<{ lead_id: string }> {
+  return request<{ lead_id: string }>('/leads', {
+    method: 'POST',
+    body: JSON.stringify({ session_id: sessionId, ...lead }),
+  })
+}
+
+/** Trigger the verification email for a lead. */
+export function sendVerify(leadId: string): Promise<{ sent: boolean }> {
+  return request<{ sent: boolean }>('/leads/verify/send', {
+    method: 'POST',
+    body: JSON.stringify({ lead_id: leadId }),
   })
 }
