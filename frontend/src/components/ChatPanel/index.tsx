@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
+import { uploadLogo, addPin } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
-// Sub-components
+// TypingIndicator
 // ---------------------------------------------------------------------------
 
 function TypingIndicator() {
@@ -30,7 +31,261 @@ function TypingIndicator() {
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// LogoUploader — shown when chatState === 'upload_logo'
+// ---------------------------------------------------------------------------
+
+interface LogoUploaderProps {
+  sessionId: string
+  onDone: () => void
+}
+
+function LogoUploader({ sessionId, onDone }: LogoUploaderProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setPreviewUrl(URL.createObjectURL(file))
+    setUploading(true)
+    setUploadError(null)
+
+    try {
+      await uploadLogo(sessionId, file)
+      onDone()
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border rounded-xl">
+      <p className="text-sm text-textSub font-medium">Upload your logo</p>
+
+      {/* File input — visually styled via label; input is sr-only but accessible */}
+      {!previewUrl && (
+        <div className="flex items-center gap-3">
+          <label
+            htmlFor="logo-upload-input"
+            className="cursor-pointer px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            Select logo
+          </label>
+          <input
+            id="logo-upload-input"
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            onChange={handleFileChange}
+            disabled={uploading}
+            className="sr-only"
+            aria-label="Choose logo file"
+          />
+          <span className="text-xs text-textMuted">PNG, JPG, GIF or WebP · max 10 MB</span>
+        </div>
+      )}
+
+      {/* Thumbnail + status */}
+      {previewUrl && (
+        <div className="flex items-center gap-3">
+          <img
+            src={previewUrl}
+            alt="Logo preview"
+            className="w-16 h-16 object-contain rounded-lg border border-border bg-base flex-shrink-0"
+          />
+          <div className="flex flex-col gap-1">
+            {uploading && (
+              <span className="text-sm text-textMuted">Uploading…</span>
+            )}
+            {uploadError && (
+              <span className="text-sm text-red-400">{uploadError}</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// PinAnnotator — shown when chatState === 'pin_annotate_mode'
+// ---------------------------------------------------------------------------
+
+interface SavedPin {
+  view: string
+  x_pct: number
+  y_pct: number
+}
+
+interface PinAnnotatorProps {
+  sessionId: string
+  viewImages: Record<string, string>
+  fallbackUrl: string
+  onSendMessage: (text: string) => void
+  onError: (msg: string) => void
+}
+
+export function PinAnnotator({
+  sessionId,
+  viewImages,
+  fallbackUrl,
+  onSendMessage,
+  onError,
+}: PinAnnotatorProps) {
+  const availableViews = Object.entries(viewImages)
+  const defaultView = availableViews[0]?.[0] ?? ''
+
+  const [activeView, setActiveView] = useState(defaultView)
+  const [pendingPin, setPendingPin] = useState<{ x_pct: number; y_pct: number } | null>(null)
+  const [comment, setComment] = useState('')
+  const [savedPins, setSavedPins] = useState<SavedPin[]>([])
+  const [saving, setSaving] = useState(false)
+  const [postSaveActions, setPostSaveActions] = useState(false)
+
+  const currentImageUrl = viewImages[activeView] ?? fallbackUrl
+
+  function handleImageClick(e: React.MouseEvent<HTMLImageElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x_pct = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+    const y_pct = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+    setPendingPin({ x_pct, y_pct })
+    setPostSaveActions(false)
+  }
+
+  async function handleSavePin() {
+    if (!pendingPin || saving) return
+    setSaving(true)
+    try {
+      await addPin(sessionId, {
+        view: activeView || 'front',
+        x_pct: pendingPin.x_pct,
+        y_pct: pendingPin.y_pct,
+        comment,
+      })
+      setSavedPins(prev => [...prev, { view: activeView || 'front', ...pendingPin }])
+      setPendingPin(null)
+      setComment('')
+      setPostSaveActions(true)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Failed to save pin')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleSwitchView(view: string) {
+    setActiveView(view)
+    setPendingPin(null)
+  }
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-surface border border-border rounded-xl">
+      {/* View tabs — only when multiple angles available */}
+      {availableViews.length > 1 && (
+        <div className="flex gap-2 flex-wrap">
+          {availableViews.map(([view]) => (
+            <button
+              key={view}
+              onClick={() => handleSwitchView(view)}
+              className={`px-3 py-1 rounded-full text-xs capitalize transition-colors ${
+                activeView === view
+                  ? 'bg-accent text-white'
+                  : 'bg-base border border-border text-textMuted hover:border-accent hover:text-accent'
+              }`}
+            >
+              {view}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Cap image with pin overlay */}
+      <div className="relative">
+        <img
+          src={currentImageUrl}
+          alt={`${activeView || 'product'} view`}
+          className="w-full rounded-lg cursor-crosshair select-none"
+          onClick={handleImageClick}
+          draggable={false}
+        />
+
+        {/* Pending pin (orange) */}
+        {pendingPin && (
+          <div
+            className="absolute w-4 h-4 bg-accent rounded-full border-2 border-white -translate-x-1/2 -translate-y-1/2 pointer-events-none shadow"
+            style={{ left: `${pendingPin.x_pct}%`, top: `${pendingPin.y_pct}%` }}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Saved pins (green), filtered to the current view */}
+        {savedPins
+          .filter(p => p.view === (activeView || 'front'))
+          .map((p, i) => (
+            <div
+              key={i}
+              className="absolute w-4 h-4 bg-green-500 rounded-full border-2 border-white -translate-x-1/2 -translate-y-1/2 pointer-events-none shadow"
+              style={{ left: `${p.x_pct}%`, top: `${p.y_pct}%` }}
+              aria-hidden="true"
+            />
+          ))}
+      </div>
+
+      {/* Comment input + save — shown while a pending pin exists */}
+      {pendingPin && (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+            placeholder="Describe this placement…"
+            className="flex-1 bg-base border border-border rounded-xl px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent transition-colors"
+          />
+          <button
+            onClick={() => void handleSavePin()}
+            disabled={saving}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-xl text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save pin'}
+          </button>
+        </div>
+      )}
+
+      {/* Post-save actions */}
+      {postSaveActions && (
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              setPostSaveActions(false)
+              onSendMessage('add another')
+            }}
+            className="px-4 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent hover:text-accent transition-colors"
+          >
+            Add another
+          </button>
+          <button
+            onClick={() => onSendMessage('done')}
+            className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-medium transition-colors"
+          >
+            Done — generate
+          </button>
+        </div>
+      )}
+
+      {!pendingPin && !postSaveActions && (
+        <p className="text-xs text-textMuted text-center">
+          Click anywhere on the cap to drop a placement pin
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ChatPanel — main component
 // ---------------------------------------------------------------------------
 
 export function ChatPanel() {
@@ -50,6 +305,7 @@ export function ChatPanel() {
   const kickoff = useChatStore(s => s.kickoff)
   const sendMessage = useChatStore(s => s.sendMessage)
   const dismissError = useChatStore(s => s.dismissError)
+  const setError = useChatStore(s => s.setError)
 
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -63,7 +319,6 @@ export function ChatPanel() {
 
   // Auto-scroll to the newest message
   useEffect(() => {
-    // scrollIntoView may be absent in jsdom; use optional chaining on the method itself
     messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [messages, sending])
 
@@ -84,10 +339,6 @@ export function ChatPanel() {
     void sendMessage(sessionId, text)
   }
 
-  // Statement-only states are flagged authoritatively by the backend
-  // (`data.continuable`). We never infer "no options ⇒ Continue", because
-  // free-text states (ask_name, ask_purpose, describe_design) also have no
-  // options but expect a typed answer, not a throwaway "ok".
   const isStatementOnly = continuable && !sending
 
   // ---------------------------------------------------------------------------
@@ -175,14 +426,26 @@ export function ChatPanel() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Bottom panel: special banners, chips, input                        */}
+      {/* Bottom panel: special states, chips, input                         */}
       {/* ------------------------------------------------------------------ */}
       <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-2">
-        {/* Special state: logo upload placeholder */}
-        {chatState === 'upload_logo' && (
-          <p className="text-center text-textMuted text-xs py-2 px-4 bg-surface border border-border rounded-lg">
-            Logo upload — coming next
-          </p>
+        {/* Special state: logo upload */}
+        {chatState === 'upload_logo' && sessionId && (
+          <LogoUploader
+            sessionId={sessionId}
+            onDone={() => void sendMessage(sessionId, 'Uploaded my logo')}
+          />
+        )}
+
+        {/* Special state: pin annotator */}
+        {chatState === 'pin_annotate_mode' && sessionId && productRef && (
+          <PinAnnotator
+            sessionId={sessionId}
+            viewImages={productRef.view_images}
+            fallbackUrl={productRef.reference_image_url}
+            onSendMessage={text => void sendMessage(sessionId, text)}
+            onError={setError}
+          />
         )}
 
         {/* Special state: generation placeholder */}

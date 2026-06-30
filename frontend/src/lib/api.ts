@@ -17,7 +17,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers as HeadersInit | undefined)
   headers.set('X-Store-Key', STORE_KEY)
 
-  if (init.body !== undefined && typeof init.body === 'string') {
+  // For FormData bodies the browser must set Content-Type itself so it can
+  // include the multipart boundary. Do NOT set it here.
+  // For JSON string bodies, set the header explicitly.
+  if (init.body instanceof FormData) {
+    headers.delete('Content-Type')
+  } else if (init.body !== undefined && typeof init.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
 
@@ -64,4 +69,33 @@ export function sendChat(sessionId: string, message: string): Promise<ChatRespon
 
 export function getSession(token: string): Promise<CreateSessionResponse> {
   return request<CreateSessionResponse>(`/sessions/${token}`)
+}
+
+/**
+ * Upload a logo image for the given session.
+ * Uses multipart/form-data — the browser sets Content-Type and boundary automatically.
+ */
+export function uploadLogo(
+  sessionId: string,
+  file: File,
+): Promise<{ asset_url: string; asset_hash: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return request<{ asset_url: string; asset_hash: string }>(`/uploads/logo/${sessionId}`, {
+    method: 'POST',
+    body: formData,
+  })
+}
+
+/**
+ * Save a placement pin annotation for the given session.
+ */
+export function addPin(
+  sessionId: string,
+  pin: { view: string; x_pct: number; y_pct: number; comment: string },
+): Promise<{ pin_id: string }> {
+  return request<{ pin_id: string }>(`/uploads/pin/${sessionId}`, {
+    method: 'POST',
+    body: JSON.stringify(pin),
+  })
 }

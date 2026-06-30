@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchProducts, createSession, sendChat, getSession, ApiError } from '../lib/api'
+import { fetchProducts, createSession, sendChat, getSession, uploadLogo, addPin, ApiError } from '../lib/api'
 
 // Stub fetch globally for all tests in this file
 const mockFetch = vi.fn()
@@ -105,5 +105,101 @@ describe('getSession', () => {
     expect(url).toContain('/sessions/share-token-xyz')
     const init = mockFetch.mock.calls[0][1] as RequestInit
     expect(init.method).toBeUndefined()  // default GET
+  })
+})
+
+// ---------------------------------------------------------------------------
+// uploadLogo
+// ---------------------------------------------------------------------------
+
+describe('uploadLogo', () => {
+  it('POSTs FormData to /uploads/logo/{sessionId}', async () => {
+    mockFetch.mockReturnValue(ok({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc123' }))
+    const file = new File(['content'], 'logo.png', { type: 'image/png' })
+    await uploadLogo('sess-1', file)
+    const url: string = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('/uploads/logo/sess-1')
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeInstanceOf(FormData)
+  })
+
+  it('does NOT set Content-Type header (lets browser handle multipart boundary)', async () => {
+    mockFetch.mockReturnValue(ok({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc123' }))
+    const file = new File(['content'], 'logo.png', { type: 'image/png' })
+    await uploadLogo('sess-1', file)
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    // Must be null — not 'multipart/form-data' and not 'application/json'
+    expect(init.headers.get('Content-Type')).toBeNull()
+  })
+
+  it('still sends X-Store-Key header with FormData body', async () => {
+    mockFetch.mockReturnValue(ok({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc123' }))
+    const file = new File(['content'], 'logo.png', { type: 'image/png' })
+    await uploadLogo('sess-1', file)
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    // X-Store-Key must always be present regardless of body type
+    expect(init.headers.get('X-Store-Key')).not.toBeNull()
+  })
+
+  it('returns asset_url and asset_hash', async () => {
+    const data = { asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc123' }
+    mockFetch.mockReturnValue(ok(data))
+    const file = new File(['content'], 'logo.png', { type: 'image/png' })
+    const result = await uploadLogo('sess-1', file)
+    expect(result).toEqual(data)
+  })
+
+  it('appends the file under the "file" field name', async () => {
+    mockFetch.mockReturnValue(ok({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc' }))
+    const file = new File(['content'], 'logo.png', { type: 'image/png' })
+    await uploadLogo('sess-1', file)
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    const fd = init.body as FormData
+    expect(fd.get('file')).toBe(file)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// addPin
+// ---------------------------------------------------------------------------
+
+describe('addPin', () => {
+  it('POSTs to /uploads/pin/{sessionId}', async () => {
+    mockFetch.mockReturnValue(ok({ pin_id: 'pin-1' }))
+    await addPin('sess-1', { view: 'front', x_pct: 50, y_pct: 30, comment: 'Logo here' })
+    const url: string = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('/uploads/pin/sess-1')
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
+  })
+
+  it('sends X-Store-Key header', async () => {
+    mockFetch.mockReturnValue(ok({ pin_id: 'pin-1' }))
+    await addPin('sess-1', { view: 'front', x_pct: 50, y_pct: 30, comment: '' })
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    expect(init.headers.get('X-Store-Key')).not.toBeNull()
+  })
+
+  it('sends Content-Type: application/json header', async () => {
+    mockFetch.mockReturnValue(ok({ pin_id: 'pin-1' }))
+    await addPin('sess-1', { view: 'front', x_pct: 50, y_pct: 30, comment: '' })
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    expect(init.headers.get('Content-Type')).toBe('application/json')
+  })
+
+  it('sends pin data as JSON body', async () => {
+    mockFetch.mockReturnValue(ok({ pin_id: 'pin-1' }))
+    const pin = { view: 'front', x_pct: 50, y_pct: 30, comment: 'Logo here' }
+    await addPin('sess-1', pin)
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(init.body as string) as typeof pin
+    expect(body).toEqual(pin)
+  })
+
+  it('returns pin_id', async () => {
+    mockFetch.mockReturnValue(ok({ pin_id: 'pin-42' }))
+    const result = await addPin('sess-1', { view: 'back', x_pct: 20, y_pct: 80, comment: '' })
+    expect(result.pin_id).toBe('pin-42')
   })
 })

@@ -228,6 +228,8 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["1", "2-11", "12-49", "50-99", "100+", "Not sure"]}
     if state is S.ASK_HAS_LOGO:
         return {"options": ["Upload logo", "Describe what I want"]}
+    if state is S.ASK_REMOVE_BG:
+        return {"options": ["Yes, remove it", "No, keep as-is"]}
     if state is S.ASK_PLACEMENT_ZONE:
         return {"options": ["Front panel", "Side", "Back", "Under-brim"]}
     if state is S.ASK_PLACEMENT_POSITION:

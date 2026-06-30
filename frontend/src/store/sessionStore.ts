@@ -10,6 +10,8 @@ export interface ProductRef {
   colour: string
   style: string
   reference_image_url: string
+  /** Keyed by view angle (e.g. 'front', 'back', 'left', 'right'). */
+  view_images: Record<string, string>
 }
 
 /** URL query params captured at bootstrap time — available for analytics and later tasks. */
@@ -52,6 +54,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         colour: product.colour,
         style: product.style,
         reference_image_url: product.reference_image_url,
+        view_images: product.view_images,
       },
       view: 'session',
     })

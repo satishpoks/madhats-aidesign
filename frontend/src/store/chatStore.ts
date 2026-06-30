@@ -23,6 +23,7 @@ interface ChatStoreState {
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
   dismissError: () => void
+  setError: (msg: string) => void
   reset: () => void
 }
 
@@ -114,6 +115,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   dismissError: () => set({ chatError: null }),
+
+  setError: (msg: string) => set({ chatError: msg }),
 
   reset: () =>
     set({

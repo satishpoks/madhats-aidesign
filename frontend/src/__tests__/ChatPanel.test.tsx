@@ -18,9 +18,14 @@ vi.mock('../lib/api', () => ({
   }),
   fetchProducts: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 24, offset: 0 }),
   fetchProduct: vi.fn(),
+  uploadLogo: vi.fn().mockResolvedValue({
+    asset_url: 'https://cdn.example.com/logo.png',
+    asset_hash: 'abc123',
+  }),
+  addPin: vi.fn().mockResolvedValue({ pin_id: 'pin-1' }),
 }))
 
-import { sendChat } from '../lib/api'
+import { sendChat, uploadLogo, addPin } from '../lib/api'
 import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
 import { ChatPanel } from '../components/ChatPanel'
@@ -40,6 +45,10 @@ function seedSession() {
       colour: 'Black',
       style: 'snapback',
       reference_image_url: 'https://example.com/cap.jpg',
+      view_images: {
+        front: 'https://example.com/front.jpg',
+        back: 'https://example.com/back.jpg',
+      },
     },
     entryContext: null,
     view: 'session',
@@ -71,6 +80,11 @@ beforeEach(() => {
     state: 'ask_name',
     data: {},
   })
+  vi.mocked(uploadLogo).mockResolvedValue({
+    asset_url: 'https://cdn.example.com/logo.png',
+    asset_hash: 'abc123',
+  })
+  vi.mocked(addPin).mockResolvedValue({ pin_id: 'pin-1' })
 })
 
 // ---------------------------------------------------------------------------
@@ -356,7 +370,7 @@ describe('ChatPanel error handling', () => {
 // ---------------------------------------------------------------------------
 
 describe('ChatPanel special state banners', () => {
-  it('shows a placeholder note when state is upload_logo', async () => {
+  it('renders the logo file input when state is upload_logo', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'Please upload your logo.',
       state: 'upload_logo',
@@ -364,7 +378,8 @@ describe('ChatPanel special state banners', () => {
     })
     render(<ChatPanel />)
     await screen.findByText('Please upload your logo.')
-    expect(screen.getByText(/Logo upload — coming next/i)).toBeInTheDocument()
+    // Real LogoUploader replaces the old placeholder
+    expect(document.querySelector('input[type="file"]')).toBeInTheDocument()
   })
 
   it('shows a placeholder note when state is generating', async () => {
@@ -380,6 +395,294 @@ describe('ChatPanel special state banners', () => {
     expect(
       screen.getByText('Generating your design… (preview coming next)'),
     ).toBeInTheDocument()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Logo upload
+// ---------------------------------------------------------------------------
+
+describe('ChatPanel logo upload', () => {
+  it('calls uploadLogo when a file is selected and advances via sendChat', async () => {
+    vi.mocked(sendChat)
+      .mockResolvedValueOnce({
+        reply: 'Please upload your logo.',
+        state: 'upload_logo',
+        data: {},
+      })
+      .mockResolvedValueOnce({
+        reply: 'Should I remove the background?',
+        state: 'ask_remove_bg',
+        data: {},
+      })
+
+    render(<ChatPanel />)
+    await screen.findByText('Please upload your logo.')
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    expect(fileInput).not.toBeNull()
+
+    const file = new File(['logo-data'], 'logo.png', { type: 'image/png' })
+    // Provide the file list via the getter so React's SyntheticEvent can read it
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => ({ 0: file, length: 1, item: (i: number) => (i === 0 ? file : null) }),
+    })
+    fireEvent.change(fileInput)
+
+    await waitFor(() => {
+      expect(vi.mocked(uploadLogo)).toHaveBeenCalledWith('sess-test-123', file)
+    })
+    await waitFor(() => {
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'Uploaded my logo')
+    })
+  })
+
+  it('shows thumbnail preview while uploading', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Please upload your logo.',
+      state: 'upload_logo',
+      data: {},
+    })
+    // Keep uploadLogo pending so we can inspect the uploading state
+    let resolveUpload!: () => void
+    vi.mocked(uploadLogo).mockReturnValue(
+      new Promise(res => {
+        resolveUpload = () => res({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc' })
+      }),
+    )
+
+    render(<ChatPanel />)
+    await screen.findByText('Please upload your logo.')
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['logo'], 'logo.png', { type: 'image/png' })
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => ({ 0: file, length: 1, item: (i: number) => (i === 0 ? file : null) }),
+    })
+    fireEvent.change(fileInput)
+
+    // Thumbnail uses the blob URL stub from setup.ts
+    await waitFor(() => {
+      expect(screen.getByAltText('Logo preview')).toBeInTheDocument()
+    })
+    // "Uploading…" text should be visible
+    expect(screen.getByText(/uploading…/i)).toBeInTheDocument()
+
+    // Resolve so the test doesn't leak
+    resolveUpload()
+  })
+
+  it('shows inline error on upload failure without crashing', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Please upload your logo.',
+      state: 'upload_logo',
+      data: {},
+    })
+    vi.mocked(uploadLogo).mockRejectedValue(new Error('Upload failed — server error'))
+
+    render(<ChatPanel />)
+    await screen.findByText('Please upload your logo.')
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File(['logo'], 'logo.png', { type: 'image/png' })
+    Object.defineProperty(fileInput, 'files', {
+      configurable: true,
+      get: () => ({ 0: file, length: 1, item: (i: number) => (i === 0 ? file : null) }),
+    })
+    fireEvent.change(fileInput)
+
+    await waitFor(() => {
+      expect(screen.getByText(/Upload failed — server error/i)).toBeInTheDocument()
+    })
+    // sendChat must NOT have been called — conversation must not advance on failure
+    expect(vi.mocked(sendChat)).toHaveBeenCalledTimes(1) // only kickoff
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pin annotator
+// ---------------------------------------------------------------------------
+
+describe('ChatPanel pin annotator', () => {
+  it('renders view image when state is pin_annotate_mode', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Click on the cap to mark a placement spot.',
+      state: 'pin_annotate_mode',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap to mark a placement spot.')
+    // The PinAnnotator renders the cap image with the active view alt text
+    expect(screen.getByAltText(/front view/i)).toBeInTheDocument()
+  })
+
+  it('computes x_pct/y_pct from click position and calls addPin', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Click on the cap to mark a placement spot.',
+      state: 'pin_annotate_mode',
+      data: {},
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap to mark a placement spot.')
+
+    const img = screen.getByAltText(/front view/i)
+    // Mock getBoundingClientRect so we get deterministic x_pct/y_pct
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 300,
+      right: 400,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    // Click at the centre of the (mocked) image
+    fireEvent.click(img, { clientX: 200, clientY: 150 })
+
+    // Comment input and Save pin button should appear
+    const commentInput = await screen.findByPlaceholderText(/describe this placement/i)
+    fireEvent.change(commentInput, { target: { value: 'Logo here' } })
+
+    const saveBtn = screen.getByRole('button', { name: /save pin/i })
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(vi.mocked(addPin)).toHaveBeenCalledWith('sess-test-123', {
+        view: 'front',
+        x_pct: 50,
+        y_pct: 50,
+        comment: 'Logo here',
+      })
+    })
+  })
+
+  it('shows "Add another" and "Done — generate" after saving a pin', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Click on the cap to mark a placement spot.',
+      state: 'pin_annotate_mode',
+      data: {},
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap to mark a placement spot.')
+
+    const img = screen.getByAltText(/front view/i)
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(img, { clientX: 100, clientY: 100 })
+    const saveBtn = await screen.findByRole('button', { name: /save pin/i })
+    fireEvent.click(saveBtn)
+
+    await screen.findByRole('button', { name: /add another/i })
+    expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument()
+  })
+
+  it('"Add another" sends correct message to advance conversation', async () => {
+    vi.mocked(sendChat)
+      .mockResolvedValueOnce({
+        reply: 'Click on the cap.',
+        state: 'pin_annotate_mode',
+        data: {},
+      })
+      .mockResolvedValueOnce({
+        reply: 'Sure, add another pin.',
+        state: 'pin_annotate_mode',
+        data: {},
+      })
+
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap.')
+
+    const img = screen.getByAltText(/front view/i)
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(img, { clientX: 100, clientY: 100 })
+    const saveBtn = await screen.findByRole('button', { name: /save pin/i })
+    fireEvent.click(saveBtn)
+
+    const addAnotherBtn = await screen.findByRole('button', { name: /add another/i })
+    fireEvent.click(addAnotherBtn)
+
+    await waitFor(() => {
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'add another')
+    })
+  })
+
+  it('"Done — generate" sends "done" to advance conversation', async () => {
+    vi.mocked(sendChat)
+      .mockResolvedValueOnce({
+        reply: 'Click on the cap.',
+        state: 'pin_annotate_mode',
+        data: {},
+      })
+      .mockResolvedValueOnce({
+        reply: 'Generating now!',
+        state: 'generating',
+        data: { trigger_generation: true },
+      })
+
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap.')
+
+    const img = screen.getByAltText(/front view/i)
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(img, { clientX: 100, clientY: 100 })
+    const saveBtn = await screen.findByRole('button', { name: /save pin/i })
+    fireEvent.click(saveBtn)
+
+    const doneBtn = await screen.findByRole('button', { name: /done/i })
+    fireEvent.click(doneBtn)
+
+    await waitFor(() => {
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'done')
+    })
+  })
+
+  it('pin annotator error surfaces via the chatError banner', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Click on the cap.',
+      state: 'pin_annotate_mode',
+      data: {},
+    })
+    vi.mocked(addPin).mockRejectedValue(new Error('Pin save failed'))
+
+    render(<ChatPanel />)
+    await screen.findByText('Click on the cap.')
+
+    const img = screen.getByAltText(/front view/i)
+    vi.spyOn(img, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 400, height: 300,
+      right: 400, bottom: 300, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.click(img, { clientX: 100, clientY: 100 })
+    const saveBtn = await screen.findByRole('button', { name: /save pin/i })
+    fireEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Pin save failed/i)).toBeInTheDocument()
   })
 })
 
