@@ -2,13 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useStudioStore } from '../../store/studioStore'
 import type { ChatMessage } from '../../store/studioStore'
 
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition
-    webkitSpeechRecognition: typeof SpeechRecognition
-  }
-}
-
 function MicIcon({ active }: { active: boolean }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5" stroke="currentColor" strokeWidth={1.8}>

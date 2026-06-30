@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useStudioStore } from '../../store/studioStore'
 
 export function ConceptModal() {
-  const { showConceptModal, setShowConceptModal, selectedProduct, selectedSwatch, generatedImageUrl } = useStudioStore()
+  const { showConceptModal, setShowConceptModal, selectedProduct, selectedSwatch, viewImages } = useStudioStore()
+  const generatedImageUrl = viewImages.front
   const [submitted, setSubmitted] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')

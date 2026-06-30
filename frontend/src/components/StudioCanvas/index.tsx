@@ -4,14 +4,6 @@ import { PreviewPanel } from '../PreviewPanel'
 import { CapSilhouette } from '../ProductPicker/CapSilhouette'
 import type { PlacementZone, DecorationStyle } from '../../data/products'
 
-// Web Speech API types not in default TS lib
-declare global {
-  interface Window {
-    SpeechRecognition: typeof SpeechRecognition
-    webkitSpeechRecognition: typeof SpeechRecognition
-  }
-}
-
 function useSpeechInput(onTranscript: (text: string) => void) {
   const [listening, setListening] = useState(false)
   const recogRef = useRef<SpeechRecognition | null>(null)
@@ -325,7 +317,7 @@ export function StudioCanvas() {
                 <button
                   key={s}
                   onClick={() => setDecorationStyle(s)}
-                  disabled={selectedProduct && !selectedProduct.decorationTypes.includes(s)}
+                  disabled={selectedProduct ? !selectedProduct.decorationTypes.includes(s) : undefined}
                   className={`flex-1 py-2 rounded-xl text-sm font-medium border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
                     decorationStyle === s
                       ? 'bg-accent border-accent text-white'
