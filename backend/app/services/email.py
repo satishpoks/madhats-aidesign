@@ -23,14 +23,28 @@ def _send(to: str, subject: str, body: str) -> bool:
         return False
     resend.api_key = settings.resend_api_key
     html = "<pre style='font-family:inherit;white-space:pre-wrap'>" + body + "</pre>"
-    resend.Emails.send(
-        {
-            "from": settings.resend_from_address,
-            "to": [to],
-            "subject": subject,
-            "html": html,
-        }
-    )
+    try:
+        resend.Emails.send(
+            {
+                "from": settings.resend_from_address,
+                "to": [to],
+                "subject": subject,
+                "html": html,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Email delivery is best-effort: a provider error (Resend test-mode
+        # recipient limits, quota, network) must NEVER crash the request that
+        # triggered the send — e.g. email verification, which has already
+        # persisted. We log the error TYPE/code only, never the provider message
+        # (it can echo a recipient address → PII).
+        log.warning(
+            "email_send_failed",
+            subject=subject,
+            error_type=getattr(exc, "error_type", type(exc).__name__),
+            code=getattr(exc, "code", None),
+        )
+        return False
     log.info("email_sent", subject=subject)  # no recipient logged (PII)
     return True
 
