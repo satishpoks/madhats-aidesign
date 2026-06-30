@@ -242,26 +242,37 @@ Each subagent should:
 ## 13. Quick Reference — Common Commands
 
 ```bash
-# Local dev
-docker compose up                          # start all services
-docker compose up backend                  # backend only
-
-# Backend
+# Local Supabase stack (Postgres + Storage + Studio) — Docker must be running
 cd backend
-pip install -e ".[dev]"                    # install deps
-uvicorn app.main:app --reload              # run dev server
-pytest                                     # run all tests
-pytest tests/test_generate.py -v          # run specific test
-alembic upgrade head                       # run migrations
-alembic revision --autogenerate -m "msg"  # create migration
+npx supabase start         # boots stack, applies migrations + seed.sql (real catalogue)
+npx supabase status        # show local URLs/keys
+npx supabase stop          # shut down
+npx supabase db reset      # wipe + re-apply migrations + seed
+# Studio: http://localhost:54323   Mailpit (emails): http://localhost:54324
 
-# Frontend
+# Backend (FastAPI) — reads repo-root .env
+cd backend
+python -m venv .venv && .venv/Scripts/activate   # source .venv/bin/activate on *nix
+pip install -e ".[dev]"
+uvicorn app.main:app --reload                    # http://localhost:8000/docs
+pytest -q                                        # tests (no Alembic — SQL migrations only)
+
+# Frontend (React/Vite — Ricardo chatbot)
 cd frontend
 npm install
-npm run dev                                # run dev server
-npm run build                              # production build
-npm test                                   # run tests
+npm run dev                                      # http://localhost:5173
+npm run build
+npx vitest run                                   # tests (npm test = watch mode, hangs)
 ```
+
+**Local default store key (X-Store-Key):** `mh_pk_madhats_local`.
+Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
+
+### Current implementation state
+- Frontend is the **Ricardo chatbot** (`frontend/src/components/ChatPanel`), backend-driven via `data.options`/`continuable`; the old mock studio screens are retired. Entry via `?product_id=…` (Shopify widget) or a dev product picker.
+- Conversation engine works **with no Anthropic key** (canned replies + heuristics) and uses real Haiku when `ANTHROPIC_API_KEY` is set.
+- Image gen uses **Gemini image models** (`gemini-2.5-flash-image` preview / `gemini-3-pro-image` final) when `IMAGE_PROVIDER_PREVIEW=gemini_flash`; `stub` returns a placeholder. Requires Gemini quota/billing.
+- Tests: backend `pytest` 49, frontend `vitest run` 63.
 
 ---
 
