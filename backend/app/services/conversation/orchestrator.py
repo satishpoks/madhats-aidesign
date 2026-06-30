@@ -31,11 +31,17 @@ from app.services.conversation.state_machine import (
 
 log = structlog.get_logger()
 
-# States that are purely routing/decision nodes — all required data was already
-# captured during the preceding state's ingest. The orchestrator auto-advances
-# through them so the user never has to send an extra "acknowledgement" message.
+# States that are purely routing or statement nodes — they pose no question and
+# all required data was captured during the preceding state's ingest. The
+# orchestrator auto-advances through them so every reply the user sees ends with
+# an actionable question (otherwise the user's next answer is ingested one state
+# late, silently shifting all subsequent captures — an off-by-one).
 _AUTO_ADVANCE_STATES: frozenset[ConversationState] = frozenset(
-    {ConversationState.CHECK_YOUTH, ConversationState.DECORATION_ENGINE}
+    {
+        ConversationState.CHECK_YOUTH,
+        ConversationState.DECORATION_ENGINE,
+        ConversationState.CONFIRM_DECORATION,
+    }
 )
 
 
