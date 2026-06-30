@@ -53,6 +53,7 @@ function resetChat() {
     options: [],
     options2: [],
     triggerGeneration: false,
+    continuable: false,
     sending: false,
     chatError: null,
     kickoffDone: false,
@@ -60,8 +61,9 @@ function resetChat() {
 }
 
 beforeEach(() => {
-  // Reset call counts so each test starts with a fresh spy history
-  vi.clearAllMocks()
+  // resetAllMocks clears both call history AND the mockResolvedValueOnce queue,
+  // preventing leftover mocks from leaking between tests.
+  vi.resetAllMocks()
   seedSession()
   resetChat()
   vi.mocked(sendChat).mockResolvedValue({
@@ -177,15 +179,33 @@ describe('ChatPanel option chips', () => {
     expect(userBubbles.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows a Continue chip for statement-only states (no options)', async () => {
+  it('shows a Continue chip for statement-only states (continuable: true from backend)', async () => {
+    // The backend sends data.continuable: true only for real statement states
+    // (youth_referral, email_verified, etc.). The UI must NOT show a Continue
+    // button when continuable is absent — free-text states also have no options.
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'We only serve bulk orders — redirecting to our partner.',
       state: 'youth_referral',
-      data: {},
+      data: { continuable: true },
     })
     render(<ChatPanel />)
     await screen.findByText('We only serve bulk orders — redirecting to our partner.')
     expect(screen.getByRole('button', { name: /continue/i })).toBeInTheDocument()
+  })
+
+  it('free-text states (no options, no continuable) show NO Continue button', async () => {
+    // ask_name is a free-text state: the backend sends data: {} (no continuable).
+    // The UI must show only the text input — no Continue chip — so the user
+    // cannot submit a throwaway "ok" in place of their actual name.
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'What is your name?',
+      state: 'ask_name',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByText('What is your name?')
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
   })
 
   it('Continue chip sends "ok" to advance', async () => {
@@ -193,7 +213,7 @@ describe('ChatPanel option chips', () => {
       .mockResolvedValueOnce({
         reply: 'We only serve bulk orders.',
         state: 'youth_referral',
-        data: {},
+        data: { continuable: true },
       })
       .mockResolvedValueOnce({
         reply: "Let's get started!",
@@ -354,8 +374,12 @@ describe('ChatPanel special state banners', () => {
       data: { trigger_generation: true },
     })
     render(<ChatPanel />)
+    // The reply text appears in the chat bubble
     await screen.findByText('Generating your design now…')
-    expect(screen.getByText(/Generating your design.*preview coming next/i)).toBeInTheDocument()
+    // The component renders this specific placeholder string (not the reply text)
+    expect(
+      screen.getByText('Generating your design… (preview coming next)'),
+    ).toBeInTheDocument()
   })
 })
 

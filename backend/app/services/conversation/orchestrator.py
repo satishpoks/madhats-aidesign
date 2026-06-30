@@ -215,7 +215,14 @@ def _match_zone(message: str) -> str:
 
 
 def _public_data(state: ConversationState, collected: dict) -> dict:
-    """Non-PII data the frontend may need to drive the UI for this state."""
+    """Non-PII data the frontend may need to drive the UI for this state.
+
+    `continuable: True` marks a STATEMENT-only state (no question, no typed
+    answer expected) so the UI can show a "Continue" affordance. Free-text
+    states (ask_name, ask_purpose, describe_design, ask_email) return neither
+    options nor `continuable`, so the UI shows the text input only — never a
+    misleading Continue button that would submit a throwaway as the answer.
+    """
     S = ConversationState
     if state is S.ASK_QUANTITY:
         return {"options": ["1", "2-11", "12-49", "50-99", "100+", "Not sure"]}
@@ -227,8 +234,18 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Left", "Centre", "Right"], "options2": ["Upper", "Middle", "Lower"]}
     if state in (S.WARN_PRINT_SETUP, S.RECOMMEND_DECORATION, S.RECOMMEND_EMBROIDERY):
         return {"options": ["Yes, that works", "I prefer print", "I prefer embroidery", "What about a patch?"]}
+    if state is S.ASK_PIN_ANNOTATION:
+        return {"options": ["Yes, mark a spot", "No, generate now"]}
     if state is S.UPSELL_PROMPT:
         return {"options": ["Yes, add more", "No, I'm happy"]}
     if state is S.GENERATING:
         return {"trigger_generation": True}
+    # Statement-only states the user taps through (no typed answer expected).
+    if state in (
+        S.YOUTH_REFERRAL,
+        S.EMAIL_VERIFIED,
+        S.SEND_PREVIEW_EMAIL,
+        S.QUOTE_REQUESTED,
+    ):
+        return {"continuable": True}
     return {}

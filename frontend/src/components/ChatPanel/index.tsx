@@ -44,6 +44,7 @@ export function ChatPanel() {
   const options = useChatStore(s => s.options)
   const options2 = useChatStore(s => s.options2)
   const triggerGeneration = useChatStore(s => s.triggerGeneration)
+  const continuable = useChatStore(s => s.continuable)
   const sending = useChatStore(s => s.sending)
   const chatError = useChatStore(s => s.chatError)
   const kickoff = useChatStore(s => s.kickoff)
@@ -83,17 +84,11 @@ export function ChatPanel() {
     void sendMessage(sessionId, text)
   }
 
-  // "Statement-only" state: assistant has replied but there are no option chips
-  // (backend didn't return options).  Exclude states that have their own affordance.
-  const lastMessageIsAssistant =
-    messages.length > 0 && messages[messages.length - 1].role === 'assistant'
-  const isStatementOnly =
-    lastMessageIsAssistant &&
-    options.length === 0 &&
-    options2.length === 0 &&
-    !sending &&
-    chatState !== 'generating' &&
-    chatState !== 'upload_logo'
+  // Statement-only states are flagged authoritatively by the backend
+  // (`data.continuable`). We never infer "no options ⇒ Continue", because
+  // free-text states (ask_name, ask_purpose, describe_design) also have no
+  // options but expect a typed answer, not a throwaway "ok".
+  const isStatementOnly = continuable && !sending
 
   // ---------------------------------------------------------------------------
   // Render

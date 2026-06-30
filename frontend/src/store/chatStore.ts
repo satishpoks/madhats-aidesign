@@ -13,6 +13,8 @@ interface ChatStoreState {
   options: string[]
   options2: string[]
   triggerGeneration: boolean
+  /** Statement-only state: show a "Continue" affordance, not a text answer. */
+  continuable: boolean
   sending: boolean
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
@@ -28,7 +30,8 @@ function parseData(data: Record<string, unknown>) {
   const options = Array.isArray(data.options) ? (data.options as string[]) : []
   const options2 = Array.isArray(data.options2) ? (data.options2 as string[]) : []
   const triggerGeneration = data.trigger_generation === true
-  return { options, options2, triggerGeneration }
+  const continuable = data.continuable === true
+  return { options, options2, triggerGeneration, continuable }
 }
 
 function uid(): string {
@@ -41,6 +44,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   options: [],
   options2: [],
   triggerGeneration: false,
+  continuable: false,
   sending: false,
   chatError: null,
   kickoffDone: false,
@@ -50,7 +54,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ kickoffDone: true, sending: true, chatError: null })
     try {
       const res = await sendChat(sessionId, '')
-      const { options, options2, triggerGeneration } = parseData(res.data)
+      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -60,6 +64,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options,
         options2,
         triggerGeneration,
+        continuable,
         sending: false,
       }))
     } catch (err) {
@@ -87,7 +92,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }))
     try {
       const res = await sendChat(sessionId, text)
-      const { options, options2, triggerGeneration } = parseData(res.data)
+      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -97,6 +102,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options,
         options2,
         triggerGeneration,
+        continuable,
         sending: false,
       }))
     } catch (err) {
