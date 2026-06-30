@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+import structlog
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.api.deps import require_admin
+from app.db import get_supabase
+from app.models.submission import (
+    CreateSubmissionRequest,
+    SubmissionResponse,
+    UpdateSubmissionRequest,
+)
+
+router = APIRouter(tags=["submissions"])
+log = structlog.get_logger()
+
+
+@router.post("/submissions", response_model=SubmissionResponse)
+async def create_submission(body: CreateSubmissionRequest) -> SubmissionResponse:
+    sb = get_supabase()
+    res = (
+        sb.table("approval_submissions")
+        .insert(
+            {
+                "session_id": body.session_id,
+                "product_ref": body.product_ref,
+                "final_image_urls": body.final_image_urls,
+                "source_ref": body.source_ref,
+                "customer": body.customer,
+                "review_status": "pending",
+            }
+        )
+        .execute()
+    )
+    log.info("submission_created", session_id=body.session_id)
+    return SubmissionResponse(submission_id=res.data[0]["id"])
+
+
+@router.get("/admin/submissions", dependencies=[Depends(require_admin)])
+async def list_submissions() -> list[dict]:
+    sb = get_supabase()
+    res = (
+        sb.table("approval_submissions")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return res.data or []
+
+
+@router.patch("/admin/submissions/{submission_id}", dependencies=[Depends(require_admin)])
+async def update_submission(submission_id: str, body: UpdateSubmissionRequest) -> dict:
+    sb = get_supabase()
+    existing = (
+        sb.table("approval_submissions").select("id").eq("id", submission_id).limit(1).execute()
+    )
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    sb.table("approval_submissions").update(
+        {
+            "review_status": body.review_status,
+            "reviewer_notes": body.reviewer_notes,
+            "decided_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", submission_id).execute()
+    log.info("submission_updated", submission_id=submission_id, status=body.review_status)
+    return {"updated": True}
