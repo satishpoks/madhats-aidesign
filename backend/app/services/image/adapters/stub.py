@@ -25,7 +25,9 @@ class StubAdapter(ImageProvider):
         if not reference_image_url:
             raise ValueError("reference_image_url is required")
         label = quote(f"{params.decoration_type} @ {params.placement_zone}")
-        url = f"https://placehold.co/800x600/1f2937/ffffff?text={label}"
+        # Explicit /png — placehold.co defaults to SVG, which the watermark step
+        # (PIL) cannot open ("cannot identify image file").
+        url = f"https://placehold.co/800x600/1f2937/ffffff/png?text={label}"
         return GenerationResult(
             image_url=url,
             cost_usd=0.0,
