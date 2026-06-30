@@ -86,9 +86,12 @@ def test_list_products_returns_tuple():
     with patch("app.services.products.get_supabase", return_value=mock_sb):
         result = svc.list_products(store_id="store-1", limit=2, offset=0)
     assert isinstance(result, tuple)
-    items, total = result
+    assert len(result) == 4
+    items, total, used_limit, used_offset = result
     assert isinstance(items, list)
     assert isinstance(total, int)
+    assert isinstance(used_limit, int)
+    assert isinstance(used_offset, int)
 
 
 def test_list_products_clamps_limit_max():
@@ -96,9 +99,10 @@ def test_list_products_clamps_limit_max():
 
     mock_sb = _make_supabase_mock([], 0)
     with patch("app.services.products.get_supabase", return_value=mock_sb):
-        items, total = svc.list_products(store_id="s", limit=999, offset=0)
+        items, total, used_limit, used_offset = svc.list_products(store_id="s", limit=999, offset=0)
     # offset=0 + no data => falls back to stub
     assert total == len(STUB_PRODUCTS)
+    assert used_limit == 200
 
 
 def test_list_products_clamps_limit_min():
@@ -106,10 +110,11 @@ def test_list_products_clamps_limit_min():
 
     mock_sb = _make_supabase_mock(STUB_PRODUCTS[:1], 6)
     with patch("app.services.products.get_supabase", return_value=mock_sb):
-        items, total = svc.list_products(store_id="s", limit=0, offset=0)
+        items, total, used_limit, used_offset = svc.list_products(store_id="s", limit=0, offset=0)
     # limit should be clamped to at least 1
     assert total == 6
     assert len(items) == 1
+    assert used_limit == 1
 
 
 def test_list_products_clamps_offset_negative():
@@ -118,8 +123,9 @@ def test_list_products_clamps_offset_negative():
     mock_sb = _make_supabase_mock(STUB_PRODUCTS[:2], 6)
     with patch("app.services.products.get_supabase", return_value=mock_sb):
         # Should not raise; negative offset is silently clamped to 0
-        items, total = svc.list_products(store_id="s", limit=2, offset=-5)
+        items, total, used_limit, used_offset = svc.list_products(store_id="s", limit=2, offset=-5)
     assert total == 6
+    assert used_offset == 0
 
 
 def test_list_products_stub_fallback_at_offset_0():
@@ -128,7 +134,7 @@ def test_list_products_stub_fallback_at_offset_0():
 
     mock_sb = _make_supabase_mock([], 0)
     with patch("app.services.products.get_supabase", return_value=mock_sb):
-        items, total = svc.list_products(store_id=None, limit=50, offset=0)
+        items, total, used_limit, used_offset = svc.list_products(store_id=None, limit=50, offset=0)
     assert len(items) == len(STUB_PRODUCTS)
     assert total == len(STUB_PRODUCTS)
 
@@ -139,9 +145,54 @@ def test_list_products_no_stub_fallback_at_nonzero_offset():
 
     mock_sb = _make_supabase_mock([], 0)
     with patch("app.services.products.get_supabase", return_value=mock_sb):
-        items, total = svc.list_products(store_id=None, limit=50, offset=10)
+        items, total, used_limit, used_offset = svc.list_products(store_id=None, limit=50, offset=10)
     assert items == []
     assert total == 0
+
+
+def test_list_products_clamps_limit_to_db_range():
+    """DB-path: .range() is called with clamped bounds; returned used_limit == 200."""
+    from app.services import products as svc
+
+    real_rows = STUB_PRODUCTS[:1]
+    captured_range: list = []
+
+    class _Resp:
+        data = real_rows
+        count = 10
+
+    class _Query:
+        def eq(self, *a, **kw):
+            return self
+
+        def order(self, *a, **kw):
+            return self
+
+        def range(self, start, end):
+            captured_range.append((start, end))
+            return self
+
+        def execute(self):
+            return _Resp()
+
+    class _Table:
+        def select(self, *a, **kw):
+            return _Query()
+
+    class _Client:
+        def table(self, name):
+            return _Table()
+
+    with patch("app.services.products.get_supabase", return_value=_Client()):
+        items, total, used_limit, used_offset = svc.list_products(
+            store_id="s", limit=999, offset=0
+        )
+
+    # Clamp must be applied before the DB call.
+    assert used_limit == 200
+    assert len(captured_range) == 1, "range() should be called exactly once"
+    # limit 200 → range(0, 199)  i.e. (offset, offset + limit - 1)
+    assert captured_range[0] == (0, 199)
 
 
 # ---------------------------------------------------------------------------
@@ -190,10 +241,10 @@ _PAGE_ITEMS = STUB_PRODUCTS[:2]
 _PAGE_TOTAL = 6
 
 
-def _patch_list(items=_PAGE_ITEMS, total=_PAGE_TOTAL):
+def _patch_list(items=_PAGE_ITEMS, total=_PAGE_TOTAL, used_limit=50, used_offset=0):
     return patch(
         "app.services.products.list_products",
-        return_value=(items, total),
+        return_value=(items, total, used_limit, used_offset),
     )
 
 
@@ -209,7 +260,7 @@ def test_route_returns_product_page(client):
 
 
 def test_route_reflects_limit_and_offset(client):
-    with _patch_list():
+    with _patch_list(used_limit=2, used_offset=0):
         resp = client.get("/products?limit=2&offset=0", headers=_STORE_HEADERS)
     body = resp.json()
     assert body["limit"] == 2
@@ -220,7 +271,7 @@ def test_route_reflects_limit_and_offset(client):
 
 def test_route_offset_page(client):
     page2_items = STUB_PRODUCTS[2:4]
-    with _patch_list(items=page2_items, total=6):
+    with _patch_list(items=page2_items, total=6, used_limit=2, used_offset=2):
         resp = client.get("/products?limit=2&offset=2", headers=_STORE_HEADERS)
     body = resp.json()
     assert body["offset"] == 2
@@ -228,19 +279,14 @@ def test_route_offset_page(client):
 
 
 def test_route_clamped_limit_reflected(client):
-    """Route should reflect the clamped limit that the service actually used."""
-    # Service receives limit=999 but clamps internally; mock returns with 200 items
-    two_hundred = STUB_PRODUCTS * 34  # enough items
-    with _patch_list(items=two_hundred[:200], total=1000):
+    """Route envelope must reflect the clamped limit the service actually used."""
+    # The service receives limit=999, clamps to 200, and returns used_limit=200.
+    # The route must put that value in the envelope (no re-derivation in the route).
+    two_hundred = STUB_PRODUCTS * 34  # enough items to fill 200 slots
+    with _patch_list(items=two_hundred[:200], total=1000, used_limit=200):
         resp = client.get("/products?limit=999&offset=0", headers=_STORE_HEADERS)
     body = resp.json()
-    # The route must pass clamped value back in the envelope.
-    # Because we mock list_products directly, the clamped limit comes from
-    # what the route passed to the service mock. The route should clamp before
-    # calling the service, OR the service clamps and returns it.
-    # Per spec: "return the values the service used" — route reads clamped values.
-    # We verify limit <= 200 in the envelope.
-    assert body["limit"] <= 200
+    assert body["limit"] == 200
 
 
 def test_route_unauthorized_without_header(unauth_client):

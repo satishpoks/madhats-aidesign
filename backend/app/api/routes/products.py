@@ -12,23 +12,22 @@ router = APIRouter(tags=["products"])
 @router.get("/products", response_model=ProductPage)
 async def list_products(
     store: dict = Depends(require_store),
-    limit: int = Query(default=50, ge=1),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50),
+    offset: int = Query(default=0),
 ) -> ProductPage:
-    # Pass raw values; clamping is enforced inside the service.
-    items, total = products_service.list_products(
+    # Pass raw values; clamping (limit→[1,200], offset→>=0) is enforced inside
+    # the service, which is the single source of truth.  We reflect the values
+    # the service actually used rather than recomputing them here.
+    items, total, used_limit, used_offset = products_service.list_products(
         store_id=store["id"],
         limit=limit,
         offset=offset,
     )
-    # Reflect the clamped values actually used by the service.
-    clamped_limit = max(1, min(limit, 200))
-    clamped_offset = max(0, offset)
     return ProductPage(
         items=items,
         total=total,
-        limit=clamped_limit,
-        offset=clamped_offset,
+        limit=used_limit,
+        offset=used_offset,
     )
 
 

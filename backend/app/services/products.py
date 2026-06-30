@@ -23,10 +23,14 @@ def list_products(
     store_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
-) -> tuple[list[dict], int]:
-    """Return a page of products and the total matching count.
+) -> tuple[list[dict], int, int, int]:
+    """Return (items, total, used_limit, used_offset).
 
     ``limit`` is clamped to [1, 200]; ``offset`` is clamped to >= 0.
+    The clamped values are returned as the third and fourth elements so
+    callers never need to re-derive them — the service is the single source
+    of truth for what was actually used.
+
     Falls back to the in-code stub catalogue when the DB returns no rows
     *and* ``offset == 0`` (i.e. the first page of an empty table).
     """
@@ -40,13 +44,13 @@ def list_products(
     res = query.order("name").range(offset, offset + limit - 1).execute()
 
     if res.data:
-        return res.data, (res.count or 0)
+        return res.data, (res.count or 0), limit, offset
 
     if offset == 0:
         log.info("catalogue_empty_using_stub")
-        return STUB_PRODUCTS, len(STUB_PRODUCTS)
+        return STUB_PRODUCTS, len(STUB_PRODUCTS), limit, offset
 
-    return [], 0
+    return [], 0, limit, offset
 
 
 def get_product(product_id: str, store_id: str | None = None) -> dict | None:
