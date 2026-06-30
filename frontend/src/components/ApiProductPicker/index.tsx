@@ -56,11 +56,14 @@ export function ApiProductPicker() {
     }
   }
 
+  const [selectError, setSelectError] = useState<string | null>(null)
+
   async function handleSelect(product: Product) {
+    setSelectError(null)
     try {
       await startSession(product)
-    } catch {
-      // session creation errors are surfaced in the session stub / chat UI
+    } catch (err) {
+      setSelectError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     }
   }
 
@@ -87,6 +90,23 @@ export function ApiProductPicker() {
           Pick a style, describe your idea or upload a logo — and see it on the cap in seconds.
         </p>
       </div>
+
+      {/* Session-creation error banner */}
+      {selectError && (
+        <div
+          role="alert"
+          className="mx-6 mb-2 flex items-start justify-between gap-3 rounded-xl border border-accent bg-surface px-4 py-3"
+        >
+          <p className="text-sm text-textPrimary">{selectError}</p>
+          <button
+            onClick={() => setSelectError(null)}
+            aria-label="Dismiss error"
+            className="flex-shrink-0 text-xs text-textMuted hover:text-accent transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Product grid */}
       <div className="px-6 pb-12 flex-1">

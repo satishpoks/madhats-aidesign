@@ -12,11 +12,20 @@ export interface ProductRef {
   reference_image_url: string
 }
 
+/** URL query params captured at bootstrap time — available for analytics and later tasks. */
+export interface EntryContext {
+  variantId: string | null
+  colour: string | null
+  source: string | null
+}
+
 interface SessionState {
   sessionId: string | null
   shareToken: string | null
   state: string | null
   productRef: ProductRef | null
+  /** Captures variant_id, colour, source from the Shopify embed URL at bootstrap time. */
+  entryContext: EntryContext | null
   view: SessionView
 
   startSession: (product: Product) => Promise<void>
@@ -28,6 +37,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   shareToken: null,
   state: null,
   productRef: null,
+  entryContext: null,
   view: 'picker',
 
   startSession: async (product: Product) => {
@@ -50,14 +60,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   bootstrapFromUrl: async () => {
     const params = new URLSearchParams(window.location.search)
     const productId = params.get('product_id')
-    // Future: params.get('variant_id'), params.get('colour'), params.get('source')
     if (!productId) return
+
+    const variantId = params.get('variant_id')
+    const colour = params.get('colour')
+    const source = params.get('source')
 
     try {
       const product = await fetchProduct(productId)
       await get().startSession(product)
-    } catch {
-      // If bootstrap fails (product not found, backend down, etc.) stay at picker
+      set({ entryContext: { variantId, colour, source } })
+    } catch (err) {
+      // If bootstrap fails (product not found, backend down, etc.) stay at picker.
+      // Warn so a broken Shopify embed URL is diagnosable in the browser console.
+      console.warn('[MadHats] bootstrapFromUrl failed — staying at picker', err)
     }
   },
 }))

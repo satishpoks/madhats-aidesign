@@ -40,6 +40,7 @@ beforeEach(() => {
     shareToken: null,
     state: null,
     productRef: null,
+    entryContext: null,
     view: 'picker',
   })
 })
@@ -94,7 +95,6 @@ describe('bootstrapFromUrl', () => {
   })
 
   it('starts a session when product_id is present in URL', async () => {
-    // Override window.location.search for this test
     Object.defineProperty(window, 'location', {
       value: { search: '?product_id=prod-1&source=shopify' },
       writable: true,
@@ -102,6 +102,46 @@ describe('bootstrapFromUrl', () => {
     await useSessionStore.getState().bootstrapFromUrl()
     expect(useSessionStore.getState().view).toBe('session')
     // Restore
+    Object.defineProperty(window, 'location', {
+      value: { search: '' },
+      writable: true,
+    })
+  })
+
+  it('captures variant_id, colour, and source in entryContext', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=prod-1&variant_id=var-99&colour=red&source=shopify' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+    const { entryContext } = useSessionStore.getState()
+    expect(entryContext?.variantId).toBe('var-99')
+    expect(entryContext?.colour).toBe('red')
+    expect(entryContext?.source).toBe('shopify')
+    // Restore
+    Object.defineProperty(window, 'location', {
+      value: { search: '' },
+      writable: true,
+    })
+  })
+
+  it('warns via console.warn when bootstrap fails so broken embed URLs are diagnosable', async () => {
+    const { fetchProduct } = await import('../lib/api')
+    vi.mocked(fetchProduct).mockRejectedValueOnce(new Error('Backend down'))
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=prod-missing' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+
+    expect(warnSpy).toHaveBeenCalledOnce()
+    expect(warnSpy.mock.calls[0][0]).toContain('[MadHats] bootstrapFromUrl failed')
+    expect(useSessionStore.getState().view).toBe('picker')
+
+    warnSpy.mockRestore()
     Object.defineProperty(window, 'location', {
       value: { search: '' },
       writable: true,
