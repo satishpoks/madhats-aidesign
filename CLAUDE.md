@@ -39,15 +39,29 @@ The Studio sits alongside (not replacing) InkyBay, MadHats' current product pers
 | Image gen — preview tier | Gemini Flash (model ID from env: GEMINI_PREVIEW_MODEL) |
 | Image gen — final tier | Gemini Pro (model ID from env: GEMINI_FINAL_MODEL) |
 | Image gen — photoreal / A-B | fal.ai / FLUX (model ID from env: FAL_PHOTOREAL_MODEL) |
-| Database | Postgres 16 (Railway managed) |
-| Object storage | Cloudflare R2 (S3-compatible) |
+| Database | **Supabase (Postgres 17)** — local stack via Supabase CLI for dev |
+| Object storage | **Supabase Storage** (private bucket `madhats-assets`, signed URLs) |
 | Hosting | Railway (backend + frontend as separate services) |
 | State management | Zustand |
-| ORM | SQLAlchemy (async) + Alembic migrations |
+| DB access | **supabase-py** (service-role client); SQL migrations in `backend/supabase/migrations/` (no SQLAlchemy/Alembic) |
+| Conversation LLM | Claude Haiku (model ID from env: `CLAUDE_HAIKU_MODEL`) |
 | Observability | Sentry + structlog |
-| Local dev | Docker Compose |
+| Local dev | `supabase start` (Postgres + Storage + Studio) + uvicorn; Docker Compose for full stack |
 | Package manager (backend) | pip / pyproject.toml |
 | Package manager (frontend) | npm |
+
+---
+
+## 3b. Multi-Tenancy (built — pooled / shared-schema)
+
+The system serves **multiple Shopify stores** (10+) from one backend + one Supabase DB.
+
+- **Model:** pooled multi-tenancy. A `stores` table holds one row per storefront; tenant-scoped tables (`product_references`, `design_sessions`, and everything downstream via the session) carry `store_id`.
+- **Tenant routing:** each store's widget sends its **publishable** key as the `X-Store-Key` header. `app/api/deps.py:require_store` resolves it to a store. `/products` and `/sessions` are tenant-scoped; downstream routes inherit `store_id` from the session.
+- **Per-store config (in `stores` row):** persona name/avatar/greeting, brand (logo/colours/watermark), `allowed_origins`, `sales_notification_email`, `shopify_domain`.
+- **Shared (env vars):** all provider API keys (Gemini/Anthropic/Resend) — never per-store, never in the DB.
+- **Onboarding a store:** `POST /admin/stores` (auto-generates `public_key`) → `POST /admin/stores/{id}/sync` pulls that store's `products.json` into `product_references` (`app/services/catalogue_sync.py`).
+- **Known gaps:** CORS middleware is still global (`ALLOWED_ORIGINS` env); `/products` returns PostgREST's default 1000-row cap (large catalogues need pagination).
 
 ---
 
@@ -61,9 +75,10 @@ madhats-aidesign/
     agents/                    ← subagent role definitions
   .env.example                 ← committed; documents all env vars
   .gitignore
-  docker-compose.yml           ← local dev: backend + frontend + postgres + localstack
+  docker-compose.yml           ← local dev: backend + frontend (Supabase via `supabase start`)
   railway.toml                 ← Railway deployment config
   backend/                     ← FastAPI service
+    supabase/                  ← config.toml, migrations/, seed.sql (local Supabase stack)
   frontend/                    ← React/Vite service
   docs/
     superpowers/
@@ -247,3 +262,12 @@ npm run dev                                # run dev server
 npm run build                              # production build
 npm test                                   # run tests
 ```
+
+---
+
+## 14. Design Assets
+
+| Asset | URL |
+|---|---|
+| Full User Flow (FigJam) | https://www.figma.com/board/QPoAL5zXOw66ACgxrMNioF/MadHats-Chatbot-%E2%80%94-Full-User-Flow |
+| Wireframes & Screens (Figma design) | https://www.figma.com/design/fFPXYD7eIJPSo47tUPjK2r/MadHats-AI-Design-Studio-%E2%80%94-Wireframes---Screens |
