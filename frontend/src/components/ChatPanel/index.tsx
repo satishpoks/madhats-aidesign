@@ -4,7 +4,7 @@ import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
 import { ProductViewer } from '../ProductViewer'
 import { useSpeechRecognition } from '../../hooks/useSpeechRecognition'
-import { uploadLogo, addPin, createLead, sendVerify } from '../../lib/api'
+import { uploadLogo, addPin } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
 // TypingIndicator
@@ -324,85 +324,6 @@ function GenerationPanel() {
 }
 
 // ---------------------------------------------------------------------------
-// LeadCaptureForm — contact capture (state 'ask_email')
-// ---------------------------------------------------------------------------
-
-interface LeadCaptureFormProps {
-  sessionId: string
-  onDone: () => void
-  onError: (msg: string) => void
-}
-
-function LeadCaptureForm({ sessionId, onDone, onError }: LeadCaptureFormProps) {
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-
-  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (submitting || !email.trim() || !name.trim()) return
-    setSubmitting(true)
-    try {
-      const { lead_id } = await createLead(sessionId, {
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim() || undefined,
-      })
-      await sendVerify(lead_id)
-      onDone()
-    } catch (err) {
-      onError(err instanceof Error ? err.message : 'Could not save your details')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <form
-      onSubmit={handleSubmit}
-      aria-label="Contact details"
-      className="flex flex-col gap-2 p-4 bg-surface border border-border rounded-xl"
-    >
-      <p className="text-sm text-textSub font-medium">
-        Where should we send your design?
-      </p>
-      <input
-        type="text"
-        value={name}
-        onChange={e => setName(e.target.value)}
-        placeholder="Your name"
-        aria-label="Your name"
-        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
-      />
-      <input
-        type="email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-        placeholder="Email address"
-        aria-label="Email address"
-        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
-      />
-      <input
-        type="tel"
-        value={phone}
-        onChange={e => setPhone(e.target.value)}
-        placeholder="Phone (optional)"
-        aria-label="Phone (optional)"
-        className="bg-base border border-border rounded-lg px-3 py-2 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent"
-      />
-      <button
-        type="submit"
-        disabled={submitting || !email.trim() || !name.trim()}
-        className="bg-accent hover:bg-accentHover text-white px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-      >
-        {submitting ? 'Sending…' : 'Send my design'}
-      </button>
-    </form>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // ChatPanel — main component
 // ---------------------------------------------------------------------------
 
@@ -570,14 +491,8 @@ export function ChatPanel() {
         {/* Special state: generation + preview */}
         {(chatState === 'generating' || triggerGeneration) && <GenerationPanel />}
 
-        {/* Special state: contact capture */}
-        {chatState === 'ask_email' && sessionId && (
-          <LeadCaptureForm
-            sessionId={sessionId}
-            onDone={() => void sendMessage(sessionId, 'Here are my details')}
-            onError={setError}
-          />
-        )}
+        {/* Email is captured inline from the chat input (asked in the
+            'generating' message) — no separate contact form. */}
 
         {/* Option chip rows */}
         {options.length > 0 && (

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import jwt
 import structlog
@@ -12,6 +11,7 @@ from app.db import get_supabase
 from app.services.products import get_product
 from app.models.lead import CreateLeadRequest, LeadResponse, VerifySendRequest
 from app.services import email as email_service
+from app.services import leads as leads_service
 from app.storage import generate_signed_url
 
 router = APIRouter(tags=["leads"])
@@ -42,37 +42,13 @@ async def create_lead(body: CreateLeadRequest) -> LeadResponse:
     return LeadResponse(lead_id=res.data[0]["id"])
 
 
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 @router.post("/leads/verify/send")
 async def send_verification(body: VerifySendRequest) -> dict:
     sb = get_supabase()
     res = sb.table("leads").select("*").eq("id", body.lead_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
-    lead = res.data[0]
-
-    ttl = settings.verification_token_ttl_seconds
-    expires = datetime.now(timezone.utc) + timedelta(seconds=ttl)
-    token = jwt.encode(
-        {"lead_id": body.lead_id, "exp": expires},
-        settings.admin_secret,  # reuse server secret for signing
-        algorithm="HS256",
-    )
-
-    sb.table("email_verifications").insert(
-        {
-            "lead_id": body.lead_id,
-            "token_hash": _hash_token(token),
-            "expires_at": expires.isoformat(),
-        }
-    ).execute()
-
-    verify_url = f"{settings.email_verify_base_url}/leads/verify/{token}"
-    email_service.send_verification_email(lead["email"], lead["name"], verify_url)
-    log.info("verification_email_dispatched", lead_id=body.lead_id)
+    leads_service.send_verification(res.data[0])
     return {"sent": True}
 
 
@@ -91,7 +67,7 @@ async def confirm_verification(token: str) -> dict:
     ver = (
         sb.table("email_verifications")
         .select("*")
-        .eq("token_hash", _hash_token(token))
+        .eq("token_hash", leads_service.hash_token(token))
         .is_("used_at", "null")
         .limit(1)
         .execute()

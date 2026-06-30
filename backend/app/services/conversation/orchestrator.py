@@ -19,6 +19,7 @@ import structlog
 
 from app.config import settings
 from app.db import get_supabase
+from app.services import leads as leads_service
 from app.services.stores import get_store
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import (
@@ -85,6 +86,20 @@ async def handle_message(session_id: str, message: str) -> dict:
         else:
             # --- 4. interpret message for the current state ---
             await _ingest(current, message, collected)
+            # --- 4b. email capture (inline, no separate form) ---
+            # GENERATING and ASK_EMAIL ask for the email in the chat. We already
+            # have the customer's name, so the moment a usable email arrives we
+            # create the lead and send a verification email — no second form. The
+            # preview itself is released when the customer clicks that link.
+            if current in (ConversationState.GENERATING, ConversationState.ASK_EMAIL) and not collected.get(
+                "email_captured"
+            ):
+                email = leads_service.extract_email(message)
+                if email:
+                    lead_id = leads_service.capture_lead_and_verify(session, collected, email)
+                    collected["email_captured"] = True
+                    if lead_id:
+                        collected["lead_id"] = lead_id
             # --- 5a. advance ---
             new_state = advance_state(
                 current, collected, message=message, upsell_count=upsell_count

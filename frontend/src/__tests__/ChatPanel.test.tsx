@@ -39,8 +39,6 @@ import {
   addPin,
   generatePreview,
   generationStatus,
-  createLead,
-  sendVerify,
 } from '../lib/api'
 import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
@@ -108,8 +106,6 @@ beforeEach(() => {
     image_url: 'https://cdn.example.com/clean.png',
     watermarked_url: 'https://cdn.example.com/wm.png',
   })
-  vi.mocked(createLead).mockResolvedValue({ lead_id: 'lead-1' })
-  vi.mocked(sendVerify).mockResolvedValue({ sent: true })
   useGenerationStore.getState().reset()
 })
 
@@ -425,31 +421,28 @@ describe('ChatPanel special state banners', () => {
     expect(img.src).toBe('https://cdn.example.com/wm.png')
   })
 
-  it('captures contact details at ask_email and advances the chat', async () => {
+  it('captures the email inline at ask_email — no separate contact form', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'What is your email?',
       state: 'ask_email',
       data: {},
     })
     render(<ChatPanel />)
-    await screen.findByLabelText('Email address')
-    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'Sam' } })
-    fireEvent.change(screen.getByLabelText('Email address'), {
-      target: { value: 'sam@example.com' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /send my design/i }))
+    await screen.findByText('What is your email?')
 
+    // The redundant name/email/phone form must NOT appear — we already have
+    // the customer's name, so the email is typed straight into the chat input.
+    expect(screen.queryByLabelText('Your name')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /send my design/i })).not.toBeInTheDocument()
+
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'sam@example.com' } })
+    fireEvent.submit(input.closest('form')!)
+
+    // The email is sent through the normal chat turn, which captures it
+    // server-side and advances the conversation.
     await waitFor(() =>
-      expect(createLead).toHaveBeenCalledWith('sess-test-123', {
-        name: 'Sam',
-        email: 'sam@example.com',
-        phone: undefined,
-      }),
-    )
-    await waitFor(() => expect(sendVerify).toHaveBeenCalledWith('lead-1'))
-    // Advancing the chat after capture.
-    await waitFor(() =>
-      expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'Here are my details'),
+      expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'sam@example.com'),
     )
   })
 })

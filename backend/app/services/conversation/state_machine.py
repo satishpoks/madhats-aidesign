@@ -63,8 +63,13 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_PLACEMENT_POSITION: [S.ASK_PIN_ANNOTATION],
     S.ASK_PIN_ANNOTATION: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
-    S.GENERATING: [S.ASK_EMAIL],
-    S.ASK_EMAIL: [S.VERIFY_EMAIL],
+    # Email is captured inline from the chat (asked in the GENERATING message) —
+    # no separate name/phone form, since we already have the name. We still keep
+    # the double opt-in: capturing the email sends a verification link, and
+    # clicking it (handled by the leads route) releases the preview. ASK_EMAIL is
+    # only reached as a fallback when the message wasn't a usable email address.
+    S.GENERATING: [S.VERIFY_EMAIL, S.ASK_EMAIL],
+    S.ASK_EMAIL: [S.VERIFY_EMAIL, S.ASK_EMAIL],
     S.VERIFY_EMAIL: [S.EMAIL_VERIFIED, S.VERIFY_EMAIL],
     S.EMAIL_VERIFIED: [S.SEND_PREVIEW_EMAIL],
     S.SEND_PREVIEW_EMAIL: [S.QUOTE_REQUESTED],
@@ -154,7 +159,16 @@ def advance_state(
         # stay in pin mode while the customer keeps adding pins
         return S.PIN_ANNOTATE_MODE if collected.get("add_another_pin") else S.GENERATING
 
+    # --- Email capture branch ---
+    # The GENERATING message asks for the email; once we have a usable one we
+    # move to the verification step, otherwise fall through to ASK_EMAIL to ask
+    # once more. ASK_EMAIL behaves the same on retry.
+    if current in (S.GENERATING, S.ASK_EMAIL):
+        return S.VERIFY_EMAIL if collected.get("email_captured") else S.ASK_EMAIL
+
     # --- Email verification branch ---
+    # Verification completes out-of-band (the customer clicks the emailed link),
+    # so the chat rests at VERIFY_EMAIL until that flips email_verified.
     if current is S.VERIFY_EMAIL:
         return S.EMAIL_VERIFIED if collected.get("email_verified") else S.VERIFY_EMAIL
 
