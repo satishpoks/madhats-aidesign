@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
+import { ProductViewer } from '../ProductViewer'
+import { useSpeechRecognition } from '../../hooks/useSpeechRecognition'
 import { uploadLogo, addPin, createLead, sendVerify } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
@@ -425,6 +427,7 @@ export function ChatPanel() {
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
+  const genPreviewUrl = useGenerationStore(s => s.previewUrl)
 
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -466,6 +469,11 @@ export function ChatPanel() {
     void sendMessage(sessionId, text)
   }
 
+  // Voice input — transcript is sent straight through as a chat turn.
+  const speech = useSpeechRecognition((transcript: string) => {
+    if (sessionId && !sending) void sendMessage(sessionId, transcript)
+  })
+
   const isStatementOnly = continuable && !sending
 
   // ---------------------------------------------------------------------------
@@ -473,39 +481,23 @@ export function ChatPanel() {
   // ---------------------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-base flex flex-col">
-      {/* ------------------------------------------------------------------ */}
-      {/* App header                                                          */}
-      {/* ------------------------------------------------------------------ */}
+    <div className="h-screen bg-base flex flex-col">
+      {/* App header */}
       <header className="border-b border-border px-6 py-4 flex items-center gap-3 flex-shrink-0">
         <span className="text-accent font-bold text-xl tracking-tight">MadHats</span>
         <span className="text-border text-xl">|</span>
         <span className="text-textSub text-sm font-medium">AI Design Studio</span>
       </header>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Product context strip                                               */}
-      {/* ------------------------------------------------------------------ */}
-      {productRef && (
-        <div className="flex items-center gap-3 px-6 py-3 bg-surface border-b border-border flex-shrink-0">
-          {productRef.reference_image_url && (
-            <img
-              src={productRef.reference_image_url}
-              alt={productRef.name}
-              className="w-12 h-12 object-cover rounded-lg flex-shrink-0"
-              loading="lazy"
-            />
-          )}
-          <div className="min-w-0">
-            <p className="text-textPrimary text-sm font-semibold leading-tight truncate">
-              {productRef.name}
-            </p>
-            {productRef.colour && (
-              <p className="text-textMuted text-xs mt-0.5">{productRef.colour}</p>
-            )}
-          </div>
+      {/* Two-pane studio: product views (left) + Ricardo chat (right) */}
+      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* LEFT — product viewer (4 angles + generated design) */}
+        <div className="h-72 md:h-auto md:w-1/2 border-b md:border-b-0 md:border-r border-border flex-shrink-0 md:flex-shrink overflow-y-auto">
+          <ProductViewer productRef={productRef} previewUrl={genPreviewUrl} />
         </div>
-      )}
+
+        {/* RIGHT — chat column */}
+        <div className="flex-1 md:w-1/2 flex flex-col min-h-0">
 
       {/* ------------------------------------------------------------------ */}
       {/* Error banner                                                        */}
@@ -631,16 +623,32 @@ export function ChatPanel() {
           </div>
         )}
 
-        {/* Text input */}
-        <form onSubmit={handleSubmit} className="flex gap-3">
+        {/* Text input + voice */}
+        <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            placeholder="Type a message…"
+            placeholder={speech.listening ? 'Listening…' : 'Type or speak a message…'}
             disabled={sending}
             className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
           />
+          {speech.supported && (
+            <button
+              type="button"
+              onClick={() => (speech.listening ? speech.stop() : speech.start())}
+              disabled={sending}
+              aria-label={speech.listening ? 'Stop listening' : 'Speak'}
+              title={speech.listening ? 'Stop listening' : 'Speak'}
+              className={`px-4 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                speech.listening
+                  ? 'bg-red-600 text-white animate-pulse'
+                  : 'bg-surface border border-border text-textPrimary hover:border-accent hover:text-accent'
+              }`}
+            >
+              {speech.listening ? '● Stop' : '🎤 Speak'}
+            </button>
+          )}
           <button
             type="submit"
             disabled={sending || !inputText.trim()}
@@ -649,6 +657,8 @@ export function ChatPanel() {
             Send
           </button>
         </form>
+      </div>
+        </div>
       </div>
     </div>
   )
