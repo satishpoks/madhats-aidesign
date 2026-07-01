@@ -11,14 +11,12 @@ the rest of `/admin/*`.
 """
 from __future__ import annotations
 
-import structlog
 from fastapi import APIRouter, Depends
 
 from app.api.deps import require_admin
 from app.services import delivery
 
 router = APIRouter(tags=["admin-deliveries"], dependencies=[Depends(require_admin)])
-log = structlog.get_logger()
 
 
 @router.post("/admin/deliveries/backfill")
