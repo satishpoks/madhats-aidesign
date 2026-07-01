@@ -253,6 +253,69 @@ def test_mixed_state_sales_already_sent_preview_not_yet(monkeypatch):
     assert lead["quote_request_sent"] is True
 
 
+def test_watermark_missing_falls_back_to_clean_url_for_preview(monkeypatch):
+    """_make_watermarked can return None (fetch/watermark error) while the
+    clean image_url is valid. That generation still passes gate 2 (image_url
+    present), so the customer preview email must be built from the clean URL
+    — never a blank <img src="">."""
+    lead = _lead_row()
+    tables = {
+        "leads": [lead],
+        "generations": [_generation_row(watermarked_url=None, image_url="generations/clean.png")],
+        "design_sessions": [_session_row()],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    _patch_common(monkeypatch, fake, sent)
+
+    result = delivery.maybe_send_preview("sess-1")
+
+    assert result is True
+    assert len(sent.get("preview", [])) == 1
+    args, kwargs = sent["preview"][0]
+    # send_preview_email(email, name, image_url, brief=..., ...) — image_url is
+    # the 3rd positional arg.
+    customer_image_url = args[2]
+    assert customer_image_url == "signed:generations/clean.png"
+    assert customer_image_url  # never blank
+
+
+def test_preview_send_failure_does_not_set_flag_and_allows_retry(monkeypatch):
+    """send_preview_email is best-effort and returns False on a provider
+    outage without raising. maybe_send_preview must NOT mark the lead as
+    delivered in that case — otherwise gate 3 would permanently block every
+    future retrigger and the design would never arrive."""
+    lead = _lead_row()
+    tables = {
+        "leads": [lead],
+        "generations": [_generation_row()],
+        "design_sessions": [_session_row()],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    _patch_common(monkeypatch, fake, sent)
+
+    def _failing_preview(*args, **kwargs):
+        sent.setdefault("preview", []).append((args, kwargs))
+        return False
+
+    monkeypatch.setattr(delivery.email_service, "send_preview_email", _failing_preview)
+
+    result = delivery.maybe_send_preview("sess-1")
+
+    assert result is False
+    assert lead["preview_email_sent"] is False
+    assert lead.get("preview_sent_at") is None
+    assert len(sent.get("preview", [])) == 1
+
+    # A later retrigger (e.g. ops re-runs generation, or verify fires again)
+    # must retry the send rather than being blocked by a stuck flag.
+    result2 = delivery.maybe_send_preview("sess-1")
+
+    assert result2 is False
+    assert len(sent.get("preview", [])) == 2
+
+
 def test_verify_route_triggers_send(monkeypatch):
     """Hitting the verify link for a lead whose generation is already complete
     results in the preview being sent from confirm_verification."""

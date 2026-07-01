@@ -110,7 +110,7 @@ async def confirm_verification(token: str) -> HTMLResponse:
     try:
         delivery.maybe_send_preview(session_id)
     except Exception as exc:  # noqa: BLE001
-        log.error("post_verification_actions_failed", lead_id=lead_id, error=str(exc))
+        log.error("post_verification_actions_failed", lead_id=lead_id, error_type=type(exc).__name__)
 
     log.info("lead_verified", lead_id=lead_id, session_id=session_id)
     # Confirmation only — NO design image/preview here. The design is delivered

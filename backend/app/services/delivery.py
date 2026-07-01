@@ -105,6 +105,13 @@ def maybe_send_preview(session_id: str) -> bool:
 
     watermarked_url = _to_signed(gen.get("watermarked_url"))
     clean_url = _to_signed(gen.get("image_url"))
+    # _make_watermarked can fail (fetch/watermark error) and leave
+    # watermarked_url empty while the clean image_url is still valid — that
+    # row still passes gate 2. Prefer the watermarked image for the
+    # customer-facing email, but fall back to the signed clean URL so the
+    # email is never sent with a blank image. The sales/ops notification
+    # keeps using the clean URL as before.
+    customer_image_url = watermarked_url or clean_url
 
     brief = prompts.PREVIEW_EMAIL_BRIEF.format(
         product=product.get("name") or "your custom cap",
@@ -118,10 +125,10 @@ def maybe_send_preview(session_id: str) -> bool:
     # team is also notified automatically below.
     edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
     mailto = f"mailto:{settings.resend_from_address}"
-    email_service.send_preview_email(
+    preview_sent = email_service.send_preview_email(
         lead["email"],
         lead["name"],
-        watermarked_url,
+        customer_image_url,
         brief=brief,
         quote_url=f"{mailto}?subject=Quote%20request",
         edit_url=edit_url,
@@ -138,6 +145,16 @@ def maybe_send_preview(session_id: str) -> bool:
         sb.table("leads").update(
             {"quote_request_sent": True, "quote_sent_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", lead["id"]).execute()
+
+    if not preview_sent:
+        # send_preview_email is best-effort and returns False (Resend outage
+        # / quota) without raising. Do NOT set preview_email_sent here — the
+        # design has not actually been delivered, and setting the flag would
+        # permanently block every future retrigger via gate 3. Leaving it
+        # False lets a later call (manual re-run, or the other track firing)
+        # retry the send.
+        log.warning("preview_email_send_failed", session_id=session_id)
+        return False
 
     sb.table("leads").update(
         {"preview_email_sent": True, "preview_sent_at": datetime.now(timezone.utc).isoformat()}
