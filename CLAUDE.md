@@ -125,8 +125,10 @@ Assembles the cap-specific prompt from raw user input. Handles:
 ```
 DesignSession       — one per user design session (has share token)
 Generation          — one per image generated (cost + latency logged here)
+GenerationLog       — append-only audit row per provider call (prompt, image refs, params, raw response); one per attempt
 ApprovalSubmission  — created when user clicks "Request This Concept"
 ProductReference    — cap catalogue entry (stub data for prototype; Shopify sync for MVP)
+Lead                — captured customer contact + email-verification + preview/quote delivery flags
 ```
 
 ---
@@ -277,8 +279,13 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 ### Current implementation state
 - Frontend is the **Ricardo chatbot** (`frontend/src/components/ChatPanel`), backend-driven via `data.options`/`continuable`; the old mock studio screens are retired. Entry via `?product_id=…` (Shopify widget) or a dev product picker.
 - Conversation engine works **with no Anthropic key** (canned replies + heuristics) and uses real Haiku when `ANTHROPIC_API_KEY` is set.
-- Image gen uses **Gemini image models** (`gemini-2.5-flash-image` preview / `gemini-3-pro-image` final) when `IMAGE_PROVIDER_PREVIEW=gemini_flash`; `stub` returns a placeholder. Requires Gemini quota/billing.
-- Tests: backend `pytest` 49, frontend `vitest run` 63.
+- Image gen uses **Gemini image models** (`gemini-2.5-flash-image` preview / `gemini-3-pro-image` final) when `IMAGE_PROVIDER_PREVIEW=gemini_flash`; `stub` returns a placeholder. Requires Gemini quota/billing. The prompt is **fidelity-locked** (`prompt_builder.py` emits enumerated imperative instructions from the full extracted design intent — colours/text/imagery/style — not a soft paragraph) so the generated cap stays identical to the reference photo; the generation cache never serves a stub placeholder.
+- **Decoupled generation + gated delivery** (`services/delivery.py`, `api/routes/generate.py`, `services/leads.py`): image generation runs async in the background; the emailed preview is sent only when the lead's email is **verified** AND a generation is **complete with a real image**. Transient model failures (e.g. Gemini 429/quota) are retried; on final failure ops is alerted and the customer never sees an error. `POST /admin/deliveries/backfill` is a self-heal sweep for designs that finished after verification or whose send failed. The preview image is inlined as a CID attachment so it renders in the inbox.
+- **Per-call audit log** (`services/generation_logger.py`, append-only `generation_logs` table): every provider call logs inputs (full prompt, reference/logo image refs, params) before and outputs (response meta + full raw response) after — one row per attempt, including retries.
+- **Admin/ops routes** (`X-Admin-Secret`): `GET /admin/prompt-preview/{session_id}` (exact prompt Gemini would receive), `POST /admin/deliveries/backfill` (delivery self-heal), plus store onboarding/sync.
+- **Frontend:** email is captured **inline in the chat** (the redundant contact form is gone).
+- Tests: backend `pytest` 111, frontend `vitest run` 65.
+- Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 
 ---
 

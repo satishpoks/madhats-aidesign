@@ -16,10 +16,12 @@ Shopify product → "Customize with AI" → Ricardo greets → name → purpose
 → logo upload (+ background removal) OR describe the design
 → placement zone + position → optional pin-annotate (drop pins on the cap)
 → generate preview (composited onto the real product photo, watermarked)
-→ capture email/phone → sales quote → upsell (max 2) → done
+→ capture email inline → verify → emailed preview + sales quote → upsell (max 2) → done
 ```
 
 The customer can say "go back" at any step. Generated concepts are **previews only** — the MadHats design team approves before anything becomes production artwork.
+
+**Generation & delivery are decoupled.** Image generation runs as an async background job; the emailed preview is **gated** — it is sent only once the customer's email is verified **and** a generation has completed with a real (non-stub, non-blank) image. Transient model failures (e.g. Gemini 429/quota) are retried, and on final failure ops is alerted while the customer never sees an error. A backfill/retry sweep (`POST /admin/deliveries/backfill`) self-heals any design that was generated after verification (or whose email send failed) so no lead is stranded.
 
 ---
 
@@ -121,17 +123,32 @@ See `.env.example` for the full list.
 | `GEMINI_API_KEY` / `GEMINI_PREVIEW_MODEL` / `GEMINI_FINAL_MODEL` | Image generation |
 | `IMAGE_PROVIDER_PREVIEW` / `IMAGE_PROVIDER_FINAL` | Adapter: `gemini_flash` \| `gemini_pro` \| `stub` |
 | `RESEND_API_KEY` / `SALES_NOTIFICATION_EMAIL` | Email + sales lead routing |
+| `STUDIO_BASE_URL` | Frontend origin for the "make some edits" link in the preview email |
 | `ADMIN_SECRET` | Gates `/admin/*` routes (`X-Admin-Secret` header) |
 | `RATE_LIMIT_RPM` / `SIGNED_URL_TTL` / `ALLOWED_ORIGINS` | Rate limit, signed-URL TTL, CORS |
 | `SENTRY_DSN` | Error tracking (optional) |
 
 ---
 
+## Admin & Ops Endpoints
+
+All gated by the `X-Admin-Secret` header.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /admin/stores` · `POST /admin/stores/{id}/sync` | Onboard a tenant; sync its `products.json` into the catalogue |
+| `GET /admin/prompt-preview/{session_id}` | Show the exact fidelity-locked image prompt that would be sent to Gemini (prompt tuning / debugging) |
+| `POST /admin/deliveries/backfill?limit=&max_age_hours=` | Self-heal sweep: (re)send preview emails for verified leads whose design finished after verification or whose send failed |
+
+**Generation audit trail:** every provider call appends one row to `generation_logs` (full prompt, reference/logo image refs, params, and the raw model response) — including each retry attempt — so a wrong-looking preview can be traced to the exact inputs and output.
+
+---
+
 ## Running Tests
 
 ```bash
-cd backend && pytest -q          # 49 tests
-cd frontend && npx vitest run    # 63 tests  (npm test = watch mode)
+cd backend && pytest -q          # 111 tests
+cd frontend && npx vitest run    # 65 tests  (npm test = watch mode)
 ```
 
 ---
@@ -150,6 +167,8 @@ cd frontend && npx vitest run    # 63 tests  (npm test = watch mode)
 ## Notes / Current State
 
 - **Conversation** runs on canned replies until `ANTHROPIC_API_KEY` is set, then real Haiku.
-- **Image generation** needs `GEMINI_API_KEY` + `IMAGE_PROVIDER_PREVIEW=gemini_flash` and a Gemini account with quota/billing; use `stub` for a placeholder preview otherwise.
+- **Image generation** needs `GEMINI_API_KEY` + `IMAGE_PROVIDER_PREVIEW=gemini_flash` and a Gemini account with quota/billing; use `stub` for a placeholder preview otherwise. The image prompt is **fidelity-locked** (enumerated imperative instructions) so the generated cap stays identical to the reference photo; the cache never serves a stub placeholder.
+- **Preview delivery is gated**: the emailed preview goes out only when the email is verified **and** a real generated image exists. Generation runs async and retries transient failures; the customer never sees a generation error, and `POST /admin/deliveries/backfill` re-sends any stranded designs.
 - **Email verification** is skipped locally without a Resend key (the lead is still recorded).
 - Per-store CORS is not yet enforced at the middleware layer (origins are stored on each tenant; the global `ALLOWED_ORIGINS` applies for now).
+- **Follow-up ticket:** add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (the backfill sweep queries it).
