@@ -256,3 +256,15 @@ def test_is_transient_classification():
 
     assert generate_routes._is_transient(_FakeServerError()) is True
     assert generate_routes._is_transient(_FakeClientError()) is False
+
+    # Test with real google.api_core exceptions (regression test for quota/503 handling)
+    from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InvalidArgument
+
+    # ResourceExhausted (429 quota) — must be transient to retry
+    assert generate_routes._is_transient(ResourceExhausted("quota exceeded")) is True
+
+    # ServiceUnavailable (503) — must be transient to retry
+    assert generate_routes._is_transient(ServiceUnavailable("service unavailable")) is True
+
+    # InvalidArgument (400) — must be permanent (fail fast, no retry)
+    assert generate_routes._is_transient(InvalidArgument("invalid request")) is False
