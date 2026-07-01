@@ -4,10 +4,19 @@ import { generatePreview, generationStatus } from '../lib/api'
 type GenStatus = 'idle' | 'generating' | 'done' | 'error'
 
 interface GenerationStoreState {
+  /**
+   * Internal/diagnostic only. `error` covers backend `failed`, poll timeout, and
+   * hard network failures alike. Generation is decoupled + gated-by-email on the
+   * backend (auto-retried, then ops-alerted on permanent failure — the design is
+   * still emailed once it exists and the address is verified), so the UI must
+   * NEVER surface this as a customer-facing failure. `GenerationPanel` renders
+   * the same reassurance for `done` and `error`.
+   */
   status: GenStatus
   jobId: string | null
   /** Watermarked preview URL (customer-facing), or the clean URL as fallback. */
   previewUrl: string | null
+  /** Diagnostic only (e.g. Sentry/telemetry) — never rendered to the customer. */
   error: string | null
   /** Guards so generation is kicked off at most once per session. */
   startedForSession: string | null

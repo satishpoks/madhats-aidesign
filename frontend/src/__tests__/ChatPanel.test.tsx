@@ -420,6 +420,30 @@ describe('ChatPanel special state banners', () => {
     expect(screen.queryByAltText('Generated cap design preview')).not.toBeInTheDocument()
   })
 
+  it('never shows a failure to the customer when generation fails — same reassurance as success', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Generating your design now…',
+      state: 'generating',
+      data: { trigger_generation: true },
+    })
+    vi.mocked(generationStatus).mockResolvedValue({
+      status: 'failed',
+      image_url: '',
+      watermarked_url: '',
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('Generating your design now…')
+    await waitFor(() => expect(generatePreview).toHaveBeenCalledWith('sess-test-123'))
+
+    // The customer still sees the same reassurance message — never a failure.
+    await screen.findByText(/we'll email it to you/i)
+
+    expect(screen.queryByText(/failed/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/try again/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
   it('captures the email inline at ask_email — no separate contact form', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'What is your email?',

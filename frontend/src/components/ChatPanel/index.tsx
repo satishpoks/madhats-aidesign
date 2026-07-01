@@ -293,7 +293,6 @@ export function PinAnnotator({
 
 function GenerationPanel() {
   const status = useGenerationStore(s => s.status)
-  const error = useGenerationStore(s => s.error)
 
   return (
     <div className="flex flex-col gap-3 p-4 bg-surface border border-border rounded-xl">
@@ -304,17 +303,18 @@ function GenerationPanel() {
         </div>
       )}
       {/* The finished design is intentionally NOT shown in-chat — it's delivered
-          only via email once the customer confirms their address. */}
-      {status === 'done' && (
+          only via email once the customer confirms their address. Generation may
+          succeed, fail (auto-retried, then ops regenerates), or time out — the
+          customer is NEVER told it failed; the design still arrives by email once
+          their address is confirmed. `done` and `error` both render the same
+          reassurance so a failure is indistinguishable to the customer. */}
+      {(status === 'done' || status === 'error') && (
         <div className="flex items-center gap-3 py-2">
           <span className="text-green-500 text-lg leading-none">✓</span>
           <span className="text-sm text-textMuted">
             Your design is ready — we'll email it to you once your address is confirmed.
           </span>
         </div>
-      )}
-      {status === 'error' && (
-        <p className="text-sm text-red-400">{error ?? 'Generation failed.'}</p>
       )}
     </div>
   )
