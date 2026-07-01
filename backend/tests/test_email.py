@@ -35,3 +35,61 @@ def test_send_swallows_provider_error(monkeypatch):
 def test_send_skips_when_no_provider(monkeypatch):
     monkeypatch.setattr(email_service.settings, "resend_api_key", "")
     assert email_service._send("dest@example.com", "Subject", "Body") is False
+
+
+def _capture_send(monkeypatch):
+    """Patch Resend to capture the exact payload passed to Emails.send."""
+    monkeypatch.setattr(email_service.settings, "resend_api_key", "test-key")
+    captured: dict = {}
+
+    class _FakeEmails:
+        @staticmethod
+        def send(params):
+            captured["params"] = params
+
+    monkeypatch.setattr(
+        email_service, "resend", types.SimpleNamespace(api_key=None, Emails=_FakeEmails)
+    )
+    return captured
+
+
+def test_preview_email_inlines_image_bytes_as_cid_attachment(monkeypatch):
+    """When raw image bytes are supplied the image must ride along as an inline
+    CID attachment (works on localhost + in prod, never expires, no external
+    fetch by the recipient's mail client) — never a bare <img src=http…> URL
+    the recipient can't reach."""
+    import base64
+
+    captured = _capture_send(monkeypatch)
+    png = b"\x89PNG\r\n\x1a\n-fake-bytes"
+
+    ok = email_service.send_preview_email(
+        "dest@example.com", "Sam", "http://127.0.0.1:54321/whatever", image_bytes=png
+    )
+
+    assert ok is True
+    params = captured["params"]
+    attachments = params.get("attachments")
+    assert attachments and len(attachments) == 1
+    att = attachments[0]
+    cid = att["content_id"]
+    # HTML references the attachment by cid: and NOT by the unreachable URL.
+    assert f"cid:{cid}" in params["html"]
+    assert "127.0.0.1" not in params["html"]
+    # Attachment carries the actual bytes, base64-encoded.
+    assert base64.b64decode(att["content"]) == png
+
+
+def test_preview_email_without_bytes_falls_back_to_url_src(monkeypatch):
+    """Backward-compatible / best-effort fallback: if we couldn't fetch the
+    bytes, still send with the URL src rather than a blank image."""
+    captured = _capture_send(monkeypatch)
+
+    ok = email_service.send_preview_email(
+        "dest@example.com", "Sam", "https://cdn.example.com/x.png"
+    )
+
+    assert ok is True
+    params = captured["params"]
+    assert not params.get("attachments")
+    assert "https://cdn.example.com/x.png" in params["html"]

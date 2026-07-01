@@ -280,6 +280,33 @@ def test_watermark_missing_falls_back_to_clean_url_for_preview(monkeypatch):
     assert customer_image_url  # never blank
 
 
+def test_preview_email_receives_inline_image_bytes(monkeypatch):
+    """The design image must be delivered as inline bytes (CID attachment),
+    not just a signed URL the recipient's mail client can't reach. Delivery
+    fetches the bytes for the chosen (watermarked) image and hands them to
+    send_preview_email via image_bytes."""
+    lead = _lead_row()
+    tables = {
+        "leads": [lead],
+        "generations": [_generation_row()],
+        "design_sessions": [_session_row()],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    _patch_common(monkeypatch, fake, sent)
+    monkeypatch.setattr(
+        delivery, "_fetch_image_bytes", lambda url: b"PNGBYTES" if url else None
+    )
+
+    result = delivery.maybe_send_preview("sess-1")
+
+    assert result is True
+    args, kwargs = sent["preview"][0]
+    assert kwargs.get("image_bytes") == b"PNGBYTES"
+    # The bytes fetched are for the watermarked (customer-facing) image.
+    assert args[2] == "signed:generations/wm.png"
+
+
 def test_preview_send_failure_does_not_set_flag_and_allows_retry(monkeypatch):
     """send_preview_email is best-effort and returns False on a provider
     outage without raising. maybe_send_preview must NOT mark the lead as

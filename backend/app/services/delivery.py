@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import httpx
 import structlog
 
 from app import prompts
@@ -35,6 +36,27 @@ def _to_signed(path: str | None) -> str:
     if path.startswith("http"):
         return path
     return generate_signed_url(path)
+
+
+def _fetch_image_bytes(url: str) -> bytes | None:
+    """Download the image so it can be inlined into the email (CID attachment).
+
+    The backend CAN reach the storage URL (the local Supabase stack / a signed
+    prod URL); the customer's mail client cannot (Gmail proxies images and can't
+    hit 127.0.0.1, and signed URLs expire). Fetching here and shipping the bytes
+    inline is what makes the design actually render in the inbox. Best-effort:
+    on any failure return None and let the caller fall back to a URL src rather
+    than crash delivery.
+    """
+    if not url:
+        return None
+    try:
+        resp = httpx.get(url, timeout=30, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as exc:  # noqa: BLE001
+        log.warning("preview_image_fetch_failed", error=str(exc))
+        return None
 
 
 def maybe_send_preview(session_id: str) -> bool:
@@ -125,6 +147,10 @@ def maybe_send_preview(session_id: str) -> bool:
     # team is also notified automatically below.
     edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
     mailto = f"mailto:{settings.resend_from_address}"
+    # Inline the image bytes so the recipient's mail client never has to fetch
+    # (and fail to reach) the private storage URL. Falls back to the URL src if
+    # the fetch fails.
+    image_bytes = _fetch_image_bytes(customer_image_url)
     preview_sent = email_service.send_preview_email(
         lead["email"],
         lead["name"],
@@ -133,6 +159,7 @@ def maybe_send_preview(session_id: str) -> bool:
         quote_url=f"{mailto}?subject=Quote%20request",
         edit_url=edit_url,
         talk_url=mailto,
+        image_bytes=image_bytes,
     )
 
     if not lead.get("quote_request_sent"):
