@@ -75,11 +75,16 @@ class _GeminiAdapter(ImageProvider):
         storage_path = write_generated(image_bytes, tier=self.tier)
         latency_ms = int((time.monotonic() - started) * 1000)
 
+        meta = _response_meta(response)
+        meta["model"] = self.model_name
+
         return GenerationResult(
             image_url=storage_path,
             cost_usd=_COST_BY_TIER.get(self.tier, 0.0),
             latency_ms=latency_ms,
             model=self.model_name,
+            raw_response=_serialise_response(response),
+            response_meta=meta,
         )
 
 
@@ -94,3 +99,45 @@ def _extract_image(response) -> bytes | None:
     except (AttributeError, IndexError):
         pass
     return None
+
+
+def _serialise_response(response) -> dict:
+    """Serialise a Gemini response to a JSON-safe dict for the audit log.
+
+    Bytes fields (the generated image) become base64 automatically. Best-effort:
+    tries the SDK's own conversion, then protobuf, then falls back to a repr so a
+    quirky/mocked response can never break logging.
+    """
+    try:
+        return type(response).to_dict(response)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from google.protobuf.json_format import MessageToDict
+
+        return MessageToDict(response._result)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        return {"unserialisable": True, "repr": repr(response)[:2000]}
+
+
+def _response_meta(response) -> dict:
+    """Compact summary of a Gemini response for quick scanning in the log."""
+    meta: dict = {
+        "image_returned": _extract_image(response) is not None,
+        "candidate_count": 0,
+        "finish_reason": None,
+        "safety_ratings": None,
+    }
+    try:
+        candidates = list(response.candidates or [])
+        meta["candidate_count"] = len(candidates)
+        if candidates:
+            first = candidates[0]
+            fr = getattr(first, "finish_reason", None)
+            meta["finish_reason"] = getattr(fr, "name", None) or (str(fr) if fr is not None else None)
+            ratings = getattr(first, "safety_ratings", None)
+            if ratings:
+                meta["safety_ratings"] = [str(r) for r in ratings]
+    except Exception:  # noqa: BLE001
+        pass
+    return meta

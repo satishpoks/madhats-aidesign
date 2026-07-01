@@ -27,6 +27,9 @@ class GenerationResult:
     cost_usd: float
     latency_ms: int
     model: str
+    # Optional audit payloads (populated by real adapters, logged to generation_logs).
+    raw_response: dict | None = None  # full serialised provider response
+    response_meta: dict | None = None  # compact summary (finish reason, safety, etc.)
 
 
 class ImageProvider(ABC):

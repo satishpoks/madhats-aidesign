@@ -143,7 +143,107 @@ class _FlakyProvider:
 
 
 def _ok_result(model="stub-model"):
-    return GenerationResult(image_url="generations/clean.png", cost_usd=0.01, latency_ms=100, model=model)
+    return GenerationResult(
+        image_url="generations/clean.png",
+        cost_usd=0.01,
+        latency_ms=100,
+        model=model,
+        raw_response={"candidates": ["..."]},
+        response_meta={"image_returned": True},
+    )
+
+
+def _capture_logs(monkeypatch):
+    """Record generation_logger calls made by the worker."""
+    calls: dict = {"request": [], "response": [], "cache_hit": []}
+
+    def _req(**kw):
+        calls["request"].append(kw)
+        return f"log-{len(calls['request'])}"
+
+    def _resp(log_id, **kw):
+        calls["response"].append((log_id, kw))
+
+    def _cache(**kw):
+        calls["cache_hit"].append(kw)
+
+    monkeypatch.setattr(generate_routes.generation_logger, "log_request", _req)
+    monkeypatch.setattr(generate_routes.generation_logger, "log_response", _resp)
+    monkeypatch.setattr(generate_routes.generation_logger, "log_cache_hit", _cache)
+    return calls
+
+
+def test_logs_request_and_response_on_success(monkeypatch):
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([], result=_ok_result())
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert len(logs["request"]) == 1
+    req = logs["request"][0]
+    assert req["attempt"] == 1
+    assert req["reference_image_url"] == "http://x/ref.png"
+    assert req["full_prompt"] == "a design prompt"
+    assert len(logs["response"]) == 1
+    log_id, resp = logs["response"][0]
+    assert log_id == "log-1"
+    assert resp["status"] == "complete"
+    assert resp["raw_response"] == {"candidates": ["..."]}
+    assert resp["output_image_url"] == "generations/clean.png"
+
+
+def test_logs_failure_with_error(monkeypatch):
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([ValueError("bad input")])
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], alerts=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert len(logs["request"]) == 1
+    log_id, resp = logs["response"][0]
+    assert resp["status"] == "failed"
+    assert "bad input" in resp["error"]
+
+
+def test_logs_one_row_per_attempt(monkeypatch):
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([httpx.TimeoutException("t")], result=_ok_result())
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert [r["attempt"] for r in logs["request"]] == [1, 2]
+    assert [resp["status"] for _, resp in logs["response"]] == ["failed", "complete"]
+
+
+def test_cache_hit_logs_cache_hit_row(monkeypatch):
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([], result=_ok_result())
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], previews=[])
+    monkeypatch.setattr(
+        generate_routes.generation_cache,
+        "lookup",
+        lambda key: {
+            "model": "stub",
+            "image_url": "generated/preview/cached.png",
+            "watermarked_url": "watermarked/x.png",
+        },
+    )
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert provider.calls == 0
+    assert len(logs["cache_hit"]) == 1
+    assert logs["cache_hit"][0]["output_image_url"] == "generated/preview/cached.png"
 
 
 def test_success_first_attempt_marks_complete_and_sends_preview(monkeypatch):

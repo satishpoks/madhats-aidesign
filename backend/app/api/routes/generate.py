@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 
 import httpx
 import structlog
@@ -12,7 +13,7 @@ from app.db import get_supabase
 from app.models.generation import GenerateRequest, GenerationStatus, JobResponse
 from app.services import delivery
 from app.services import email as email_service
-from app.services import generation_cache, prompt_builder
+from app.services import generation_cache, generation_logger, prompt_builder
 from app.services.image.router import get_provider
 from app.services.moderation import ModerationError, check_text
 from app.services.stores import get_store
@@ -111,10 +112,12 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
         .execute()
     )
     job_id = job.data[0]["job_id"]
+    generation_id = job.data[0].get("id")
 
     background.add_task(
         _run_generation,
         job_id=job_id,
+        generation_id=generation_id,
         session_id=session_id,
         store_id=session.get("store_id"),
         tier=tier,
@@ -127,7 +130,8 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 
 
 async def _run_generation(
-    *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params
+    *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params,
+    generation_id=None,
 ) -> None:
     """Background worker: cache-check → provider (with retry) → watermark → store → update row.
 
@@ -146,6 +150,12 @@ async def _run_generation(
     )
     attempts = 0
 
+    # Inputs recorded in every generation_logs row (references, not bytes).
+    ref_url = product_ref.get("reference_image_url")
+    uploaded_path = collected.get("uploaded_asset_path")
+    uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
+    params_dict = asdict(params)
+
     try:
         cached = generation_cache.lookup(key)
         if cached:
@@ -160,17 +170,40 @@ async def _run_generation(
                     "latency_ms": 0,
                 }
             ).eq("job_id", job_id).execute()
+            generation_logger.log_cache_hit(
+                generation_id=generation_id,
+                job_id=job_id,
+                session_id=session_id,
+                tier=tier,
+                reference_image_url=ref_url,
+                uploaded_asset_url=uploaded_url,
+                full_prompt=prompt,
+                params=params_dict,
+                model=cached["model"],
+                output_image_url=cached["image_url"],
+            )
             _safe_maybe_send_preview(session_id)
             return
 
         provider = get_provider(tier)
-        uploaded_path = collected.get("uploaded_asset_path")
-        uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
 
         result = None
         last_exc: Exception | None = None
         for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
             attempts = attempt
+            # Record the inputs + full prompt BEFORE the call so a crash still
+            # leaves a 'requested' row; the response is patched in afterwards.
+            log_id = generation_logger.log_request(
+                generation_id=generation_id,
+                job_id=job_id,
+                session_id=session_id,
+                attempt=attempt,
+                tier=tier,
+                reference_image_url=ref_url,
+                uploaded_asset_url=uploaded_url,
+                full_prompt=prompt,
+                params=params_dict,
+            )
             try:
                 result = await provider.generate(
                     prompt=prompt,
@@ -179,9 +212,19 @@ async def _run_generation(
                     params=params,
                 )
                 last_exc = None
+                generation_logger.log_response(
+                    log_id,
+                    status="complete",
+                    model=result.model,
+                    output_image_url=result.image_url,
+                    response_meta=result.response_meta,
+                    raw_response=result.raw_response,
+                    latency_ms=result.latency_ms,
+                )
                 break
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
+                generation_logger.log_response(log_id, status="failed", error=str(exc))
                 if attempt >= MAX_GENERATION_ATTEMPTS or not _is_transient(exc):
                     break
                 backoff = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
