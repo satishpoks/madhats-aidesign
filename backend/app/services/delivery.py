@@ -12,7 +12,7 @@ PII safety: only session_id is logged, never name/email/phone.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import structlog
 
@@ -162,3 +162,59 @@ def maybe_send_preview(session_id: str) -> bool:
 
     log.info("preview_delivered", session_id=session_id)
     return True
+
+
+def backfill_pending(limit: int = 100, max_age_hours: int = 72) -> dict:
+    """Re-attempt delivery for verified leads whose preview never sent.
+
+    Self-heal sweep for the case where `maybe_send_preview` was invoked by
+    both async tracks (generation completion + email verification) but the
+    send failed both times (e.g. a Resend outage) — nothing else re-triggers
+    delivery after that point, so this job does.
+
+    Selects leads where email_verified=true AND preview_email_sent=false,
+    verified within the last max_age_hours (skip long-dead leads, which are
+    very unlikely to still be wanted and would otherwise be retried forever),
+    newest first, capped at `limit`. Calls the existing idempotent
+    maybe_send_preview(session_id) for each; it re-checks all gates itself
+    and is the only place the preview_email_sent flag is set.
+
+    Safe to run repeatedly (e.g. from a Railway cron): an already-delivered
+    lead is filtered out by the query itself, and a still-failing send simply
+    leaves the flag false for the next run.
+
+    Returns {"scanned": int, "delivered": int, "still_pending": int}.
+    """
+    sb = get_supabase()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
+
+    res = (
+        sb.table("leads")
+        .select("*")
+        .eq("email_verified", True)
+        .eq("preview_email_sent", False)
+        .gte("verified_at", cutoff)
+        .order("verified_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    rows = res.data or []
+
+    delivered = 0
+    still_pending = 0
+    for row in rows:
+        session_id = row.get("session_id")
+        try:
+            sent = maybe_send_preview(session_id)
+        except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
+            log.warning("backfill_row_failed", session_id=session_id)
+            still_pending += 1
+            continue
+        if sent:
+            delivered += 1
+        else:
+            still_pending += 1
+
+    tally = {"scanned": len(rows), "delivered": delivered, "still_pending": still_pending}
+    log.info("backfill_complete", **tally)
+    return tally

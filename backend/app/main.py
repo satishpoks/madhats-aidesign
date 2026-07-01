@@ -16,6 +16,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import limiter
 from app.api.routes import (
+    admin_deliveries,
     admin_stores,
     chat,
     generate,
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
         leads.router,
         submissions.router,
         admin_stores.router,
+        admin_deliveries.router,
     ):
         app.include_router(router)
 
