@@ -10,11 +10,9 @@ from fastapi.responses import HTMLResponse
 from app import prompts
 from app.config import settings
 from app.db import get_supabase
-from app.services.products import get_product
 from app.models.lead import CreateLeadRequest, LeadResponse, VerifySendRequest
-from app.services import email as email_service
+from app.services import delivery
 from app.services import leads as leads_service
-from app.storage import generate_signed_url
 
 router = APIRouter(tags=["leads"])
 log = structlog.get_logger()
@@ -106,9 +104,11 @@ async def confirm_verification(token: str) -> HTMLResponse:
 
     # The email is verified at this point; sending the preview / sales emails is
     # a best-effort side effect that must never turn a successful verification
-    # into an error page for the customer clicking the link.
+    # into an error page for the customer clicking the link. maybe_send_preview
+    # is idempotent and gated on generation being complete with a real image —
+    # see app/services/delivery.py.
     try:
-        _post_verification_actions(lead, session_id)
+        delivery.maybe_send_preview(session_id)
     except Exception as exc:  # noqa: BLE001
         log.error("post_verification_actions_failed", lead_id=lead_id, error=str(exc))
 
@@ -128,69 +128,3 @@ def _mark_session_verified(sb, session_id: str) -> None:
     collected = row.data[0].get("collected") or {}
     collected["email_verified"] = True
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
-
-
-def _to_signed(path: str | None) -> str:
-    """Sign a storage path; pass through external URLs (e.g. the stub adapter's
-    placehold.co links, which are not storage objects). Empty/None → ""."""
-    if not path:
-        return ""
-    if path.startswith("http"):
-        return path
-    return generate_signed_url(path)
-
-
-def _post_verification_actions(lead: dict, session_id: str) -> None:
-    """After verification: send the preview email and notify sales (once)."""
-    sb = get_supabase()
-    session = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute().data[0]
-    collected = session.get("collected") or {}
-    product_ref = session.get("product_ref") or {}
-    product = get_product(product_ref.get("product_id", "")) or product_ref
-
-    gen = (
-        sb.table("generations")
-        .select("*")
-        .eq("session_id", session_id)
-        .eq("status", "complete")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    watermarked_url = clean_url = ""
-    if gen.data:
-        watermarked_url = _to_signed(gen.data[0].get("watermarked_url"))
-        clean_url = _to_signed(gen.data[0].get("image_url"))
-
-    brief = prompts.PREVIEW_EMAIL_BRIEF.format(
-        product=product.get("name") or "your custom cap",
-        decoration=collected.get("decoration_type") or "custom decoration",
-        placement=(collected.get("placement_zone") or "front panel").replace("_", " "),
-        quantity=collected.get("quantity") or "?",
-    )
-    # CTA links (Figma E1). "Edit" reopens the chatbot and resumes this session
-    # (keyed by its share token); quote / talk are best-effort mailto fallbacks
-    # to the Studio address (no dedicated customer endpoints yet). The sales team
-    # is also notified automatically below.
-    edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
-    mailto = f"mailto:{settings.resend_from_address}"
-    email_service.send_preview_email(
-        lead["email"],
-        lead["name"],
-        watermarked_url,
-        brief=brief,
-        quote_url=f"{mailto}?subject=Quote%20request",
-        edit_url=edit_url,
-        talk_url=mailto,
-    )
-
-    if not lead.get("quote_request_sent"):
-        from app.services.stores import get_store
-
-        store = get_store(session.get("store_id")) if session.get("store_id") else None
-        recipient = (store or {}).get("sales_notification_email")
-        customer = {"name": lead["name"], "email": lead["email"], "phone": lead.get("phone")}
-        email_service.send_quote_to_sales(customer, product, collected, clean_url, recipient=recipient)
-        sb.table("leads").update(
-            {"quote_request_sent": True, "quote_sent_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", lead["id"]).execute()
