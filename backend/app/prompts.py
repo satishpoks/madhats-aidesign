@@ -215,23 +215,69 @@ CANNED_REPLIES: dict[str, str] = {
 # Image generation prompt templates
 # ---------------------------------------------------------------------------
 
-IMAGE_GEN_BASE_TEMPLATE = """Composite the supplied design onto the REAL product reference
-photo provided as the first image. Do not redraw, reshape, or regenerate the cap itself —
-preserve its exact shape, colour, fabric, seams, and lighting from the reference photo.
+# The one consolidated image-generation prompt. Assembled by
+# app.services.prompt_builder.build_prompt, which fills every {placeholder}.
+# Edit the wording here to tune generation; inspect the exact filled result for a
+# session via GET /admin/prompt-preview/{session_id}.
+#
+# Design intent: the base cap must be reproduced pixel-faithfully from the
+# reference photo (first image). The customer only ADDS decoration. See
+# docs/superpowers/specs/2026-07-01-fidelity-locked-image-prompt-design.md.
+IMAGE_GEN_PROMPT = """ROLE: You composite a single custom decoration onto a REAL product photograph.
 
-Cap style: {style}
-Cap colour: {colour}
-Design intent: {design_summary}
-"""
+SOURCE OF TRUTH: The FIRST image is the exact cap to reproduce. Treat it as a
+fixed product photo that already shows the correct product, colourway and angle.
 
-PLACEMENT_CONTEXT_TEMPLATE = """Placement: apply the design on the {placement_zone} of the cap,
-positioned at {placement_position}. Keep the design proportional and aligned to the panel's
-natural curvature and perspective."""
+PRIMARY DIRECTIVE — REPRODUCE THE CAP EXACTLY.
+Everything about the cap MUST stay pixel-identical to the first image. Do NOT
+alter any of the following:
+  - Cap type/style and overall silhouette
+  - Crown shape, panel count, seams and stitching
+  - Cap body colour(s) and any colour-blocking — keep the EXACT colours shown
+  - Brim/peak shape, colour and under-brim colour
+  - Back closure / strap (snapback, velcro, buckle, elastic) — same type & colour
+  - Eyelets, top button, sweatband, woven labels and tags
+  - Fabric texture, sheen and folds
+  - Camera angle, framing, crop, lighting, shadows and background
 
-EMBROIDERY_STYLE_MODIFIER = """Render the design as realistic stitched EMBROIDERY: visible
+Do NOT recolour, reshape, restyle, re-light, rotate, crop or re-render the cap.
+Do NOT add any logo, text, pattern or embellishment that is not specified below.
+Do NOT add a person, model or new background.
+
+THE ONLY PERMITTED CHANGE:
+Add the decoration described below onto the specified panel, as though it were
+{decoration_kind} applied to this exact cap. Nothing else changes.
+
+DECORATION TO ADD:
+{design_block}
+
+DECORATION STYLE:
+{decoration_style}
+
+PLACEMENT:
+On the {placement_zone}, positioned {placement_position}. Follow the panel's
+natural curvature, perspective and lighting so it looks physically applied.
+{pin_block}
+
+OUTPUT: One photorealistic image of the SAME cap from the SAME angle as the
+reference, identical in every respect except for the added decoration."""
+
+# design_block for Flow B (customer uploaded a logo/artwork — the 2nd image).
+UPLOADED_ASSET_DESIGN_BLOCK = """Apply the customer's uploaded artwork, provided as the SECOND image.
+Reproduce that artwork faithfully — exact colours, proportions and detail. Do not
+redraw, reinterpret or restyle it."""
+
+# Fallback design_block when no design intent was captured at all.
+FALLBACK_DESIGN_BLOCK = "the customer's supplied design"
+
+# {decoration_kind} values interpolated into IMAGE_GEN_PROMPT.
+DECORATION_KIND_EMBROIDERY = "stitched embroidery"
+DECORATION_KIND_PRINT = "a printed graphic"
+
+EMBROIDERY_STYLE_MODIFIER = """Render the decoration as realistic stitched EMBROIDERY: visible
 thread texture, slight raised relief, satin-stitch edges, matte thread sheen. No flat print look."""
 
-PRINT_STYLE_MODIFIER = """Render the design as a flat screen-PRINT / heat-transfer: smooth,
+PRINT_STYLE_MODIFIER = """Render the decoration as a flat screen-PRINT / heat-transfer: smooth,
 flat colour application that follows the fabric texture. No raised stitching."""
 
 PIN_ANNOTATION_TEMPLATE = """Customer placement note on the {view} view at approximately
