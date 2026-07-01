@@ -84,7 +84,14 @@ def maybe_send_preview(session_id: str) -> bool:
     if not (gen.get("watermarked_url") or gen.get("image_url")):
         return False
 
-    # Re-check right before sending — the idempotency guard.
+    # Idempotency guard. This checks the same in-memory `lead` dict loaded at
+    # the top of this call (a single flag check at function scope) — it is
+    # NOT a fresh re-read from the DB immediately before send. Two callers
+    # racing in the same instant (verify handler + generation worker) could
+    # both pass this check and both send; per spec §4.1 that is tolerated
+    # (one extra identical email), not treated as a correctness bug. A
+    # follow-up could upgrade this to a conditional UPDATE for a stronger
+    # guarantee if it becomes a problem in practice.
     if lead.get("preview_email_sent"):
         return False
 

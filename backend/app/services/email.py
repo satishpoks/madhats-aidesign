@@ -110,3 +110,19 @@ def send_quote_to_sales(
         image_url=image_url,
     )
     return _send(to, subject, body)
+
+
+def send_generation_alert(
+    store_email: str, session_id: str, product: str, brief: str, error: str
+) -> bool:
+    """Alert ops that a generation failed all retries and needs manual regeneration.
+
+    Best-effort like every other send in this module. No customer name/email
+    is included — this is an internal notification keyed on session_id.
+    """
+    to = store_email or settings.sales_notification_email
+    subject = prompts.GENERATION_ALERT_EMAIL_SUBJECT.format(product_name=product)
+    body = prompts.GENERATION_ALERT_EMAIL_BODY.format(
+        session_id=session_id, product_name=product, brief=brief, error=error
+    )
+    return _send(to, subject, body)

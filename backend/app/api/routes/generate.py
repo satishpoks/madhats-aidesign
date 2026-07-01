@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -8,14 +10,51 @@ from app.api.deps import limiter
 from app.config import settings
 from app.db import get_supabase
 from app.models.generation import GenerateRequest, GenerationStatus, JobResponse
+from app.services import delivery
+from app.services import email as email_service
 from app.services import generation_cache, prompt_builder
 from app.services.image.router import get_provider
 from app.services.moderation import ModerationError, check_text
+from app.services.stores import get_store
 from app.services.watermark import apply_watermark
 from app.storage import generate_signed_url, write_watermarked
 
 router = APIRouter(tags=["generate"])
 log = structlog.get_logger()
+
+# Google's client libraries may not be installed in every environment (e.g. the
+# stub-only local/test setup). Import defensively so exception classification
+# below degrades gracefully instead of failing to import.
+try:
+    from google.api_core.exceptions import GoogleAPICallError, ResourceExhausted
+except ImportError:  # pragma: no cover - google-api-core not installed
+    GoogleAPICallError = None  # type: ignore[assignment,misc]
+    ResourceExhausted = None  # type: ignore[assignment,misc]
+
+MAX_GENERATION_ATTEMPTS = 3
+# Backoff between attempts: ~2s after attempt 1, ~8s after attempt 2 (capped).
+_BACKOFF_SECONDS = (2, 8)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Classify a provider exception as transient (retry) vs permanent (fail fast).
+
+    Retryable: httpx timeouts, google ResourceExhausted (429), and any
+    GoogleAPICallError carrying a 5xx status code. Everything else — ValueError,
+    InvalidArgument/400, or any exception type we don't recognise — is treated
+    as permanent and is NOT retried.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if ResourceExhausted is not None and isinstance(exc, ResourceExhausted):
+        return True
+    if GoogleAPICallError is not None and isinstance(exc, GoogleAPICallError):
+        code = getattr(exc, "code", None)
+        code_value = getattr(code, "value", code)
+        return isinstance(code_value, int) and 500 <= code_value < 600
+    # Fallback for plain exceptions carrying an HTTP-style status_code attribute.
+    status = getattr(exc, "status_code", None)
+    return isinstance(status, int) and 500 <= status < 600
 
 
 @router.post("/generate/preview/{session_id}", response_model=JobResponse)
@@ -76,6 +115,8 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     background.add_task(
         _run_generation,
         job_id=job_id,
+        session_id=session_id,
+        store_id=session.get("store_id"),
         tier=tier,
         prompt=prompt,
         product_ref=product_ref,
@@ -85,14 +126,25 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     return JobResponse(job_id=job_id)
 
 
-async def _run_generation(*, job_id, tier, prompt, product_ref, collected, params) -> None:
-    """Background worker: cache-check → provider → watermark → store → update row."""
+async def _run_generation(
+    *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params
+) -> None:
+    """Background worker: cache-check → provider (with retry) → watermark → store → update row.
+
+    Generation and email verification are independent async tracks (see
+    docs/superpowers/specs/2026-07-01-decoupled-generation-gated-delivery-design.md
+    §4.2-4.3). On success this calls `delivery.maybe_send_preview` so a design
+    whose email was already verified is delivered immediately. On final failure
+    (retries exhausted or a permanent error) it marks the row failed and alerts
+    ops so a human can regenerate — the customer is never shown a failure.
+    """
     sb = get_supabase()
     p_hash = prompt_builder.prompt_hash(prompt)
     asset_hash = collected.get("asset_hash", "none")
     key = generation_cache.cache_key(
         product_ref.get("product_id", ""), product_ref.get("colour", ""), p_hash, asset_hash
     )
+    attempts = 0
 
     try:
         cached = generation_cache.lookup(key)
@@ -108,18 +160,41 @@ async def _run_generation(*, job_id, tier, prompt, product_ref, collected, param
                     "latency_ms": 0,
                 }
             ).eq("job_id", job_id).execute()
+            _safe_maybe_send_preview(session_id)
             return
 
         provider = get_provider(tier)
         uploaded_path = collected.get("uploaded_asset_path")
         uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
 
-        result = await provider.generate(
-            prompt=prompt,
-            reference_image_url=product_ref["reference_image_url"],
-            uploaded_asset_url=uploaded_url,
-            params=params,
-        )
+        result = None
+        last_exc: Exception | None = None
+        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+            attempts = attempt
+            try:
+                result = await provider.generate(
+                    prompt=prompt,
+                    reference_image_url=product_ref["reference_image_url"],
+                    uploaded_asset_url=uploaded_url,
+                    params=params,
+                )
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if attempt >= MAX_GENERATION_ATTEMPTS or not _is_transient(exc):
+                    break
+                backoff = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
+                log.warning(
+                    "generation_retrying",
+                    tier=tier,
+                    attempt=attempt,
+                    error_type=type(exc).__name__,
+                )
+                await asyncio.sleep(backoff)
+
+        if last_exc is not None:
+            raise last_exc
 
         clean_path = result.image_url  # storage path (or external stub URL)
         watermarked_path = _make_watermarked(clean_path)
@@ -133,13 +208,70 @@ async def _run_generation(*, job_id, tier, prompt, product_ref, collected, param
                 "prompt_hash": key,
                 "cost_usd": result.cost_usd,
                 "latency_ms": result.latency_ms,
+                "attempts": attempts,
             }
         ).eq("job_id", job_id).execute()
-        log.info("generation_complete", tier=tier, model=result.model, latency_ms=result.latency_ms)
+        log.info(
+            "generation_complete",
+            tier=tier,
+            model=result.model,
+            latency_ms=result.latency_ms,
+            attempts=attempts,
+        )
+
+        _safe_maybe_send_preview(session_id)
 
     except Exception as exc:  # noqa: BLE001
-        log.error("generation_failed", tier=tier, error=str(exc))
-        sb.table("generations").update({"status": "failed"}).eq("job_id", job_id).execute()
+        log.error(
+            "generation_failed",
+            tier=tier,
+            error_type=type(exc).__name__,
+            attempts=attempts,
+        )
+        sb.table("generations").update(
+            {"status": "failed", "error": str(exc), "attempts": attempts}
+        ).eq("job_id", job_id).execute()
+        _send_ops_alert(session_id, store_id, product_ref, collected, str(exc))
+
+
+def _safe_maybe_send_preview(session_id: str) -> None:
+    """Trigger the gated delivery primitive after a successful generation.
+
+    Wrapped in its own try/except: a delivery error (email provider outage,
+    unexpected DB shape, etc.) must NEVER flip a just-completed generation row
+    back to failed. The generation itself already succeeded; delivery is a
+    best-effort side effect layered on top.
+    """
+    try:
+        delivery.maybe_send_preview(session_id)
+    except Exception as exc:  # noqa: BLE001
+        log.error(
+            "post_generation_delivery_failed", session_id=session_id, error_type=type(exc).__name__
+        )
+
+
+def _send_ops_alert(
+    session_id: str, store_id: str | None, product_ref: dict, collected: dict, error_text: str
+) -> None:
+    """Notify the store's ops inbox that a design needs manual regeneration.
+
+    Logs session_id only — never product/brief/customer details — even though
+    the email body itself may reference business context for the ops team.
+    """
+    try:
+        store = get_store(store_id) if store_id else None
+        to = (store or {}).get("sales_notification_email") or settings.sales_notification_email
+        product_name = product_ref.get("name") or "Custom cap"
+        design = collected.get("design_description") or {}
+        brief = (
+            (design.get("summary") if isinstance(design, dict) else str(design))
+            or collected.get("design_summary")
+            or "No description provided"
+        )
+        email_service.send_generation_alert(to, session_id, product_name, brief, error_text)
+        log.info("generation_alert_sent", session_id=session_id)
+    except Exception as exc:  # noqa: BLE001
+        log.error("generation_alert_failed", session_id=session_id, error_type=type(exc).__name__)
 
 
 def _make_watermarked(clean_path: str) -> str | None:

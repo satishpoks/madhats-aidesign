@@ -229,6 +229,30 @@ def test_gate_complete_generation_without_image_blocks_send(monkeypatch):
     assert sent.get("preview") is None
 
 
+def test_mixed_state_sales_already_sent_preview_not_yet(monkeypatch):
+    """quote_request_sent=True (sales already notified earlier) but
+    preview_email_sent=False (customer preview never went out, e.g. it failed
+    generation the first time and was manually regenerated). The preview email
+    must still fire; the sales email must NOT re-fire."""
+    lead = _lead_row(quote_request_sent=True, preview_email_sent=False)
+    tables = {
+        "leads": [lead],
+        "generations": [_generation_row()],
+        "design_sessions": [_session_row()],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    _patch_common(monkeypatch, fake, sent)
+
+    result = delivery.maybe_send_preview("sess-1")
+
+    assert result is True
+    assert len(sent.get("preview", [])) == 1
+    assert sent.get("quote") is None
+    assert lead["preview_email_sent"] is True
+    assert lead["quote_request_sent"] is True
+
+
 def test_verify_route_triggers_send(monkeypatch):
     """Hitting the verify link for a lead whose generation is already complete
     results in the preview being sent from confirm_verification."""

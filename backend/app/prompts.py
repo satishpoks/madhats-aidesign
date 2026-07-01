@@ -342,6 +342,24 @@ Design image (internal, clean): {image_url}
 Please prepare and send the quote directly to the customer.
 """
 
+GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
+
+# Sent to store ops when a generation fails all automatic retries. Filled with
+# .format(session_id=, product_name=, brief=, error=). No customer name/email
+# here — this is an internal ops alert, not a customer-facing message.
+GENERATION_ALERT_EMAIL_BODY = """A design generation failed after all automatic retries and needs manual attention.
+
+Session: {session_id}
+Product: {product_name}
+Design brief: {brief}
+
+Provider error: {error}
+
+Please regenerate this design from the admin tools. Once generation completes,
+the customer's preview email will be sent automatically if their address is
+already verified — no further action needed beyond regenerating.
+"""
+
 # ---------------------------------------------------------------------------
 # Verification landing pages (rendered in the browser when the customer clicks
 # the link in the verification email). These are HTML pages, not emails.
