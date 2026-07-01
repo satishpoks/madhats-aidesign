@@ -33,3 +33,7 @@ class SessionDetail(BaseModel):
     collected: dict = Field(default_factory=dict)
     status: str
     messages: list[ChatMessageOut] = Field(default_factory=list)
+    # UI affordances for the current state (chips / continue / trigger), so a
+    # resumed session can rebuild the right controls without re-deriving them
+    # client-side. Mirrors the ChatResponse.data shape.
+    data: dict = Field(default_factory=dict)

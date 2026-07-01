@@ -11,3 +11,11 @@ class ChatResponse(BaseModel):
     reply: str
     state: str
     data: dict = {}
+
+
+class VerificationPollResponse(BaseModel):
+    # reply is None until the emailed link is clicked; then it carries Ricardo's
+    # confirmation line and `state` advances past verify_email.
+    reply: str | None = None
+    state: str
+    data: dict = {}

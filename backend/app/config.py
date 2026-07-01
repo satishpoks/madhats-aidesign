@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     sentry_dsn: str = ""
     email_verify_base_url: str = "http://localhost:8000"
+    # Customer-facing Studio (frontend) origin — used for the "make some edits"
+    # link in the preview email, which reopens the chatbot on their session.
+    studio_base_url: str = "http://localhost:5173"
     chatbot_persona_name: str = "Ricardo"
 
     @property

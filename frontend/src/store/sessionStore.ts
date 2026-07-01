@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Product } from '../lib/types'
-import { createSession, fetchProduct } from '../lib/api'
+import { createSession, fetchProduct, getSession } from '../lib/api'
+import { useChatStore } from './chatStore'
 
 export type SessionView = 'picker' | 'session'
 
@@ -31,6 +32,7 @@ interface SessionState {
   view: SessionView
 
   startSession: (product: Product) => Promise<void>
+  resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
 
@@ -60,8 +62,63 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
   },
 
+  resumeSession: async (token: string) => {
+    // Reopen an existing session (e.g. from the "make some edits" email link):
+    // rehydrate the full chat thread, state and product so the customer picks
+    // up exactly where they left off.
+    const detail = await getSession(token)
+
+    // product_ref persisted on the session omits view_images, so pull the full
+    // product for the left-pane angles (best-effort — fall back to the ref).
+    const ref = detail.product_ref ?? {}
+    let productRef: ProductRef = {
+      id: ref.product_id ?? '',
+      name: ref.name ?? 'Your cap',
+      colour: ref.colour ?? '',
+      style: ref.style ?? '',
+      reference_image_url: ref.reference_image_url ?? '',
+      view_images: {},
+    }
+    if (ref.product_id) {
+      try {
+        const product = await fetchProduct(ref.product_id)
+        productRef = {
+          id: product.id,
+          name: product.name,
+          colour: product.colour,
+          style: product.style,
+          reference_image_url: product.reference_image_url,
+          view_images: product.view_images,
+        }
+      } catch {
+        // keep the ref-derived productRef
+      }
+    }
+
+    set({
+      sessionId: detail.session_id,
+      shareToken: detail.share_token,
+      state: detail.state,
+      productRef,
+      view: 'session',
+    })
+    useChatStore.getState().hydrate(detail.messages, detail.state, detail.data)
+  },
+
   bootstrapFromUrl: async () => {
     const params = new URLSearchParams(window.location.search)
+
+    // Resume link (from the preview email's "make some edits" CTA) wins.
+    const resumeToken = params.get('session')
+    if (resumeToken) {
+      try {
+        await get().resumeSession(resumeToken)
+        return
+      } catch (err) {
+        console.warn('[MadHats] resumeSession failed — falling back', err)
+      }
+    }
+
     const productId = params.get('product_id')
     if (!productId) return
 

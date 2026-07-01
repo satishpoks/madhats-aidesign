@@ -152,6 +152,54 @@ async def handle_message(session_id: str, message: str) -> dict:
     }
 
 
+async def check_verification(session_id: str) -> dict:
+    """Poll target for the chat while it rests at VERIFY_EMAIL.
+
+    Email verification happens out-of-band (the customer clicks the emailed
+    link, which flips ``collected.email_verified``). This lets the still-open
+    chat tab detect that and advance the thread to EMAIL_VERIFIED — appending
+    only Ricardo's confirmation line, with no phantom user turn.
+
+    Returns ``reply=None`` (no change) until verification lands.
+    """
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+
+    current = ConversationState(session["state"])
+    collected: dict = session.get("collected") or {}
+
+    if current is not ConversationState.VERIFY_EMAIL or not collected.get("email_verified"):
+        return {"reply": None, "state": current.value, "data": _public_data(current, collected)}
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+
+    new_state = advance_state(current, collected)
+    while new_state in _AUTO_ADVANCE_STATES:
+        new_state = advance_state(new_state, collected)
+
+    reply = await ie.generate_reply(new_state.value, collected, persona)
+
+    sb.table("design_sessions").update(
+        {"state": new_state.value, "updated_at": "now()"}
+    ).eq("id", session_id).execute()
+
+    sb.table("chat_messages").insert(
+        {
+            "session_id": session_id,
+            "role": "assistant",
+            "content": reply,
+            "state_before": current.value,
+            "state_after": new_state.value,
+        }
+    ).execute()
+
+    return {"reply": reply, "state": new_state.value, "data": _public_data(new_state, collected)}
+
+
 async def _ingest(state: ConversationState, message: str, collected: dict) -> None:
     """Mutate `collected` based on the answer to the current state's question.
 

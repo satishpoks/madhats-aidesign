@@ -293,7 +293,6 @@ export function PinAnnotator({
 
 function GenerationPanel() {
   const status = useGenerationStore(s => s.status)
-  const previewUrl = useGenerationStore(s => s.previewUrl)
   const error = useGenerationStore(s => s.error)
 
   return (
@@ -304,16 +303,14 @@ function GenerationPanel() {
           <span className="text-sm text-textMuted">Generating your design…</span>
         </div>
       )}
-      {status === 'done' && previewUrl && (
-        <div className="flex flex-col gap-2">
-          <img
-            src={previewUrl}
-            alt="Generated cap design preview"
-            className="w-full rounded-lg border border-border"
-          />
-          <p className="text-xs text-textMuted text-center">
-            Preview — watermarked. The MadHats team reviews every design before quoting.
-          </p>
+      {/* The finished design is intentionally NOT shown in-chat — it's delivered
+          only via email once the customer confirms their address. */}
+      {status === 'done' && (
+        <div className="flex items-center gap-3 py-2">
+          <span className="text-green-500 text-lg leading-none">✓</span>
+          <span className="text-sm text-textMuted">
+            Your design is ready — we'll email it to you once your address is confirmed.
+          </span>
         </div>
       )}
       {status === 'error' && (
@@ -343,12 +340,12 @@ export function ChatPanel() {
   const chatError = useChatStore(s => s.chatError)
   const kickoff = useChatStore(s => s.kickoff)
   const sendMessage = useChatStore(s => s.sendMessage)
+  const pollVerification = useChatStore(s => s.pollVerification)
   const dismissError = useChatStore(s => s.dismissError)
   const setError = useChatStore(s => s.setError)
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
-  const genPreviewUrl = useGenerationStore(s => s.previewUrl)
 
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -367,6 +364,17 @@ export function ChatPanel() {
       void startGeneration(sessionId)
     }
   }, [sessionId, triggerGeneration, chatState, startGeneration])
+
+  // While waiting at verify_email, poll for the out-of-band email verification
+  // (the customer clicks the emailed link, possibly in another tab/device) and
+  // surface the confirmation in the thread the moment it lands.
+  useEffect(() => {
+    if (!sessionId || chatState !== 'verify_email') return
+    const id = setInterval(() => {
+      void pollVerification(sessionId)
+    }, 4000)
+    return () => clearInterval(id)
+  }, [sessionId, chatState, pollVerification])
 
   // Auto-scroll to the newest message
   useEffect(() => {
@@ -414,7 +422,9 @@ export function ChatPanel() {
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* LEFT — product viewer (4 angles + generated design) */}
         <div className="h-72 md:h-auto md:w-1/2 border-b md:border-b-0 md:border-r border-border flex-shrink-0 md:flex-shrink overflow-y-auto">
-          <ProductViewer productRef={productRef} previewUrl={genPreviewUrl} />
+          {/* The generated design is delivered by email only, so the viewer
+              shows the blank product angles — never the generated preview. */}
+          <ProductViewer productRef={productRef} />
         </div>
 
         {/* RIGHT — chat column */}

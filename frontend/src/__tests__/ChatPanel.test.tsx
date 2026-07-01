@@ -404,7 +404,7 @@ describe('ChatPanel special state banners', () => {
     expect(document.querySelector('input[type="file"]')).toBeInTheDocument()
   })
 
-  it('triggers generation and renders the watermarked preview when state is generating', async () => {
+  it('triggers generation but does NOT show the design in-chat (email-only delivery)', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'Generating your design now…',
       state: 'generating',
@@ -414,11 +414,10 @@ describe('ChatPanel special state banners', () => {
     await screen.findByText('Generating your design now…')
     // Generation is kicked off through the API…
     await waitFor(() => expect(generatePreview).toHaveBeenCalledWith('sess-test-123'))
-    // …and the watermarked preview image is shown once complete.
-    const img = (await screen.findByAltText(
-      'Generated cap design preview',
-    )) as HTMLImageElement
-    expect(img.src).toBe('https://cdn.example.com/wm.png')
+    // …and once complete the customer sees a confirmation, but NEVER the image
+    // itself — the finished design is delivered exclusively by email.
+    await screen.findByText(/we'll email it to you/i)
+    expect(screen.queryByAltText('Generated cap design preview')).not.toBeInTheDocument()
   })
 
   it('captures the email inline at ask_email — no separate contact form', async () => {

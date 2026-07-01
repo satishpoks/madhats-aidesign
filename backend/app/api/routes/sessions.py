@@ -12,6 +12,8 @@ from app.models.session import (
     SessionDetail,
     SessionResponse,
 )
+from app.services.conversation.orchestrator import _public_data
+from app.services.conversation.state_machine import ConversationState
 from app.services.products import get_product
 
 router = APIRouter(tags=["sessions"])
@@ -72,6 +74,9 @@ async def get_session(token: str) -> SessionDetail:
     )
     messages = [ChatMessageOut(**m) for m in (msgs.data or [])]
 
+    collected = session.get("collected") or {}
+    data = _public_data(ConversationState(session["state"]), collected)
+
     return SessionDetail(
         session_id=session["id"],
         share_token=session["share_token"],
@@ -79,7 +84,8 @@ async def get_session(token: str) -> SessionDetail:
         channel=session["channel"],
         entry_path=session["entry_path"],
         product_ref=session.get("product_ref"),
-        collected=session.get("collected") or {},
+        collected=collected,
         status=session["status"],
         messages=messages,
+        data=data,
     )

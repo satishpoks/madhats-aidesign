@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { sendChat } from '../lib/api'
+import { sendChat, pollVerification } from '../lib/api'
+import type { ChatMessageOut } from '../lib/types'
 
 export interface ChatMessage {
   id: string
@@ -22,6 +23,14 @@ interface ChatStoreState {
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
+  /** Rebuild the thread from persisted history when resuming a session. */
+  hydrate: (
+    messages: ChatMessageOut[],
+    state: string,
+    data: Record<string, unknown>,
+  ) => void
+  /** Poll for out-of-band email verification; advances the thread once verified. */
+  pollVerification: (sessionId: string) => Promise<void>
   dismissError: () => void
   setError: (msg: string) => void
   reset: () => void
@@ -111,6 +120,49 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         chatError: err instanceof Error ? err.message : 'Something went wrong',
         sending: false,
       })
+    }
+  },
+
+  hydrate: (messages, state, data) => {
+    const { options, options2, triggerGeneration, continuable } = parseData(data)
+    set({
+      messages: messages.map(m => ({
+        id: uid(),
+        role: m.role,
+        text: m.content,
+      })),
+      chatState: state,
+      options,
+      options2,
+      triggerGeneration,
+      continuable,
+      sending: false,
+      chatError: null,
+      // The thread already exists — never fire the greeting kickoff on resume.
+      kickoffDone: true,
+    })
+  },
+
+  pollVerification: async (sessionId: string) => {
+    // Skip while a normal send is mid-flight to avoid interleaving replies.
+    if (get().sending) return
+    try {
+      const res = await pollVerification(sessionId)
+      if (res.reply == null) return // not verified yet — nothing to show
+      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
+      set(state => ({
+        messages: [
+          ...state.messages,
+          { id: uid(), role: 'assistant', text: res.reply as string },
+        ],
+        chatState: res.state,
+        options,
+        options2,
+        triggerGeneration,
+        continuable,
+      }))
+    } catch {
+      // Polling is best-effort — a transient failure just retries next tick.
     }
   },
 

@@ -4,6 +4,8 @@ import type {
   CreateSessionResponse,
   ChatResponse,
   GenerationStatus,
+  SessionDetailResponse,
+  VerificationPollResponse,
 } from './types'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
@@ -73,8 +75,17 @@ export function sendChat(sessionId: string, message: string): Promise<ChatRespon
   })
 }
 
-export function getSession(token: string): Promise<CreateSessionResponse> {
-  return request<CreateSessionResponse>(`/sessions/${token}`)
+export function getSession(token: string): Promise<SessionDetailResponse> {
+  return request<SessionDetailResponse>(`/sessions/${token}`)
+}
+
+/**
+ * Poll for out-of-band email verification while the chat waits at verify_email.
+ * `reply` is null until the customer clicks the emailed link; then it carries
+ * Ricardo's confirmation and `state` has advanced.
+ */
+export function pollVerification(sessionId: string): Promise<VerificationPollResponse> {
+  return request<VerificationPollResponse>(`/chat/${sessionId}/verification`)
 }
 
 /**

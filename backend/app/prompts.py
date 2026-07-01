@@ -63,7 +63,8 @@ STATE_PROMPTS: dict[str, str] = {
     "ask_email": "Politely ask for their email so you can send the finished design.",
     "verify_email": "Let them know you've sent a quick verification email and ask them to click "
     "the link to confirm. Mention to check spam.",
-    "email_verified": "Thank them for confirming their email.",
+    "email_verified": "Warmly confirm their email is now verified and let them know their "
+    "design is on its way to their inbox for review.",
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
     "quote_requested": "Let them know one of the MadHats team will be in touch with a quote shortly.",
     "upsell_prompt": "Warmly ask if they'd like to add the design to another part of the cap, "
@@ -199,7 +200,8 @@ CANNED_REPLIES: dict[str, str] = {
         "I've sent a quick verification to your inbox — just click the link to confirm. "
         "Check your spam folder if you don't see it!"
     ),
-    "email_verified": "Email confirmed, thanks!",
+    "email_verified": "Your email's verified — thank you! Your design is on its way to your "
+    "inbox now for review.",
     "send_preview_email": "Your design is on its way to your inbox now.",
     "quote_requested": "One of the MadHats team will be in touch with your quote shortly.",
     "upsell_prompt": (
@@ -253,18 +255,73 @@ This link expires in 15 minutes. If you didn't request this, you can ignore this
 — Ricardo, MadHats AI Design Studio
 """
 
-PREVIEW_EMAIL_SUBJECT = "Your MadHats design preview is ready"
+PREVIEW_EMAIL_SUBJECT = "Your MadHats design is ready to review 🎉"
 
-PREVIEW_EMAIL_BODY = """Hi {name},
+# One-line brief echoed back to the customer in the preview email.
+# Filled with .format(product=, decoration=, placement=, quantity=).
+PREVIEW_EMAIL_BRIEF = (
+    "Your custom cap design is ready to review. We've put together a preview "
+    "based on your brief — {product}, {decoration}, {placement} placement, {quantity} pieces."
+)
 
-Here's the preview of your custom cap design:
-
-{image_url}
-
-This is a watermarked preview for review only. One of our team will be in touch shortly
-with your quote.
-
-— Ricardo, MadHats AI Design Studio
+# HTML preview email — mirrors the Figma "E1 — Email Template (Design Delivery)"
+# frame (node 22:2). Email-client-safe: table layout + inline styles only, no
+# flexbox/absolute positioning. Uses string.Template ($placeholders) so the
+# inline CSS braces don't need escaping. All interpolated values are
+# HTML-escaped by the caller (app.services.email).
+PREVIEW_EMAIL_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Your MadHats design</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:14px 24px;">
+          <div style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px 0 32px;">
+          <div style="font-size:20px;font-weight:bold;color:#1a1a2e;">Hi $name,</div>
+          <p style="font-size:13px;line-height:20px;color:#6b6b80;margin:12px 0 0 0;">$brief</p>
+        </td></tr>
+        <tr><td style="padding:24px 32px 0 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fcf7f2;border:2px solid #ff5c00;border-radius:12px;">
+            <tr><td align="center" style="padding:16px;">
+              <img src="$image_url" alt="Your MadHats design preview" width="100%" style="display:block;width:100%;max-width:504px;border-radius:8px;" />
+              <div style="margin-top:10px;font-size:10px;color:#9e9eab;">Watermarked preview</div>
+            </td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:24px 32px 0 32px;">
+          <hr style="border:none;border-top:1px solid #e0e1ea;margin:0;" />
+        </td></tr>
+        <tr><td style="padding:16px 32px 0 32px;">
+          <div style="font-size:18px;font-weight:bold;color:#1a1a2e;">What would you like to do?</div>
+          <p style="font-size:13px;color:#6b6b80;margin:8px 0 0 0;">Choose an option below — our team is ready to help.</p>
+        </td></tr>
+        <tr><td style="padding:20px 32px 0 32px;">
+          <a href="$quote_url" style="display:block;background:#ff5c00;color:#ffffff;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:16px;border-radius:10px;box-shadow:0 4px 12px rgba(255,92,0,0.35);">&#10003;&nbsp;&nbsp;Yes, I love it — request a quote</a>
+        </td></tr>
+        <tr><td style="padding:12px 32px 0 32px;">
+          <a href="$edit_url" style="display:block;background:#ffffff;border:1.5px solid #ff5c00;color:#bf2e00;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:14px;border-radius:10px;">&#9998;&nbsp;&nbsp;I'd like to make some edits</a>
+        </td></tr>
+        <tr><td style="padding:12px 32px 0 32px;">
+          <a href="$talk_url" style="display:block;background:#f3f4f6;border:1px solid #e0e1ea;color:#6b6b80;text-decoration:none;text-align:center;font-size:13px;padding:14px;border-radius:10px;">&#128172;&nbsp;&nbsp;Talk to our team for more customisation options</a>
+        </td></tr>
+        <tr><td style="padding:24px 32px 28px 32px;">
+          <hr style="border:none;border-top:1px solid #e0e1ea;margin:0 0 16px 0;" />
+          <div style="font-size:12px;color:#9e9eab;">— Ricardo, MadHats AI Design Studio</div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
 """
 
 SALES_QUOTE_EMAIL_SUBJECT = "New design lead: {product_name} x{quantity}"
@@ -283,4 +340,68 @@ Placement: {placement_zone} / {placement_position}
 Design image (internal, clean): {image_url}
 
 Please prepare and send the quote directly to the customer.
+"""
+
+# ---------------------------------------------------------------------------
+# Verification landing pages (rendered in the browser when the customer clicks
+# the link in the verification email). These are HTML pages, not emails.
+# IMPORTANT: the success page intentionally shows NO design image or preview —
+# it only confirms the email and promises the design by email shortly.
+# ---------------------------------------------------------------------------
+
+VERIFICATION_SUCCESS_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Email verified — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:18px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:40px 28px;text-align:center;">
+          <div style="font-size:44px;line-height:1;">&#9989;</div>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Your email is now verified</h1>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming — we'll send your design across shortly. Keep an eye on your inbox.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+# Filled with .format(message=...) for expired / invalid / already-used links.
+VERIFICATION_ERROR_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verification problem — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:18px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:40px 28px;text-align:center;">
+          <div style="font-size:44px;line-height:1;">&#9888;&#65039;</div>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">We couldn't verify that link</h1>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">{message}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
 """

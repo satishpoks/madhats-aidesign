@@ -241,6 +241,12 @@ Each subagent should:
 
 ## 13. Quick Reference — Common Commands
 
+> **How this dev runs the backend:** `docker compose up` (NOT a bare `uvicorn` on
+> the host). `.env` is read at container start, so **any `.env` change requires a
+> container restart** — `docker compose up` reloads it; a running `--reload` worker
+> does NOT pick up new env vars. Env changes are invisible until the container is
+> recreated: `docker compose up -d --force-recreate backend` (or down/up).
+
 ```bash
 # Local Supabase stack (Postgres + Storage + Studio) — Docker must be running
 cd backend

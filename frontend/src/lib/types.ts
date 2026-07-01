@@ -32,6 +32,42 @@ export interface ChatResponse {
   data: Record<string, unknown>
 }
 
+/** One persisted chat turn, as returned by GET /sessions/{token}. */
+export interface ChatMessageOut {
+  role: 'user' | 'assistant'
+  content: string
+  state_before: string
+  state_after: string
+  created_at: string
+}
+
+/** Full session detail (GET /sessions/{token}) — used to resume a session. */
+export interface SessionDetailResponse {
+  session_id: string
+  share_token: string
+  state: string
+  channel: string
+  entry_path: string
+  product_ref: {
+    product_id?: string
+    name?: string
+    style?: string
+    colour?: string
+    reference_image_url?: string
+  } | null
+  collected: Record<string, unknown>
+  status: string
+  messages: ChatMessageOut[]
+  data: Record<string, unknown>
+}
+
+/** Verification poll (GET /chat/{id}/verification). reply is null until verified. */
+export interface VerificationPollResponse {
+  reply: string | null
+  state: string
+  data: Record<string, unknown>
+}
+
 export interface GenerationStatus {
   status: string
   image_url: string

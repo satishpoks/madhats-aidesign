@@ -5,8 +5,12 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps import limiter
 from app.config import settings
-from app.models.message import ChatRequest, ChatResponse
-from app.services.conversation.orchestrator import SessionNotFound, handle_message
+from app.models.message import ChatRequest, ChatResponse, VerificationPollResponse
+from app.services.conversation.orchestrator import (
+    SessionNotFound,
+    check_verification,
+    handle_message,
+)
 from app.services.moderation import ModerationError, check_text
 
 router = APIRouter(tags=["chat"])
@@ -27,3 +31,17 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
         raise HTTPException(status_code=404, detail="Session not found") from exc
 
     return ChatResponse(**result)
+
+
+@router.get("/chat/{session_id}/verification", response_model=VerificationPollResponse)
+async def poll_verification(session_id: str) -> VerificationPollResponse:
+    """Cheap poll used by the chat while it waits at VERIFY_EMAIL.
+
+    Not rate-limited (the client polls every few seconds) — it only reads and,
+    at most once, advances the conversation past verification.
+    """
+    try:
+        result = await check_verification(session_id)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+    return VerificationPollResponse(**result)

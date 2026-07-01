@@ -4,6 +4,9 @@ PII safety: recipient addresses and customer names are NEVER written to logs.
 """
 from __future__ import annotations
 
+import html as html_lib
+from string import Template
+
 import structlog
 
 from app import prompts
@@ -17,12 +20,12 @@ except ImportError:  # pragma: no cover
     resend = None
 
 
-def _send(to: str, subject: str, body: str) -> bool:
+def _dispatch(to: str, subject: str, html: str) -> bool:
+    """Send a ready-to-go HTML body via Resend. Best-effort (never raises)."""
     if not settings.resend_api_key or resend is None:
         log.info("email_skipped_no_provider", subject=subject)
         return False
     resend.api_key = settings.resend_api_key
-    html = "<pre style='font-family:inherit;white-space:pre-wrap'>" + body + "</pre>"
     try:
         resend.Emails.send(
             {
@@ -49,14 +52,40 @@ def _send(to: str, subject: str, body: str) -> bool:
     return True
 
 
+def _send(to: str, subject: str, body: str) -> bool:
+    """Send a plain-text body (wrapped in <pre> for a mono, line-preserving look)."""
+    html = "<pre style='font-family:inherit;white-space:pre-wrap'>" + body + "</pre>"
+    return _dispatch(to, subject, html)
+
+
 def send_verification_email(to: str, name: str, verify_url: str) -> bool:
     body = prompts.VERIFICATION_EMAIL_BODY.format(name=name, verify_url=verify_url)
     return _send(to, prompts.VERIFICATION_EMAIL_SUBJECT, body)
 
 
-def send_preview_email(to: str, name: str, image_url: str) -> bool:
-    body = prompts.PREVIEW_EMAIL_BODY.format(name=name, image_url=image_url)
-    return _send(to, prompts.PREVIEW_EMAIL_SUBJECT, body)
+def send_preview_email(
+    to: str,
+    name: str,
+    image_url: str,
+    brief: str = "",
+    quote_url: str = "",
+    edit_url: str = "",
+    talk_url: str = "",
+) -> bool:
+    """Send the branded, inline-image design preview (Figma E1 template).
+
+    All caller-supplied values are HTML-escaped before templating so a name or
+    URL can never break out of the markup.
+    """
+    html = Template(prompts.PREVIEW_EMAIL_HTML).substitute(
+        name=html_lib.escape(name or "there"),
+        brief=html_lib.escape(brief),
+        image_url=html_lib.escape(image_url, quote=True),
+        quote_url=html_lib.escape(quote_url or "#", quote=True),
+        edit_url=html_lib.escape(edit_url or "#", quote=True),
+        talk_url=html_lib.escape(talk_url or "#", quote=True),
+    )
+    return _dispatch(to, prompts.PREVIEW_EMAIL_SUBJECT, html)
 
 
 def send_quote_to_sales(

@@ -14,13 +14,35 @@ vi.mock('../lib/api', () => ({
     colour: 'Black',
     style: 'snapback',
     reference_image_url: 'https://example.com/cap.jpg',
-    view_images: {},
+    view_images: { front: 'https://example.com/front.jpg' },
     placement_zones: ['front'],
     decoration_types: ['embroidery'],
   } satisfies Product),
+  getSession: vi.fn().mockResolvedValue({
+    session_id: 'sess-resume-1',
+    share_token: 'tok-resume-1',
+    state: 'upsell_prompt',
+    channel: 'web',
+    entry_path: 'pick_first',
+    product_ref: {
+      product_id: 'prod-1',
+      name: 'Classic Snapback',
+      style: 'snapback',
+      colour: 'Black',
+      reference_image_url: 'https://example.com/cap.jpg',
+    },
+    collected: { name: 'Sarah' },
+    status: 'draft',
+    messages: [
+      { role: 'assistant', content: 'Hi! What is your name?', state_before: 'greeting', state_after: 'ask_name', created_at: '2026-01-01T00:00:00Z' },
+      { role: 'user', content: 'Sarah', state_before: 'ask_name', state_after: 'ask_name', created_at: '2026-01-01T00:00:01Z' },
+    ],
+    data: { options: ['Yes, add more', "No, I'm happy"] },
+  }),
 }))
 
 import { useSessionStore } from '../store/sessionStore'
+import { useChatStore } from '../store/chatStore'
 
 const mockProduct: Product = {
   id: 'prod-1',
@@ -123,6 +145,31 @@ describe('bootstrapFromUrl', () => {
       value: { search: '' },
       writable: true,
     })
+  })
+
+  it('resumes an existing session from a ?session=<token> link (edit CTA)', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { search: '?session=tok-resume-1' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+
+    const s = useSessionStore.getState()
+    expect(s.view).toBe('session')
+    expect(s.sessionId).toBe('sess-resume-1')
+    expect(s.shareToken).toBe('tok-resume-1')
+    expect(s.state).toBe('upsell_prompt')
+    // Full product (with view_images) is pulled for the left-pane angles.
+    expect(s.productRef?.view_images.front).toBe('https://example.com/front.jpg')
+
+    // The chat thread is rehydrated from history, with the resumed state's chips.
+    const chat = useChatStore.getState()
+    expect(chat.messages.map(m => m.text)).toEqual(['Hi! What is your name?', 'Sarah'])
+    expect(chat.chatState).toBe('upsell_prompt')
+    expect(chat.options).toEqual(['Yes, add more', "No, I'm happy"])
+    expect(chat.kickoffDone).toBe(true) // never re-fire the greeting on resume
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
   })
 
   it('warns via console.warn when bootstrap fails so broken embed URLs are diagnosable', async () => {
