@@ -68,3 +68,6 @@ Desktop.ini
 # ── Uploads / generated images (local dev) ───────────────────────────────────
 backend/uploads/
 backend/generated/
+
+# ── Graphify output (generated knowledge-graph artifacts) ────────────────────
+graphify-out/
