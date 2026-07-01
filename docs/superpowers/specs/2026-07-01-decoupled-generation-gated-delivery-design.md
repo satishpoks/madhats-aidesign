@@ -174,6 +174,33 @@ alter table generations  add column if not exists attempts           int  not nu
 - `GenerationPanel` shows reassurance on `done`, `failed`, and `timeout`; never shows
   a "failed" message.
 
+## 6b. Follow-up: Delivery Backfill / Retry (self-heal)
+
+**Problem it closes:** `maybe_send_preview` sets `preview_email_sent` only on a
+successful send, but nothing re-invokes it once both async tracks have already
+fired. If Resend was down at that moment, the design stays undelivered forever.
+
+**Design (admin-endpoint triggered — no worker infra):**
+
+- New `delivery.backfill_pending(limit: int = 100, max_age_hours: int = 72) -> dict`:
+  - Selects `leads` where `email_verified = true AND preview_email_sent = false`,
+    verified within `max_age_hours` (so a long-dead lead is never retried forever),
+    newest first, capped at `limit`.
+  - For each, calls the existing idempotent `maybe_send_preview(session_id)`; tallies
+    `{"scanned": n, "delivered": d, "still_pending": p}`. No PII in logs
+    (session_id / lead_id UUIDs only).
+  - Safe to run repeatedly: gate 3 skips already-sent rows; a still-failing send
+    leaves the flag false for the next run.
+- New route `POST /admin/deliveries/backfill` in a new `app/api/routes/admin_deliveries.py`,
+  gated by `Depends(require_admin)` (X-Admin-Secret), registered in `app/main.py`.
+  Optional `limit` / `max_age_hours` query params. Returns the tally. Intended to be
+  invoked by an external scheduler (Railway cron) or manually.
+
+**Tests:** a lead that is verified + has a complete image + `preview_email_sent=false`
+is delivered and its flag flips; an already-sent lead is skipped; an over-age lead is
+excluded; a lead whose send fails stays pending (flag false) for a later run; the route
+is gated by X-Admin-Secret.
+
 ## 7. Rollout
 
 - Migration is additive (nullable / defaulted columns) — safe to apply before deploy.
