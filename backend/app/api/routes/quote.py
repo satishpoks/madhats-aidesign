@@ -108,6 +108,11 @@ async def quote_page(token: str) -> HTMLResponse:
     except leads_service.QuoteTokenError:
         return _error_page()
 
+    # Already submitted: clicking the email link again shows an "already
+    # requested" page, not the editable form — no duplicate submission.
+    if lead.get("quote_confirmed"):
+        return HTMLResponse(prompts.QUOTE_ALREADY_HTML)
+
     sb = get_supabase()
     collected = session.get("collected") or {}
     product_ref = session.get("product_ref") or {}
