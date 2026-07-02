@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  /* Opt out of OS/Chrome auto-dark: this is a light-only UI, so tell the browser
+     to render native controls (inputs, scrollbars, selection) and its
+     force-dark heuristics for the light scheme. Without this, a user whose
+     system/browser is in dark mode sees the whole page darkened. */
+  :root {
+    color-scheme: light;
+  }
   body {
     @apply bg-base text-textPrimary font-sans;
   }

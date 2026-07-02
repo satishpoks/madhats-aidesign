@@ -13,12 +13,18 @@ interface UsePushToTalk {
   stop: () => void
 }
 
-/** True when the currently focused element should swallow the spacebar itself. */
-function focusIsInteractive(): boolean {
+/**
+ * True when the focused element needs the spacebar for text entry, so we must
+ * NOT hijack it for push-to-talk. Buttons are deliberately excluded: a chip or
+ * the Send button keeps focus after a click, and the user still expects
+ * "hold space to talk" to work there (we prevent the button's own space
+ * activation instead — see onKeyDown).
+ */
+function focusIsTextEntry(): boolean {
   const el = document.activeElement as HTMLElement | null
   if (!el) return false
   const tag = el.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return true
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   if (el.isContentEditable) return true
   return false
 }
@@ -46,7 +52,9 @@ export function usePushToTalk(
     function onKeyDown(e: KeyboardEvent) {
       if (e.code !== 'Space' && e.key !== ' ') return
       if (e.repeat) return
-      if (focusIsInteractive()) return
+      if (focusIsTextEntry()) return
+      // Prevent the default even before the holding guard so a focused button
+      // never receives its own space activation while we're driving PTT.
       e.preventDefault()
       if (holdingRef.current) return
       holdingRef.current = true

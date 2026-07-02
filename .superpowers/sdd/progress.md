@@ -1,22 +1,26 @@
-# SDD progress — decoupled generation + gated delivery
-BASE: 32f670b7f8a03e17f7048e5834b2063f98d6c43b
+# SDD progress — Frontend Light-Theme Redesign
+Plan: docs/superpowers/plans/2026-07-02-frontend-light-theme-redesign.md
+Branch: feat/frontend-light-theme
+BASE: 2a602bb35b64d11909fce51f95235b5effe328da
 
-Task 1: complete (commits 32f670b..eab8add, review clean — Spec ✅, Quality Approved)
-  Carry-forward to Task 2:
-  - reword misleading idempotency-recheck comment in delivery.py (or add cheap re-query)
-  - worker's maybe_send_preview call must be guarded so a delivery error can't mark a COMPLETE generation failed
-  Minor (final-review triage): add test for quote_request_sent=True & preview_email_sent=False mixed state; multi-generation 'latest complete' UX note (out of scope)
+Task 1: complete (commits 2a602bb..094fc94, review clean — Spec ✅, Quality Approved). 65 tests pass. Config/CSS only.
+Task 2: complete (commits 094fc94..835f9fe, review clean — Spec ✅, Quality Approved). 6/6 hook tests, 71/71 suite. Minor (non-blocking): focus-shift-during-hold edge not unit-tested; test helper type narrowed EventTarget→Element for strict tsc (accepted).
+Task 3: complete (commits 835f9fe..cf03f8f, review clean — Spec ✅, Quality Approved). 72/72 suite, build clean. Minor (non-blocking): brief prose said "click fallback" for mic but binding code is pointer-only (pointerdown covers mouse+touch) — accepted.
+Task 4: complete (commits cf03f8f..2593224, review clean — Spec ✅, Quality Approved). 72/72 suite, build clean. No stray dark red classes remain. Verify navy-header contrast at Task 6 smoke.
+Task 5: complete (commits 2593224..49f2ae0, review clean — Spec ✅, Quality Approved). 72/72 suite, build clean. ApiProductPicker header parity with ChatPanel confirmed.
+Final review (opus, range bd6285f..49f2ae0): Ready to merge = YES. No Critical.
+  Important #1 (FIXING NOW): usePushToTalk.ts effect cleanup doesn't reset holdingRef/stop() when enabled flips mid-hold → one dead Space press (self-heals).
+  Minor #4 (FIXING NOW, cheap): mic button missing onPointerCancel (touch gesture interrupt).
+  Minor #2 (USER DECISION — plan-mandated palette): textMuted #8A90A0 on white ≈2.9:1, fails WCAG AA small-text; textSub #4B5563 would pass.
+  Minor #3 (follow-up): button keeps focus after mic/Send, so "Hold space to talk" hint momentarily inaccurate; blur()/refocus input would fix.
+  Minor #5 (follow-up, OFF ACTIVE PATH): retired WornScreen text-green-400 / StudioCanvas text-red-400 low-contrast on light; only matters if those screens revived.
 
-Task 2: complete (commits eab8add..d44de29, review Spec ✅/Quality Approved; Important test-gap fixed in d44de29)
-  Minor (final-review triage): generic status_code fallback only retries 5xx — a future fal.ai adapter's 429 wouldn't retry (out of scope, Gemini-only now)
+Task 6: complete (verification only, no code). Full suite 72/72 passed; `npm run build` (tsc && vite) clean. Pre-existing act() warnings only. Interactive npm-run-dev smoke deferred to user.
 
-Task 3: complete (commits d44de29..06b842a, review Spec ✅/Quality Approved; only Minor diagnostics notes)
+Final-review fixes applied (commit 0896c71, re-reviewed clean — Spec ✅, Quality Approved): usePushToTalk cleanup now resets holdingRef + stop() mid-hold (+ new teardown test, hook 7/7); mic button gained onPointerCancel. Build clean.
 
-ALL TASKS COMPLETE. Final whole-branch review next (range 32f670b..06b842a).
-
-Final review: Changes needed → fixed in 4e0a1c7 (Important 1 blank-image fallback to clean URL; Important 2 flag only set on real send; Minor 2 PII log). Backend 69 passed.
-Open follow-ups (tickets, not blocking): Minor 1 delivery reads latest lead vs verified-specific lead (only bites with >1 lead/session); Minor 3 cache-hit path leaves attempts=0; Important-2 residual: if BOTH triggers already fired and Resend was down, no self-heal — needs a backfill/retry job later.
-STATUS: branch ready — all suites green (backend 69, frontend 65).
-
-Follow-up: delivery backfill/retry job — complete (commits 0af379e..bb6b762, review Spec ✅/Quality Approved; Minor unused-logger removed). Backend 79 passed.
-Open ticket: add partial index on leads(email_verified, preview_email_sent, verified_at) before lead volume grows (cron query).
+ALL TASKS COMPLETE. Branch feat/frontend-light-theme ready to merge (frontend 73 tests pass, build clean).
+Open items (NOT blocking; surfaced to user):
+  - Minor #2 USER DECISION: textMuted #8A90A0 on white ≈2.9:1 fails WCAG AA small-text (plan-mandated palette). Switch small muted text to textSub #4B5563 to pass.
+  - Minor #3 follow-up: refocus input / blur after mic/Send so "Hold space to talk" hint stays accurate.
+  - Minor #5 follow-up (off active path): retired WornScreen/StudioCanvas low-contrast green/red on light.

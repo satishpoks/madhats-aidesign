@@ -765,8 +765,10 @@ describe('ChatPanel pin annotator', () => {
 describe('ChatPanel product header', () => {
   it('displays the product name and colour', async () => {
     render(<ChatPanel />)
-    expect(screen.getByText('Classic Snapback')).toBeInTheDocument()
-    expect(screen.getByText('Black')).toBeInTheDocument()
+    // Name appears in the header breadcrumb and the left-panel viewer title.
+    expect(screen.getAllByText(/Classic Snapback/).length).toBeGreaterThan(0)
+    // Colour is shown alongside the name in the viewer title ("name — colour").
+    expect(screen.getByText(/Black/)).toBeInTheDocument()
   })
 })
 
@@ -775,7 +777,7 @@ describe('ChatPanel product header', () => {
 // ---------------------------------------------------------------------------
 
 describe('ChatPanel voice input hint', () => {
-  it('shows the hold-space-to-talk hint when speech is supported', async () => {
+  it('shows the press-space-to-talk hint when speech is supported', async () => {
     // jsdom lacks SpeechRecognition; define a stub so `supported` is true.
     ;(window as unknown as Record<string, unknown>).SpeechRecognition = class {
       lang = ''; interimResults = false; continuous = false
@@ -783,7 +785,7 @@ describe('ChatPanel voice input hint', () => {
       start() {} stop() {} abort() {}
     }
     render(<ChatPanel />)
-    expect(await screen.findByText(/hold space to talk/i)).toBeInTheDocument()
+    expect(await screen.findByText(/press space to talk/i)).toBeInTheDocument()
     delete (window as unknown as Record<string, unknown>).SpeechRecognition
   })
 })

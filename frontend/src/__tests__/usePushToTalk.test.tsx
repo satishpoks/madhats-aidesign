@@ -52,13 +52,17 @@ describe('usePushToTalk', () => {
     expect(start).not.toHaveBeenCalled()
   })
 
-  it('does not start when a button is focused', () => {
+  it('starts when a button is focused and suppresses the button activation', () => {
+    // A chip/Send button keeps focus after a click; "hold space to talk" must
+    // still start voice (and must NOT re-activate that button via the space key).
     const btn = document.createElement('button')
     document.body.appendChild(btn)
     btn.focus()
     renderHook(() => usePushToTalk(vi.fn()))
-    pressSpace(btn)
-    expect(start).not.toHaveBeenCalled()
+    const evt = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })
+    btn.dispatchEvent(evt)
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(evt.defaultPrevented).toBe(true)
   })
 
   it('is a no-op when speech is unsupported', () => {
