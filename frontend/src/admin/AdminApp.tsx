@@ -7,6 +7,9 @@ import { SubmissionDetailView } from './views/SubmissionDetailView'
 import { QuoteRequestsView } from './views/QuoteRequestsView'
 import { StoresView } from './views/StoresView'
 import { OpsView } from './views/OpsView'
+import { SessionsView } from './views/SessionsView'
+import { SessionTranscriptView } from './views/SessionTranscriptView'
+import { DiagnosticsView } from './views/DiagnosticsView'
 
 export default function AdminApp() {
   return (
@@ -25,6 +28,9 @@ export default function AdminApp() {
           <Route path="submissions" element={<SubmissionsView />} />
           <Route path="submissions/:id" element={<SubmissionDetailView />} />
           <Route path="quote-requests" element={<QuoteRequestsView />} />
+          <Route path="sessions" element={<SessionsView />} />
+          <Route path="sessions/:id" element={<SessionTranscriptView />} />
+          <Route path="diagnostics" element={<DiagnosticsView />} />
           <Route path="stores" element={<StoresView />} />
           <Route path="ops" element={<OpsView />} />
         </Route>

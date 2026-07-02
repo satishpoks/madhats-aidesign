@@ -4,6 +4,8 @@ import { useAdminStore } from './adminStore'
 const NAV = [
   { to: '/admin/submissions', label: 'Approval queue' },
   { to: '/admin/quote-requests', label: 'Quote requests' },
+  { to: '/admin/sessions', label: 'Sessions' },
+  { to: '/admin/diagnostics', label: 'Diagnostics' },
   { to: '/admin/stores', label: 'Stores' },
   { to: '/admin/ops', label: 'Ops' },
 ]

@@ -243,11 +243,24 @@ Each subagent should:
 
 ## 13. Quick Reference — Common Commands
 
-> **How this dev runs the backend:** `docker compose up` (NOT a bare `uvicorn` on
-> the host). `.env` is read at container start, so **any `.env` change requires a
-> container restart** — `docker compose up` reloads it; a running `--reload` worker
-> does NOT pick up new env vars. Env changes are invisible until the container is
-> recreated: `docker compose up -d --force-recreate backend` (or down/up).
+> **How this dev runs the stack:** **both** `backend` and `frontend` run in Docker
+> via `docker compose up` (see `docker-compose.yml`) — NOT bare `uvicorn`/`npm run
+> dev` on the host. Backend → `http://localhost:8000`, frontend (Vite dev + HMR) →
+> `http://localhost:5173`. Supabase runs on the **host** via `npx supabase start`;
+> the backend container reaches it at `host.docker.internal:54321`.
+>
+> - **`.env` changes** (backend): read only at container start. A running `--reload`
+>   worker does NOT pick up new env vars — recreate: `docker compose up -d
+>   --force-recreate backend` (or down/up).
+> - **New dependencies** (the gotcha): the frontend mounts an **anonymous volume at
+>   `/app/node_modules`** (compose line ~30) so the container keeps its own Linux
+>   deps. Installing a package on the **host** (`npm install x`) updates
+>   `package.json` but NOT the container's `node_modules` → Vite fails with
+>   `Failed to resolve import "x"`. Fix: install **inside** the container, then
+>   restart it so Vite re-optimizes:
+>   `docker compose exec frontend npm install` → `docker compose restart frontend`.
+>   Same idea for backend Python deps: rebuild the image (`docker compose build
+>   backend`) or `pip install` inside the running container.
 
 ```bash
 # Local Supabase stack (Postgres + Storage + Studio) — Docker must be running
@@ -265,10 +278,13 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload                    # http://localhost:8000/docs
 pytest -q                                        # tests (no Alembic — SQL migrations only)
 
-# Frontend (React/Vite — Ricardo chatbot)
+# Frontend (React/Vite — Ricardo chatbot) — runs in the `frontend` container via
+# `docker compose up`. Host `npm run dev` also works, but new deps must be installed
+# INSIDE the container (see the node_modules-volume gotcha in the callout above):
+docker compose exec frontend npm install <pkg>   # add a dep to the running container
+docker compose restart frontend                  # Vite re-optimizes on restart
+# Host-side (build/tests only — node_modules is per-platform):
 cd frontend
-npm install
-npm run dev                                      # http://localhost:5173
 npm run build
 npx vitest run                                   # tests (npm test = watch mode, hangs)
 ```

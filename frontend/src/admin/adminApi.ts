@@ -160,3 +160,148 @@ export function backfillDeliveries(limit: number, maxAgeHours: number): Promise<
     { method: 'POST' },
   )
 }
+
+// ---------------------------------------------------------------------------
+// Diagnostics: session transcripts, generation audit logs, system health
+// ---------------------------------------------------------------------------
+
+export interface SessionListItem {
+  id: string
+  store_id: string | null
+  share_token: string | null
+  state: string | null
+  status: string | null
+  channel: string | null
+  entry_path: string | null
+  product: string | null
+  created_at: string | null
+}
+
+export interface Paginated<T> {
+  items: T[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface ChatMessage {
+  role: string
+  content: string
+  state_before: string
+  state_after: string
+  created_at: string
+}
+
+export interface SessionGeneration {
+  id: string
+  tier: string
+  model: string
+  status: string
+  image_url: string | null
+  watermarked_url: string | null
+  cost_usd: number | null
+  latency_ms: number | null
+  created_at: string
+}
+
+export interface SessionLead {
+  id: string
+  name: string | null
+  email: string | null
+  phone: string | null
+  email_verified: boolean
+  verified_at: string | null
+  created_at: string
+}
+
+export interface SessionDetail {
+  id: string
+  store_id: string | null
+  share_token: string | null
+  state: string | null
+  status: string | null
+  channel: string | null
+  entry_path: string | null
+  product: string | null
+  product_ref: Record<string, unknown> | null
+  collected: Record<string, unknown>
+  created_at: string | null
+  messages: ChatMessage[]
+  generations: SessionGeneration[]
+  leads: SessionLead[]
+}
+
+export interface GenerationLog {
+  id: string
+  generation_id: string | null
+  job_id: string | null
+  session_id: string | null
+  attempt: number
+  tier: string | null
+  status: string
+  model: string | null
+  full_prompt: string
+  params: Record<string, unknown> | null
+  reference_image_url: string | null
+  uploaded_asset_url: string | null
+  output_image_url: string | null
+  response_meta: Record<string, unknown> | null
+  error: string | null
+  latency_ms: number | null
+  request_at: string
+  response_at: string | null
+}
+
+export interface Diagnostics {
+  app_env: string
+  providers: {
+    image_provider_preview: string
+    image_provider_final: string
+    gemini_preview_model: string
+    gemini_final_model: string
+    claude_haiku_model: string
+    gemini_api_key_set: boolean
+    anthropic_api_key_set: boolean
+    resend_api_key_set: boolean
+    sentry_enabled: boolean
+  }
+  counts: {
+    stores: number
+    sessions: number
+    generations: number
+    generations_failed: number
+    leads: number
+    leads_verified: number
+    submissions_pending: number
+  }
+}
+
+export function listSessions(
+  limit = 50,
+  offset = 0,
+  opts?: { state?: string; storeId?: string },
+): Promise<Paginated<SessionListItem>> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (opts?.state) params.set('state', opts.state)
+  if (opts?.storeId) params.set('store_id', opts.storeId)
+  return request<Paginated<SessionListItem>>(`/admin/sessions?${params.toString()}`)
+}
+
+export function getSessionDetail(id: string): Promise<SessionDetail> {
+  return request<SessionDetail>(`/admin/sessions/${id}`)
+}
+
+export function listGenerationLogs(
+  limit = 100,
+  offset = 0,
+  opts?: { sessionId?: string; status?: string },
+): Promise<Paginated<GenerationLog>> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+  if (opts?.sessionId) params.set('session_id', opts.sessionId)
+  if (opts?.status) params.set('status', opts.status)
+  return request<Paginated<GenerationLog>>(`/admin/generation-logs?${params.toString()}`)
+}
+
+export function getDiagnostics(): Promise<Diagnostics> {
+  return request<Diagnostics>('/admin/diagnostics')
+}
