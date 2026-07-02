@@ -70,6 +70,7 @@ def _tables(**overrides):
            "watermarked_url": "generations/wm.png", "image_url": "generations/clean.png",
            "created_at": "2026-07-02T00:00:00Z"}
     lead.update(overrides.get("lead", {}))
+    gen.update(overrides.get("gen", {}))
     return {"leads": [lead], "design_sessions": [session], "generations": [gen]}, lead, session
 
 
@@ -108,6 +109,22 @@ def test_get_renders_confirm_page(client):
     assert 'name="quantity"' in body
     assert 'value="24"' in body
     assert 'name="notify_by_phone"' in body
+    assert "Watermarked preview" in body
+
+
+def test_get_falls_back_to_design_preview_caption_when_not_watermarked(client):
+    # When watermarking failed for this generation (no watermarked_url), the
+    # GET page shows the clean image_url but must NOT mislabel it as watermarked.
+    tables, _lead, _session = _tables(gen={"watermarked_url": None})
+    client.install(tables)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "Design preview" in body
+    assert "Watermarked preview" not in body
 
 
 def test_get_bad_token_renders_error(client):

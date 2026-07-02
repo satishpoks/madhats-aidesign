@@ -1,4 +1,5 @@
-"""The quote link TTL is configurable via env, defaulting to 30 days."""
+"""Asserts the quote link TTL defaults to 30 days (2592000 seconds) when no
+env override is set."""
 from __future__ import annotations
 
 

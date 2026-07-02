@@ -142,9 +142,10 @@ def maybe_send_preview(session_id: str) -> bool:
         placement=(collected.get("placement_zone") or "front panel").replace("_", " "),
         quantity=collected.get("quantity") or "?",
     )
-    # CTA links (Figma E1). "Edit" reopens the chatbot and resumes this session
-    # (keyed by its share token); quote / talk are best-effort mailto fallbacks
-    # to the Studio address (no dedicated customer endpoints yet). The sales
+    # CTA links (Figma E1). "Quote" links to the server-rendered /quote/{token}
+    # Request-a-Quote page; "edit" reopens the chatbot and resumes this session
+    # (keyed by its share token); "talk" is a best-effort mailto fallback to the
+    # Studio address (no dedicated customer endpoint for it yet). The sales
     # team is also notified automatically below.
     edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
     mailto = f"mailto:{settings.resend_from_address}"

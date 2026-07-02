@@ -74,10 +74,16 @@ def _sign(path: str | None) -> str:
     return path if path.startswith("http") else generate_signed_url(path)
 
 
-def _render_confirm_page(token: str, product: dict, collected: dict, image_url: str) -> str:
+def _render_confirm_page(
+    token: str,
+    product: dict,
+    collected: dict,
+    image_url: str,
+    caption: str = "Watermarked preview",
+) -> str:
     esc = lambda v: html_lib.escape(str(v), quote=True)  # noqa: E731
     image_block = (
-        Template(prompts.QUOTE_IMAGE_BLOCK).substitute(image_url=esc(image_url))
+        Template(prompts.QUOTE_IMAGE_BLOCK).substitute(image_url=esc(image_url), caption=esc(caption))
         if image_url
         else ""
     )
@@ -107,8 +113,15 @@ async def quote_page(token: str) -> HTMLResponse:
     product_ref = session.get("product_ref") or {}
     product = get_product(product_ref.get("product_id", "")) or product_ref
     gen = _latest_complete_gen(sb, lead["session_id"])
+    # Customer-facing page: show the WATERMARKED image so it can't be lifted as
+    # a clean, unbranded asset before the sale is confirmed. Falls back to the
+    # clean image_url if watermarking failed for this generation.
     image_url = _sign((gen or {}).get("watermarked_url") or (gen or {}).get("image_url")) if gen else ""
-    return HTMLResponse(_render_confirm_page(token, product, collected, image_url))
+    # Only claim "Watermarked preview" when this generation actually has a
+    # watermarked_url — otherwise we're silently showing the clean image and
+    # must not mislabel it as watermarked.
+    caption = "Watermarked preview" if (gen or {}).get("watermarked_url") else "Design preview"
+    return HTMLResponse(_render_confirm_page(token, product, collected, image_url, caption))
 
 
 def _parse_int(raw: str) -> int | None:
@@ -171,6 +184,9 @@ async def submit_quote(
         product_ref = session.get("product_ref") or {}
         product = get_product(product_ref.get("product_id", "")) or product_ref
         gen = _latest_complete_gen(sb, lead["session_id"])
+        # Internal sales notification: use the CLEAN (unwatermarked) render so
+        # the team can prep the real quote/production artwork. Falls back to
+        # the watermarked image if the clean one is missing for this generation.
         image_url = _sign((gen or {}).get("image_url") or (gen or {}).get("watermarked_url")) if gen else ""
         customer = {
             "name": lead["name"],

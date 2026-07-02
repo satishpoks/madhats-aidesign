@@ -510,7 +510,7 @@ QUOTE_IMAGE_BLOCK = """\
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fcf7f2;border:2px solid #ff5c00;border-radius:12px;">
             <tr><td align="center" style="padding:14px;">
               <img src="$image_url" alt="Your MadHats design preview" width="100%" style="display:block;width:100%;max-width:504px;border-radius:8px;" />
-              <div style="margin-top:8px;font-size:10px;color:#9e9eab;">Watermarked preview</div>
+              <div style="margin-top:8px;font-size:10px;color:#9e9eab;">$caption</div>
             </td></tr>
           </table>
         </td></tr>
