@@ -75,4 +75,15 @@ describe('usePushToTalk', () => {
     pressSpace()
     expect(start).not.toHaveBeenCalled()
   })
+
+  it('stops and clears the hold when enabled flips off mid-hold', () => {
+    const { rerender } = renderHook(
+      ({ enabled }) => usePushToTalk(vi.fn(), { enabled }),
+      { initialProps: { enabled: true } },
+    )
+    pressSpace()
+    expect(start).toHaveBeenCalledTimes(1)
+    rerender({ enabled: false })
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 })

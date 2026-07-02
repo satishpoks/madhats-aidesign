@@ -572,6 +572,7 @@ export function ChatPanel() {
               onPointerDown={e => { e.preventDefault(); if (!sending) speech.start() }}
               onPointerUp={() => speech.stop()}
               onPointerLeave={() => { if (speech.listening) speech.stop() }}
+              onPointerCancel={() => speech.stop()}
               disabled={sending}
               aria-label={speech.listening ? 'Listening — release to send' : 'Hold to speak'}
               title={speech.listening ? 'Release to send' : 'Hold to speak'}

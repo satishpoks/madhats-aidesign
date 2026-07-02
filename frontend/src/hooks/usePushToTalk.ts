@@ -66,6 +66,10 @@ export function usePushToTalk(
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      if (holdingRef.current) {
+        holdingRef.current = false
+        stop()
+      }
     }
   }, [supported, enabled, start, stop])
 
