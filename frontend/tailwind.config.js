@@ -4,15 +4,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        base: '#0F0F11',
-        surface: '#1A1A1F',
-        surfaceAlt: '#222228',
-        border: '#2A2A35',
+        base: '#F7F8FA',
+        surface: '#FFFFFF',
+        surfaceAlt: '#EEF0F4',
+        border: '#E5E7EB',
+        ink: '#1E2130',
         accent: '#FF5C00',
         accentHover: '#E64F00',
-        textPrimary: '#F5F5F5',
-        textMuted: '#6B6B7B',
-        textSub: '#9A9AA8',
+        textPrimary: '#1A1D29',
+        textMuted: '#8A90A0',
+        textSub: '#4B5563',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
