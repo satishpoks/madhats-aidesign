@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.deps import require_admin
 from app.config import settings
 from app.db import get_supabase
+from app.services.products import get_product
 
 router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin)])
 
@@ -27,6 +28,17 @@ def _product_name(product_ref: dict | None) -> str | None:
     return product_ref.get("name") or product_ref.get("product_id")
 
 
+def _best_generated_image(generations: list[dict]) -> str | None:
+    """Pick the most recent completed generation's image (watermarked preferred)."""
+    done = [g for g in generations if g.get("status") == "complete" and (g.get("watermarked_url") or g.get("image_url"))]
+    done.sort(key=lambda g: g.get("created_at") or "", reverse=True)
+    for g in done:
+        url = g.get("watermarked_url") or g.get("image_url")
+        if url:
+            return url
+    return None
+
+
 @router.get("/admin/sessions")
 async def list_sessions(
     limit: int = Query(default=50, ge=1, le=200),
@@ -35,8 +47,13 @@ async def list_sessions(
     store_id: str | None = None,
 ) -> dict:
     sb = get_supabase()
+    # Embed the captured lead contact and this session's generations so each row
+    # is a full "lead" — who they are, the cap they picked, and the AI mockups.
     q = sb.table("design_sessions").select(
-        "id, store_id, share_token, state, status, channel, entry_path, product_ref, created_at",
+        "id, store_id, share_token, state, status, channel, entry_path, product_ref, "
+        "collected, created_at, "
+        "leads(name, email, phone, email_verified), "
+        "generations(watermarked_url, image_url, status, created_at)",
         count="exact",
     )
     if state:
@@ -45,20 +62,42 @@ async def list_sessions(
         q = q.eq("store_id", store_id)
     res = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
 
-    items = [
-        {
-            "id": r["id"],
-            "store_id": r.get("store_id"),
-            "share_token": r.get("share_token"),
-            "state": r.get("state"),
-            "status": r.get("status"),
-            "channel": r.get("channel"),
-            "entry_path": r.get("entry_path"),
-            "product": _product_name(r.get("product_ref")),
-            "created_at": r.get("created_at"),
-        }
-        for r in (res.data or [])
-    ]
+    items = []
+    for r in res.data or []:
+        product_ref = r.get("product_ref") or {}
+        collected = r.get("collected") or {}
+        leads = r.get("leads") or []
+        lead = leads[0] if leads else None
+        gens = r.get("generations") or []
+        items.append(
+            {
+                "id": r["id"],
+                "store_id": r.get("store_id"),
+                "share_token": r.get("share_token"),
+                "state": r.get("state"),
+                "status": r.get("status"),
+                "channel": r.get("channel"),
+                "entry_path": r.get("entry_path"),
+                "product": _product_name(product_ref),
+                "reference_image_url": product_ref.get("reference_image_url"),
+                "customer": (
+                    {
+                        "name": lead.get("name"),
+                        "email": lead.get("email"),
+                        "phone": lead.get("phone"),
+                        "email_verified": lead.get("email_verified", False),
+                    }
+                    if lead
+                    else None
+                ),
+                "decoration_type": collected.get("decoration_type"),
+                "placement_zone": collected.get("placement_zone"),
+                "quantity": collected.get("quantity"),
+                "generated_image_url": _best_generated_image(gens),
+                "generation_count": len(gens),
+                "created_at": r.get("created_at"),
+            }
+        )
     return {"items": items, "total": res.count or 0, "limit": limit, "offset": offset}
 
 
@@ -92,6 +131,18 @@ async def get_session_detail(session_id: str) -> dict:
         .execute()
     )
 
+    # 360° product visibility: the session's product_ref only stores the front
+    # reference image, so pull the full catalogue entry for all view angles.
+    product_ref = session.get("product_ref") or {}
+    view_images: dict = {}
+    reference_image_url = product_ref.get("reference_image_url")
+    product_id = product_ref.get("product_id")
+    if product_id:
+        product = get_product(product_id, store_id=session.get("store_id"))
+        if product:
+            view_images = product.get("view_images") or {}
+            reference_image_url = reference_image_url or product.get("reference_image_url")
+
     return {
         "id": session["id"],
         "store_id": session.get("store_id"),
@@ -100,8 +151,10 @@ async def get_session_detail(session_id: str) -> dict:
         "status": session.get("status"),
         "channel": session.get("channel"),
         "entry_path": session.get("entry_path"),
-        "product": _product_name(session.get("product_ref")),
-        "product_ref": session.get("product_ref"),
+        "product": _product_name(product_ref),
+        "product_ref": product_ref,
+        "reference_image_url": reference_image_url,
+        "view_images": view_images,
         "collected": session.get("collected") or {},
         "created_at": session.get("created_at"),
         "messages": msgs.data or [],

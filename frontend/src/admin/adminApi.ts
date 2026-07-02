@@ -165,6 +165,13 @@ export function backfillDeliveries(limit: number, maxAgeHours: number): Promise<
 // Diagnostics: session transcripts, generation audit logs, system health
 // ---------------------------------------------------------------------------
 
+export interface LeadCustomer {
+  name: string | null
+  email: string | null
+  phone: string | null
+  email_verified: boolean
+}
+
 export interface SessionListItem {
   id: string
   store_id: string | null
@@ -174,6 +181,13 @@ export interface SessionListItem {
   channel: string | null
   entry_path: string | null
   product: string | null
+  reference_image_url: string | null
+  customer: LeadCustomer | null
+  decoration_type: string | null
+  placement_zone: string | null
+  quantity: number | null
+  generated_image_url: string | null
+  generation_count: number
   created_at: string | null
 }
 
@@ -224,6 +238,8 @@ export interface SessionDetail {
   entry_path: string | null
   product: string | null
   product_ref: Record<string, unknown> | null
+  reference_image_url: string | null
+  view_images: Record<string, string>
   collected: Record<string, unknown>
   created_at: string | null
   messages: ChatMessage[]
