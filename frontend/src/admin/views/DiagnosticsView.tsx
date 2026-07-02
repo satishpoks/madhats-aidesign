@@ -7,22 +7,14 @@ import {
 } from '../adminApi'
 import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
+import { KpiTile } from '../components/KpiTile'
 import { ErrorBanner } from '../components/ErrorBanner'
-
-function Stat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white p-3">
-      <div className="text-2xl font-semibold text-gray-900">{value}</div>
-      <div className="text-xs text-gray-500">{label}</div>
-    </div>
-  )
-}
 
 function Flag({ label, on }: { label: string; on: boolean }) {
   return (
-    <div className="flex items-center justify-between rounded border border-gray-200 bg-white px-3 py-1.5 text-sm">
-      <span className="text-gray-700">{label}</span>
-      <span className={on ? 'text-green-600' : 'text-gray-400'}>{on ? '● on' : '○ off'}</span>
+    <div className="flex items-center justify-between rounded-lg border border-[#e0e1ea] bg-white px-3 py-1.5 text-sm">
+      <span className="text-[#1a1a2e]">{label}</span>
+      <span className={on ? 'font-medium text-[#0a7a3a]' : 'text-[#6b6b80]'}>{on ? '● on' : '○ off'}</span>
     </div>
   )
 }
@@ -53,26 +45,26 @@ export function DiagnosticsView() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Diagnostics</h1>
+      <h1 className="text-[20px] font-semibold text-[#1a1a2e]">Diagnostics</h1>
       {error && <ErrorBanner message={error} />}
 
       {diag && (
         <>
           <section className="space-y-2">
-            <h2 className="text-sm font-medium text-gray-700">Counts</h2>
+            <h2 className="text-sm font-medium text-[#6b6b80]">Counts</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-              <Stat label="Stores" value={diag.counts.stores} />
-              <Stat label="Sessions" value={diag.counts.sessions} />
-              <Stat label="Generations" value={diag.counts.generations} />
-              <Stat label="Gen. failed" value={diag.counts.generations_failed} />
-              <Stat label="Leads" value={diag.counts.leads} />
-              <Stat label="Leads verified" value={diag.counts.leads_verified} />
-              <Stat label="Pending review" value={diag.counts.submissions_pending} />
+              <KpiTile label="Stores" value={diag.counts.stores} tone="indigo" />
+              <KpiTile label="Sessions" value={diag.counts.sessions} tone="indigo" />
+              <KpiTile label="Generations" value={diag.counts.generations} tone="green" />
+              <KpiTile label="Gen. failed" value={diag.counts.generations_failed} tone={diag.counts.generations_failed > 0 ? 'red' : 'neutral'} />
+              <KpiTile label="Leads" value={diag.counts.leads} tone="amber" />
+              <KpiTile label="Leads verified" value={diag.counts.leads_verified} tone="green" />
+              <KpiTile label="Pending review" value={diag.counts.submissions_pending} tone="amber" />
             </div>
           </section>
 
           <section className="space-y-2">
-            <h2 className="text-sm font-medium text-gray-700">
+            <h2 className="text-sm font-medium text-[#6b6b80]">
               Environment: <span className="font-mono">{diag.app_env}</span>
             </h2>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

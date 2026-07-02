@@ -37,7 +37,7 @@ export function QuoteRequestsView() {
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); navigate(`/admin/leads/${r.session_id}`) }}
-          className="rounded bg-gray-900 px-3 py-1 text-xs text-white hover:bg-gray-700"
+          className="rounded-lg bg-[#ff5c00] px-3 py-1 text-xs text-white hover:bg-[#e64f00]"
         >
           View 360°
         </button>

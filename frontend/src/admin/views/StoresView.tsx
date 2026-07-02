@@ -85,7 +85,7 @@ export function StoresView() {
             type="button"
             onClick={() => onSync(r.id)}
             disabled={syncingId === r.id}
-            className="rounded bg-gray-900 text-white px-3 py-1 text-xs disabled:opacity-50"
+            className="rounded-lg bg-[#ff5c00] text-white px-3 py-1 text-xs hover:bg-[#e64f00] disabled:opacity-50"
           >
             {syncingId === r.id ? 'Syncing…' : 'Sync catalogue'}
           </button>
@@ -113,7 +113,7 @@ export function StoresView() {
           Shopify domain
           <input value={shopifyDomain} onChange={(e) => setShopifyDomain(e.target.value)} className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm" />
         </label>
-        <button type="submit" disabled={creating} className="rounded bg-gray-900 text-white px-4 py-2 text-sm disabled:opacity-50">
+        <button type="submit" disabled={creating} className="rounded-lg bg-[#ff5c00] text-white px-4 py-2 text-sm hover:bg-[#e64f00] disabled:opacity-50">
           {creating ? 'Creating…' : 'Create store'}
         </button>
       </form>

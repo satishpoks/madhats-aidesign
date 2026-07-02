@@ -49,7 +49,7 @@ export function AdminLogin() {
         <button
           type="submit"
           disabled={busy || secret.length === 0}
-          className="w-full rounded bg-gray-900 text-white py-2 text-sm font-medium disabled:opacity-50"
+          className="w-full rounded-lg bg-[#ff5c00] text-white py-2 text-sm font-medium hover:bg-[#e64f00] disabled:opacity-50"
         >
           {busy ? 'Checking…' : 'Sign in'}
         </button>

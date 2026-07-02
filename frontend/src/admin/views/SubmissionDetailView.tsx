@@ -82,14 +82,14 @@ export function SubmissionDetailView() {
         <button
           onClick={() => decide('approved')}
           disabled={busy}
-          className="rounded bg-green-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-lg border border-[#0a7a3a] bg-[#e5f7ed] px-5 py-2 text-sm font-semibold text-[#0a7a3a] hover:bg-[#d6f0e2] disabled:opacity-50"
         >
           Approve
         </button>
         <button
           onClick={() => decide('rejected')}
           disabled={busy}
-          className="rounded bg-red-600 text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+          className="rounded-lg border border-[#bf0d0d] bg-[#ffebeb] px-5 py-2 text-sm font-semibold text-[#bf0d0d] hover:bg-[#ffdcdc] disabled:opacity-50"
         >
           Reject
         </button>

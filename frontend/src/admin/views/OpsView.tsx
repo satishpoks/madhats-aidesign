@@ -63,7 +63,7 @@ export function OpsView() {
               <option value="final">final</option>
             </select>
           </label>
-          <button onClick={onPreview} disabled={previewBusy || !sessionId} className="rounded bg-gray-900 text-white px-4 py-2 text-sm disabled:opacity-50">
+          <button onClick={onPreview} disabled={previewBusy || !sessionId} className="rounded-lg bg-[#ff5c00] text-white px-4 py-2 text-sm hover:bg-[#e64f00] disabled:opacity-50">
             {previewBusy ? 'Loading…' : 'Preview prompt'}
           </button>
         </div>
@@ -90,7 +90,7 @@ export function OpsView() {
             Max age (hours)
             <input type="number" value={maxAge} onChange={(e) => setMaxAge(Number(e.target.value))} className="mt-1 block w-28 rounded border border-gray-300 px-2 py-1 text-sm" />
           </label>
-          <button onClick={onBackfill} disabled={backfillBusy} className="rounded bg-gray-900 text-white px-4 py-2 text-sm disabled:opacity-50">
+          <button onClick={onBackfill} disabled={backfillBusy} className="rounded-lg bg-[#ff5c00] text-white px-4 py-2 text-sm hover:bg-[#e64f00] disabled:opacity-50">
             {backfillBusy ? 'Running…' : 'Run backfill'}
           </button>
         </div>

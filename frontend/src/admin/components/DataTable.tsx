@@ -16,30 +16,30 @@ interface DataTableProps<T> {
 
 export function DataTable<T>({ columns, rows, loading, empty, onRowClick }: DataTableProps<T>) {
   if (loading) {
-    return <div className="py-8 text-center text-sm text-gray-500">Loading…</div>
+    return <div className="rounded-xl border border-[#e0e1ea] bg-white py-10 text-center text-sm text-[#6b6b80]">Loading…</div>
   }
   if (rows.length === 0) {
-    return <div className="py-8 text-center text-sm text-gray-500">{empty ?? 'No records'}</div>
+    return <div className="rounded-xl border border-[#e0e1ea] bg-white py-10 text-center text-sm text-[#6b6b80]">{empty ?? 'No records'}</div>
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
-      <table className="min-w-full divide-y divide-gray-200 text-sm">
-        <thead className="bg-gray-50">
+    <div className="overflow-x-auto rounded-xl border border-[#e0e1ea] bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-[#f0f1f5]">
           <tr>
             {columns.map((c) => (
-              <th key={c.key} className="px-4 py-2 text-left font-medium text-gray-600">{c.header}</th>
+              <th key={c.key} className="px-4 py-3 text-left text-[11px] font-semibold text-[#6b6b80]">{c.header}</th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
+        <tbody>
           {rows.map((row, i) => (
             <tr
               key={i}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={onRowClick ? 'cursor-pointer hover:bg-gray-50' : undefined}
+              className={`border-t border-[#e0e1ea] odd:bg-white even:bg-[#f8f9fa] ${onRowClick ? 'cursor-pointer hover:bg-[#fff7f2]' : ''}`}
             >
               {columns.map((c) => (
-                <td key={c.key} className="px-4 py-2 text-gray-800">{c.render(row)}</td>
+                <td key={c.key} className="px-4 py-3 text-[13px] text-[#1a1a2e]">{c.render(row)}</td>
               ))}
             </tr>
           ))}
