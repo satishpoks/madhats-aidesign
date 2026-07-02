@@ -104,7 +104,7 @@ function LogoUploader({ sessionId, onDone }: LogoUploaderProps) {
               <span className="text-sm text-textMuted">Uploading…</span>
             )}
             {uploadError && (
-              <span className="text-sm text-red-400">{uploadError}</span>
+              <span className="text-sm text-red-600">{uploadError}</span>
             )}
           </div>
         </div>
@@ -417,10 +417,13 @@ export function ChatPanel() {
   return (
     <div className="h-screen bg-base flex flex-col">
       {/* App header */}
-      <header className="border-b border-border px-6 py-4 flex items-center gap-3 flex-shrink-0">
+      <header className="bg-ink px-6 py-4 flex items-center gap-3 flex-shrink-0">
         <span className="text-accent font-bold text-xl tracking-tight">MadHats</span>
-        <span className="text-border text-xl">|</span>
-        <span className="text-textSub text-sm font-medium">AI Design Studio</span>
+        <span className="text-white/30 text-xl">|</span>
+        <span className="text-white/80 text-sm font-medium">AI Design Studio</span>
+        <span className="ml-auto text-xs text-white/70 border border-white/20 px-3 py-1 rounded-full">
+          Beta Preview
+        </span>
       </header>
 
       {/* Two-pane studio: product views (left) + Ricardo chat (right) */}
@@ -441,13 +444,13 @@ export function ChatPanel() {
       {chatError && (
         <div
           role="alert"
-          className="mx-6 mt-4 flex items-start gap-3 rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 flex-shrink-0"
+          className="mx-6 mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex-shrink-0"
         >
-          <p className="flex-1 text-sm text-red-300">{chatError}</p>
+          <p className="flex-1 text-sm text-red-700">{chatError}</p>
           <button
             aria-label="Dismiss error"
             onClick={dismissError}
-            className="flex-shrink-0 text-xs text-red-400 hover:text-red-200 transition-colors"
+            className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors"
           >
             Dismiss
           </button>
@@ -467,7 +470,7 @@ export function ChatPanel() {
               className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                 msg.role === 'user'
                   ? 'bg-accent text-white rounded-br-sm'
-                  : 'bg-surface text-textPrimary border border-border rounded-bl-sm'
+                  : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
               }`}
             >
               {msg.text}
