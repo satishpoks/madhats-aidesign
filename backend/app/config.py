@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     signed_url_ttl: int = 3600
     allowed_origins: str = "http://localhost:5173"
     verification_token_ttl_seconds: int = 900  # 15 min
+    quote_token_ttl_seconds: int = 2592000  # 30 days — quote link stays valid a while
 
     # --- App ---
     app_env: str = "development"

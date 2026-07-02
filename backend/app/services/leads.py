@@ -97,3 +97,39 @@ def capture_lead_and_verify(session: dict, collected: dict, email: str) -> str |
         log.error("verification_send_failed", session_id=session_id, error=str(exc))
 
     return lead["id"]
+
+
+class QuoteTokenError(Exception):
+    """Raised when a quote link token is invalid, expired, or not a quote token."""
+
+
+def make_quote_token(lead: dict) -> str:
+    """Sign a purpose-scoped quote link token for the emailed 'request a quote' CTA.
+
+    Mirrors send_verification's signing (HS256 with the server secret) but with
+    a longer TTL — the quote offer stays valid for days, not 15 minutes.
+    """
+    expires = datetime.now(timezone.utc) + timedelta(seconds=settings.quote_token_ttl_seconds)
+    return jwt.encode(
+        {
+            "lead_id": lead["id"],
+            "session_id": lead["session_id"],
+            "purpose": "quote",
+            "exp": expires,
+        },
+        settings.admin_secret,
+        algorithm="HS256",
+    )
+
+
+def decode_quote_token(token: str) -> dict:
+    """Decode + validate a quote link token. Raises QuoteTokenError on any problem."""
+    try:
+        payload = jwt.decode(token, settings.admin_secret, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError as exc:
+        raise QuoteTokenError("expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise QuoteTokenError("invalid") from exc
+    if payload.get("purpose") != "quote":
+        raise QuoteTokenError("wrong purpose")
+    return payload

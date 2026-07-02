@@ -146,6 +146,39 @@ def send_quote_to_sales(
     return _send(to, subject, body)
 
 
+def send_quote_confirmation_to_sales(
+    customer: dict,
+    product: dict,
+    collected: dict,
+    note: str = "",
+    notify_by_phone: bool = False,
+    image_url: str = "",
+    recipient: str | None = None,
+) -> bool:
+    """Notify sales that a customer explicitly confirmed their design + requested a quote."""
+    to = recipient or settings.sales_notification_email
+    subject = prompts.SALES_QUOTE_CONFIRMED_EMAIL_SUBJECT.format(
+        product_name=product.get("name", "Custom cap"),
+        quantity=collected.get("quantity", "?"),
+    )
+    body = prompts.SALES_QUOTE_CONFIRMED_EMAIL_BODY.format(
+        customer_name=customer.get("name", ""),
+        customer_email=customer.get("email", ""),
+        customer_phone=customer.get("phone", "") or "—",
+        notify_by_phone="yes" if notify_by_phone else "no",
+        product_name=product.get("name", ""),
+        product_style=product.get("style", ""),
+        product_colour=product.get("colour", ""),
+        quantity=collected.get("quantity", "?"),
+        decoration_type=collected.get("decoration_type", "?"),
+        placement_zone=collected.get("placement_zone", "?"),
+        placement_position=collected.get("placement_position", "?"),
+        note=note or "—",
+        image_url=image_url,
+    )
+    return _send(to, subject, body)
+
+
 def send_generation_alert(
     store_email: str, session_id: str, product: str, brief: str, error: str
 ) -> bool:

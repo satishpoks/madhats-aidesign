@@ -388,6 +388,33 @@ Design image (internal, clean): {image_url}
 Please prepare and send the quote directly to the customer.
 """
 
+# Sent to store ops when a customer explicitly confirms their design and requests
+# a quote via the emailed quote link (distinct from the auto delivery-time
+# heads-up in SALES_QUOTE_EMAIL_BODY). This is the "hot lead" — they've seen the
+# design, confirmed the details, and asked us to quote.
+SALES_QUOTE_CONFIRMED_EMAIL_SUBJECT = (
+    "Customer confirmed — quote requested: {product_name} x{quantity}"
+)
+
+SALES_QUOTE_CONFIRMED_EMAIL_BODY = """The customer confirmed their design and requested a quote from the AI Design Studio.
+
+Customer: {customer_name}
+Email: {customer_email}
+Phone: {customer_phone}
+Wants phone/text follow-up: {notify_by_phone}
+
+Product: {product_name} ({product_style}, {product_colour})
+Quantity (confirmed): {quantity}
+Decoration: {decoration_type}
+Placement: {placement_zone} / {placement_position}
+
+Customer note: {note}
+
+Design image (internal, clean): {image_url}
+
+Please verify the quote and send it directly to the customer.
+"""
+
 GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
 
 # Sent to store ops when a generation fails all automatic retries. Filled with
@@ -433,6 +460,7 @@ VERIFICATION_SUCCESS_HTML = """\
           <div style="font-size:44px;line-height:1;">&#9989;</div>
           <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Your email is now verified</h1>
           <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming — we'll send your design across shortly. Keep an eye on your inbox.</p>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:12px 0 0 0;">You can close this page and head back to the chat.</p>
         </td></tr>
       </table>
     </td></tr>
@@ -461,6 +489,130 @@ VERIFICATION_ERROR_HTML = """\
         <tr><td style="padding:40px 28px;text-align:center;">
           <div style="font-size:44px;line-height:1;">&#9888;&#65039;</div>
           <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">We couldn't verify that link</h1>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">{message}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+# ---------------------------------------------------------------------------
+# Request-a-Quote pages (server-rendered, opened from the preview email's CTA).
+# QUOTE_CONFIRM_HTML uses string.Template ($placeholders); the route HTML-escapes
+# every interpolated value. QUOTE_IMAGE_BLOCK is substituted separately (or left
+# empty when there's no image) and injected as $image_block.
+# ---------------------------------------------------------------------------
+
+QUOTE_IMAGE_BLOCK = """\
+        <tr><td style="padding:20px 32px 0 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fcf7f2;border:2px solid #ff5c00;border-radius:12px;">
+            <tr><td align="center" style="padding:14px;">
+              <img src="$image_url" alt="Your MadHats design preview" width="100%" style="display:block;width:100%;max-width:504px;border-radius:8px;" />
+              <div style="margin-top:8px;font-size:10px;color:#9e9eab;">$caption</div>
+            </td></tr>
+          </table>
+        </td></tr>
+"""
+
+QUOTE_CONFIRM_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Request your quote — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:16px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:28px 32px 0 32px;">
+          <h1 style="font-size:22px;color:#1a1a2e;margin:0;">Request your quote</h1>
+          <p style="font-size:13px;line-height:20px;color:#6b6b80;margin:10px 0 0 0;">Confirm your design details below and our team will put a quote together for you.</p>
+        </td></tr>
+$image_block
+        <tr><td style="padding:20px 32px 0 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;color:#1a1a2e;">
+            <tr><td style="padding:6px 0;color:#6b6b80;">Product</td><td style="padding:6px 0;text-align:right;font-weight:bold;">$product</td></tr>
+            <tr><td style="padding:6px 0;color:#6b6b80;">Decoration</td><td style="padding:6px 0;text-align:right;font-weight:bold;">$decoration</td></tr>
+            <tr><td style="padding:6px 0;color:#6b6b80;">Placement</td><td style="padding:6px 0;text-align:right;font-weight:bold;">$placement</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:16px 32px 28px 32px;">
+          <form method="post" action="$action_url">
+            <label style="display:block;font-size:13px;color:#1a1a2e;font-weight:bold;margin:14px 0 4px 0;">How many hats?</label>
+            <input type="number" name="quantity" value="$quantity" min="1" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e0e1ea;border-radius:8px;font-size:15px;" />
+            <label style="display:block;font-size:13px;color:#1a1a2e;font-weight:bold;margin:16px 0 4px 0;">Anything else we should know? (optional)</label>
+            <textarea name="note" rows="3" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e0e1ea;border-radius:8px;font-size:15px;"></textarea>
+            <label style="display:block;font-size:13px;color:#1a1a2e;font-weight:bold;margin:16px 0 4px 0;">Phone number (optional)</label>
+            <input type="tel" name="phone" placeholder="So a rep can reach you" style="width:100%;box-sizing:border-box;padding:12px;border:1px solid #e0e1ea;border-radius:8px;font-size:15px;" />
+            <label style="display:flex;align-items:center;font-size:13px;color:#6b6b80;margin:12px 0 0 0;">
+              <input type="checkbox" name="notify_by_phone" value="yes" style="margin-right:8px;" /> Text or call me when my quote's ready
+            </label>
+            <button type="submit" style="display:block;width:100%;margin-top:22px;background:#ff5c00;color:#ffffff;border:none;text-align:center;font-weight:bold;font-size:15px;padding:16px;border-radius:10px;cursor:pointer;box-shadow:0 4px 12px rgba(255,92,0,0.35);">Confirm &amp; request my quote</button>
+          </form>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+QUOTE_SUCCESS_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quote requested — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:18px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:40px 28px;text-align:center;">
+          <div style="font-size:44px;line-height:1;">&#9989;</div>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Quote request received</h1>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming your design! One of our MadHats consultants will verify your quote and send it through to you soon.</p>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:12px 0 0 0;">If you left a phone number, we may text or call you when it's ready. You can close this page.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
+QUOTE_ERROR_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quote link problem — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:18px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:40px 28px;text-align:center;">
+          <div style="font-size:44px;line-height:1;">&#9888;&#65039;</div>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">We couldn't open that quote link</h1>
           <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">{message}</p>
         </td></tr>
       </table>
