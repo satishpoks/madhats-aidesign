@@ -3,7 +3,7 @@ import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
 import { ProductViewer } from '../ProductViewer'
-import { useSpeechRecognition } from '../../hooks/useSpeechRecognition'
+import { usePushToTalk } from '../../hooks/usePushToTalk'
 import { uploadLogo, addPin } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
@@ -398,10 +398,15 @@ export function ChatPanel() {
     void sendMessage(sessionId, text)
   }
 
-  // Voice input — transcript is sent straight through as a chat turn.
-  const speech = useSpeechRecognition((transcript: string) => {
-    if (sessionId && !sending) void sendMessage(sessionId, transcript)
-  })
+  // Voice input — hold SPACEBAR (or press-and-hold the mic) to talk; the
+  // transcript is sent straight through as a chat turn. Disabled while a
+  // send is in flight so a held space can't fire mid-request.
+  const speech = usePushToTalk(
+    (transcript: string) => {
+      if (sessionId && !sending) void sendMessage(sessionId, transcript)
+    },
+    { enabled: !sending },
+  )
 
   const isStatementOnly = continuable && !sending
 
@@ -561,17 +566,19 @@ export function ChatPanel() {
           {speech.supported && (
             <button
               type="button"
-              onClick={() => (speech.listening ? speech.stop() : speech.start())}
+              onPointerDown={e => { e.preventDefault(); if (!sending) speech.start() }}
+              onPointerUp={() => speech.stop()}
+              onPointerLeave={() => { if (speech.listening) speech.stop() }}
               disabled={sending}
-              aria-label={speech.listening ? 'Stop listening' : 'Speak'}
-              title={speech.listening ? 'Stop listening' : 'Speak'}
+              aria-label={speech.listening ? 'Listening — release to send' : 'Hold to speak'}
+              title={speech.listening ? 'Release to send' : 'Hold to speak'}
               className={`px-4 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                 speech.listening
-                  ? 'bg-red-600 text-white animate-pulse'
+                  ? 'bg-red-500 text-white animate-pulse'
                   : 'bg-surface border border-border text-textPrimary hover:border-accent hover:text-accent'
               }`}
             >
-              {speech.listening ? '● Stop' : '🎤 Speak'}
+              {speech.listening ? '● Listening' : '🎤 Speak'}
             </button>
           )}
           <button
@@ -582,6 +589,11 @@ export function ChatPanel() {
             Send
           </button>
         </form>
+        {speech.supported && (
+          <p className="text-xs text-textMuted text-center -mt-1">
+            {speech.listening ? 'Listening… release space to send' : 'Hold space to talk'}
+          </p>
+        )}
       </div>
         </div>
       </div>

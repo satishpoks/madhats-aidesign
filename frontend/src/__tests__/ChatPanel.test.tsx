@@ -769,3 +769,21 @@ describe('ChatPanel product header', () => {
     expect(screen.getByText('Black')).toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Voice input hint
+// ---------------------------------------------------------------------------
+
+describe('ChatPanel voice input hint', () => {
+  it('shows the hold-space-to-talk hint when speech is supported', async () => {
+    // jsdom lacks SpeechRecognition; define a stub so `supported` is true.
+    ;(window as unknown as Record<string, unknown>).SpeechRecognition = class {
+      lang = ''; interimResults = false; continuous = false
+      onresult = null; onend = null; onerror = null
+      start() {} stop() {} abort() {}
+    }
+    render(<ChatPanel />)
+    expect(await screen.findByText(/hold space to talk/i)).toBeInTheDocument()
+    delete (window as unknown as Record<string, unknown>).SpeechRecognition
+  })
+})
