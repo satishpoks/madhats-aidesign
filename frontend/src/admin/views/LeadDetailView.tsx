@@ -67,9 +67,27 @@ export function LeadDetailView() {
 
   const capImages = useMemo(() => {
     if (!detail) return []
-    const named = ANGLES.map((a) => ({ angle: a, url: detail.view_images[a] })).filter((x) => x.url)
-    if (named.length > 0) return named as { angle: string; url: string }[]
-    return detail.reference_image_url ? [{ angle: 'front', url: detail.reference_image_url }] : []
+    // The real product photo (reference_image_url) is the best "front" shot;
+    // view_images may be catalogue placeholders (placehold.co) — skip those so
+    // only genuine product images render. Lead with the real image, then append
+    // any distinct real angles.
+    const isPlaceholder = (u: string) => /placehold\.co|placeholder/i.test(u)
+    const list: { angle: string; url: string }[] = []
+    if (detail.reference_image_url && !isPlaceholder(detail.reference_image_url)) {
+      list.push({ angle: 'front', url: detail.reference_image_url })
+    }
+    for (const a of ANGLES) {
+      const url = detail.view_images[a]
+      if (!url || isPlaceholder(url)) continue
+      if (a === 'front' && list.length > 0) continue
+      if (list.some((x) => x.url === url)) continue
+      list.push({ angle: a, url })
+    }
+    // Last resort: if everything was a placeholder, still show the reference.
+    if (list.length === 0 && detail.reference_image_url) {
+      list.push({ angle: 'front', url: detail.reference_image_url })
+    }
+    return list
   }, [detail])
 
   const generated = useMemo(
