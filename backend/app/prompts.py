@@ -388,6 +388,33 @@ Design image (internal, clean): {image_url}
 Please prepare and send the quote directly to the customer.
 """
 
+# Sent to store ops when a customer explicitly confirms their design and requests
+# a quote via the emailed quote link (distinct from the auto delivery-time
+# heads-up in SALES_QUOTE_EMAIL_BODY). This is the "hot lead" — they've seen the
+# design, confirmed the details, and asked us to quote.
+SALES_QUOTE_CONFIRMED_EMAIL_SUBJECT = (
+    "Customer confirmed — quote requested: {product_name} x{quantity}"
+)
+
+SALES_QUOTE_CONFIRMED_EMAIL_BODY = """The customer confirmed their design and requested a quote from the AI Design Studio.
+
+Customer: {customer_name}
+Email: {customer_email}
+Phone: {customer_phone}
+Wants phone/text follow-up: {notify_by_phone}
+
+Product: {product_name} ({product_style}, {product_colour})
+Quantity (confirmed): {quantity}
+Decoration: {decoration_type}
+Placement: {placement_zone} / {placement_position}
+
+Customer note: {note}
+
+Design image (internal, clean): {image_url}
+
+Please verify the quote and send it directly to the customer.
+"""
+
 GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
 
 # Sent to store ops when a generation fails all automatic retries. Filled with

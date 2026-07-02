@@ -93,3 +93,34 @@ def test_preview_email_without_bytes_falls_back_to_url_src(monkeypatch):
     params = captured["params"]
     assert not params.get("attachments")
     assert "https://cdn.example.com/x.png" in params["html"]
+
+
+def test_quote_confirmation_to_sales_includes_confirmed_details(monkeypatch):
+    """The 'customer confirmed' sales email must carry the confirmed quantity,
+    phone, phone-notify consent, and any customer note so the rep can follow up."""
+    captured = _capture_send(monkeypatch)
+
+    ok = email_service.send_quote_confirmation_to_sales(
+        customer={"name": "Ann", "email": "ann@example.com", "phone": "0400000000"},
+        product={"name": "Snapback", "style": "6-panel", "colour": "black"},
+        collected={
+            "quantity": 50,
+            "decoration_type": "embroidery",
+            "placement_zone": "front_panel",
+            "placement_position": "centre",
+        },
+        note="Need them before the expo",
+        notify_by_phone=True,
+        image_url="https://cdn/clean.png",
+        recipient="sales@store.example",
+    )
+
+    assert ok is True
+    params = captured["params"]
+    assert params["to"] == ["sales@store.example"]
+    assert "50" in params["subject"]
+    body = params["html"]
+    assert "0400000000" in body
+    assert "Need them before the expo" in body
+    # phone-notify consent surfaced for the rep
+    assert "yes" in body.lower()
