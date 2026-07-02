@@ -21,6 +21,7 @@ from app import prompts
 from app.config import settings
 from app.db import get_supabase
 from app.services import email as email_service
+from app.services import leads as leads_service
 from app.services.products import get_product
 from app.storage import generate_signed_url
 
@@ -147,6 +148,8 @@ def maybe_send_preview(session_id: str) -> bool:
     # team is also notified automatically below.
     edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
     mailto = f"mailto:{settings.resend_from_address}"
+    quote_token = leads_service.make_quote_token(lead)
+    quote_url = f"{settings.email_verify_base_url}/quote/{quote_token}"
     # Inline the image bytes so the recipient's mail client never has to fetch
     # (and fail to reach) the private storage URL. Falls back to the URL src if
     # the fetch fails.
@@ -156,7 +159,7 @@ def maybe_send_preview(session_id: str) -> bool:
         lead["name"],
         customer_image_url,
         brief=brief,
-        quote_url=f"{mailto}?subject=Quote%20request",
+        quote_url=quote_url,
         edit_url=edit_url,
         talk_url=mailto,
         image_bytes=image_bytes,

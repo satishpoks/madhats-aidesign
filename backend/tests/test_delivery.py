@@ -373,3 +373,32 @@ def test_verify_route_triggers_send(monkeypatch):
     assert lead["email_verified"] is True
     assert lead["preview_email_sent"] is True
     assert len(sent.get("preview", [])) == 1
+
+
+def test_preview_email_quote_url_is_quote_page(monkeypatch):
+    """The preview email's 'request a quote' CTA must link to the real quote
+    page (/quote/<token>), not a mailto: placeholder, and the token must decode
+    back to this lead."""
+    from app.services import leads as leads_service
+
+    lead = _lead_row()
+    tables = {
+        "leads": [lead],
+        "generations": [_generation_row()],
+        "design_sessions": [_session_row()],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    _patch_common(monkeypatch, fake, sent)
+
+    result = delivery.maybe_send_preview("sess-1")
+
+    assert result is True
+    _args, kwargs = sent["preview"][0]
+    quote_url = kwargs["quote_url"]
+    assert "/quote/" in quote_url
+    assert "mailto:" not in quote_url
+    token = quote_url.rsplit("/quote/", 1)[1]
+    payload = leads_service.decode_quote_token(token)
+    assert payload["lead_id"] == "lead-1"
+    assert payload["session_id"] == "sess-1"
