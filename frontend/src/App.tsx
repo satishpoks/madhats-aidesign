@@ -7,8 +7,13 @@ import { RefineScreen } from './components/RefineScreen'
 import { WornScreen } from './components/WornScreen'
 import { ConceptModal } from './components/ConceptModal'
 import { ChatPanel } from './components/ChatPanel'
+import AdminApp from './admin/AdminApp'
 
 export default function App() {
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return <AdminApp />
+  }
+
   const sessionView = useSessionStore(s => s.view)
   const bootstrapFromUrl = useSessionStore(s => s.bootstrapFromUrl)
   const studioView = useStudioStore(s => s.view)
