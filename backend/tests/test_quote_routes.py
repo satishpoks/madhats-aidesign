@@ -112,6 +112,24 @@ def test_get_renders_confirm_page(client):
     assert "Watermarked preview" in body
 
 
+def test_get_already_confirmed_shows_already_submitted_not_form(client):
+    # If the customer already submitted the quote request (quote_confirmed=True)
+    # and clicks the email link again, show an "already requested" page — never
+    # the editable form again (no re-submit).
+    tables, _lead, _session = _tables(lead={"quote_confirmed": True})
+    client.install(tables)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}")
+
+    assert resp.status_code == 200
+    body = resp.text
+    assert "already" in body.lower()
+    # The confirm form must NOT be shown for an already-submitted request.
+    assert 'name="quantity"' not in body
+    assert "<form" not in body.lower()
+
+
 def test_get_falls_back_to_design_preview_caption_when_not_watermarked(client):
     # When watermarking failed for this generation (no watermarked_url), the
     # GET page shows the clean image_url but must NOT mislabel it as watermarked.

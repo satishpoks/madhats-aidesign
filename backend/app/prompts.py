@@ -594,6 +594,38 @@ QUOTE_SUCCESS_HTML = """\
 </html>
 """
 
+# Shown on GET /quote/{token} when the customer has ALREADY submitted this quote
+# request (lead.quote_confirmed is True) and clicks the email link again — so
+# they see "already requested, on its way" instead of the editable form.
+QUOTE_ALREADY_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quote already requested — MadHats</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
+    <tr><td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+        <tr><td style="background:#ff5c00;padding:18px 28px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
+          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        </td></tr>
+        <tr><td style="padding:40px 28px;text-align:center;">
+          <div style="font-size:44px;line-height:1;">&#9989;</div>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">You've already requested this quote</h1>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">We've got your request for this design — one of our MadHats consultants is preparing your quote and will send it through to you soon.</p>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:12px 0 0 0;">No need to submit again. You can close this page.</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+"""
+
 QUOTE_ERROR_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
