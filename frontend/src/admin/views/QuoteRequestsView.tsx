@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { listQuoteRequests, type QuoteRequest } from '../adminApi'
 import { DataTable, type Column } from '../components/DataTable'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -7,6 +8,7 @@ export function QuoteRequestsView() {
   const [rows, setRows] = useState<QuoteRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     let active = true
@@ -28,13 +30,32 @@ export function QuoteRequestsView() {
     { key: 'qty', header: 'Qty', render: (r) => (r.quantity ?? '—') },
     { key: 'note', header: 'Note', render: (r) => r.quote_note ?? '—' },
     { key: 'confirmed', header: 'Confirmed', render: (r) => (r.quote_confirmed_at ? new Date(r.quote_confirmed_at).toLocaleString() : '—') },
+    {
+      key: 'view',
+      header: '',
+      render: (r) => (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); navigate(`/admin/leads/${r.session_id}`) }}
+          className="rounded bg-gray-900 px-3 py-1 text-xs text-white hover:bg-gray-700"
+        >
+          View 360°
+        </button>
+      ),
+    },
   ]
 
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold">Quote requests</h1>
       {error && <ErrorBanner message={error} />}
-      <DataTable<QuoteRequest> columns={columns} rows={rows} loading={loading} empty="No confirmed quote requests" />
+      <DataTable<QuoteRequest>
+        columns={columns}
+        rows={rows}
+        loading={loading}
+        empty="No confirmed quote requests"
+        onRowClick={(r) => navigate(`/admin/leads/${r.session_id}`)}
+      />
     </div>
   )
 }
