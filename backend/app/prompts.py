@@ -433,6 +433,7 @@ VERIFICATION_SUCCESS_HTML = """\
           <div style="font-size:44px;line-height:1;">&#9989;</div>
           <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Your email is now verified</h1>
           <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming — we'll send your design across shortly. Keep an eye on your inbox.</p>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:12px 0 0 0;">You can close this page and head back to the chat.</p>
         </td></tr>
       </table>
     </td></tr>
