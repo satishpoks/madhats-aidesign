@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  /* Opt out of OS/Chrome auto-dark: this is a light-only UI, so tell the browser
+     to render native controls (inputs, scrollbars, selection) and its
+     force-dark heuristics for the light scheme. Without this, a user whose
+     system/browser is in dark mode sees the whole page darkened. */
+  :root {
+    color-scheme: light;
+  }
   body {
     @apply bg-base text-textPrimary font-sans;
   }
@@ -15,9 +22,9 @@
   .shimmer {
     background: linear-gradient(
       90deg,
-      #1A1A1F 25%,
-      #252530 50%,
-      #1A1A1F 75%
+      #EEF0F4 25%,
+      #F7F8FA 50%,
+      #EEF0F4 75%
     );
     background-size: 800px 100%;
     animation: shimmer 1.6s infinite linear;

@@ -9,16 +9,17 @@ interface ProductRefLike {
 
 interface ProductViewerProps {
   productRef: ProductRefLike | null
-  /** Generated (watermarked) design preview, shown as a tab once ready. */
+  /** Generated (watermarked) design preview, shown as a card once ready. */
   previewUrl?: string | null
 }
 
 const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
 
 /**
- * Left pane of the studio: shows the product from up to four angles
- * (front / back / left / right) and, once a design is generated, a
- * "Your design" tab with the watermarked preview.
+ * Left pane of the studio (per Figma "02 — Chatbot Screens"): a 2×2 grid of
+ * view cards — front / back / left / right — each with a pill label; the
+ * selected view is outlined in accent. Once a design is generated a "Your
+ * design" card is prepended.
  */
 export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
   // Ordered list of [view, url] the product actually has.
@@ -40,48 +41,27 @@ export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
 
   if (!productRef) {
     return (
-      <div className="h-full flex items-center justify-center text-textMuted text-sm">
+      <div className="h-full flex items-center justify-center text-textMuted text-sm bg-base">
         Loading product…
       </div>
     )
   }
 
-  // Prefer the generated design when present, else the first available view.
-  const showingDesign = Boolean(previewUrl) && active === 'design'
-  const activeView = views.find(([v]) => v === active)
-  const mainSrc = showingDesign
-    ? (previewUrl as string)
-    : (activeView?.[1] ?? views[0]?.[1] ?? productRef.reference_image_url)
-
   return (
-    <div className="h-full flex flex-col p-4 md:p-6 gap-4 bg-base">
-      {/* Title */}
-      <div>
-        <h2 className="text-textPrimary font-semibold leading-tight">{productRef.name}</h2>
-        {productRef.colour && (
-          <p className="text-textMuted text-xs mt-0.5">{productRef.colour}</p>
-        )}
+    <div className="h-full flex flex-col p-4 md:p-6 gap-4 bg-base overflow-y-auto">
+      {/* Title + prompt */}
+      <div className="flex-shrink-0">
+        <h2 className="text-textPrimary font-semibold leading-tight">
+          {productRef.name}
+          {productRef.colour && <span className="text-textSub"> — {productRef.colour}</span>}
+        </h2>
+        <p className="text-textMuted text-xs mt-0.5">Choose a view to explore your cap</p>
       </div>
 
-      {/* Main image */}
-      <div className="flex-1 min-h-0 flex items-center justify-center bg-surface border border-border rounded-2xl overflow-hidden">
-        <img
-          src={mainSrc}
-          alt={showingDesign ? 'Your generated design' : `${productRef.name} — ${active}`}
-          className="max-h-full max-w-full object-contain"
-        />
-      </div>
-
-      {showingDesign && (
-        <p className="text-xs text-textMuted text-center -mt-2">
-          Watermarked preview — reviewed by our team before quoting.
-        </p>
-      )}
-
-      {/* Thumbnail strip: generated design (if any) + each available angle */}
-      <div className="flex gap-2 flex-wrap justify-center flex-shrink-0">
+      {/* 2×2 grid of view cards (+ optional generated design card) */}
+      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 auto-rows-fr">
         {previewUrl && (
-          <Thumb
+          <ViewCard
             label="Your design"
             src={previewUrl}
             selected={active === 'design'}
@@ -89,7 +69,7 @@ export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
           />
         )}
         {views.map(([view, src]) => (
-          <Thumb
+          <ViewCard
             key={view}
             label={view}
             src={src}
@@ -98,28 +78,50 @@ export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
           />
         ))}
       </div>
+
+      {/* Footer note */}
+      <p className="text-xs text-textMuted flex-shrink-0">
+        Your design will be emailed to you once email is verified
+      </p>
     </div>
   )
 }
 
-interface ThumbProps {
+interface ViewCardProps {
   label: string
   src: string
   selected: boolean
   onClick: () => void
 }
 
-function Thumb({ label, src, selected, onClick }: ThumbProps) {
+function ViewCard({ label, src, selected, onClick }: ViewCardProps) {
   return (
     <button
       onClick={onClick}
       aria-label={`Show ${label}`}
+      aria-pressed={selected}
       title={label}
-      className={`w-16 h-16 rounded-lg overflow-hidden border-2 bg-surface transition-colors ${
-        selected ? 'border-accent' : 'border-border hover:border-textMuted'
+      className={`group relative flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface p-4 transition-colors ${
+        selected
+          ? 'border-2 border-accent shadow-sm'
+          : 'border-2 border-border hover:border-textMuted'
       }`}
     >
-      <img src={src} alt={label} className="w-full h-full object-cover" />
+      <img
+        src={src}
+        alt={label}
+        className="max-h-[75%] max-w-full object-contain"
+        draggable={false}
+      />
+      <span
+        className={`mt-auto px-4 py-1 rounded-full text-sm font-medium capitalize transition-colors ${
+          selected
+            ? 'border border-accent text-accent bg-surface'
+            : 'border border-transparent bg-base text-textMuted group-hover:text-textSub'
+        }`}
+      >
+        {label}
+      </span>
     </button>
   )
 }

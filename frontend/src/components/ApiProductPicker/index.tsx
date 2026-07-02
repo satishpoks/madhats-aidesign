@@ -70,13 +70,13 @@ export function ApiProductPicker() {
   return (
     <div className="min-h-screen bg-base flex flex-col">
       {/* Header */}
-      <header className="border-b border-border px-6 py-4 flex items-center justify-between">
+      <header className="bg-ink px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-accent font-bold text-xl tracking-tight">MadHats</span>
-          <span className="text-border text-xl">|</span>
-          <span className="text-textSub text-sm font-medium">AI Design Studio</span>
+          <span className="text-white/30 text-xl">|</span>
+          <span className="text-white/80 text-sm font-medium">AI Design Studio</span>
         </div>
-        <span className="text-xs text-textMuted bg-surface border border-border px-3 py-1 rounded-full">
+        <span className="text-xs text-white/70 border border-white/20 px-3 py-1 rounded-full">
           Beta Preview
         </span>
       </header>
@@ -154,7 +154,7 @@ export function ApiProductPicker() {
                 <button
                   key={product.id}
                   onClick={() => void handleSelect(product)}
-                  className="bg-surface border border-border rounded-2xl p-4 text-left cursor-pointer group hover:border-accent transition-all duration-200 hover:shadow-[0_0_0_1px_#FF5C00] animate-fadeIn"
+                  className="bg-surface border border-border rounded-2xl p-4 text-left cursor-pointer group hover:border-accent transition-all duration-200 shadow-sm hover:shadow-[0_0_0_1px_#FF5C00] animate-fadeIn"
                 >
                   {/* Product image */}
                   <div className="aspect-square w-full mb-3 overflow-hidden rounded-xl bg-surfaceAlt">

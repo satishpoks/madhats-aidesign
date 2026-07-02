@@ -3,7 +3,7 @@ import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
 import { ProductViewer } from '../ProductViewer'
-import { useSpeechRecognition } from '../../hooks/useSpeechRecognition'
+import { usePushToTalk } from '../../hooks/usePushToTalk'
 import { uploadLogo, addPin } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ function LogoUploader({ sessionId, onDone }: LogoUploaderProps) {
               <span className="text-sm text-textMuted">Uploading…</span>
             )}
             {uploadError && (
-              <span className="text-sm text-red-400">{uploadError}</span>
+              <span className="text-sm text-red-600">{uploadError}</span>
             )}
           </div>
         </div>
@@ -398,10 +398,15 @@ export function ChatPanel() {
     void sendMessage(sessionId, text)
   }
 
-  // Voice input — transcript is sent straight through as a chat turn.
-  const speech = useSpeechRecognition((transcript: string) => {
-    if (sessionId && !sending) void sendMessage(sessionId, transcript)
-  })
+  // Voice input — hold SPACEBAR (or press-and-hold the mic) to talk; the
+  // transcript is sent straight through as a chat turn. Disabled while a
+  // send is in flight so a held space can't fire mid-request.
+  const speech = usePushToTalk(
+    (transcript: string) => {
+      if (sessionId && !sending) void sendMessage(sessionId, transcript)
+    },
+    { enabled: !sending },
+  )
 
   const isStatementOnly = continuable && !sending
 
@@ -411,11 +416,16 @@ export function ChatPanel() {
 
   return (
     <div className="h-screen bg-base flex flex-col">
-      {/* App header */}
-      <header className="border-b border-border px-6 py-4 flex items-center gap-3 flex-shrink-0">
-        <span className="text-accent font-bold text-xl tracking-tight">MadHats</span>
-        <span className="text-border text-xl">|</span>
-        <span className="text-textSub text-sm font-medium">AI Design Studio</span>
+      {/* App header (Figma: white bar with MAD HATS + product breadcrumb) */}
+      <header className="bg-surface border-b border-border px-6 py-3.5 flex items-center gap-3 flex-shrink-0">
+        <span className="text-accent font-extrabold text-lg tracking-wide">MAD HATS</span>
+        {productRef && (
+          <span className="text-sm text-textMuted truncate">
+            {productRef.name}
+            <span className="mx-1.5 text-textMuted/60">›</span>
+            <span className="text-textSub">Customize</span>
+          </span>
+        )}
       </header>
 
       {/* Two-pane studio: product views (left) + Ricardo chat (right) */}
@@ -430,19 +440,31 @@ export function ChatPanel() {
         {/* RIGHT — chat column */}
         <div className="flex-1 md:w-1/2 flex flex-col min-h-0">
 
+      {/* Chat header — Ricardo identity + online status */}
+      <div className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-border bg-surfaceAlt/40 flex-shrink-0">
+        <span className="w-9 h-9 rounded-full bg-accent flex-shrink-0" aria-hidden="true" />
+        <div className="leading-tight">
+          <p className="text-sm font-semibold text-textPrimary">Ricardo — MadHats AI</p>
+          <p className="text-xs text-green-600 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+            Online
+          </p>
+        </div>
+      </div>
+
       {/* ------------------------------------------------------------------ */}
       {/* Error banner                                                        */}
       {/* ------------------------------------------------------------------ */}
       {chatError && (
         <div
           role="alert"
-          className="mx-6 mt-4 flex items-start gap-3 rounded-xl border border-red-800 bg-red-950/40 px-4 py-3 flex-shrink-0"
+          className="mx-6 mt-4 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex-shrink-0"
         >
-          <p className="flex-1 text-sm text-red-300">{chatError}</p>
+          <p className="flex-1 text-sm text-red-700">{chatError}</p>
           <button
             aria-label="Dismiss error"
             onClick={dismissError}
-            className="flex-shrink-0 text-xs text-red-400 hover:text-red-200 transition-colors"
+            className="flex-shrink-0 text-xs text-red-500 hover:text-red-700 transition-colors"
           >
             Dismiss
           </button>
@@ -462,7 +484,7 @@ export function ChatPanel() {
               className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                 msg.role === 'user'
                   ? 'bg-accent text-white rounded-br-sm'
-                  : 'bg-surface text-textPrimary border border-border rounded-bl-sm'
+                  : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
               }`}
             >
               {msg.text}
@@ -478,7 +500,7 @@ export function ChatPanel() {
       {/* ------------------------------------------------------------------ */}
       {/* Bottom panel: special states, chips, input                         */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-2">
+      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-4 border-t border-border">
         {/* Special state: logo upload */}
         {chatState === 'upload_logo' && sessionId && (
           <LogoUploader
@@ -548,36 +570,59 @@ export function ChatPanel() {
           </div>
         )}
 
-        {/* Text input + voice */}
+        {/* Voice: centered mic — hold SPACE (or press-and-hold the mic) to talk */}
+        {speech.supported && (
+          <div className="flex flex-col items-center gap-1.5 pt-1">
+            <button
+              type="button"
+              onPointerDown={e => { e.preventDefault(); if (!sending) speech.start() }}
+              onPointerUp={() => speech.stop()}
+              onPointerLeave={() => { if (speech.listening) speech.stop() }}
+              onPointerCancel={() => speech.stop()}
+              disabled={sending}
+              aria-label={speech.listening ? 'Listening — release to send' : 'Press and hold to speak'}
+              title={speech.listening ? 'Release to send' : 'Hold to speak'}
+              className="relative flex items-center justify-center w-14 h-14 rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {/* pulse / halo rings */}
+              <span
+                className={`absolute inset-0 rounded-full bg-accent/30 ${speech.listening ? 'animate-ping' : ''}`}
+                aria-hidden="true"
+              />
+              <span className="absolute -inset-2 rounded-full border border-accent/20" aria-hidden="true" />
+              <span className="absolute -inset-4 rounded-full border border-accent/10" aria-hidden="true" />
+              {/* mic icon */}
+              <svg viewBox="0 0 24 24" className="relative w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" stroke="none" />
+                <path d="M5 10a7 7 0 0 0 14 0" strokeLinecap="round" />
+                <line x1="12" y1="19" x2="12" y2="22" strokeLinecap="round" />
+                <line x1="8" y1="22" x2="16" y2="22" strokeLinecap="round" />
+              </svg>
+            </button>
+            <p className="text-sm font-semibold text-textPrimary mt-1.5">
+              {speech.listening ? 'Listening… release to send' : 'Press Space to Talk'}
+            </p>
+            <kbd className="px-2 py-0.5 text-[11px] font-medium border border-border rounded bg-base text-textMuted">
+              SPACE
+            </kbd>
+            <p className="text-xs text-textMuted">or type</p>
+          </div>
+        )}
+
+        {/* Text input + Send */}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}
-            placeholder={speech.listening ? 'Listening…' : 'Type or speak a message…'}
+            placeholder={speech.listening ? 'Listening…' : 'Type your message…'}
             disabled={sending}
-            className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
+            className="flex-1 bg-surface border border-border rounded-full px-5 py-3 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
           />
-          {speech.supported && (
-            <button
-              type="button"
-              onClick={() => (speech.listening ? speech.stop() : speech.start())}
-              disabled={sending}
-              aria-label={speech.listening ? 'Stop listening' : 'Speak'}
-              title={speech.listening ? 'Stop listening' : 'Speak'}
-              className={`px-4 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                speech.listening
-                  ? 'bg-red-600 text-white animate-pulse'
-                  : 'bg-surface border border-border text-textPrimary hover:border-accent hover:text-accent'
-              }`}
-            >
-              {speech.listening ? '● Stop' : '🎤 Speak'}
-            </button>
-          )}
           <button
             type="submit"
             disabled={sending || !inputText.trim()}
-            className="bg-accent hover:bg-accentHover text-white px-5 py-3 rounded-xl text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="bg-accent hover:bg-accentHover text-white px-6 py-3 rounded-full text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Send
           </button>

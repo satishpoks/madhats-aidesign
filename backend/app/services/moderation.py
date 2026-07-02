@@ -13,10 +13,16 @@ from app.services.conversation import intent_extractor as ie
 log = structlog.get_logger()
 
 _MODERATION_PROMPT = (
-    "You are a content-safety filter for a custom-headwear design tool. "
-    "Decide if the following design request is safe (no hate symbols, explicit "
-    "sexual content, violence, or illegal content).\n\n"
-    'Request: "{text}"\n\n'
+    "You are a content-safety filter for a custom-headwear design chat. "
+    "The message below is a single turn a customer typed in conversation — it may "
+    "be anything: a name, an email address, a phone number, a quantity, a yes/no, "
+    "a question, small talk, or a cap design idea.\n\n"
+    "Mark it UNSAFE only if it actually contains hate symbols, explicit sexual "
+    "content, graphic violence, or clearly illegal content. Ordinary, benign, "
+    "empty, or off-topic messages — including personal contact details such as "
+    "names, emails and phone numbers — are SAFE. Never flag a message merely "
+    "because it is not a design request.\n\n"
+    'Message: "{text}"\n\n'
     'Respond with ONLY a JSON object: {{"safe": true}} or {{"safe": false, "reason": "..."}}'
 )
 
