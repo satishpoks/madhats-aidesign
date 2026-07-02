@@ -18,8 +18,20 @@ from app.api.deps import require_admin
 from app.config import settings
 from app.db import get_supabase
 from app.services.products import get_product
+from app.storage import generate_signed_url
 
 router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin)])
+
+
+def _sign(path: str | None) -> str | None:
+    """Sign a private storage path so it's viewable in the admin UI. External
+    URLs (e.g. Shopify product images, stub placeholders) pass through; the
+    bucket is private, so generated/uploaded object paths must be signed."""
+    if not path:
+        return None
+    if path.startswith("http"):
+        return path
+    return generate_signed_url(path)
 
 
 def _product_name(product_ref: dict | None) -> str | None:
@@ -93,7 +105,7 @@ async def list_sessions(
                 "decoration_type": collected.get("decoration_type"),
                 "placement_zone": collected.get("placement_zone"),
                 "quantity": collected.get("quantity"),
-                "generated_image_url": _best_generated_image(gens),
+                "generated_image_url": _sign(_best_generated_image(gens)),
                 "generation_count": len(gens),
                 "created_at": r.get("created_at"),
             }
@@ -116,13 +128,17 @@ async def get_session_detail(session_id: str) -> dict:
         .order("created_at")
         .execute()
     )
-    gens = (
+    gens_res = (
         sb.table("generations")
         .select("id, tier, model, status, image_url, watermarked_url, cost_usd, latency_ms, created_at")
         .eq("session_id", session_id)
         .order("created_at")
         .execute()
     )
+    generations = [
+        {**g, "image_url": _sign(g.get("image_url")), "watermarked_url": _sign(g.get("watermarked_url"))}
+        for g in (gens_res.data or [])
+    ]
     leads = (
         sb.table("leads")
         .select("id, name, email, phone, email_verified, verified_at, created_at")
@@ -158,7 +174,7 @@ async def get_session_detail(session_id: str) -> dict:
         "collected": session.get("collected") or {},
         "created_at": session.get("created_at"),
         "messages": msgs.data or [],
-        "generations": gens.data or [],
+        "generations": generations,
         "leads": leads.data or [],
     }
 
@@ -182,8 +198,17 @@ async def list_generation_logs(
     if status:
         q = q.eq("status", status)
     res = q.order("request_at", desc=True).range(offset, offset + limit - 1).execute()
+    items = [
+        {
+            **r,
+            "output_image_url": _sign(r.get("output_image_url")),
+            "uploaded_asset_url": _sign(r.get("uploaded_asset_url")),
+            "reference_image_url": _sign(r.get("reference_image_url")),
+        }
+        for r in (res.data or [])
+    ]
     return {
-        "items": res.data or [],
+        "items": items,
         "total": res.count or 0,
         "limit": limit,
         "offset": offset,
