@@ -64,7 +64,7 @@ export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
       </div>
 
       {/* Main image */}
-      <div className="flex-1 min-h-0 flex items-center justify-center bg-surface border border-border rounded-2xl overflow-hidden">
+      <div className="flex-1 min-h-0 flex items-center justify-center bg-surface border border-border rounded-2xl overflow-hidden shadow-sm">
         <img
           src={mainSrc}
           alt={showingDesign ? 'Your generated design' : `${productRef.name} — ${active}`}
