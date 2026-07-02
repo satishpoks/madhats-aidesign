@@ -10,6 +10,7 @@ PII safety: name/email/phone/note are never logged — session_id/lead_id only.
 from __future__ import annotations
 
 import html as html_lib
+from datetime import datetime, timezone
 from string import Template
 
 import structlog
@@ -108,3 +109,83 @@ async def quote_page(token: str) -> HTMLResponse:
     gen = _latest_complete_gen(sb, lead["session_id"])
     image_url = _sign((gen or {}).get("watermarked_url") or (gen or {}).get("image_url")) if gen else ""
     return HTMLResponse(_render_confirm_page(token, product, collected, image_url))
+
+
+def _parse_int(raw: str) -> int | None:
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _sales_recipient(session: dict) -> str | None:
+    store_id = session.get("store_id")
+    if not store_id:
+        return None
+    from app.services.stores import get_store
+
+    store = get_store(store_id)
+    return (store or {}).get("sales_notification_email")
+
+
+@router.post("/quote/{token}", response_class=HTMLResponse)
+async def submit_quote(
+    token: str,
+    quantity: str = Form(default=""),
+    note: str = Form(default=""),
+    phone: str = Form(default=""),
+    notify_by_phone: str = Form(default=""),
+) -> HTMLResponse:
+    try:
+        lead, session = _load_context(token)
+    except leads_service.QuoteTokenError:
+        return _error_page()
+
+    sb = get_supabase()
+    # Pre-update value — the idempotency guard for the one-time sales email.
+    already_confirmed = bool(lead.get("quote_confirmed"))
+    collected = session.get("collected") or {}
+
+    qty = _parse_int(quantity)
+    if qty is not None:
+        collected["quantity"] = qty
+        sb.table("design_sessions").update({"collected": collected}).eq(
+            "id", lead["session_id"]
+        ).execute()
+
+    notify_flag = notify_by_phone.strip().lower() in ("yes", "on", "true", "1")
+    note_clean = note.strip()
+    phone_clean = phone.strip()
+    lead_update: dict = {
+        "notify_by_phone": notify_flag,
+        "quote_note": note_clean or None,
+        "quote_confirmed": True,
+        "quote_confirmed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if phone_clean:
+        lead_update["phone"] = phone_clean
+    sb.table("leads").update(lead_update).eq("id", lead["id"]).execute()
+
+    if not already_confirmed:
+        product_ref = session.get("product_ref") or {}
+        product = get_product(product_ref.get("product_id", "")) or product_ref
+        gen = _latest_complete_gen(sb, lead["session_id"])
+        image_url = _sign((gen or {}).get("image_url") or (gen or {}).get("watermarked_url")) if gen else ""
+        customer = {
+            "name": lead["name"],
+            "email": lead["email"],
+            "phone": phone_clean or lead.get("phone"),
+        }
+        email_service.send_quote_confirmation_to_sales(
+            customer,
+            product,
+            collected,
+            note=note_clean,
+            notify_by_phone=notify_flag,
+            image_url=image_url,
+            recipient=_sales_recipient(session),
+        )
+
+    log.info("quote_confirmed", session_id=lead["session_id"], lead_id=lead["id"])  # no PII
+    return HTMLResponse(prompts.QUOTE_SUCCESS_HTML)

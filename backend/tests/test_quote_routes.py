@@ -129,3 +129,84 @@ def test_get_missing_lead_renders_error(client):
     resp = client.get(f"/quote/{token}")
 
     assert resp.status_code == 400
+
+
+def _install_email_capture(client, monkeypatch):
+    from app.api.routes import quote
+
+    sent: list = []
+    monkeypatch.setattr(
+        quote.email_service,
+        "send_quote_confirmation_to_sales",
+        lambda *a, **k: sent.append((a, k)) or True,
+    )
+    return sent
+
+
+def test_post_records_quote_and_notifies_sales(client, monkeypatch):
+    tables, lead, session = _tables()
+    client.install(tables)
+    sent = _install_email_capture(client, monkeypatch)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.post(
+        f"/quote/{token}",
+        data={"quantity": "60", "note": "Need by expo", "phone": "0400000000",
+              "notify_by_phone": "yes"},
+    )
+
+    assert resp.status_code == 200
+    assert "Quote request received" in resp.text
+    # design_sessions.collected.quantity updated (source of truth)
+    assert session["collected"]["quantity"] == 60
+    # lead tagged + details persisted
+    assert lead["quote_confirmed"] is True
+    assert lead["quote_confirmed_at"]
+    assert lead["notify_by_phone"] is True
+    assert lead["quote_note"] == "Need by expo"
+    assert lead["phone"] == "0400000000"
+    # sales notified exactly once
+    assert len(sent) == 1
+
+
+def test_post_resubmit_updates_but_does_not_reemail(client, monkeypatch):
+    tables, lead, _session = _tables(lead={"quote_confirmed": True})
+    client.install(tables)
+    sent = _install_email_capture(client, monkeypatch)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.post(f"/quote/{token}", data={"quantity": "12", "notify_by_phone": ""})
+
+    assert resp.status_code == 200
+    assert lead["notify_by_phone"] is False
+    assert len(sent) == 0  # already confirmed → no second email
+
+
+def test_post_bad_token_renders_error(client, monkeypatch):
+    tables, _lead, _session = _tables()
+    client.install(tables)
+    _install_email_capture(client, monkeypatch)
+
+    resp = client.post("/quote/not-a-real-jwt", data={"quantity": "10"})
+
+    assert resp.status_code == 400
+
+
+def test_post_does_not_log_pii(client, monkeypatch, caplog):
+    import logging
+
+    tables, _lead, _session = _tables()
+    client.install(tables)
+    _install_email_capture(client, monkeypatch)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    with caplog.at_level(logging.INFO):
+        client.post(
+            f"/quote/{token}",
+            data={"quantity": "5", "note": "secret note", "phone": "0400111222"},
+        )
+
+    logged = caplog.text
+    assert "0400111222" not in logged
+    assert "secret note" not in logged
+    assert "ann@example.com" not in logged
