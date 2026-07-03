@@ -399,11 +399,12 @@ export function ChatPanel() {
   }
 
   // Voice input — hold SPACEBAR (or press-and-hold the mic) to talk; the
-  // transcript is sent straight through as a chat turn. Disabled while a
+  // transcript is dictated INTO the message box so the user can review/edit
+  // it before pressing Send (it is not sent automatically). Disabled while a
   // send is in flight so a held space can't fire mid-request.
   const speech = usePushToTalk(
     (transcript: string) => {
-      if (sessionId && !sending) void sendMessage(sessionId, transcript)
+      setInputText(prev => (prev ? `${prev} ${transcript}` : transcript))
     },
     { enabled: !sending },
   )

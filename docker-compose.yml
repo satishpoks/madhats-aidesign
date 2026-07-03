@@ -19,9 +19,13 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # The browser runs on the host, so it reaches the backend at localhost:8000.
-      VITE_API_BASE_URL: http://localhost:8000
-      VITE_STORE_KEY: mh_pk_madhats_local
+      # The browser runs on the host, so it reaches the backend at this host address.
+      # Falls back to frontend/.env when unset on the host shell.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://100.103.149.17:8000}
+      VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
+      # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
+      # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
+      TAILSCALE_HOST: ${TAILSCALE_HOST:-}
       # File events don't cross the Windows host → container boundary reliably;
       # poll so Vite HMR picks up source edits.
       CHOKIDAR_USEPOLLING: "true"
