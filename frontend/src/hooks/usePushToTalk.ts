@@ -9,6 +9,8 @@ interface PushToTalkOptions {
 interface UsePushToTalk {
   supported: boolean
   listening: boolean
+  /** Human-readable message when the mic is blocked/unavailable, else null. */
+  error: string | null
   start: () => void
   stop: () => void
 }
@@ -39,7 +41,7 @@ export function usePushToTalk(
   onResult: (text: string) => void,
   opts: PushToTalkOptions = {},
 ): UsePushToTalk {
-  const { supported, listening, start, stop } = useSpeechRecognition(onResult)
+  const { supported, listening, error, start, stop } = useSpeechRecognition(onResult)
   const enabled = opts.enabled !== false
 
   // Track whether OUR spacebar hold is the active source, so keyup only stops
@@ -81,5 +83,5 @@ export function usePushToTalk(
     }
   }, [supported, enabled, start, stop])
 
-  return { supported, listening, start, stop }
+  return { supported, listening, error, start, stop }
 }

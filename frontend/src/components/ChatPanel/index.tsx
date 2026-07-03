@@ -408,6 +408,12 @@ export function ChatPanel() {
     { enabled: !sending },
   )
 
+  // Surface a blocked/unavailable mic through the shared error banner so the
+  // user learns why "Press Space to Talk" did nothing and how to fix it.
+  useEffect(() => {
+    if (speech.error) setError(speech.error)
+  }, [speech.error, setError])
+
   const isStatementOnly = continuable && !sending
 
   // ---------------------------------------------------------------------------

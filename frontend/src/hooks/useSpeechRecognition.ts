@@ -5,9 +5,19 @@ interface UseSpeechRecognition {
   supported: boolean
   /** True while actively listening to the mic. */
   listening: boolean
+  /**
+   * A human-readable message when the mic is unavailable (e.g. permission
+   * blocked), else null. The caller surfaces this to the user.
+   */
+  error: string | null
   start: () => void
   stop: () => void
 }
+
+/** Shown when the browser has blocked microphone access for this site. */
+const MIC_BLOCKED_MESSAGE =
+  'Microphone access is blocked. Click the camera/mic icon in your browser’s ' +
+  'address bar to allow it, then press Space to talk again.'
 
 /**
  * Thin wrapper over the browser Web Speech API (SpeechRecognition).
@@ -19,7 +29,11 @@ export function useSpeechRecognition(
   onResult: (text: string) => void,
 ): UseSpeechRecognition {
   const [listening, setListening] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<unknown>(null)
+  // Cache the "permission granted" result so we only pay the getUserMedia
+  // round-trip on the first hold; Chrome remembers the grant across calls.
+  const micReadyRef = useRef(false)
 
   // Keep the latest callback without re-creating the recognition instance.
   const onResultRef = useRef(onResult)
@@ -43,7 +57,7 @@ export function useSpeechRecognition(
       continuous: boolean
       onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
       onend: (() => void) | null
-      onerror: (() => void) | null
+      onerror: ((e: { error?: string }) => void) | null
       start: () => void
       stop: () => void
       abort: () => void
@@ -60,7 +74,15 @@ export function useSpeechRecognition(
       if (transcript) onResultRef.current(transcript)
     }
     rec.onend = () => setListening(false)
-    rec.onerror = () => setListening(false)
+    rec.onerror = e => {
+      setListening(false)
+      // Permission was refused/revoked at the recognition layer — force the
+      // next start() to re-request the mic and tell the user how to unblock it.
+      if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
+        micReadyRef.current = false
+        setError(MIC_BLOCKED_MESSAGE)
+      }
+    }
     recognitionRef.current = rec
     return () => {
       try {
@@ -71,12 +93,35 @@ export function useSpeechRecognition(
     }
   }, [SpeechRecognitionImpl])
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     const rec = recognitionRef.current as { start: () => void } | null
     if (!rec) return
+    // Proactively obtain mic permission. SpeechRecognition.start() alone only
+    // prompts inconsistently and stays silent when blocked; getUserMedia gives
+    // us a real prompt on first use and a clear rejection when access is denied.
+    if (!micReadyRef.current) {
+      const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
+      if (md?.getUserMedia) {
+        try {
+          const stream = await md.getUserMedia({ audio: true })
+          // We only needed the permission — release the mic immediately.
+          stream.getTracks().forEach(t => t.stop())
+          micReadyRef.current = true
+        } catch {
+          setError(MIC_BLOCKED_MESSAGE)
+          setListening(false)
+          return
+        }
+      } else {
+        // No getUserMedia (older browsers): fall through and let recognition
+        // prompt/err on its own; onerror still surfaces a block.
+        micReadyRef.current = true
+      }
+    }
     try {
       rec.start()
       setListening(true)
+      setError(null)
     } catch {
       /* already started — ignore */
     }
@@ -94,5 +139,5 @@ export function useSpeechRecognition(
     setListening(false)
   }, [])
 
-  return { supported, listening, start, stop }
+  return { supported, listening, error, start, stop }
 }
