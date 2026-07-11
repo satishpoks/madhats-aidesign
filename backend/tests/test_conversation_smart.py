@@ -226,52 +226,64 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     assert res["state"] == S.ASK_PIN_ANNOTATION.value
 
 
-@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_more_elements_yes_enters_add_mode(monkeypatch):
+    # Rewritten for Task 5: a type choice at ASK_MORE_ELEMENTS seeds a
+    # pending_element and routes into the per-element deep-dive (there is no
+    # more ADD_ELEMENTS_MODE hop).
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
-                                       "design_description": {"summary": "a crest"},
+                                       "elements": [{"type": "text", "content": "TEAM"}],
                                        "elements_offered": True}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what would you like to add?"))
     res = await orch.handle_message("s1", "Add text")
-    assert res["state"] == S.ADD_ELEMENTS_MODE.value
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+    assert store["session"]["collected"]["pending_element"]["type"] == "text"
 
 
-@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_more_elements_decline_goes_to_placement(monkeypatch):
+    # Rewritten for Task 5: global placement is retired from the forward path
+    # — a decline at ASK_MORE_ELEMENTS with no pending element exits toward
+    # the pin offer (or straight to generation), never ASK_PLACEMENT_ZONE.
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
-                                       "design_description": {"summary": "a crest"},
+                                       "elements": [{"type": "text", "content": "TEAM"}],
                                        "elements_offered": True}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
-    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("where should it go?"))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("mark a spot?"))
     res = await orch.handle_message("s1", "That's everything")
-    assert res["state"] == S.ASK_PLACEMENT_ZONE.value
+    assert res["state"] == S.ASK_PIN_ANNOTATION.value
+    assert "pending_element" not in store["session"]["collected"] or not store["session"]["collected"]["pending_element"]
 
 
-@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_add_mode_exits_on_done(monkeypatch):
-    store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
+    # Rewritten for Task 5: the per-element "done" signal (previously
+    # ADD_ELEMENTS_MODE's exit) now completes the CURRENT pending element via
+    # element_planner.defer_remaining and routes back to ASK_MORE_ELEMENTS.
+    pend = {"type": "text", "content": "TEAM", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
-                                       "design_description": {"summary": "a crest"},
-                                       "elements_offered": True}, "upsell_count": 0}}
+                                       "elements": [], "elements_offered": True,
+                                       "pending_element": pend}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("placing it"))
     res = await orch.handle_message("s1", "that's it, generate")
-    assert res["state"] == S.ASK_PLACEMENT_ZONE.value
+    assert res["state"] == S.ASK_MORE_ELEMENTS.value
+    c = store["session"]["collected"]
+    assert c["elements"][-1]["content"] == "TEAM"
+    assert "pending_element" not in c or not c["pending_element"]
 
 
 def test_public_data_offers_element_chips():
@@ -279,6 +291,63 @@ def test_public_data_offers_element_chips():
     assert "That's everything" in data["options"]
     data2 = orch._public_data(S.ADD_ELEMENTS_MODE, {})
     assert "That's everything" in data2["options"]
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator: per-element lifecycle + deep-dive routing (Task 5)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_add_graphic_records_graphic_type_not_text(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+        "collected": {"name": "Al", "purpose": "p", "quantity": 24, "decoration_type": "embroidery",
+                     "has_logo": False, "elements": [{"type": "text", "content": "TEAM"}],
+                     "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("describe the graphic"))
+    res = await orch.handle_message("s1", "Add a graphic")
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+    assert store["session"]["collected"]["pending_element"]["type"] == "graphic"
+
+
+@pytest.mark.asyncio
+async def test_deepdive_captures_then_completes_and_appends(monkeypatch):
+    pend = {"type": "text", "content": "TEAM", "font": "bold", "size": "large", "colour": "gold",
+            "style": "none", "placement_zone": "front_panel", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 24, "decoration_type": "embroidery", "has_logo": False,
+                     "elements": [], "elements_offered": True, "pending_element": pend},
+        "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    async def _attrs(t, m): return {"placement_position": "centre"}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("anything else?"))
+    res = await orch.handle_message("s1", "centre")
+    c = store["session"]["collected"]
+    assert c["elements"][-1]["content"] == "TEAM"        # completed element pushed
+    assert "pending_element" not in c or not c["pending_element"]
+    assert res["state"] == S.ASK_MORE_ELEMENTS.value
+
+
+@pytest.mark.asyncio
+async def test_defer_marks_attribute_and_moves_on(monkeypatch):
+    pend = {"type": "text", "content": "TEAM", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 24, "decoration_type": "embroidery", "has_logo": False,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "font"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    async def _attrs(t, m): return {"defer": True}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("size?"))
+    await orch.handle_message("s1", "you choose")
+    assert "font" in store["session"]["collected"]["pending_element"]["deferred"]
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +362,18 @@ def _capture_extractor(mapping):
 
 
 @pytest.mark.asyncio
-async def test_describe_then_add_accumulates_brief(monkeypatch):
+async def test_add_mode_no_longer_populates_flat_brief(monkeypatch):
+    # Updated for Task 5: ADD_ELEMENTS_MODE's gather-loop is retired — removing
+    # the wants_more_elements/add_another_element derivations means
+    # _maybe_gather_element's gate for this state is never satisfied anymore,
+    # so it no longer accumulates into the flat design_description brief.
+    # Elements are now captured via the pending_element/ELEMENT_DEEPDIVE
+    # lifecycle instead (see test_add_graphic_records_graphic_type_not_text
+    # and friends above).
+    calls = []
+    async def _spy(message):
+        calls.append(message)
+        return {"text_elements": ["SUMMIT CO"], "colours": ["gold"]}
     store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
@@ -304,15 +384,11 @@ async def test_describe_then_add_accumulates_brief(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("added"))
-    monkeypatch.setattr(
-        orch.ie, "extract_design_description",
-        _capture_extractor({"add SUMMIT CO in gold": {"text_elements": ["SUMMIT CO"], "colours": ["gold"]}}),
-    )
+    monkeypatch.setattr(orch.ie, "extract_design_description", _spy)
     await orch.handle_message("s1", "add SUMMIT CO in gold")
     brief = store["session"]["collected"]["design_description"]
-    assert brief["summary"] == "a mountain crest"       # preserved
-    assert "SUMMIT CO" in brief["text_elements"]          # accumulated
-    assert "gold" in brief["colours"]
+    assert brief == {"summary": "a mountain crest"}      # unchanged — flat-brief gather retired
+    assert calls == []
 
 
 @pytest.mark.asyncio
@@ -438,24 +514,25 @@ async def test_refinement_malformed_empty_list_does_not_leak_into_brief(monkeypa
     assert collected["last_change"] == "make the logo bigger"
 
 
-@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
-    # Regression (Finding 2): "already" must not substring-match "ready" in
-    # _DONE_ELEMENTS — "already have the logo, also add a star" is NOT a
-    # decline and should route into ADD_ELEMENTS_MODE.
+    # Regression (Finding 2), rewritten for Task 5: "already" must not
+    # substring-match "ready" in _DONE_ELEMENTS — "already have the logo, also
+    # add a star" is NOT a decline. It should detect an element type (the word
+    # "logo" -> graphic) and enter the per-element deep-dive, not be dropped
+    # as though the customer declined further elements.
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
-                                       "design_description": {"summary": "a crest"},
+                                       "elements": [{"type": "text", "content": "TEAM"}],
                                        "elements_offered": True}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what would you like to add?"))
     res = await orch.handle_message("s1", "already have the logo, also add a star")
-    assert store["session"]["collected"]["wants_more_elements"] is True
-    assert res["state"] == S.ADD_ELEMENTS_MODE.value
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+    assert store["session"]["collected"]["pending_element"]["type"] == "graphic"
 
 
 # ---------------------------------------------------------------------------

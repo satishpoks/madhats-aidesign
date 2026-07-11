@@ -26,6 +26,7 @@ from app.services import leads as leads_service
 from app.services import settings_service
 from app.services.stores import get_store
 from app.services.conversation import brief
+from app.services.conversation import element_planner as ep
 from app.services.conversation import goal_planner
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import (
@@ -67,6 +68,31 @@ _BARE_YES = frozenset(
     {"yes", "yeah", "yep", "sure", "ok", "okay", "add text", "add a graphic", "add graphic"}
 )
 
+# Keyword -> element type, checked in order (first match wins). Used to
+# classify a type choice typed/tapped at ASK_MORE_ELEMENTS.
+_ELEMENT_TYPE_WORDS = (
+    ("note", "note"),
+    ("graphic", "graphic"), ("logo", "graphic"), ("icon", "graphic"),
+    ("image", "graphic"), ("picture", "graphic"), ("pic", "graphic"),
+    ("text", "text"), ("word", "text"), ("slogan", "text"), ("name", "text"),
+    ("wording", "text"), ("say", "text"),
+)
+
+
+def _element_type_from(message: str) -> str | None:
+    low = message.lower()
+    for word, etype in _ELEMENT_TYPE_WORDS:
+        if word in low:
+            return etype
+    return None
+
+
+def _looks_like_text(message: str) -> bool:
+    """Heuristic: a short, wording-like message is probably a text element
+    (e.g. "TEAM ROCKET" or "our slogan"), otherwise treat it as a graphic
+    description."""
+    return len(message.split()) <= 5 and any(c.isalpha() for c in message)
+
 
 class SessionNotFound(Exception):
     pass
@@ -105,6 +131,7 @@ async def handle_message(session_id: str, message: str) -> dict:
 
         _apply_fields(current, interp.get("fields") or {}, collected, message)
         await _maybe_gather_element(current, interp.get("fields") or {}, collected, message)
+        await _advance_elements(current, collected, message)
 
         # --- 4b. email capture (inline, no separate form) ---
         # GENERATING and ASK_EMAIL ask for the email in the chat. We already
@@ -166,7 +193,11 @@ async def handle_message(session_id: str, message: str) -> dict:
         elif new_state is ConversationState.ASK_PIN_ANNOTATION:
             collected["pin_offered"] = True
 
-        reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside)
+        ask_for = None
+        if new_state is ConversationState.ELEMENT_DEEPDIVE and collected.get("pending_element"):
+            ask_for = ep.next_attribute(collected["pending_element"])
+            collected["deepdive_ask_for"] = ask_for
+        reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside, ask_for=ask_for)
 
     if new_state is ConversationState.QUOTE_REQUESTED:
         try:
@@ -330,6 +361,76 @@ def _route(
     return goal_planner.next_goal(collected, upsell_count=upsell_count)
 
 
+async def _advance_elements(state: ConversationState, collected: dict, message: str) -> None:
+    """Own the pending_element lifecycle for the type chooser + deep-dive.
+
+    - ASK_MORE_ELEMENTS: a (non-declining) type choice seeds a fresh
+      ``pending_element``; a decline leaves no pending, which routes onward
+      (advance_state) toward the pin offer / generation.
+    - UPLOAD_LOGO / DESCRIBE_DESIGN: seed the pending element from the design
+      source itself, the moment it's available.
+    - ELEMENT_DEEPDIVE: extract attributes into the pending element; a defer
+      marks the currently-asked attribute deferred; a per-element "done"
+      signal defers everything still unset; once the element is complete it
+      is appended to ``collected["elements"]`` and the pending slot cleared.
+    """
+    S = ConversationState
+    low = message.strip().lower()
+
+    if state is S.ASK_MORE_ELEMENTS and not collected.get("pending_element"):
+        if is_negative(message) or bool(_DONE_ELEMENTS_RE.search(low)):
+            return  # declined -> exit handled by advance_state (no pending)
+        etype = _element_type_from(message)
+        if etype:
+            collected["pending_element"] = {"type": etype, "deferred": []}
+        return
+
+    if state is S.UPLOAD_LOGO and collected.get("uploaded_asset_path") and not collected.get("pending_element"):
+        collected["pending_element"] = {
+            "type": "logo",
+            "asset_path": collected["uploaded_asset_path"],
+            "content": "uploaded logo",
+            "deferred": [],
+        }
+        return
+
+    if state is S.DESCRIBE_DESIGN and not collected.get("pending_element"):
+        etype = "text" if _looks_like_text(message) else "graphic"
+        el = {"type": etype, "content": message.strip()[:200], "deferred": []}
+        collected["pending_element"] = el
+        # One extraction pass so a rich description fills volunteered
+        # attributes on this same turn (e.g. colour/size) instead of waiting a
+        # whole extra turn for the deep-dive to notice them.
+        attrs = await ie.extract_element_attributes(etype, message)
+        attrs.pop("defer", None)
+        for k, v in attrs.items():
+            if v not in (None, "") and k not in el:
+                el[k] = v
+        return
+
+    if state is S.ELEMENT_DEEPDIVE and collected.get("pending_element"):
+        el = collected["pending_element"]
+        ask_for = collected.get("deepdive_ask_for")
+        # per-element done signal -> defer everything remaining
+        if bool(_DONE_ELEMENTS_RE.search(low)):
+            ep.defer_remaining(el)
+        else:
+            attrs = await ie.extract_element_attributes(el.get("type"), message)
+            if attrs.pop("defer", False) and ask_for and ask_for != "content":
+                if ask_for not in el["deferred"]:
+                    el["deferred"].append(ask_for)
+            for k, v in attrs.items():
+                if v not in (None, ""):
+                    el[k] = v
+            # a plain answer with no structured field fills the attribute we asked
+            if ask_for and ask_for not in el and not attrs and ask_for in ("content", "font", "colour", "style"):
+                el[ask_for] = message.strip()[:120]
+        if ep.is_complete(el):
+            collected.setdefault("elements", []).append(el)
+            collected["pending_element"] = None
+            collected.pop("deepdive_ask_for", None)
+
+
 def _apply_fields(state: ConversationState, fields: dict, collected: dict, message: str) -> None:
     """Merge validated interpreter fields into collected and derive the branch
     booleans the state machine reads. The interpreter does not emit the yes/no
@@ -383,13 +484,9 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
             collected["has_logo"] = False
 
     # Confirmation states: derive the boolean from the raw message.
-    if state is S.ASK_MORE_ELEMENTS:
-        decline = is_negative(message) or bool(_DONE_ELEMENTS_RE.search(low))
-        collected["wants_more_elements"] = not decline
-    elif state is S.ADD_ELEMENTS_MODE:
-        decline = is_negative(message) or bool(_DONE_ELEMENTS_RE.search(low))
-        collected["add_another_element"] = not decline
-    elif state is S.ASK_PIN_ANNOTATION:
+    # ASK_MORE_ELEMENTS / ADD_ELEMENTS_MODE are now owned entirely by the
+    # pending_element lifecycle in `_advance_elements` — no flat booleans here.
+    if state is S.ASK_PIN_ANNOTATION:
         collected["wants_pins"] = is_affirmative(message) and not is_negative(message)
     elif state is S.PIN_ANNOTATE_MODE:
         collected["add_another_pin"] = "another" in low or (is_affirmative(message) and not is_negative(message))
