@@ -404,6 +404,48 @@ describe('ChatPanel special state banners', () => {
     expect(document.querySelector('input[type="file"]')).toBeInTheDocument()
   })
 
+  it('surfaces the logo upload as a prominent modal dialog', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Please upload your logo.',
+      state: 'upload_logo',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByText('Please upload your logo.')
+    expect(screen.getByRole('dialog', { name: /upload your logo/i })).toBeInTheDocument()
+  })
+
+  it('dismissing the logo modal reveals a reopen button that reopens the uploader', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Please upload your logo.',
+      state: 'upload_logo',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByText('Please upload your logo.')
+
+    fireEvent.click(screen.getByRole('button', { name: /close/i }))
+    expect(screen.queryByRole('dialog', { name: /upload your logo/i })).not.toBeInTheDocument()
+
+    const reopen = screen.getByRole('button', { name: /^upload logo$/i })
+    fireEvent.click(reopen)
+    expect(screen.getByRole('dialog', { name: /upload your logo/i })).toBeInTheDocument()
+  })
+
+  it('runs pin annotation on the left panel, not the chat column', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Mark your placement on the cap.',
+      state: 'pin_annotate_mode',
+      data: {},
+    })
+    render(<ChatPanel />)
+    await screen.findByText('Mark your placement on the cap.')
+    // The annotator image is present (now hosted in the left panel)…
+    expect(screen.getByAltText(/front view/i)).toBeInTheDocument()
+    // …and the chat column shows the short pointer hint.
+    expect(screen.getByText(/drop a pin on the cap image on the left/i)).toBeInTheDocument()
+  })
+
   it('triggers generation but does NOT show the design in-chat (email-only delivery)', async () => {
     vi.mocked(sendChat).mockResolvedValueOnce({
       reply: 'Generating your design now…',

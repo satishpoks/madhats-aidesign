@@ -3,6 +3,7 @@ import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
 import { ProductViewer } from '../ProductViewer'
+import { Modal } from '../Modal'
 import { usePushToTalk } from '../../hooks/usePushToTalk'
 import { uploadLogo, addPin } from '../../lib/api'
 
@@ -369,7 +370,15 @@ export function ChatPanel() {
   const designReleased = RELEASED_STATES.includes(chatState)
 
   const [inputText, setInputText] = useState('')
+  // Lets the customer dismiss the logo-upload modal (to type a different reply)
+  // without losing the ability to reopen it. Reset whenever we leave the state.
+  const [logoModalDismissed, setLogoModalDismissed] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Reset the logo-modal dismissal each time the flow leaves the upload step.
+  useEffect(() => {
+    if (chatState !== 'upload_logo') setLogoModalDismissed(false)
+  }, [chatState])
 
   // Kick off the conversation once the session ID is available
   useEffect(() => {
@@ -471,13 +480,27 @@ export function ChatPanel() {
 
       {/* Two-pane studio: product views (left) + Ricardo chat (right) */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
-        {/* LEFT — product viewer (4 angles + generated design) */}
+        {/* LEFT — product viewer, or the pin annotator while marking placement.
+            Pin annotation runs here (on the big image) rather than crammed into
+            the chat column, using the space the product image already occupies. */}
         <div className="h-72 md:h-auto md:w-1/2 border-b md:border-b-0 md:border-r border-border flex-shrink-0 md:flex-shrink overflow-y-auto">
-          {/* The generated design is shown on-screen only once released —
-              email verified AND generation complete — matching the same gate
-              as the emailed preview. Before that, the viewer shows only the
-              blank product angles. */}
-          <ProductViewer productRef={productRef} designUrls={designReleased ? designs : []} />
+          {chatState === 'pin_annotate_mode' && sessionId && productRef ? (
+            <div className="h-full p-4 md:p-6 bg-base">
+              <PinAnnotator
+                sessionId={sessionId}
+                viewImages={productRef.view_images}
+                fallbackUrl={productRef.reference_image_url}
+                onSendMessage={text => void sendMessage(sessionId, text)}
+                onError={setError}
+              />
+            </div>
+          ) : (
+            /* The generated design is shown on-screen only once released —
+               email verified AND generation complete — matching the same gate
+               as the emailed preview. Before that, the viewer shows only the
+               blank product angles. */
+            <ProductViewer productRef={productRef} designUrls={designReleased ? designs : []} />
+          )}
         </div>
 
         {/* RIGHT — chat column */}
@@ -549,23 +572,37 @@ export function ChatPanel() {
       {/* Bottom panel: special states, chips, input                         */}
       {/* ------------------------------------------------------------------ */}
       <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-4 border-t border-border">
-        {/* Special state: logo upload */}
-        {chatState === 'upload_logo' && sessionId && (
-          <LogoUploader
-            sessionId={sessionId}
-            onDone={() => void sendMessage(sessionId, 'Uploaded my logo')}
-          />
+        {/* Special state: logo upload — surfaced as a prominent modal dialog.
+            Dismissible so the customer can instead type a different reply (e.g.
+            "actually I'll describe it"); a reopen button keeps the uploader
+            one tap away while the flow is still on this step. */}
+        {sessionId && (
+          <Modal
+            open={chatState === 'upload_logo' && !logoModalDismissed}
+            title="Upload your logo"
+            onClose={() => setLogoModalDismissed(true)}
+          >
+            <LogoUploader
+              sessionId={sessionId}
+              onDone={() => void sendMessage(sessionId, 'Uploaded my logo')}
+            />
+          </Modal>
+        )}
+        {chatState === 'upload_logo' && logoModalDismissed && (
+          <button
+            onClick={() => setLogoModalDismissed(false)}
+            className="self-start px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-medium transition-colors"
+          >
+            Upload logo
+          </button>
         )}
 
-        {/* Special state: pin annotator */}
-        {chatState === 'pin_annotate_mode' && sessionId && productRef && (
-          <PinAnnotator
-            sessionId={sessionId}
-            viewImages={productRef.view_images}
-            fallbackUrl={productRef.reference_image_url}
-            onSendMessage={text => void sendMessage(sessionId, text)}
-            onError={setError}
-          />
+        {/* Special state: pin annotator now renders in the LEFT panel (above);
+            here we just show a short prompt in the chat column. */}
+        {chatState === 'pin_annotate_mode' && (
+          <p className="text-xs text-textMuted text-center">
+            Drop a pin on the cap image on the left to mark your placement.
+          </p>
         )}
 
         {/* Special state: generation + preview */}
