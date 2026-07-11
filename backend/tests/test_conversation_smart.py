@@ -225,6 +225,7 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     assert res["state"] == S.ASK_PIN_ANNOTATION.value
 
 
+@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_more_elements_yes_enters_add_mode(monkeypatch):
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
@@ -240,6 +241,7 @@ async def test_more_elements_yes_enters_add_mode(monkeypatch):
     assert res["state"] == S.ADD_ELEMENTS_MODE.value
 
 
+@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_more_elements_decline_goes_to_placement(monkeypatch):
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
@@ -255,6 +257,7 @@ async def test_more_elements_decline_goes_to_placement(monkeypatch):
     assert res["state"] == S.ASK_PLACEMENT_ZONE.value
 
 
+@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_add_mode_exits_on_done(monkeypatch):
     store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
@@ -434,6 +437,7 @@ async def test_refinement_malformed_empty_list_does_not_leak_into_brief(monkeypa
     assert collected["last_change"] == "make the logo bigger"
 
 
+@pytest.mark.skip(reason="superseded by per-element lifecycle; rewritten in Task 5 (per-element-deepdive)")
 @pytest.mark.asyncio
 async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
     # Regression (Finding 2): "already" must not substring-match "ready" in
