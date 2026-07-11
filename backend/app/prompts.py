@@ -56,6 +56,17 @@ STATE_PROMPTS: dict[str, str] = {
     "upload_logo": "Invite them to upload their logo or artwork now.",
     "ask_remove_bg": "Ask if they'd like the background removed from their logo for a cleaner look.",
     "describe_design": "Invite them to describe the design they have in mind, in their own words.",
+    "ask_more_elements": (
+        "The customer has given their main design. Warmly ask if they want to "
+        "add anything else — text, a slogan, extra graphics, or specific "
+        "colours — making clear they can also say they're done and you'll "
+        "generate it. Keep it to one or two sentences."
+    ),
+    "add_elements_mode": (
+        "Acknowledge the element the customer just added (see the brief in "
+        "context), then ask if they'd like to add anything else or are ready "
+        "for you to place the design and generate it. One or two sentences."
+    ),
     "ask_placement_zone": "Ask where they'd like the design placed: front panel, side, back, "
     "or under the brim.",
     "ask_placement_position": "Ask for the precise position within the {placement_zone} "
@@ -222,6 +233,15 @@ CANNED_REPLIES: dict[str, str] = {
     "describe_design": (
         "Tell me about the design you have in mind — colours, text, graphics, vibe — "
         "whatever comes to mind!"
+    ),
+    "ask_more_elements": (
+        "Anything else you'd like on the cap — some text, a slogan, extra "
+        "graphics, or particular colours? Or say 'that's everything' and I'll "
+        "get it generated."
+    ),
+    "add_elements_mode": (
+        "Got it — I've added that. Anything else you'd like on there, or shall "
+        "I place the design and generate it?"
     ),
     "ask_placement_zone": (
         "Where would you like the design placed? "
