@@ -435,6 +435,13 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
             ep.defer_remaining(el)
         else:
             attrs = await ie.extract_element_attributes(el.get("type"), message)
+            # remove_bg is the only yes/no attribute, so the no-key heuristic
+            # can stray-match bare "yes"/"no"/"keep"/"leave" filler in a turn
+            # answering a DIFFERENT attribute. Only accept it when it's the
+            # attribute currently being asked, so an unrelated later turn
+            # can't silently flip an already-answered remove_bg.
+            if ask_for != "remove_bg":
+                attrs.pop("remove_bg", None)
             deferred_now = attrs.pop("defer", False)
             if deferred_now and ask_for and ask_for != "content":
                 if ask_for not in el["deferred"]:

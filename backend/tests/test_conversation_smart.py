@@ -369,6 +369,55 @@ async def test_defer_marks_attribute_and_moves_on(monkeypatch):
     assert not el.get("font")
 
 
+@pytest.mark.asyncio
+async def test_deepdive_remove_bg_not_flipped_by_later_turn(monkeypatch):
+    # Regression: the no-key `remove_bg` heuristic matches bare
+    # "yes"/"no"/"keep"/"leave" filler words that show up in unrelated
+    # answers (e.g. "Medium, no rush"). Once remove_bg is already answered,
+    # a LATER turn answering a different attribute must not let a stray
+    # heuristic re-match silently flip it back.
+    pend = {"type": "logo", "asset_path": "x.png", "content": "uploaded logo",
+            "remove_bg": True, "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 24, "decoration_type": "embroidery", "has_logo": True,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "size"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m):
+        return {"size": "medium", "remove_bg": False}  # simulates the stray heuristic match
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("placement?"))
+    await orch.handle_message("s1", "Medium, no rush")
+    el = store["session"]["collected"]["pending_element"]
+    assert el["remove_bg"] is True   # not flipped by the unrelated turn
+    assert el["size"] == "medium"    # the real answer is still captured
+
+
+@pytest.mark.asyncio
+async def test_deepdive_remove_bg_captured_when_actually_asked(monkeypatch):
+    pend = {"type": "logo", "asset_path": "x.png", "content": "uploaded logo", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 24, "decoration_type": "embroidery", "has_logo": True,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "remove_bg"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m):
+        return {"remove_bg": False}
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("size?"))
+    await orch.handle_message("s1", "No, keep as-is")
+    el = store["session"]["collected"]["pending_element"]
+    assert el["remove_bg"] is False
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator: structured design brief accumulation (Task 6)
 # ---------------------------------------------------------------------------
