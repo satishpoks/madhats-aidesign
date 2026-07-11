@@ -223,3 +223,55 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     assert store["session"]["collected"]["placement_position"] == "centre"
     # position turn skipped -> next is the pin offer, not ASK_PLACEMENT_POSITION
     assert res["state"] == S.ASK_PIN_ANNOTATION.value
+
+
+@pytest.mark.asyncio
+async def test_more_elements_yes_enters_add_mode(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "design_description": {"summary": "a crest"},
+                                       "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what would you like to add?"))
+    res = await orch.handle_message("s1", "Add text")
+    assert res["state"] == S.ADD_ELEMENTS_MODE.value
+
+
+@pytest.mark.asyncio
+async def test_more_elements_decline_goes_to_placement(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "design_description": {"summary": "a crest"},
+                                       "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("where should it go?"))
+    res = await orch.handle_message("s1", "That's everything")
+    assert res["state"] == S.ASK_PLACEMENT_ZONE.value
+
+
+@pytest.mark.asyncio
+async def test_add_mode_exits_on_done(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "design_description": {"summary": "a crest"},
+                                       "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("placing it"))
+    res = await orch.handle_message("s1", "that's it, generate")
+    assert res["state"] == S.ASK_PLACEMENT_ZONE.value
+
+
+def test_public_data_offers_element_chips():
+    data = orch._public_data(S.ASK_MORE_ELEMENTS, {})
+    assert "That's everything" in data["options"]
+    data2 = orch._public_data(S.ADD_ELEMENTS_MODE, {})
+    assert "That's everything" in data2["options"]

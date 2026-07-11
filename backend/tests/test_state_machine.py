@@ -94,6 +94,14 @@ def test_progress_position_backtrack_resolves_like_zone():
     assert pos["step"] != 1
 
 
+def test_progress_holds_steady_during_gather_loop():
+    collected = {"has_logo": False}
+    zone = progress(S.ASK_PLACEMENT_ZONE, collected)
+    assert progress(S.ASK_MORE_ELEMENTS, collected) == zone
+    assert progress(S.ADD_ELEMENTS_MODE, collected) == zone
+    assert zone["step"] != 1
+
+
 def test_more_elements_branch():
     assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": True}) is S.ADD_ELEMENTS_MODE
     assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": False}) is S.ASK_PLACEMENT_ZONE

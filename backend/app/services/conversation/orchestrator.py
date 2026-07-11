@@ -38,6 +38,13 @@ from app.services.conversation.state_machine import (
 
 log = structlog.get_logger()
 
+# Phrases that end the element-gather loop ("that's everything").
+_DONE_ELEMENTS = (
+    "that's it", "thats it", "that's all", "thats all", "that's everything",
+    "thats everything", "nothing else", "no more", "all set", "generate",
+    "ready", "done",
+)
+
 
 class SessionNotFound(Exception):
     pass
@@ -131,6 +138,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             collected["purpose_asked"] = True
         elif new_state is ConversationState.YOUTH_REFERRAL:
             collected["youth_referred"] = True
+        elif new_state is ConversationState.ASK_MORE_ELEMENTS:
+            collected["elements_offered"] = True
         elif new_state is ConversationState.ASK_PIN_ANNOTATION:
             collected["pin_offered"] = True
 
@@ -350,7 +359,13 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
             collected["has_logo"] = False
 
     # Confirmation states: derive the boolean from the raw message.
-    if state is S.ASK_PIN_ANNOTATION:
+    if state is S.ASK_MORE_ELEMENTS:
+        decline = is_negative(message) or any(w in low for w in _DONE_ELEMENTS)
+        collected["wants_more_elements"] = not decline
+    elif state is S.ADD_ELEMENTS_MODE:
+        decline = is_negative(message) or any(w in low for w in _DONE_ELEMENTS)
+        collected["add_another_element"] = not decline
+    elif state is S.ASK_PIN_ANNOTATION:
         collected["wants_pins"] = is_affirmative(message) and not is_negative(message)
     elif state is S.PIN_ANNOTATE_MODE:
         collected["add_another_pin"] = "another" in low or (is_affirmative(message) and not is_negative(message))
@@ -398,6 +413,10 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Left", "Centre", "Right"], "options2": ["Upper", "Middle", "Lower"]}
     if state in (S.WARN_PRINT_SETUP, S.RECOMMEND_DECORATION, S.RECOMMEND_EMBROIDERY):
         return {"options": ["Yes, that works", "I prefer print", "I prefer embroidery", "What about a patch?"]}
+    if state is S.ASK_MORE_ELEMENTS:
+        return {"options": ["Add text", "Add a graphic", "That's everything"]}
+    if state is S.ADD_ELEMENTS_MODE:
+        return {"options": ["That's everything"]}
     if state is S.ASK_PIN_ANNOTATION:
         return {"options": ["Yes, mark a spot", "No, generate now"]}
     if state is S.UPSELL_PROMPT:

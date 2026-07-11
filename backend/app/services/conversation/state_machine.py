@@ -318,9 +318,17 @@ def progress(state: ConversationState, collected: dict) -> dict:
     total = len(path)
     if state in _DECORATION_VARIANTS:
         norm = ConversationState.RECOMMEND_DECORATION
-    elif state is ConversationState.ASK_PLACEMENT_POSITION:
+    elif state in (
+        ConversationState.ASK_PLACEMENT_POSITION,
+        ConversationState.ASK_MORE_ELEMENTS,
+        ConversationState.ADD_ELEMENTS_MODE,
+    ):
         # Placement is now one merged question; position is a backtrack
         # target only (see ALLOWED_BACKTRACKS) and shares zone's progress.
+        # The element-gather loop sits between has_logo/describe_design and
+        # placement_zone on both branches, so it normalizes to the same step
+        # rather than falling back to "step 1" (it's absent from both
+        # _progress_path and _POST_QUESTION_STATES).
         norm = ConversationState.ASK_PLACEMENT_ZONE
     else:
         norm = state
