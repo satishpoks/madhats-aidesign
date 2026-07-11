@@ -321,3 +321,24 @@ export function listGenerationLogs(
 export function getDiagnostics(): Promise<Diagnostics> {
   return request<Diagnostics>('/admin/diagnostics')
 }
+
+// ---------------------------------------------------------------------------
+// Studio settings: global regen/rate-limit config + FAQ knowledge
+// ---------------------------------------------------------------------------
+
+export interface StudioSettings {
+  regen_edits_per_session: number
+  designs_per_customer_per_day: number
+  faq_knowledge: string
+}
+
+export function getSettings(): Promise<StudioSettings> {
+  return request<StudioSettings>('/admin/settings')
+}
+
+export function updateSettings(body: Partial<StudioSettings>): Promise<StudioSettings> {
+  return request<StudioSettings>('/admin/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}

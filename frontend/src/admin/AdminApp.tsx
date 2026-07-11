@@ -10,6 +10,7 @@ import { OpsView } from './views/OpsView'
 import { LeadsView } from './views/LeadsView'
 import { LeadDetailView } from './views/LeadDetailView'
 import { DiagnosticsView } from './views/DiagnosticsView'
+import { SettingsView } from './views/SettingsView'
 
 export default function AdminApp() {
   return (
@@ -33,6 +34,7 @@ export default function AdminApp() {
           <Route path="diagnostics" element={<DiagnosticsView />} />
           <Route path="stores" element={<StoresView />} />
           <Route path="ops" element={<OpsView />} />
+          <Route path="settings" element={<SettingsView />} />
         </Route>
       </Routes>
     </BrowserRouter>
