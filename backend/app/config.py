@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     admin_secret: str
     rate_limit_rpm: int = 10
     signed_url_ttl: int = 3600
+
+    # --- AI usage caps (initial defaults; the app_settings DB row overrides) ---
+    regen_edits_per_session: int = 3
+    designs_per_customer_per_day: int = 2
     allowed_origins: str = "http://localhost:5173"
     verification_token_ttl_seconds: int = 900  # 15 min
     quote_token_ttl_seconds: int = 2592000  # 30 days — quote link stays valid a while
