@@ -55,13 +55,12 @@ _DONE_ELEMENTS_RE = re.compile(
 )
 
 # States where a (non-declining) message contributes a design element.
-_ELEMENT_STATES = frozenset(
-    {
-        ConversationState.ASK_MORE_ELEMENTS,
-        ConversationState.ADD_ELEMENTS_MODE,
-        ConversationState.DESCRIBE_CHANGES,
-    }
-)
+# ASK_MORE_ELEMENTS / ADD_ELEMENTS_MODE no longer gather a flat brief — the
+# per-element deep-dive (`_advance_elements`) owns element capture now. Only
+# DESCRIBE_CHANGES (refinement) still merges into the structured brief here;
+# any other state can still reach `merge_brief` via the volunteered-fields
+# escape hatch below.
+_ELEMENT_STATES = frozenset({ConversationState.DESCRIBE_CHANGES})
 # Bare acknowledgements that carry no element to extract on their own.
 _BARE_YES = frozenset(
     {"yes", "yeah", "yep", "sure", "ok", "okay", "add text", "add a graphic", "add graphic"}
@@ -596,9 +595,18 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
     if state in (S.WARN_PRINT_SETUP, S.RECOMMEND_DECORATION, S.RECOMMEND_EMBROIDERY):
         return {"options": ["Yes, that works", "I prefer print", "I prefer embroidery", "What about a patch?"]}
     if state is S.ASK_MORE_ELEMENTS:
-        return {"options": ["Add text", "Add a graphic", "That's everything"]}
-    if state is S.ADD_ELEMENTS_MODE:
-        return {"options": ["That's everything"]}
+        return {"options": ["Add text", "Add a graphic", "Add a note", "That's everything"]}
+    if state is S.ELEMENT_DEEPDIVE:
+        ask = collected.get("deepdive_ask_for")
+        chips = {
+            "placement_zone": ["Front panel", "Side", "Back", "Under-brim"],
+            "placement_position": ["Left", "Centre", "Right"],
+            "size": ["Small", "Medium", "Large"],
+            "remove_bg": ["Yes, remove it", "No, keep as-is"],
+        }.get(ask, [])
+        if ask and ask != "content":
+            chips = chips + ["You choose"]
+        return {"options": chips} if chips else {}
     if state is S.ASK_PIN_ANNOTATION:
         return {"options": ["Yes, mark a spot", "No, generate now"]}
     if state is S.UPSELL_PROMPT:

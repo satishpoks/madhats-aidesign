@@ -289,8 +289,22 @@ async def test_add_mode_exits_on_done(monkeypatch):
 def test_public_data_offers_element_chips():
     data = orch._public_data(S.ASK_MORE_ELEMENTS, {})
     assert "That's everything" in data["options"]
-    data2 = orch._public_data(S.ADD_ELEMENTS_MODE, {})
-    assert "That's everything" in data2["options"]
+
+
+def test_more_elements_offers_all_types():
+    opts = orch._public_data(S.ASK_MORE_ELEMENTS, {})["options"]
+    assert opts == ["Add text", "Add a graphic", "Add a note", "That's everything"]
+
+
+def test_deepdive_placement_chips_include_you_choose():
+    data = orch._public_data(S.ELEMENT_DEEPDIVE, {"deepdive_ask_for": "placement_zone"})
+    assert "Front panel" in data["options"]
+    assert "You choose" in data["options"]
+
+
+def test_deepdive_content_has_no_you_choose():
+    data = orch._public_data(S.ELEMENT_DEEPDIVE, {"deepdive_ask_for": "content"})
+    assert data.get("options", []) == []  # free text only; content is required
 
 
 # ---------------------------------------------------------------------------
