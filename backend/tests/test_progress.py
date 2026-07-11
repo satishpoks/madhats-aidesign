@@ -7,16 +7,17 @@ from app.services.conversation.state_machine import (
 
 def test_progress_describe_branch_total():
     # has_logo False -> describe branch (no upload/remove-bg steps).
+    # position is defaulted (never its own turn), so it is not counted.
     collected = {"has_logo": False}
     p = progress(S.ASK_NAME, collected)
     assert p["step"] == 1
-    assert p["total"] == 9  # name,purpose,qty,decoration,has_logo,describe,zone,position,email
+    assert p["total"] == 8  # name,purpose,qty,decoration,has_logo,describe,zone,email
 
 
 def test_progress_upload_branch_is_longer():
     collected = {"has_logo": True}
     p = progress(S.ASK_PLACEMENT_ZONE, collected)
-    assert p["total"] == 10  # upload branch adds remove-bg
+    assert p["total"] == 9  # upload branch adds remove-bg
     assert p["step"] == 8
 
 
