@@ -347,6 +347,23 @@ export function ChatPanel() {
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
+  const designs = useGenerationStore(s => s.designs)
+
+  // The design is delivered by email only once the address is verified — the
+  // on-screen viewer must not reveal it any earlier. These are the chat states
+  // reachable only after verification + a completed generation.
+  const RELEASED_STATES = [
+    'email_verified',
+    'send_preview_email',
+    'show_design',
+    'offer_refine',
+    'describe_changes',
+    'regenerating',
+    'quote_requested',
+    'upsell_prompt',
+    'session_end',
+  ]
+  const designReleased = RELEASED_STATES.includes(chatState)
 
   const [inputText, setInputText] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -440,9 +457,11 @@ export function ChatPanel() {
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* LEFT — product viewer (4 angles + generated design) */}
         <div className="h-72 md:h-auto md:w-1/2 border-b md:border-b-0 md:border-r border-border flex-shrink-0 md:flex-shrink overflow-y-auto">
-          {/* The generated design is delivered by email only, so the viewer
-              shows the blank product angles — never the generated preview. */}
-          <ProductViewer productRef={productRef} />
+          {/* The generated design is shown on-screen only once released —
+              email verified AND generation complete — matching the same gate
+              as the emailed preview. Before that, the viewer shows only the
+              blank product angles. */}
+          <ProductViewer productRef={productRef} designUrls={designReleased ? designs : []} />
         </div>
 
         {/* RIGHT — chat column */}

@@ -16,6 +16,8 @@ interface GenerationStoreState {
   jobId: string | null
   /** Watermarked preview URL (customer-facing), or the clean URL as fallback. */
   previewUrl: string | null
+  /** Completed design URLs (watermarked), in completion order. Only shown on-screen once released (email verified + complete). */
+  designs: string[]
   /** Diagnostic only (e.g. Sentry/telemetry) — never rendered to the customer. */
   error: string | null
   /** Guards so generation is kicked off at most once per session. */
@@ -36,6 +38,7 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
   status: 'idle',
   jobId: null,
   previewUrl: null,
+  designs: [],
   error: null,
   startedForSession: null,
 
@@ -51,10 +54,12 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
       for (let i = 0; i < MAX_POLLS; i++) {
         const res = await generationStatus(job_id)
         if (res.status === 'complete') {
-          set({
+          const url = res.watermarked_url ?? res.image_url ?? null
+          set(state => ({
             status: 'done',
-            previewUrl: res.watermarked_url ?? res.image_url ?? null,
-          })
+            previewUrl: url,
+            designs: url ? [...state.designs, url] : state.designs,
+          }))
           return
         }
         if (res.status === 'failed') {
@@ -79,6 +84,7 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
       status: 'idle',
       jobId: null,
       previewUrl: null,
+      designs: [],
       error: null,
       startedForSession: null,
     }),
