@@ -55,6 +55,8 @@ def test_regenerate_creates_edit_generation(client, monkeypatch):
         def execute(self):
             if self.name == "design_sessions":
                 return type("R", (), {"data": [session]})()
+            if self.name == "leads":
+                return type("R", (), {"data": []})()
             return type("R", (), {"data": [{"job_id": "j1", "id": "g1"}]})()
 
         def insert(self, rows):
@@ -64,6 +66,11 @@ def test_regenerate_creates_edit_generation(client, monkeypatch):
     monkeypatch.setattr(gen, "get_supabase", lambda: type("SB", (), {"table": lambda self, n: _T(n)})())
     monkeypatch.setattr(gen, "check_text", _noop_async)
     monkeypatch.setattr(gen.BackgroundTasks, "add_task", lambda self, *a, **k: None)
+
+    from app.services import limits
+
+    monkeypatch.setattr(limits, "can_edit", lambda session_id: True)
+    monkeypatch.setattr(limits, "can_start_design", lambda email: True)
 
     resp = client.post("/generate/regenerate/s1", json={"tier": "edit"})
     assert resp.status_code == 200

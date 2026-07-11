@@ -85,6 +85,19 @@ async def generate_regenerate(
     return await _start_generation(session_id, "edit", background)
 
 
+def _session_lead_email(session_id: str) -> str | None:
+    res = (
+        get_supabase()
+        .table("leads")
+        .select("email")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0]["email"] if res.data else None
+
+
 async def _start_generation(session_id: str, tier: str, background: BackgroundTasks) -> JobResponse:
     sb = get_supabase()
     sess = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -103,6 +116,16 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 
     if not product_ref.get("reference_image_url"):
         raise HTTPException(status_code=400, detail="Session has no product reference image")
+
+    from app.services import limits  # noqa: PLC0415
+
+    # Per-customer/day cap for NEW designs (not edits). Uses the session's lead
+    # email if one exists yet.
+    lead_email = _session_lead_email(session_id)
+    if tier != "edit" and not limits.can_start_design(lead_email):
+        raise HTTPException(status_code=429, detail="daily_design_limit")
+    if tier == "edit" and not limits.can_edit(session_id):
+        raise HTTPException(status_code=429, detail="edit_limit")
 
     params = prompt_builder.build_params(collected, tier)
     try:
