@@ -18,6 +18,8 @@ GATE_STATES: frozenset[S] = frozenset(
     {
         S.ASK_PIN_ANNOTATION,
         S.PIN_ANNOTATE_MODE,
+        S.ASK_MORE_ELEMENTS,
+        S.ADD_ELEMENTS_MODE,
         S.GENERATING,
         S.ASK_EMAIL,
         S.VERIFY_EMAIL,
@@ -81,6 +83,10 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     else:
         if not collected.get("design_description"):
             return S.DESCRIBE_DESIGN
+
+    # 5b. additional elements (optional, offered exactly once)
+    if not collected.get("elements_offered"):
+        return S.ASK_MORE_ELEMENTS
 
     # 6. placement (required; zone only — position defaults to centre elsewhere)
     if not collected.get("placement_zone"):

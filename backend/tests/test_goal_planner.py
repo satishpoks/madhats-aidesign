@@ -63,19 +63,21 @@ def test_logo_branch_upload_then_removebg_then_placement():
     c["uploaded_asset_path"] = "uploads/logo.png"
     assert next_goal(c) is S.ASK_REMOVE_BG
     c["remove_bg"] = False
+    c["elements_offered"] = True
     assert next_goal(c) is S.ASK_PLACEMENT_ZONE
 
 
 def test_describe_branch_reaches_placement():
     c = {"name": "Al", "purpose_asked": True, "quantity": 24,
          "decoration_type": "embroidery", "has_logo": False,
-         "design_description": {"summary": "x"}}
+         "design_description": {"summary": "x"}, "elements_offered": True}
     assert next_goal(c) is S.ASK_PLACEMENT_ZONE
 
 
 def test_placement_zone_only_then_pin_offer_then_generating():
     c = _base()
     c["placement_zone"] = "front_panel"          # position intentionally absent
+    c["elements_offered"] = True
     assert next_goal(c) is S.ASK_PIN_ANNOTATION   # placement satisfied by zone alone
     c["pin_offered"] = True
     assert next_goal(c) is S.GENERATING
@@ -84,5 +86,22 @@ def test_placement_zone_only_then_pin_offer_then_generating():
 def test_pin_offer_is_optional_never_blocks():
     c = _base()
     c["placement_zone"] = "side"
+    c["elements_offered"] = True
     c["pin_offered"] = True
     assert next_goal(c) is S.GENERATING
+
+
+def test_gather_goal_offered_once_before_placement():
+    collected = _base()
+    assert next_goal(collected) is S.ASK_MORE_ELEMENTS
+
+
+def test_gather_goal_skipped_once_offered():
+    collected = {**_base(), "elements_offered": True}
+    assert next_goal(collected) is S.ASK_PLACEMENT_ZONE
+
+
+def test_gather_states_are_gates():
+    from app.services.conversation.goal_planner import GATE_STATES
+    assert S.ASK_MORE_ELEMENTS in GATE_STATES
+    assert S.ADD_ELEMENTS_MODE in GATE_STATES
