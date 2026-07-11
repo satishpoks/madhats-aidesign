@@ -157,3 +157,9 @@ def test_pins_appended_when_present():
 def test_no_pin_block_when_absent():
     prompt = _build({"elements": [{"type": "text", "content": "x", "deferred": []}]})
     assert "placement note" not in prompt.lower()
+
+
+def test_prompt_keeps_physical_realism_instruction():
+    prompt = _build({"elements": [{"type": "text", "content": "HI", "deferred": []}]}).lower()
+    assert "physically applied" in prompt
+    assert "curvature" in prompt

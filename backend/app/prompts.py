@@ -347,6 +347,7 @@ DECORATION(S) TO ADD (each placed exactly as noted):
 {design_block}
 
 DECORATION STYLE:
+Every added decoration must follow the panel's natural curvature, perspective and lighting so it looks physically applied, not like a flat sticker.
 {decoration_style}
 {pin_block}
 
