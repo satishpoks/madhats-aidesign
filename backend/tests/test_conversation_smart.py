@@ -105,20 +105,6 @@ async def test_progress_is_returned_each_turn(monkeypatch):
     assert res["data"]["progress"]["total"] >= 1
 
 
-@pytest.mark.asyncio
-async def test_side_question_does_not_advance(monkeypatch):
-    store = {"session": {"id": "s1", "state": S.ASK_QUANTITY.value, "collected": {"name": "Al"}, "upsell_count": 0}}
-    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
-    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
-    monkeypatch.setattr(
-        orch.ie, "interpret_turn",
-        _fixed_interpret({"intent": "ask_question", "fields": {}, "question_answer": "Embroidery lasts longer."}),
-    )
-    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("re-ask"))
-    res = await orch.handle_message("s1", "which lasts longer?")
-    assert res["state"] == S.ASK_QUANTITY.value  # stayed put
-
-
 def _fixed_interpret(payload):
     base = {"intent": "answer", "fields": {}, "revise_target": None,
             "backtrack_target": None, "question_answer": "", "on_topic": True}
@@ -144,10 +130,44 @@ def _fake_settings():
 
 
 @pytest.mark.asyncio
+async def test_bare_name_advances_and_is_not_reasked(monkeypatch):
+    # Regression: a bare first name must be captured and the flow must move to
+    # purpose — never ask the name a second time.
+    store = {"session": {"id": "s1", "state": S.ASK_NAME.value, "collected": {}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    # Interpreter misclassifies the bare word as chitchat with no fields.
+    monkeypatch.setattr(
+        orch.ie, "interpret_turn",
+        _fixed_interpret({"intent": "chitchat", "fields": {}}),
+    )
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what are they for?"))
+    res = await orch.handle_message("s1", "Satish")
+    assert store["session"]["collected"]["name"] == "Satish"
+    assert res["state"] == S.ASK_PURPOSE.value
+
+
+@pytest.mark.asyncio
+async def test_side_question_does_not_advance(monkeypatch):
+    # A pure question at an unmet slot is answered but stays on that slot.
+    store = {"session": {"id": "s1", "state": S.ASK_QUANTITY.value,
+                         "collected": {"name": "Al", "purpose": "gifts"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(
+        orch.ie, "interpret_turn",
+        _fixed_interpret({"intent": "ask_question", "fields": {}, "question_answer": "Embroidery lasts longer."}),
+    )
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("re-ask"))
+    res = await orch.handle_message("s1", "which lasts longer?")
+    assert res["state"] == S.ASK_QUANTITY.value  # quantity still unmet -> stays
+
+
+@pytest.mark.asyncio
 async def test_upload_logo_chip_advances_even_if_misclassified(monkeypatch):
-    # Regression: the has-logo step used to loop when the interpreter tagged the
-    # chip tap as a question. A chip answer must always advance to the uploader.
-    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value,
+                         "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
+                                       "decoration_type": "embroidery"}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(
@@ -161,7 +181,9 @@ async def test_upload_logo_chip_advances_even_if_misclassified(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_describe_chip_routes_to_describe(monkeypatch):
-    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value,
+                         "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
+                                       "decoration_type": "embroidery"}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
@@ -172,9 +194,9 @@ async def test_describe_chip_routes_to_describe(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_typed_have_a_logo_reaches_upload(monkeypatch):
-    # Deterministic has_logo derivation: even when the interpreter omits has_logo,
-    # a typed "I have a logo" must reach the upload step (not the describe path).
-    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value,
+                         "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
+                                       "decoration_type": "embroidery"}, "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))

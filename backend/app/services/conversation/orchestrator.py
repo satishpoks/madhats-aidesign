@@ -24,12 +24,11 @@ from app.db import get_supabase
 from app.services import leads as leads_service
 from app.services import settings_service
 from app.services.stores import get_store
+from app.services.conversation import goal_planner
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import (
     AUTO_ADVANCE_STATES,
     ConversationState,
-    QUESTION_FIELD,
-    advance_and_skip,
     advance_state,
     allowed_backtracks,
     is_affirmative,
@@ -95,43 +94,47 @@ async def handle_message(session_id: str, message: str) -> dict:
         intent = interp["intent"]
         # A tapped option chip (or a message exactly matching one) is a
         # DEFINITIVE answer — never a side-question. The interpreter occasionally
-        # misclassifies a terse decision reply as ask_question/chitchat, which
-        # would re-ask and trap the customer in a loop (e.g. the has-logo step).
-        # Force those to advance.
+        # misclassifies a terse decision reply as ask_question/chitchat.
         _opts = _public_data(current, collected)
         _chip_values = [o.lower() for o in (_opts.get("options", []) + _opts.get("options2", []))]
         if message.strip().lower() in _chip_values and intent in ("ask_question", "chitchat"):
             intent = "answer"
-        if intent in ("ask_question", "chitchat"):
-            # Answer/redirect, then RE-ASK the current question. Do not advance.
-            new_state = current
-            reply = await ie.generate_reply(
-                current.value, collected, persona, aside=interp.get("question_answer") or None
-            )
-        else:
-            if intent in ("revise", "backtrack"):
-                target = interp.get("revise_target") or interp.get("backtrack_target")
-                new_state = ConversationState(target) if target else current
-                if target:
-                    log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
-            elif current is ConversationState.OFFER_REFINE and collected.get("wants_changes"):
-                # Enforce the per-session edit cap here (guarded import so this
-                # file works before Task 11 lands).
-                if _can_edit(session_id):
-                    new_state = ConversationState.DESCRIBE_CHANGES
-                else:
-                    collected["edit_cap_reached"] = True
-                    new_state = ConversationState.QUOTE_REQUESTED
+
+        # Questions / chit-chat are answered INLINE (aside) and never freeze the
+        # flow: routing still runs, so filled slots advance and only a genuinely
+        # unmet slot "stays". This is what removes the old re-ask loop.
+        aside = interp.get("question_answer") or None if intent in ("ask_question", "chitchat") else None
+
+        if intent in ("revise", "backtrack"):
+            target = interp.get("revise_target") or interp.get("backtrack_target")
+            new_state = ConversationState(target) if target else _route(current, collected, upsell_count)
+            if target:
+                log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
+        elif current is ConversationState.OFFER_REFINE and collected.get("wants_changes"):
+            if _can_edit(session_id):
+                new_state = ConversationState.DESCRIBE_CHANGES
             else:
-                new_state = advance_and_skip(
-                    current, collected, message=message, upsell_count=upsell_count
-                )
-            if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
-                upsell_count += 1
-            # auto-advance through routing-only states
-            while new_state in AUTO_ADVANCE_STATES:
-                new_state = advance_state(new_state, collected, upsell_count=upsell_count)
-            reply = await ie.generate_reply(new_state.value, collected, persona)
+                collected["edit_cap_reached"] = True
+                new_state = ConversationState.QUOTE_REQUESTED
+        else:
+            new_state = _route(current, collected, upsell_count)
+
+        if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
+            upsell_count += 1
+        # auto-advance through any routing-only states advance_state may return
+        while new_state in AUTO_ADVANCE_STATES:
+            new_state = advance_state(new_state, collected, upsell_count=upsell_count)
+
+        # One-shot flags: mark soft/optional goals as offered so they are never
+        # nagged on a later turn.
+        if new_state is ConversationState.ASK_PURPOSE:
+            collected["purpose_asked"] = True
+        elif new_state is ConversationState.YOUTH_REFERRAL:
+            collected["youth_referred"] = True
+        elif new_state is ConversationState.ASK_PIN_ANNOTATION:
+            collected["pin_offered"] = True
+
+        reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside)
 
     if new_state is ConversationState.QUOTE_REQUESTED:
         try:
@@ -284,6 +287,16 @@ async def advance_after_regeneration(session_id: str) -> dict:
     return {"reply": reply, "state": new_state.value, "data": data}
 
 
+def _route(
+    current: ConversationState, collected: dict, upsell_count: int
+) -> ConversationState:
+    """Forward routing: the goal planner owns the questionnaire; advance_state
+    owns the downstream/branching gates."""
+    if current in goal_planner.GATE_STATES:
+        return advance_state(current, collected, upsell_count=upsell_count)
+    return goal_planner.next_goal(collected, upsell_count=upsell_count)
+
+
 def _apply_fields(state: ConversationState, fields: dict, collected: dict, message: str) -> None:
     """Merge validated interpreter fields into collected and derive the branch
     booleans the state machine reads. The interpreter does not emit the yes/no
@@ -291,6 +304,14 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
     (works with and without an LLM key)."""
     S = ConversationState
     low = message.lower()
+
+    # Deterministic name capture: a bare first name must fill `name` no matter
+    # how the interpreter classified the turn (fixes the double name-ask). Skip
+    # obvious non-answers (questions).
+    if state is S.ASK_NAME and not collected.get("name"):
+        candidate = message.strip().split("\n")[0][:60]
+        if candidate and "?" not in candidate:
+            collected["name"] = candidate
 
     for key in (
         "name", "purpose", "quantity", "decoration_type", "design_description",
