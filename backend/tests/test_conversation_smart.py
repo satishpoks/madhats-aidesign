@@ -475,6 +475,13 @@ async def test_extract_attributes_no_key_detects_defer_and_zone(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_extract_attributes_no_key_company_not_treated_as_defer(monkeypatch):
+    monkeypatch.setattr(ie2, "_has_llm", False)
+    out = await ie2.extract_element_attributes("text", "add our company name in bold")
+    assert not out.get("defer")
+
+
+@pytest.mark.asyncio
 async def test_generate_reply_ask_for_no_key_uses_attribute_question(monkeypatch):
     monkeypatch.setattr(ie2, "_has_llm", False)
     reply = await ie2.generate_reply("element_deepdive", {"pending_element": {"type": "text"}},

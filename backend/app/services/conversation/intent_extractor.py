@@ -206,11 +206,18 @@ _SIZE_WORDS = {"small": "small", "tiny": "small", "little": "small",
                "medium": "medium", "mid": "medium",
                "large": "large", "big": "large", "huge": "large"}
 
+# Word-boundary matching for defer detection — a plain substring scan matches
+# the bare word "any" (one of the DEFER_WORDS) inside unrelated words like
+# "company", "many", "anywhere", silently discarding real attributes the
+# customer gave. Mirrors the `_DONE_ELEMENTS_RE` word-boundary pattern in
+# orchestrator.py.
+_DEFER_RE = re.compile(r"\b(" + "|".join(re.escape(p) for p in prompts.DEFER_WORDS) + r")\b")
+
 
 def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
     low = message.lower()
     out: dict = {}
-    if any(w in low for w in prompts.DEFER_WORDS):
+    if _DEFER_RE.search(low):
         out["defer"] = True
         return out
     zone = _zone_from_text(message)
