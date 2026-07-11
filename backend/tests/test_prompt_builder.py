@@ -31,6 +31,17 @@ def _build(collected, ref=None):
     return prompt_builder.build_prompt(collected, ref, _params(collected))
 
 
+# --- build_params reads per-element placement --------------------------------
+
+def test_build_params_reads_first_element_placement():
+    params = prompt_builder.build_params(
+        {"elements": [{"type": "text", "content": "HI", "placement_zone": "back",
+                       "placement_position": "left", "remove_bg": True}]}, "preview")
+    assert params.placement_zone == "back"
+    assert params.placement_position == "left"
+    assert params.remove_bg is True
+
+
 # --- cap fidelity lock ------------------------------------------------------
 
 def test_cap_lock_directive_always_present():

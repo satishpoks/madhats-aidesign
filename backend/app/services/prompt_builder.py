@@ -16,13 +16,21 @@ class PromptBuildError(Exception):
     pass
 
 
+def _first_with(elements: list, key: str, default):
+    for el in elements or []:
+        if el.get(key) not in (None, ""):
+            return el[key]
+    return default
+
+
 def build_params(collected: dict, tier: str) -> GenerationParams:
+    elements = collected.get("elements") or []
     return GenerationParams(
         tier=tier,
-        placement_zone=collected.get("placement_zone", "front_panel"),
-        placement_position=collected.get("placement_position", "centre"),
+        placement_zone=_first_with(elements, "placement_zone", collected.get("placement_zone", "front_panel")),
+        placement_position=_first_with(elements, "placement_position", collected.get("placement_position", "centre")),
         decoration_type=collected.get("decoration_type", "print"),
-        remove_bg=bool(collected.get("remove_bg", False)),
+        remove_bg=bool(_first_with(elements, "remove_bg", collected.get("remove_bg", False))),
         pin_annotations=collected.get("pin_annotations", []) or [],
         resolution="2k" if tier == "final" else "standard",
     )
