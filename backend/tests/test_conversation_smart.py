@@ -405,6 +405,36 @@ async def test_refinement_freeform_edit_does_not_leak_into_brief(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refinement_malformed_empty_list_does_not_leak_into_brief(monkeypatch):
+    # Regression (whole-branch re-review): a malformed extractor result whose
+    # `text_elements` is a non-empty LIST containing only an empty string
+    # (e.g. [""]) must not satisfy `_is_structured_element` via bare list
+    # truthiness — that would bypass the DESCRIBE_CHANGES guard and let the
+    # freeform edit "make the logo bigger" leak into text_elements, same as
+    # the bare-summary case above. `_is_structured_element` must require a
+    # real (non-empty) item in the list, mirroring `brief.has_incoming_lists`.
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_CHANGES.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True, "placement_zone": "front_panel",
+                                       "design_description": {"summary": "a crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("updating"))
+    monkeypatch.setattr(
+        orch.ie, "extract_design_description",
+        _capture_extractor({"make the logo bigger": {"text_elements": [""], "summary": "make the logo bigger"}}),
+    )
+    await orch.handle_message("s1", "make the logo bigger")
+    collected = store["session"]["collected"]
+    text_elements = collected["design_description"].get("text_elements", [])
+    assert "make the logo bigger" not in text_elements
+    assert collected["last_change"] == "make the logo bigger"
+
+
+@pytest.mark.asyncio
 async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
     # Regression (Finding 2): "already" must not substring-match "ready" in
     # _DONE_ELEMENTS — "already have the logo, also add a star" is NOT a

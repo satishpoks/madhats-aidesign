@@ -450,8 +450,15 @@ async def _maybe_gather_element(
 
 def _is_structured_element(incoming: dict) -> bool:
     """True if the extractor returned real structured content (not just a
-    bare summary echo of the raw message)."""
-    return any(incoming.get(k) for k in ("text_elements", "colours", "imagery", "style"))
+    bare summary echo of the raw message). List fields must contain a real
+    (non-empty) item — a malformed [""] must not count, mirroring
+    `brief.has_incoming_lists`."""
+    if incoming.get("style"):
+        return True
+    return any(
+        any(item for item in (incoming.get(k) or []))
+        for k in ("text_elements", "colours", "imagery")
+    )
 
 
 def _can_edit(session_id: str) -> bool:
