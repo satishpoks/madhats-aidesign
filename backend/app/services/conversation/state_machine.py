@@ -267,6 +267,8 @@ def _progress_path(collected: dict) -> list[ConversationState]:
 # States that mean "past the design questionnaire" -> progress is complete.
 _POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
     {
+        ConversationState.ASK_PIN_ANNOTATION,
+        ConversationState.PIN_ANNOTATE_MODE,
         ConversationState.GENERATING,
         ConversationState.VERIFY_EMAIL,
         ConversationState.EMAIL_VERIFIED,

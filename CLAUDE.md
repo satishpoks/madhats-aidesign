@@ -302,7 +302,7 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 - **Admin/ops routes** (`X-Admin-Secret`): `GET /admin/prompt-preview/{session_id}` (exact prompt Gemini would receive), `POST /admin/deliveries/backfill` (delivery self-heal), plus store onboarding/sync.
 - **Frontend:** email is captured **inline in the chat** (the redundant contact form is gone).
 - **Smarter Studio conversation:** the engine is now **interpreter-first** — out-of-order answers, side-questions, "revise X", and chit-chat are handled via an LLM interpreter, while the deterministic state machine still owns routing and goal-leads the conversation back on track (no-advance on unmet fields). The frontend shows the on-screen design (main image + product-angle + regeneration thumbnails) gated at email verification, plus a "Step X of N" progress indicator. Customers can regenerate-with-changes up to admin-configurable per-session/per-day caps (`REGEN_EDITS_PER_SESSION`, `DESIGNS_PER_CUSTOMER_PER_DAY`), backed by a global `app_settings` table and an admin Settings view; the final design is emailed once on completion (deduped).
-- Tests: backend `pytest` 127, frontend `vitest run` 65.
+- Tests: backend `pytest` 176, frontend `vitest run` 107 (2 pre-existing `adminQuotes` failures, unrelated).
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 
 ---

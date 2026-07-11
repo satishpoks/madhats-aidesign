@@ -32,3 +32,11 @@ def test_advance_and_skip_skips_already_answered_question():
     collected = {"has_logo": False, "placement_zone": "front_panel"}
     nxt = advance_and_skip(S.DESCRIBE_DESIGN, collected)
     assert nxt == S.ASK_PLACEMENT_POSITION  # zone skipped because already filled
+
+
+def test_progress_pin_annotation_does_not_reset():
+    # Every session passes through pin-annotation after placement-position;
+    # it must not drop back to step 1 — it's post-questionnaire (step == total).
+    for st in (S.ASK_PIN_ANNOTATION, S.PIN_ANNOTATE_MODE):
+        p = progress(st, {"has_logo": False})
+        assert p["step"] == p["total"], st
