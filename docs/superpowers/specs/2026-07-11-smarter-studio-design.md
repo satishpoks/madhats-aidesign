@@ -188,7 +188,7 @@ New single-row **`app_settings`** table (Supabase migration) holding:
 | key | type | default (from env) |
 |---|---|---|
 | `regen_edits_per_session` | int | `REGEN_EDITS_PER_SESSION` (e.g. 3) |
-| `designs_per_customer_per_day` | int | `DESIGNS_PER_CUSTOMER_PER_DAY` (e.g. 10) |
+| `designs_per_customer_per_day` | int | `DESIGNS_PER_CUSTOMER_PER_DAY` (default **2**) |
 | `faq_knowledge` | text | "" |
 
 - **`services/settings_service.py`** — `get_settings()` returns the row merged over env
