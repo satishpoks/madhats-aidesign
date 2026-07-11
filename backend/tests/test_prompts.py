@@ -7,3 +7,10 @@ def test_gather_states_have_copy():
         assert slug in prompts.STATE_PROMPTS
     # Goal-leading: the offer names concrete element types and an exit.
     assert "text" in prompts.CANNED_REPLIES["ask_more_elements"].lower()
+
+
+def test_deepdive_states_have_copy():
+    for slug in ("ask_more_elements", "element_deepdive"):
+        assert slug in prompts.CANNED_REPLIES
+        assert slug in prompts.STATE_PROMPTS
+    assert "graphic" in prompts.CANNED_REPLIES["ask_more_elements"].lower()

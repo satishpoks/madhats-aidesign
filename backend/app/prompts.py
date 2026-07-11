@@ -57,10 +57,15 @@ STATE_PROMPTS: dict[str, str] = {
     "ask_remove_bg": "Ask if they'd like the background removed from their logo for a cleaner look.",
     "describe_design": "Invite them to describe the design they have in mind, in their own words.",
     "ask_more_elements": (
-        "The customer has given their main design. Warmly ask if they want to "
-        "add anything else — text, a slogan, extra graphics, or specific "
-        "colours — making clear they can also say they're done and you'll "
-        "generate it. Keep it to one or two sentences."
+        "Ask whether the customer wants to add another element — text, a graphic, "
+        "or a note for the team — making clear they can also say they're done. "
+        "One or two sentences."
+    ),
+    "element_deepdive": (
+        "You are taking a custom order like a helpful salesperson. Acknowledge what "
+        "the customer just gave for the current element, then ask ONLY for the next "
+        "detail (provided to you), making clear they can say 'you choose'. One or two "
+        "sentences, warm and specific."
     ),
     "add_elements_mode": (
         "Acknowledge the element the customer just added (see the brief in "
@@ -261,10 +266,10 @@ CANNED_REPLIES: dict[str, str] = {
         "whatever comes to mind!"
     ),
     "ask_more_elements": (
-        "Anything else you'd like on the cap — some text, a slogan, extra "
-        "graphics, or particular colours? Or say 'that's everything' and I'll "
-        "get it generated."
+        "Anything to add — some text, a graphic, or a note for our team? "
+        "Or say 'that's everything' and I'll put it together."
     ),
+    "element_deepdive": "Great — let's nail down the details of that one.",
     "add_elements_mode": (
         "Got it — I've added that. Anything else you'd like on there, or shall "
         "I place the design and generate it?"
