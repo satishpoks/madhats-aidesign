@@ -343,15 +343,11 @@ THE ONLY PERMITTED CHANGE:
 Add the decoration described below onto the specified panel, as though it were
 {decoration_kind} applied to this exact cap. Nothing else changes.
 
-DECORATION TO ADD:
+DECORATION(S) TO ADD (each placed exactly as noted):
 {design_block}
 
 DECORATION STYLE:
 {decoration_style}
-
-PLACEMENT:
-On the {placement_zone}, positioned {placement_position}. Follow the panel's
-natural curvature, perspective and lighting so it looks physically applied.
 {pin_block}
 
 OUTPUT: One photorealistic image of the SAME single cap from the SAME angle as

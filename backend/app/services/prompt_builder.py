@@ -28,52 +28,62 @@ def build_params(collected: dict, tier: str) -> GenerationParams:
     )
 
 
-def _element_lines(design: dict) -> list[str]:
-    """Enumerate the described decoration elements as prompt lines. Empty fields
-    are skipped so no dangling labels leak into the prompt."""
-    lines: list[str] = []
-    summary = design.get("summary")
-    if summary:
-        lines.append(summary)
-    text_elements = [t for t in (design.get("text_elements") or []) if t]
-    if text_elements:
-        quoted = ", ".join(f'"{t}"' for t in text_elements)
-        lines.append(f"Text to include (render exactly as written): {quoted}")
-    colours = [c for c in (design.get("colours") or []) if c]
-    if colours:
-        lines.append(f"Design colours (of the decoration, not the cap): {', '.join(colours)}")
-    imagery = [i for i in (design.get("imagery") or []) if i]
-    if imagery:
-        lines.append(f"Graphics/icons: {', '.join(imagery)}")
-    style = design.get("style")
-    if style:
-        lines.append(f"Design style: {style}")
-    return lines
+_ZONE_LABEL = {"front_panel": "front panel", "side": "side", "back": "back", "under_brim": "under the brim"}
+
+
+def _placement_phrase(el: dict) -> str:
+    zone = el.get("placement_zone")
+    if not zone:
+        return ""
+    label = _ZONE_LABEL.get(zone, zone.replace("_", " "))
+    pos = el.get("placement_position")
+    return f" on the {label}" + (f" ({pos})" if pos else "")
+
+
+def _element_line(el: dict) -> str:
+    """Render one element (with its own placement) as a prompt line/block.
+    Empty/deferred attributes are skipped so no dangling labels leak in."""
+    etype = el.get("type")
+    if etype == "note":
+        return f"Customer note to the team (do not render): {el.get('content', '')}"
+    if etype == "logo":
+        base = prompts.UPLOADED_ASSET_DESIGN_BLOCK
+        place = _placement_phrase(el)
+        return base + (f"\nPlace the artwork{place}." if place else "")
+    # text / graphic
+    bits = []
+    content = el.get("content", "")
+    if etype == "text":
+        bits.append(f'Text reading "{content}" (render exactly as written)')
+    else:
+        bits.append(f"A graphic: {content}")
+    if el.get("font"):
+        bits.append(f"{el['font']} font")
+    if el.get("style"):
+        bits.append(f"{el['style']} style")
+    if el.get("size"):
+        bits.append(f"{el['size']} size")
+    if el.get("colour"):
+        bits.append(f"in {el['colour']}")
+    return ", ".join(bits) + _placement_phrase(el) + "."
 
 
 def _design_block(collected: dict) -> str:
     """Describe ONLY the decoration to add — never the base cap.
 
-    Both flows funnel through one structured brief (``design_description``). Flow
-    B (uploaded logo) points the model at the second image AND enumerates any
-    extra elements the customer gathered; Flow A (described design) enumerates
-    the same fields with no logo.
+    Enumerates ``collected["elements"]`` — one line/block per element, each
+    carrying its own placement. Falls back to the legacy flat shape only if
+    ``elements`` is absent (back-compat for any un-migrated caller).
     """
-    design = collected.get("design_description") or {}
-    if not isinstance(design, dict):
-        design = {"summary": str(design)} if design else {}
-    if not design.get("summary") and collected.get("design_summary"):
-        design = {**design, "summary": collected["design_summary"]}
-
-    lines = _element_lines(design)
-
-    if collected.get("uploaded_asset_path"):
-        block = prompts.UPLOADED_ASSET_DESIGN_BLOCK
-        if lines:
-            block += "\nAlso incorporate these customer details:\n" + "\n".join(lines)
-        return block
-
-    return "\n".join(lines) if lines else prompts.FALLBACK_DESIGN_BLOCK
+    elements = collected.get("elements")
+    if not elements:
+        if collected.get("uploaded_asset_path"):
+            return prompts.UPLOADED_ASSET_DESIGN_BLOCK
+        return prompts.FALLBACK_DESIGN_BLOCK
+    lines = [_element_line(el) for el in elements if el.get("type") != "logo"]
+    logo_lines = [_element_line(el) for el in elements if el.get("type") == "logo"]
+    all_lines = logo_lines + [f"- {ln}" for ln in lines]
+    return "\n".join(all_lines) if all_lines else prompts.FALLBACK_DESIGN_BLOCK
 
 
 def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -> str:
@@ -107,8 +117,6 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
         decoration_kind=decoration_kind,
         design_block=design_block,
         decoration_style=decoration_style,
-        placement_zone=params.placement_zone.replace("_", " "),
-        placement_position=params.placement_position,
         pin_block=pin_block,
     )
 

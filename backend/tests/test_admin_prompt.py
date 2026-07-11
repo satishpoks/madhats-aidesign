@@ -49,9 +49,15 @@ _SESSION = {
     },
     "collected": {
         "decoration_type": "embroidery",
-        "placement_zone": "front_panel",
-        "placement_position": "centre",
-        "design_description": {"summary": "bold mountain crest"},
+        "elements": [
+            {
+                "type": "text",
+                "content": "bold mountain crest",
+                "placement_zone": "front_panel",
+                "placement_position": "centre",
+                "deferred": [],
+            }
+        ],
     },
 }
 
