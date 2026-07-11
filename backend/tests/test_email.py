@@ -124,3 +124,57 @@ def test_quote_confirmation_to_sales_includes_confirmed_details(monkeypatch):
     assert "Need them before the expo" in body
     # phone-notify consent surfaced for the rep
     assert "yes" in body.lower()
+
+
+def test_quote_to_sales_includes_per_element_design_brief(monkeypatch):
+    """Finding 2 (whole-branch review): the sales team must see the per-element
+    design details, not just the retired flat placement fields (which are
+    empty/stale once the conversation moved to collected["elements"])."""
+    captured = _capture_send(monkeypatch)
+
+    ok = email_service.send_quote_to_sales(
+        customer={"name": "Ann", "email": "ann@example.com", "phone": None},
+        product={"name": "Snapback", "style": "6-panel", "colour": "black"},
+        collected={
+            "quantity": 50,
+            "decoration_type": "embroidery",
+            "elements": [
+                {
+                    "type": "text", "content": "TEAM SPIRIT", "style": "bold", "colour": "gold",
+                    "placement_zone": "front_panel", "placement_position": "centre",
+                },
+            ],
+        },
+        image_url="https://cdn/clean.png",
+        recipient="sales@store.example",
+    )
+
+    assert ok is True
+    body = captured["params"]["html"]
+    assert 'Text "TEAM SPIRIT" — bold, gold, on the front panel (centre)' in body
+
+
+def test_quote_confirmation_to_sales_includes_per_element_design_brief(monkeypatch):
+    """Same brief requirement for the 'customer confirmed' sales email."""
+    captured = _capture_send(monkeypatch)
+
+    ok = email_service.send_quote_confirmation_to_sales(
+        customer={"name": "Ann", "email": "ann@example.com", "phone": "0400000000"},
+        product={"name": "Snapback", "style": "6-panel", "colour": "black"},
+        collected={
+            "quantity": 50,
+            "decoration_type": "embroidery",
+            "elements": [
+                {"type": "graphic", "content": "a star", "style": "minimalist", "colour": "navy",
+                 "placement_zone": "side"},
+            ],
+        },
+        note="",
+        notify_by_phone=False,
+        image_url="https://cdn/clean.png",
+        recipient="sales@store.example",
+    )
+
+    assert ok is True
+    body = captured["params"]["html"]
+    assert "Graphic: a star — minimalist, navy, on the side" in body

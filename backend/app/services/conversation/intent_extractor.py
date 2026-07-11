@@ -213,6 +213,16 @@ _SIZE_WORDS = {"small": "small", "tiny": "small", "little": "small",
 # orchestrator.py.
 _DEFER_RE = re.compile(r"\b(" + "|".join(re.escape(p) for p in prompts.DEFER_WORDS) + r")\b")
 
+# Finding 1 (whole-branch review): without an API key, `_extract_attrs_heuristic`
+# recognised defer/zone/size/position but never `remove_bg` -- a logo element's
+# FIRST attribute is remove_bg, so "Yes, remove it" returned `{}`, remove_bg
+# stayed unset, and `next_attribute` re-asked it forever (only "you choose"
+# escaped, via the defer path above). Only set remove_bg when the message
+# clearly signals yes/no; word-boundary matched so "no" doesn't match inside
+# "not"/"none" etc.
+_REMOVE_BG_YES_RE = re.compile(r"\b(remove|clean[- ]?up|yes|yep|yeah)\b")
+_REMOVE_BG_NO_RE = re.compile(r"\b(keep|no|nope|leave|as[- ]is)\b")
+
 
 def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
     low = message.lower()
@@ -220,6 +230,13 @@ def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
     if _DEFER_RE.search(low):
         out["defer"] = True
         return out
+    if el_type == "logo":
+        wants_removed = bool(_REMOVE_BG_YES_RE.search(low))
+        wants_kept = bool(_REMOVE_BG_NO_RE.search(low))
+        if wants_removed and not wants_kept:
+            out["remove_bg"] = True
+        elif wants_kept and not wants_removed:
+            out["remove_bg"] = False
     zone = _zone_from_text(message)
     if zone:
         out["placement_zone"] = zone

@@ -491,6 +491,9 @@ Quantity: {quantity}
 Decoration: {decoration_type}
 Placement: {placement_zone} / {placement_position}
 
+Design details:
+{design_brief}
+
 Design image (internal, clean): {image_url}
 
 Please prepare and send the quote directly to the customer.
@@ -515,6 +518,9 @@ Product: {product_name} ({product_style}, {product_colour})
 Quantity (confirmed): {quantity}
 Decoration: {decoration_type}
 Placement: {placement_zone} / {placement_position}
+
+Design details:
+{design_brief}
 
 Customer note: {note}
 

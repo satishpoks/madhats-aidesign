@@ -66,6 +66,17 @@ _BARE_YES = frozenset(
     {"yes", "yeah", "yep", "sure", "ok", "okay", "add text", "add a graphic", "add graphic"}
 )
 
+# Bare type-choice phrasings (the ASK_MORE_ELEMENTS chips, plus their obvious
+# typed equivalents) that carry ONLY the type -- no volunteered content. These
+# must keep just seeding {type, deferred: []} and asking content next, with no
+# extraction call. Anything else typed at ASK_MORE_ELEMENTS (e.g. "add text
+# saying GO TEAM") is assumed to carry more than the bare type and gets one
+# extraction pass so volunteered content/colour/etc. isn't silently dropped
+# and re-asked (Finding 5, whole-branch review).
+_BARE_ELEMENT_CHOICES = frozenset(
+    {"add text", "add a graphic", "add graphic", "add a note", "add note"}
+)
+
 # Keyword -> element type, checked in order (first match wins). Used to
 # classify a type choice typed/tapped at ASK_MORE_ELEMENTS.
 _ELEMENT_TYPE_WORDS = (
@@ -380,7 +391,17 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
             return  # declined -> exit handled by advance_state (no pending)
         etype = _element_type_from(message)
         if etype:
-            collected["pending_element"] = {"type": etype, "deferred": []}
+            el = {"type": etype, "deferred": []}
+            if low not in _BARE_ELEMENT_CHOICES:
+                # More than a bare type choice (e.g. "add text saying GO
+                # TEAM") -- one extraction pass so volunteered attributes bind
+                # to the element now instead of being dropped and re-asked.
+                attrs = await ie.extract_element_attributes(etype, message)
+                attrs.pop("defer", None)
+                for k, v in attrs.items():
+                    if v not in (None, ""):
+                        el[k] = v
+            collected["pending_element"] = el
         return
 
     if state is S.UPLOAD_LOGO and collected.get("uploaded_asset_path") and not collected.get("pending_element"):
@@ -516,6 +537,15 @@ async def _maybe_gather_element(
     brief in either gather state — but a bare acknowledgement in
     ADD_ELEMENTS_MODE still leaves `add_another_element` True, so the loop
     keeps gathering on the next turn."""
+    # Finding 4 (whole-branch review): DESCRIBE_DESIGN is no longer an
+    # `_ELEMENT_STATES` member -- the per-element deep-dive (`_advance_elements`)
+    # owns that state now. But in real no-key operation `interpret_turn` ->
+    # `_extract_fields_for_state("describe_design", ...)` still sets
+    # `fields["design_description"]`, which makes the `volunteered` escape
+    # hatch below fire anyway (an extra flat-brief write, and in keyed mode an
+    # extra LLM call) on every describe turn. Guard the state explicitly.
+    if state is ConversationState.DESCRIBE_DESIGN:
+        return
     volunteered = bool(fields.get("design_description"))
     if state not in _ELEMENT_STATES and not volunteered:
         return

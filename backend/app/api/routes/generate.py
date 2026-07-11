@@ -10,6 +10,7 @@ from app.config import settings
 from app.db import get_supabase
 from app.models.generation import GenerateRequest, GenerationStatus, JobResponse
 from app.services import delivery
+from app.services import design_summary
 from app.services import email as email_service
 from app.services import generation_cache, generation_logger, prompt_builder
 from app.services.image.router import get_provider
@@ -353,9 +354,12 @@ def _send_ops_alert(
         store = get_store(store_id) if store_id else None
         to = (store or {}).get("sales_notification_email") or settings.sales_notification_email
         product_name = product_ref.get("name") or "Custom cap"
-        design = collected.get("design_description") or {}
+        # Prefer the per-element brief (collected["elements"]) — the flat
+        # design_description.summary is a fallback for legacy/no-key sessions
+        # that never populated elements (design_summary.summarise_elements
+        # already falls back to it internally).
         brief = (
-            (design.get("summary") if isinstance(design, dict) else str(design))
+            design_summary.summarise_elements(collected)
             or collected.get("design_summary")
             or "No description provided"
         )

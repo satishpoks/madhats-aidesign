@@ -549,9 +549,66 @@ async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what would you like to add?"))
+    # This message is more than the bare type keyword, so (Finding 5) it now
+    # runs one extract_element_attributes pass to capture any volunteered
+    # content along with the type choice -- mock it so the test stays
+    # hermetic (no real LLM call) regardless of local .env key configuration.
+    async def _attrs(t, m): return {}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     res = await orch.handle_message("s1", "already have the logo, also add a star")
     assert res["state"] == S.ELEMENT_DEEPDIVE.value
     assert store["session"]["collected"]["pending_element"]["type"] == "graphic"
+
+
+@pytest.mark.asyncio
+async def test_type_choice_with_content_captures_volunteered_content(monkeypatch):
+    # Finding 5 (whole-branch review): "add text saying GO TEAM" at
+    # ASK_MORE_ELEMENTS must not discard "GO TEAM" -- seeding pending_element
+    # from the bare type ("text") alone would force a redundant re-ask of
+    # content on the very next turn even though the customer already gave it.
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements": [], "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m):
+        return {"content": "GO TEAM"}
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("got it, anything else about it?"))
+    res = await orch.handle_message("s1", "add text saying GO TEAM")
+    pend = store["session"]["collected"]["pending_element"]
+    assert pend["content"] == "GO TEAM"
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+    assert store["session"]["collected"].get("deepdive_ask_for") != "content"
+
+
+@pytest.mark.asyncio
+async def test_bare_type_chip_does_not_call_extractor(monkeypatch):
+    # The plain "Add text" chip (Figma option) must keep just seeding the type
+    # and asking content next -- it must NOT trigger an extraction call.
+    calls = []
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements": [], "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m):
+        calls.append(m)
+        return {}
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what should it say?"))
+    res = await orch.handle_message("s1", "Add text")
+    assert calls == []
+    assert store["session"]["collected"]["pending_element"] == {"type": "text", "deferred": []}
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +625,18 @@ async def test_extract_attributes_no_key_detects_defer_and_zone(monkeypatch):
     assert out.get("defer") is True
     out2 = await ie2.extract_element_attributes("graphic", "put it on the left side")
     assert out2.get("placement_zone") == "side"
+
+
+@pytest.mark.asyncio
+async def test_extract_attributes_no_key_detects_remove_bg_yes_no(monkeypatch):
+    # Finding 1: without an API key, a logo element's first attribute
+    # (remove_bg) must be answerable, or the deep-dive re-asks it forever —
+    # only "you choose" (defer) could escape before this fix.
+    monkeypatch.setattr(ie2, "_has_llm", False)
+    out = await ie2.extract_element_attributes("logo", "Yes, remove it")
+    assert out == {"remove_bg": True}
+    out2 = await ie2.extract_element_attributes("logo", "No, keep as-is")
+    assert out2 == {"remove_bg": False}
 
 
 @pytest.mark.asyncio
@@ -612,17 +681,25 @@ async def test_describe_design_first_turn_enters_deepdive(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_describe_design_does_not_double_extract_flat_brief(monkeypatch):
-    # Finding 2 (Moderate): DESCRIBE_DESIGN must no longer be an
-    # `_ELEMENT_STATES` member -- the element lifecycle (`_advance_elements`)
-    # owns it now, and the old flat-brief path (`_maybe_gather_element` ->
-    # `extract_design_description`) must not also run on the same turn.
+    # Finding 2 (Moderate) / Finding 4 (whole-branch review): DESCRIBE_DESIGN
+    # must no longer be an `_ELEMENT_STATES` member -- the element lifecycle
+    # (`_advance_elements`) owns it now, and the old flat-brief path
+    # (`_maybe_gather_element` -> `extract_design_description`) must not also
+    # run on the same turn. `fields` here is the REAL no-key volunteered shape
+    # (`_extract_fields_for_state("describe_design", ...)` sets
+    # `fields["design_description"]`) -- the previous version of this test
+    # passed `fields={}`, which only worked because it never exercised the
+    # `volunteered` branch `_maybe_gather_element` actually guards against.
     store = {"session": {"id": "s1", "state": S.DESCRIBE_DESIGN.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False},
                          "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
-    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(
+        orch.ie, "interpret_turn",
+        _fixed_interpret({"intent": "answer", "fields": {"design_description": {"summary": "a mountain crest logo"}}}),
+    )
     async def _attrs(t, m): return {}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     calls = []

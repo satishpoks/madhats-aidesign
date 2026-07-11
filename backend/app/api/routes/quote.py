@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from app import prompts
 from app.db import get_supabase
+from app.services import design_summary
 from app.services import email as email_service
 from app.services import leads as leads_service
 from app.services.delivery import _fetch_image_bytes
@@ -88,10 +89,8 @@ def _render_confirm_page(
         if image_url
         else ""
     )
-    placement = "{} / {}".format(
-        collected.get("placement_zone") or "front panel",
-        collected.get("placement_position") or "centre",
-    ).replace("_", " ")
+    zone_label, position = design_summary.primary_placement(collected)
+    placement = f"{zone_label} / {position}"
     return Template(prompts.QUOTE_CONFIRM_HTML).substitute(
         action_url=esc(f"/quote/{token}"),
         image_block=image_block,

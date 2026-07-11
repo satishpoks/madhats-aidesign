@@ -12,6 +12,7 @@ import structlog
 
 from app import prompts
 from app.config import settings
+from app.services import design_summary
 
 log = structlog.get_logger()
 
@@ -131,6 +132,7 @@ def send_quote_to_sales(
         product_name=product.get("name", "Custom cap"),
         quantity=collected.get("quantity", "?"),
     )
+    zone_label, position = design_summary.primary_placement(collected)
     body = prompts.SALES_QUOTE_EMAIL_BODY.format(
         customer_name=customer.get("name", ""),
         customer_email=customer.get("email", ""),
@@ -140,8 +142,9 @@ def send_quote_to_sales(
         product_colour=product.get("colour", ""),
         quantity=collected.get("quantity", "?"),
         decoration_type=collected.get("decoration_type", "?"),
-        placement_zone=collected.get("placement_zone", "?"),
-        placement_position=collected.get("placement_position", "?"),
+        placement_zone=zone_label,
+        placement_position=position,
+        design_brief=design_summary.summarise_elements(collected) or "No design details captured.",
         image_url=image_url,
     )
     return _send(to, subject, body)
@@ -162,6 +165,7 @@ def send_quote_confirmation_to_sales(
         product_name=product.get("name", "Custom cap"),
         quantity=collected.get("quantity", "?"),
     )
+    zone_label, position = design_summary.primary_placement(collected)
     body = prompts.SALES_QUOTE_CONFIRMED_EMAIL_BODY.format(
         customer_name=customer.get("name", ""),
         customer_email=customer.get("email", ""),
@@ -172,8 +176,9 @@ def send_quote_confirmation_to_sales(
         product_colour=product.get("colour", ""),
         quantity=collected.get("quantity", "?"),
         decoration_type=collected.get("decoration_type", "?"),
-        placement_zone=collected.get("placement_zone", "?"),
-        placement_position=collected.get("placement_position", "?"),
+        placement_zone=zone_label,
+        placement_position=position,
+        design_brief=design_summary.summarise_elements(collected) or "No design details captured.",
         note=note or "—",
         image_url=image_url,
     )

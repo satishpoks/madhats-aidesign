@@ -20,6 +20,7 @@ import structlog
 from app import prompts
 from app.config import settings
 from app.db import get_supabase
+from app.services import design_summary
 from app.services import email as email_service
 from app.services import leads as leads_service
 from app.services.products import get_product
@@ -136,10 +137,11 @@ def maybe_send_preview(session_id: str) -> bool:
     # keeps using the clean URL as before.
     customer_image_url = watermarked_url or clean_url
 
+    zone_label, _position = design_summary.primary_placement(collected)
     brief = prompts.PREVIEW_EMAIL_BRIEF.format(
         product=product.get("name") or "your custom cap",
         decoration=collected.get("decoration_type") or "custom decoration",
-        placement=(collected.get("placement_zone") or "front panel").replace("_", " "),
+        placement=zone_label,
         quantity=collected.get("quantity") or "?",
     )
     # CTA links (Figma E1). "Quote" links to the server-rendered /quote/{token}
