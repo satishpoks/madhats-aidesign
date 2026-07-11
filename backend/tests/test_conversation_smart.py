@@ -347,7 +347,12 @@ async def test_defer_marks_attribute_and_moves_on(monkeypatch):
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("size?"))
     await orch.handle_message("s1", "you choose")
-    assert "font" in store["session"]["collected"]["pending_element"]["deferred"]
+    el = store["session"]["collected"]["pending_element"]
+    assert "font" in el["deferred"]
+    # Finding 3 (Minor): a defer must ONLY append to `deferred` — the
+    # raw-message fallback must not also write "you choose" (or anything
+    # else) into el["font"] on the same turn.
+    assert not el.get("font")
 
 
 # ---------------------------------------------------------------------------
@@ -564,6 +569,57 @@ async def test_generate_reply_ask_for_no_key_uses_attribute_question(monkeypatch
     reply = await ie2.generate_reply("element_deepdive", {"pending_element": {"type": "text"}},
                                      "Ricardo", ask_for="font")
     assert "font" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_describe_design_first_turn_enters_deepdive(monkeypatch):
+    # Finding 1 (CRITICAL): the first element (described design or uploaded
+    # logo) must not skip its deep-dive. DESCRIBE_DESIGN is not a gate state,
+    # so `_route` sends the turn through `goal_planner.next_goal` on the same
+    # turn `_advance_elements` seeds `pending_element` -- without the planner
+    # fix this falls through to ASK_MORE_ELEMENTS and the customer's next
+    # reply (meant to answer the deep-dive) is silently dropped.
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_DESIGN.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    async def _attrs(t, m): return {}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("tell me more"))
+    res = await orch.handle_message("s1", "a mountain crest logo")
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+    pend = store["session"]["collected"]["pending_element"]
+    assert pend["type"] in ("text", "graphic")
+    assert pend["content"]
+
+
+@pytest.mark.asyncio
+async def test_describe_design_does_not_double_extract_flat_brief(monkeypatch):
+    # Finding 2 (Moderate): DESCRIBE_DESIGN must no longer be an
+    # `_ELEMENT_STATES` member -- the element lifecycle (`_advance_elements`)
+    # owns it now, and the old flat-brief path (`_maybe_gather_element` ->
+    # `extract_design_description`) must not also run on the same turn.
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_DESIGN.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    async def _attrs(t, m): return {}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    calls = []
+    async def _spy(message):
+        calls.append(message)
+        return {"text_elements": ["mountain crest"]}
+    monkeypatch.setattr(orch.ie, "extract_design_description", _spy)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("tell me more"))
+    await orch.handle_message("s1", "a mountain crest logo")
+    assert calls == []
+    assert "design_description" not in store["session"]["collected"]
 
 
 @pytest.mark.asyncio

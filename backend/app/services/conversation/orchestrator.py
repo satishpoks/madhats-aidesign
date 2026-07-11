@@ -57,7 +57,6 @@ _DONE_ELEMENTS_RE = re.compile(
 # States where a (non-declining) message contributes a design element.
 _ELEMENT_STATES = frozenset(
     {
-        ConversationState.DESCRIBE_DESIGN,
         ConversationState.ASK_MORE_ELEMENTS,
         ConversationState.ADD_ELEMENTS_MODE,
         ConversationState.DESCRIBE_CHANGES,
@@ -416,14 +415,20 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
             ep.defer_remaining(el)
         else:
             attrs = await ie.extract_element_attributes(el.get("type"), message)
-            if attrs.pop("defer", False) and ask_for and ask_for != "content":
+            deferred_now = attrs.pop("defer", False)
+            if deferred_now and ask_for and ask_for != "content":
                 if ask_for not in el["deferred"]:
                     el["deferred"].append(ask_for)
             for k, v in attrs.items():
                 if v not in (None, ""):
                     el[k] = v
             # a plain answer with no structured field fills the attribute we asked
-            if ask_for and ask_for not in el and not attrs and ask_for in ("content", "font", "colour", "style"):
+            # (never on a defer -- that must ONLY append to `deferred`, never
+            # write a junk value like "you choose" into the attribute itself)
+            if (
+                ask_for and ask_for not in el and not attrs and not deferred_now
+                and ask_for in ("content", "font", "colour", "style")
+            ):
                 el[ask_for] = message.strip()[:120]
         if ep.is_complete(el):
             collected.setdefault("elements", []).append(el)

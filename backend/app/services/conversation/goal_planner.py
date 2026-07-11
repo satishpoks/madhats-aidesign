@@ -73,6 +73,10 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if not collected.get("decoration_type"):
         return _decoration_state(collected)
 
+    # an element is mid-build -> the per-element deep-dive owns it
+    if collected.get("pending_element"):
+        return S.ELEMENT_DEEPDIVE
+
     # 5. design source (required): at least one element must exist or be pending
     if "has_logo" not in collected:
         return S.ASK_HAS_LOGO

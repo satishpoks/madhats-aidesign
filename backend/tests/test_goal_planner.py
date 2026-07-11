@@ -124,3 +124,17 @@ def test_with_an_element_offers_more_then_pins_then_generating():
 def test_deepdive_is_a_gate():
     from app.services.conversation.goal_planner import GATE_STATES
     assert S.ELEMENT_DEEPDIVE in GATE_STATES
+
+
+def test_pending_element_routes_to_deepdive_regardless_of_elements_offered():
+    # Finding 1 (CRITICAL): DESCRIBE_DESIGN/UPLOAD_LOGO are not gate states, so
+    # `_route` sends them through `next_goal` on the very turn `pending_element`
+    # is first seeded. Without an explicit early return here, the mid-build
+    # element falls all the way through to ASK_MORE_ELEMENTS and its deep-dive
+    # question is never asked.
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24,
+         "decoration_type": "embroidery", "has_logo": False,
+         "pending_element": {"type": "text", "content": "TEAM", "deferred": []}}
+    assert next_goal(c) is S.ELEMENT_DEEPDIVE
+    c["elements_offered"] = True
+    assert next_goal(c) is S.ELEMENT_DEEPDIVE
