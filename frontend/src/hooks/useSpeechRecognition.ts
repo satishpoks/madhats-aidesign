@@ -34,6 +34,10 @@ export function useSpeechRecognition(
   // Cache the "permission granted" result so we only pay the getUserMedia
   // round-trip on the first hold; Chrome remembers the grant across calls.
   const micReadyRef = useRef(false)
+  // True between start() (key pressed) and stop() (key released). The Web Speech
+  // API ends a session on its own after a silent stretch even in continuous
+  // mode; while this is true we restart it so recording lasts the whole hold.
+  const wantListeningRef = useRef(false)
 
   // Keep the latest callback without re-creating the recognition instance.
   const onResultRef = useRef(onResult)
@@ -55,7 +59,12 @@ export function useSpeechRecognition(
       lang: string
       interimResults: boolean
       continuous: boolean
-      onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null
+      onresult:
+        | ((e: {
+            resultIndex: number
+            results: ArrayLike<{ isFinal: boolean } & ArrayLike<{ transcript: string }>>
+          }) => void)
+        | null
       onend: (() => void) | null
       onerror: ((e: { error?: string }) => void) | null
       start: () => void
@@ -65,22 +74,43 @@ export function useSpeechRecognition(
     const rec = new Ctor()
     rec.lang = 'en-AU'
     rec.interimResults = false
-    rec.continuous = false
+    // Keep the mic open across natural pauses — without this the API ends the
+    // session after the first utterance, cutting the user off mid-sentence.
+    rec.continuous = true
     rec.onresult = e => {
-      const transcript = Array.from(e.results)
-        .map(r => r[0]?.transcript ?? '')
-        .join(' ')
-        .trim()
-      if (transcript) onResultRef.current(transcript)
+      // Deliver only the NEW final segments (from resultIndex on). In continuous
+      // mode e.results accumulates, so re-reading the whole list would duplicate
+      // earlier text on every event.
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i]
+        if (!res.isFinal) continue
+        const transcript = (res[0]?.transcript ?? '').trim()
+        if (transcript) onResultRef.current(transcript)
+      }
     }
-    rec.onend = () => setListening(false)
-    rec.onerror = e => {
+    rec.onend = () => {
+      // While the key is still held, an end event is the API timing out on
+      // silence — not the user releasing. Restart so recording continues until
+      // they actually let go (stop() clears wantListeningRef first).
+      if (wantListeningRef.current) {
+        try {
+          rec.start()
+          return
+        } catch {
+          /* couldn't restart — fall through and report not listening */
+        }
+      }
       setListening(false)
-      // Permission was refused/revoked at the recognition layer — force the
-      // next start() to re-request the mic and tell the user how to unblock it.
+    }
+    rec.onerror = e => {
+      // Permission was refused/revoked — stop for real and tell the user how to
+      // unblock. Transient errors (no-speech, network) are left to onend, which
+      // restarts if the key is still held, so a brief hiccup doesn't cut off.
       if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
+        wantListeningRef.current = false
         micReadyRef.current = false
         setError(MIC_BLOCKED_MESSAGE)
+        setListening(false)
       }
     }
     recognitionRef.current = rec
@@ -118,6 +148,8 @@ export function useSpeechRecognition(
         micReadyRef.current = true
       }
     }
+    // Mark intent to listen BEFORE starting, so an immediate onend restarts.
+    wantListeningRef.current = true
     try {
       rec.start()
       setListening(true)
@@ -128,6 +160,8 @@ export function useSpeechRecognition(
   }, [])
 
   const stop = useCallback(() => {
+    // Clear intent first so the ensuing onend does NOT restart recognition.
+    wantListeningRef.current = false
     const rec = recognitionRef.current as { stop: () => void } | null
     if (rec) {
       try {

@@ -98,4 +98,64 @@ describe('useSpeechRecognition', () => {
     })
     expect(getUserMedia).toHaveBeenCalledTimes(1)
   })
+
+  it('uses continuous recognition so a pause does not end the session', async () => {
+    getUserMedia.mockResolvedValue({ getTracks: () => [] })
+    renderHook(() => useSpeechRecognition(vi.fn()))
+    expect(currentRec.continuous).toBe(true)
+  })
+
+  it('auto-restarts recognition when it ends while the key is still held', async () => {
+    getUserMedia.mockResolvedValue({ getTracks: () => [] })
+    const { result } = renderHook(() => useSpeechRecognition(vi.fn()))
+    await act(async () => {
+      await result.current.start()
+    })
+    expect(currentRec.start).toHaveBeenCalledTimes(1)
+    // The browser ends the session after a silent stretch, but the user is
+    // still holding — we must restart, not stop.
+    act(() => currentRec.onend?.())
+    expect(currentRec.start).toHaveBeenCalledTimes(2)
+    expect(result.current.listening).toBe(true)
+  })
+
+  it('does NOT restart after an explicit stop() (release)', async () => {
+    getUserMedia.mockResolvedValue({ getTracks: () => [] })
+    const { result } = renderHook(() => useSpeechRecognition(vi.fn()))
+    await act(async () => {
+      await result.current.start()
+    })
+    act(() => result.current.stop())
+    expect(result.current.listening).toBe(false)
+    act(() => currentRec.onend?.())
+    expect(currentRec.start).toHaveBeenCalledTimes(1) // not restarted
+    expect(result.current.listening).toBe(false)
+  })
+
+  it('delivers each new final segment once (no duplication in continuous mode)', async () => {
+    getUserMedia.mockResolvedValue({ getTracks: () => [] })
+    const onResult = vi.fn()
+    const { result } = renderHook(() => useSpeechRecognition(onResult))
+    await act(async () => {
+      await result.current.start()
+    })
+    act(() =>
+      currentRec.onresult?.({
+        resultIndex: 0,
+        results: [Object.assign([{ transcript: 'hello' }], { isFinal: true })],
+      }),
+    )
+    act(() =>
+      currentRec.onresult?.({
+        resultIndex: 1,
+        results: [
+          Object.assign([{ transcript: 'hello' }], { isFinal: true }),
+          Object.assign([{ transcript: 'world' }], { isFinal: true }),
+        ],
+      }),
+    )
+    expect(onResult).toHaveBeenCalledTimes(2)
+    expect(onResult).toHaveBeenNthCalledWith(1, 'hello')
+    expect(onResult).toHaveBeenNthCalledWith(2, 'world')
+  })
 })
