@@ -1,0 +1,34 @@
+from app.services.conversation.state_machine import (
+    ConversationState as S,
+    advance_and_skip,
+    progress,
+)
+
+
+def test_progress_describe_branch_total():
+    # has_logo False -> describe branch (no upload/remove-bg steps).
+    collected = {"has_logo": False}
+    p = progress(S.ASK_NAME, collected)
+    assert p["step"] == 1
+    assert p["total"] == 9  # name,purpose,qty,decoration,has_logo,describe,zone,position,email
+
+
+def test_progress_upload_branch_is_longer():
+    collected = {"has_logo": True}
+    p = progress(S.ASK_PLACEMENT_ZONE, collected)
+    assert p["total"] == 10  # upload branch adds remove-bg
+    assert p["step"] == 8
+
+
+def test_progress_post_design_is_complete():
+    p = progress(S.SHOW_DESIGN, {"has_logo": False})
+    assert p["step"] == p["total"]
+
+
+def test_advance_and_skip_skips_already_answered_question():
+    # Placement zone already known -> after position question we should not
+    # re-ask a filled question; verify a filled zone is skipped when advancing
+    # from a state whose next is ask_placement_zone.
+    collected = {"has_logo": False, "placement_zone": "front_panel"}
+    nxt = advance_and_skip(S.DESCRIBE_DESIGN, collected)
+    assert nxt == S.ASK_PLACEMENT_POSITION  # zone skipped because already filled

@@ -34,6 +34,10 @@ class ConversationState(str, Enum):
     VERIFY_EMAIL = "verify_email"
     EMAIL_VERIFIED = "email_verified"
     SEND_PREVIEW_EMAIL = "send_preview_email"
+    SHOW_DESIGN = "show_design"
+    OFFER_REFINE = "offer_refine"
+    DESCRIBE_CHANGES = "describe_changes"
+    REGENERATING = "regenerating"
     QUOTE_REQUESTED = "quote_requested"
     UPSELL_PROMPT = "upsell_prompt"
     SESSION_END = "session_end"
@@ -72,7 +76,11 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_EMAIL: [S.VERIFY_EMAIL, S.ASK_EMAIL],
     S.VERIFY_EMAIL: [S.EMAIL_VERIFIED, S.VERIFY_EMAIL],
     S.EMAIL_VERIFIED: [S.SEND_PREVIEW_EMAIL],
-    S.SEND_PREVIEW_EMAIL: [S.QUOTE_REQUESTED],
+    S.SEND_PREVIEW_EMAIL: [S.SHOW_DESIGN],
+    S.SHOW_DESIGN: [S.OFFER_REFINE],
+    S.OFFER_REFINE: [S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
+    S.DESCRIBE_CHANGES: [S.REGENERATING],
+    S.REGENERATING: [S.OFFER_REFINE],
     S.QUOTE_REQUESTED: [S.UPSELL_PROMPT],
     S.UPSELL_PROMPT: [S.ASK_PLACEMENT_ZONE, S.SESSION_END],
     S.SESSION_END: [],
@@ -172,6 +180,10 @@ def advance_state(
     if current is S.VERIFY_EMAIL:
         return S.EMAIL_VERIFIED if collected.get("email_verified") else S.VERIFY_EMAIL
 
+    # --- Refine loop branch ---
+    if current is S.OFFER_REFINE:
+        return S.DESCRIBE_CHANGES if collected.get("wants_changes") else S.QUOTE_REQUESTED
+
     # --- Upsell branch ---
     if current is S.UPSELL_PROMPT:
         if collected.get("wants_upsell") and upsell_count < MAX_UPSELL_ZONES:
@@ -181,3 +193,115 @@ def advance_state(
     # --- Default: first declared successor ---
     nexts = TRANSITIONS.get(current, [])
     return nexts[0] if nexts else S.SESSION_END
+
+
+# States the orchestrator auto-advances through (they pose no question). Moved
+# here from the orchestrator so advance_and_skip can consult it.
+AUTO_ADVANCE_STATES: frozenset[ConversationState] = frozenset(
+    {
+        ConversationState.CHECK_YOUTH,
+        ConversationState.DECORATION_ENGINE,
+        ConversationState.CONFIRM_DECORATION,
+    }
+)
+
+# Question states → the `collected` key they populate. Used to skip a question
+# whose answer the customer already volunteered out of order, and to count
+# progress. Only genuine customer-facing question states appear here.
+QUESTION_FIELD: dict[ConversationState, str] = {
+    ConversationState.ASK_NAME: "name",
+    ConversationState.ASK_PURPOSE: "purpose",
+    ConversationState.ASK_QUANTITY: "quantity",
+    ConversationState.DESCRIBE_DESIGN: "design_description",
+    ConversationState.ASK_REMOVE_BG: "remove_bg",
+    ConversationState.ASK_PLACEMENT_ZONE: "placement_zone",
+    ConversationState.ASK_PLACEMENT_POSITION: "placement_position",
+}
+
+
+def _filled(collected: dict, field: str) -> bool:
+    val = collected.get(field)
+    return val is not None and val != ""
+
+
+def advance_and_skip(
+    current: ConversationState,
+    collected: dict,
+    *,
+    message: str = "",
+    upsell_count: int = 0,
+) -> ConversationState:
+    """advance_state + skip routing-only states AND question states already answered.
+
+    This is what makes out-of-order capture pay off: if the customer already
+    gave (say) the placement zone, the machine walks past ASK_PLACEMENT_ZONE
+    instead of re-asking it.
+    """
+    nxt = advance_state(current, collected, message=message, upsell_count=upsell_count)
+    for _ in range(50):  # bounded walk; never loop forever
+        if nxt in AUTO_ADVANCE_STATES:
+            nxt = advance_state(nxt, collected, upsell_count=upsell_count)
+            continue
+        field = QUESTION_FIELD.get(nxt)
+        if field and _filled(collected, field):
+            nxt = advance_state(nxt, collected, upsell_count=upsell_count)
+            continue
+        break
+    return nxt
+
+
+# Ordered customer-facing question states used for the "Step X of N" counter.
+# Branch-dependent segments are chosen from `collected`; a decoration token
+# represents the single decoration-choice question (whichever variant is shown).
+def _progress_path(collected: dict) -> list[ConversationState]:
+    S = ConversationState
+    path = [S.ASK_NAME, S.ASK_PURPOSE, S.ASK_QUANTITY, S.RECOMMEND_DECORATION, S.ASK_HAS_LOGO]
+    if collected.get("has_logo"):
+        path += [S.UPLOAD_LOGO, S.ASK_REMOVE_BG]
+    else:
+        path += [S.DESCRIBE_DESIGN]
+    path += [S.ASK_PLACEMENT_ZONE, S.ASK_PLACEMENT_POSITION, S.ASK_EMAIL]
+    return path
+
+
+# States that mean "past the design questionnaire" -> progress is complete.
+_POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
+    {
+        ConversationState.GENERATING,
+        ConversationState.VERIFY_EMAIL,
+        ConversationState.EMAIL_VERIFIED,
+        ConversationState.SEND_PREVIEW_EMAIL,
+        ConversationState.SHOW_DESIGN,
+        ConversationState.OFFER_REFINE,
+        ConversationState.DESCRIBE_CHANGES,
+        ConversationState.REGENERATING,
+        ConversationState.QUOTE_REQUESTED,
+        ConversationState.UPSELL_PROMPT,
+        ConversationState.SESSION_END,
+    }
+)
+
+# Decoration-choice variants all map to the single decoration progress token.
+_DECORATION_VARIANTS: frozenset[ConversationState] = frozenset(
+    {
+        ConversationState.WARN_PRINT_SETUP,
+        ConversationState.RECOMMEND_DECORATION,
+        ConversationState.RECOMMEND_EMBROIDERY,
+        ConversationState.CONFIRM_DECORATION,
+        ConversationState.DECORATION_ENGINE,
+    }
+)
+
+
+def progress(state: ConversationState, collected: dict) -> dict:
+    """Return {"step", "total"} for the 'Step X of N' UI, counting only
+    customer-facing question states on the branch the customer is on."""
+    path = _progress_path(collected)
+    total = len(path)
+    norm = ConversationState.RECOMMEND_DECORATION if state in _DECORATION_VARIANTS else state
+    if norm in path:
+        return {"step": path.index(norm) + 1, "total": total}
+    if state in _POST_QUESTION_STATES:
+        return {"step": total, "total": total}
+    # GREETING / ASK_EMAIL fallback etc.
+    return {"step": 1, "total": total}
