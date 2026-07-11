@@ -6,7 +6,9 @@ public path is never returned to a client.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
+import jwt
 import structlog
 
 from app.config import settings
@@ -64,3 +66,60 @@ def generate_signed_url(path: str, ttl: int | None = None) -> str:
     resp = _bucket().create_signed_url(path, ttl)
     # supabase-py returns {"signedURL": "..."} (key casing varies by version)
     return resp.get("signedURL") or resp.get("signedUrl") or resp.get("signed_url", "")
+
+
+# --- Media proxy capability tokens ---------------------------------------
+# The backend proxies private storage objects to client browsers (see
+# app/api/routes/media.py). A raw Supabase signed URL can't be handed to an
+# <img> because its host is the backend-only storage address (host.docker.internal
+# in docker dev). Instead we mint a short-lived capability token that names ONE
+# object path, embed it in a same-backend /media/{token} URL, and stream the
+# bytes server-side. The token IS the authorisation — an <img> can't send the
+# X-Admin-Secret header, so URL-based capability is what makes admin images load.
+
+
+class MediaTokenError(Exception):
+    """Raised when a media proxy token is missing, expired, or malformed."""
+
+
+def make_media_token(path: str, ttl: int | None = None) -> str:
+    """Sign a capability token authorising a fetch of exactly ``path``."""
+    ttl = ttl if ttl is not None else settings.signed_url_ttl
+    exp = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+    return jwt.encode(
+        {"path": path, "purpose": "media", "exp": exp},
+        settings.admin_secret,  # reuse the server secret for signing
+        algorithm="HS256",
+    )
+
+
+def decode_media_token(token: str) -> str:
+    """Validate a media token and return the storage path it authorises."""
+    try:
+        payload = jwt.decode(token, settings.admin_secret, algorithms=["HS256"])
+    except jwt.InvalidTokenError as exc:  # covers expired + malformed
+        raise MediaTokenError(str(exc)) from exc
+    if payload.get("purpose") != "media":
+        raise MediaTokenError("wrong purpose")
+    path = payload.get("path")
+    if not path:
+        raise MediaTokenError("no path")
+    return path
+
+
+def media_url(path: str | None, base_url: str) -> str | None:
+    """Turn a stored object path into a client-fetchable proxy URL.
+
+    - Empty/None -> None.
+    - External URLs (Shopify product images, stub placeholders) pass through
+      unchanged — the browser can already reach those.
+    - Private storage paths become an absolute ``{base_url}media/{token}`` URL
+      served by this backend. ``base_url`` is the request's own base (e.g.
+      http://100.103.149.17:8000/) so the URL is reachable from wherever the
+      client reached the API.
+    """
+    if not path:
+        return None
+    if path.startswith("http"):
+        return path
+    return f"{base_url}media/{make_media_token(path)}"

@@ -87,6 +87,7 @@ def client(monkeypatch):
         monkeypatch.setattr(quote, "get_supabase", lambda: fake)
         monkeypatch.setattr(quote, "get_product", lambda *a, **k: {"name": "Snapback", "style": "6-panel", "colour": "black"})
         monkeypatch.setattr(quote, "generate_signed_url", lambda p: f"signed:{p}")
+        monkeypatch.setattr(quote, "_fetch_image_bytes", lambda url: b"\x89PNG-bytes")
         return fake
 
     with TestClient(app, raise_server_exceptions=True) as c:
@@ -143,6 +144,67 @@ def test_get_falls_back_to_design_preview_caption_when_not_watermarked(client):
     body = resp.text
     assert "Design preview" in body
     assert "Watermarked preview" not in body
+
+
+def test_get_embeds_proxy_image_url_not_storage_host(client):
+    # The confirm page must point <img> at the backend's own proxy route
+    # (a relative URL that works over the LAN), NOT a raw Supabase signed URL
+    # whose host (host.docker.internal) is unreachable from a client browser.
+    tables, _lead, _session = _tables()
+    client.install(tables)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}")
+
+    assert resp.status_code == 200
+    assert f"/quote/{token}/image" in resp.text
+    assert "host.docker.internal" not in resp.text
+    assert "signed:generations" not in resp.text  # no signed storage URL leaks
+
+
+def test_image_proxy_streams_bytes(client):
+    tables, _lead, _session = _tables()
+    client.install(tables)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}/image")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("image/")
+    assert resp.content == b"\x89PNG-bytes"
+
+
+def test_image_proxy_bad_token_404(client):
+    tables, _lead, _session = _tables()
+    client.install(tables)
+
+    resp = client.get("/quote/not-a-real-jwt/image")
+
+    assert resp.status_code == 404
+
+
+def test_image_proxy_no_generation_404(client):
+    tables, _lead, _session = _tables()
+    tables["generations"] = []  # verified lead but nothing rendered yet
+    client.install(tables)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}/image")
+
+    assert resp.status_code == 404
+
+
+def test_image_proxy_fetch_failure_502(client, monkeypatch):
+    from app.api.routes import quote
+
+    tables, _lead, _session = _tables()
+    client.install(tables)
+    monkeypatch.setattr(quote, "_fetch_image_bytes", lambda url: None)
+    token = leads_service.make_quote_token({"id": "lead-1", "session_id": "sess-1"})
+
+    resp = client.get(f"/quote/{token}/image")
+
+    assert resp.status_code == 502
 
 
 def test_get_bad_token_renders_error(client):

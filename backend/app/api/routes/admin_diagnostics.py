@@ -12,26 +12,23 @@ body for ops use but never written to application logs.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.api.deps import require_admin
 from app.config import settings
 from app.db import get_supabase
 from app.services.products import get_product
-from app.storage import generate_signed_url
+from app.storage import media_url
 
 router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin)])
 
 
-def _sign(path: str | None) -> str | None:
-    """Sign a private storage path so it's viewable in the admin UI. External
-    URLs (e.g. Shopify product images, stub placeholders) pass through; the
-    bucket is private, so generated/uploaded object paths must be signed."""
-    if not path:
-        return None
-    if path.startswith("http"):
-        return path
-    return generate_signed_url(path)
+def _img(path: str | None, request: Request) -> str | None:
+    """Turn a private storage path into a backend media-proxy URL the admin
+    browser can fetch. External URLs (Shopify product images, stub placeholders)
+    pass through unchanged. The bucket is private, so generated/uploaded objects
+    can't be linked directly — they're streamed via /media/{token} instead."""
+    return media_url(path, str(request.base_url))
 
 
 def _product_name(product_ref: dict | None) -> str | None:
@@ -53,6 +50,7 @@ def _best_generated_image(generations: list[dict]) -> str | None:
 
 @router.get("/admin/sessions")
 async def list_sessions(
+    request: Request,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     state: str | None = None,
@@ -91,7 +89,7 @@ async def list_sessions(
                 "channel": r.get("channel"),
                 "entry_path": r.get("entry_path"),
                 "product": _product_name(product_ref),
-                "reference_image_url": product_ref.get("reference_image_url"),
+                "reference_image_url": _img(product_ref.get("reference_image_url"), request),
                 "customer": (
                     {
                         "name": lead.get("name"),
@@ -105,7 +103,7 @@ async def list_sessions(
                 "decoration_type": collected.get("decoration_type"),
                 "placement_zone": collected.get("placement_zone"),
                 "quantity": collected.get("quantity"),
-                "generated_image_url": _sign(_best_generated_image(gens)),
+                "generated_image_url": _img(_best_generated_image(gens), request),
                 "generation_count": len(gens),
                 "created_at": r.get("created_at"),
             }
@@ -114,7 +112,7 @@ async def list_sessions(
 
 
 @router.get("/admin/sessions/{session_id}")
-async def get_session_detail(session_id: str) -> dict:
+async def get_session_detail(session_id: str, request: Request) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
     if not res.data:
@@ -136,7 +134,7 @@ async def get_session_detail(session_id: str) -> dict:
         .execute()
     )
     generations = [
-        {**g, "image_url": _sign(g.get("image_url")), "watermarked_url": _sign(g.get("watermarked_url"))}
+        {**g, "image_url": _img(g.get("image_url"), request), "watermarked_url": _img(g.get("watermarked_url"), request)}
         for g in (gens_res.data or [])
     ]
     leads = (
@@ -169,8 +167,8 @@ async def get_session_detail(session_id: str) -> dict:
         "entry_path": session.get("entry_path"),
         "product": _product_name(product_ref),
         "product_ref": product_ref,
-        "reference_image_url": reference_image_url,
-        "view_images": view_images,
+        "reference_image_url": _img(reference_image_url, request),
+        "view_images": {angle: _img(url, request) for angle, url in view_images.items()},
         "collected": session.get("collected") or {},
         "created_at": session.get("created_at"),
         "messages": msgs.data or [],
@@ -181,6 +179,7 @@ async def get_session_detail(session_id: str) -> dict:
 
 @router.get("/admin/generation-logs")
 async def list_generation_logs(
+    request: Request,
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     session_id: str | None = None,
@@ -201,9 +200,9 @@ async def list_generation_logs(
     items = [
         {
             **r,
-            "output_image_url": _sign(r.get("output_image_url")),
-            "uploaded_asset_url": _sign(r.get("uploaded_asset_url")),
-            "reference_image_url": _sign(r.get("reference_image_url")),
+            "output_image_url": _img(r.get("output_image_url"), request),
+            "uploaded_asset_url": _img(r.get("uploaded_asset_url"), request),
+            "reference_image_url": _img(r.get("reference_image_url"), request),
         }
         for r in (res.data or [])
     ]
