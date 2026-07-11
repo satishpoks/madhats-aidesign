@@ -347,6 +347,8 @@ This link expires in 15 minutes. If you didn't request this, you can ignore this
 
 PREVIEW_EMAIL_SUBJECT = "Your MadHats design is ready to review 🎉"
 
+FINAL_DESIGN_EMAIL_SUBJECT = "Your updated MadHats design 🎉"
+
 # One-line brief echoed back to the customer in the preview email.
 # Filled with .format(product=, decoration=, placement=, quantity=).
 PREVIEW_EMAIL_BRIEF = (

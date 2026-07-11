@@ -124,6 +124,14 @@ async def handle_message(session_id: str, message: str) -> dict:
                 new_state = advance_state(new_state, collected, upsell_count=upsell_count)
             reply = await ie.generate_reply(new_state.value, collected, persona)
 
+    if new_state is ConversationState.QUOTE_REQUESTED:
+        try:
+            from app.services import delivery  # noqa: PLC0415
+
+            delivery.send_final_design(session_id)
+        except Exception:  # noqa: BLE001 — delivery is best-effort
+            log.warning("final_design_send_failed", session_id=session_id)
+
     # --- 7. persist state + messages ---
     sb.table("design_sessions").update(
         {

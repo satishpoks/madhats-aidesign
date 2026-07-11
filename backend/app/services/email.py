@@ -80,6 +80,7 @@ def send_preview_email(
     edit_url: str = "",
     talk_url: str = "",
     image_bytes: bytes | None = None,
+    subject: str | None = None,
 ) -> bool:
     """Send the branded design preview (Figma E1 template).
 
@@ -119,7 +120,7 @@ def send_preview_email(
         edit_url=html_lib.escape(edit_url or "#", quote=True),
         talk_url=html_lib.escape(talk_url or "#", quote=True),
     )
-    return _dispatch(to, prompts.PREVIEW_EMAIL_SUBJECT, html, attachments=attachments)
+    return _dispatch(to, subject or prompts.PREVIEW_EMAIL_SUBJECT, html, attachments=attachments)
 
 
 def send_quote_to_sales(

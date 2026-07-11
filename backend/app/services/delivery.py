@@ -195,6 +195,74 @@ def maybe_send_preview(session_id: str) -> bool:
     return True
 
 
+def _completed_generations(session_id: str) -> list[dict]:
+    res = (
+        get_supabase()
+        .table("generations")
+        .select("*")
+        .eq("session_id", session_id)
+        .eq("status", "complete")
+        .order("created_at")
+        .execute()
+    )
+    return res.data or []
+
+
+def _lead_for_session(session_id: str) -> dict | None:
+    res = (
+        get_supabase()
+        .table("leads")
+        .select("*")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def _mark_final_sent(lead_id: str) -> None:
+    get_supabase().table("leads").update(
+        {"final_email_sent": True, "final_email_sent_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", lead_id).execute()
+
+
+def _deliver_final(lead: dict, image_path: str) -> bool:
+    url = _to_signed(image_path)
+    image_bytes = _fetch_image_bytes(url)
+    return email_service.send_preview_email(
+        lead["email"],
+        lead["name"],
+        url,
+        brief="Here's your updated design based on your latest changes.",
+        quote_url="",
+        edit_url="",
+        talk_url=f"mailto:{settings.resend_from_address}",
+        image_bytes=image_bytes,
+        subject=prompts.FINAL_DESIGN_EMAIL_SUBJECT,
+    )
+
+
+def send_final_design(session_id: str) -> bool:
+    """Email the final (latest) design once, iff it differs from the first
+    delivered design. Idempotent via leads.final_email_sent. Best-effort."""
+    gens = _completed_generations(session_id)
+    if len(gens) < 2:
+        return False  # no regeneration -> the first preview email already covered it
+    lead = _lead_for_session(session_id)
+    if not lead or lead.get("final_email_sent") or not lead.get("email"):
+        return False
+    latest = gens[-1]
+    image_path = latest.get("watermarked_url") or latest.get("image_url")
+    if not image_path:
+        return False
+    if not _deliver_final(lead, image_path):
+        return False
+    _mark_final_sent(lead["id"])
+    log.info("final_design_delivered", session_id=session_id)
+    return True
+
+
 def backfill_pending(limit: int = 100, max_age_hours: int = 72) -> dict:
     """Re-attempt delivery for verified leads whose preview never sent.
 
