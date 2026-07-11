@@ -20,6 +20,7 @@ from app.api.routes import (
     admin_diagnostics,
     admin_leads,
     admin_prompt,
+    admin_settings,
     admin_stores,
     chat,
     generate,
@@ -105,6 +106,7 @@ def create_app() -> FastAPI:
         admin_leads.router,
         admin_prompt.router,
         admin_diagnostics.router,
+        admin_settings.router,
     ):
         app.include_router(router)
 
