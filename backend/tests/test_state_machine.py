@@ -92,3 +92,33 @@ def test_progress_position_backtrack_resolves_like_zone():
     pos = progress(S.ASK_PLACEMENT_POSITION, collected)
     assert pos == zone
     assert pos["step"] != 1
+
+
+def test_more_elements_branch():
+    assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": True}) is S.ADD_ELEMENTS_MODE
+    assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": False}) is S.ASK_PLACEMENT_ZONE
+
+
+def test_add_elements_loops_then_exits():
+    assert advance_state(S.ADD_ELEMENTS_MODE, {"add_another_element": True}) is S.ADD_ELEMENTS_MODE
+    assert advance_state(S.ADD_ELEMENTS_MODE, {"add_another_element": False}) is S.ASK_PLACEMENT_ZONE
+
+
+def test_design_source_paths_reach_more_elements():
+    # Both the logo path (via remove-bg) and the describe path funnel into the
+    # gather loop, not straight to placement.
+    assert advance_state(S.ASK_REMOVE_BG, {}) is S.ASK_MORE_ELEMENTS
+    assert advance_state(S.DESCRIBE_DESIGN, {}) is S.ASK_MORE_ELEMENTS
+
+
+def test_post_verification_collapses_to_offer_refine():
+    # After verification the chat must walk EMAIL_VERIFIED -> SEND_PREVIEW_EMAIL
+    # -> SHOW_DESIGN without resting, landing on OFFER_REFINE.
+    from app.services.conversation.state_machine import AUTO_ADVANCE_STATES
+    state = advance_state(S.VERIFY_EMAIL, {"email_verified": True})  # EMAIL_VERIFIED
+    for _ in range(10):
+        if state in AUTO_ADVANCE_STATES:
+            state = advance_state(state, {})
+            continue
+        break
+    assert state is S.OFFER_REFINE

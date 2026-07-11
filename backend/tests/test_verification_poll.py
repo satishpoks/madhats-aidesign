@@ -1,8 +1,11 @@
 """check_verification() — the chat's poll while it waits at VERIFY_EMAIL.
 
 Verification lands out-of-band (the customer clicks the emailed link, which
-flips collected.email_verified). The poll must then advance the thread to
-EMAIL_VERIFIED and return Ricardo's confirmation — and do nothing until then.
+flips collected.email_verified). The poll must then walk the thread straight
+through the collapsed post-verification statement states (EMAIL_VERIFIED ->
+SEND_PREVIEW_EMAIL -> SHOW_DESIGN, all in AUTO_ADVANCE_STATES) to rest at
+OFFER_REFINE, and return Ricardo's confirmation for that landing state — and
+do nothing until verification lands.
 """
 from __future__ import annotations
 
@@ -83,18 +86,21 @@ def test_poll_advances_once_verified(monkeypatch):
 
     result = asyncio.run(orchestrator.check_verification("sess-1"))
 
-    assert result["state"] == "email_verified"
-    assert result["reply"] == "[email_verified] confirmed"
-    # email_verified is a statement-only state the user taps through; every
-    # turn also carries the step/total progress payload.
-    assert result["data"]["continuable"] is True
+    # EMAIL_VERIFIED, SEND_PREVIEW_EMAIL, and SHOW_DESIGN are all in
+    # AUTO_ADVANCE_STATES, so the poll walks straight through them and rests
+    # at OFFER_REFINE — no intermediate resting state.
+    assert result["state"] == "offer_refine"
+    assert result["reply"] == "[offer_refine] confirmed"
+    # offer_refine presents the refine/quote options; every turn also carries
+    # the step/total progress payload.
+    assert result["data"]["options"] == ["Request changes", "Looks good"]
     assert "progress" in result["data"]
     # Exactly one assistant line was appended — no phantom user turn.
     inserts = fake.sink.get("inserts", [])
     assert len(inserts) == 1
     assert inserts[0]["role"] == "assistant"
     assert inserts[0]["state_before"] == "verify_email"
-    assert inserts[0]["state_after"] == "email_verified"
+    assert inserts[0]["state_after"] == "offer_refine"
 
 
 def test_poll_noops_until_verified(monkeypatch):

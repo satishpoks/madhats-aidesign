@@ -25,6 +25,8 @@ class ConversationState(str, Enum):
     UPLOAD_LOGO = "upload_logo"
     ASK_REMOVE_BG = "ask_remove_bg"
     DESCRIBE_DESIGN = "describe_design"
+    ASK_MORE_ELEMENTS = "ask_more_elements"
+    ADD_ELEMENTS_MODE = "add_elements_mode"
     ASK_PLACEMENT_ZONE = "ask_placement_zone"
     ASK_PLACEMENT_POSITION = "ask_placement_position"
     ASK_PIN_ANNOTATION = "ask_pin_annotation"
@@ -61,8 +63,10 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.CONFIRM_DECORATION: [S.ASK_HAS_LOGO],
     S.ASK_HAS_LOGO: [S.UPLOAD_LOGO, S.DESCRIBE_DESIGN],
     S.UPLOAD_LOGO: [S.ASK_REMOVE_BG],
-    S.ASK_REMOVE_BG: [S.ASK_PLACEMENT_ZONE],
-    S.DESCRIBE_DESIGN: [S.ASK_PLACEMENT_ZONE],
+    S.ASK_REMOVE_BG: [S.ASK_MORE_ELEMENTS],
+    S.DESCRIBE_DESIGN: [S.ASK_MORE_ELEMENTS],
+    S.ASK_MORE_ELEMENTS: [S.ADD_ELEMENTS_MODE, S.ASK_PLACEMENT_ZONE],
+    S.ADD_ELEMENTS_MODE: [S.ADD_ELEMENTS_MODE, S.ASK_PLACEMENT_ZONE],
     S.ASK_PLACEMENT_ZONE: [S.ASK_PLACEMENT_POSITION],
     S.ASK_PLACEMENT_POSITION: [S.ASK_PIN_ANNOTATION],
     S.ASK_PIN_ANNOTATION: [S.PIN_ANNOTATE_MODE, S.GENERATING],
@@ -101,7 +105,9 @@ ALLOWED_BACKTRACKS: dict[ConversationState, list[ConversationState]] = {
     S.UPLOAD_LOGO: [S.ASK_HAS_LOGO],
     S.ASK_REMOVE_BG: [S.ASK_HAS_LOGO, S.UPLOAD_LOGO],
     S.DESCRIBE_DESIGN: [S.ASK_HAS_LOGO],
-    S.ASK_PLACEMENT_ZONE: [S.ASK_HAS_LOGO, S.DESCRIBE_DESIGN],
+    S.ASK_MORE_ELEMENTS: [S.ASK_HAS_LOGO, S.DESCRIBE_DESIGN, S.UPLOAD_LOGO],
+    S.ADD_ELEMENTS_MODE: [S.ASK_MORE_ELEMENTS],
+    S.ASK_PLACEMENT_ZONE: [S.ASK_HAS_LOGO, S.DESCRIBE_DESIGN, S.ASK_MORE_ELEMENTS],
     S.ASK_PLACEMENT_POSITION: [S.ASK_PLACEMENT_ZONE],
     S.ASK_PIN_ANNOTATION: [S.ASK_PLACEMENT_ZONE, S.ASK_PLACEMENT_POSITION],
     S.PIN_ANNOTATE_MODE: [S.ASK_PLACEMENT_POSITION],
@@ -167,6 +173,13 @@ def advance_state(
         # stay in pin mode while the customer keeps adding pins
         return S.PIN_ANNOTATE_MODE if collected.get("add_another_pin") else S.GENERATING
 
+    # --- Additional-elements gather loop ---
+    if current is S.ASK_MORE_ELEMENTS:
+        return S.ADD_ELEMENTS_MODE if collected.get("wants_more_elements") else S.ASK_PLACEMENT_ZONE
+
+    if current is S.ADD_ELEMENTS_MODE:
+        return S.ADD_ELEMENTS_MODE if collected.get("add_another_element") else S.ASK_PLACEMENT_ZONE
+
     # --- Email capture branch ---
     # The GENERATING message asks for the email; once we have a usable one we
     # move to the verification step, otherwise fall through to ASK_EMAIL to ask
@@ -202,6 +215,9 @@ AUTO_ADVANCE_STATES: frozenset[ConversationState] = frozenset(
         ConversationState.CHECK_YOUTH,
         ConversationState.DECORATION_ENGINE,
         ConversationState.CONFIRM_DECORATION,
+        ConversationState.EMAIL_VERIFIED,
+        ConversationState.SEND_PREVIEW_EMAIL,
+        ConversationState.SHOW_DESIGN,
     }
 )
 
