@@ -9,35 +9,42 @@ interface ProductRefLike {
 
 interface ProductViewerProps {
   productRef: ProductRefLike | null
-  /** Generated (watermarked) design preview, shown as a card once ready. */
-  previewUrl?: string | null
+  /** Watermarked design images (newest last). Shown once released. */
+  designUrls?: string[]
 }
 
 const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
 
-/**
- * Left pane of the studio (per Figma "02 — Chatbot Screens"): a 2×2 grid of
- * view cards — front / back / left / right — each with a pill label; the
- * selected view is outlined in accent. Once a design is generated a "Your
- * design" card is prepended.
- */
-export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
-  // Ordered list of [view, url] the product actually has.
-  const views = useMemo(() => {
+interface Thumb {
+  key: string
+  label: string
+  src: string
+}
+
+export function ProductViewer({ productRef, designUrls = [] }: ProductViewerProps) {
+  const angleThumbs = useMemo<Thumb[]>(() => {
     const imgs = productRef?.view_images ?? {}
-    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => [v, imgs[v]] as const)
+    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => ({ key: v, label: v, src: imgs[v] }))
     if (ordered.length === 0 && productRef?.reference_image_url) {
-      return [['front', productRef.reference_image_url] as const]
+      return [{ key: 'front', label: 'front', src: productRef.reference_image_url }]
     }
     return ordered
   }, [productRef])
 
-  const [active, setActive] = useState<string>('front')
+  const designThumbs = useMemo<Thumb[]>(
+    () => designUrls.map((src, i) => ({ key: `design-${i}`, label: designUrls.length > 1 ? `design ${i + 1}` : 'design', src })),
+    [designUrls],
+  )
 
-  // Surface the generated design automatically the moment it's ready.
+  // Design thumbs first (newest design is the initial main image).
+  const thumbs = useMemo<Thumb[]>(() => [...designThumbs, ...angleThumbs], [designThumbs, angleThumbs])
+  const defaultKey = designThumbs.length ? designThumbs[designThumbs.length - 1].key : angleThumbs[0]?.key ?? ''
+  const [activeKey, setActiveKey] = useState(defaultKey)
+
+  // When a new design arrives, promote it to the main view.
   useEffect(() => {
-    if (previewUrl) setActive('design')
-  }, [previewUrl])
+    if (designThumbs.length) setActiveKey(designThumbs[designThumbs.length - 1].key)
+  }, [designThumbs.length])
 
   if (!productRef) {
     return (
@@ -47,81 +54,44 @@ export function ProductViewer({ productRef, previewUrl }: ProductViewerProps) {
     )
   }
 
+  const active = thumbs.find(t => t.key === activeKey) ?? thumbs[0]
+
   return (
     <div className="h-full flex flex-col p-4 md:p-6 gap-4 bg-base overflow-y-auto">
-      {/* Title + prompt */}
       <div className="flex-shrink-0">
         <h2 className="text-textPrimary font-semibold leading-tight">
           {productRef.name}
           {productRef.colour && <span className="text-textSub"> — {productRef.colour}</span>}
         </h2>
-        <p className="text-textMuted text-xs mt-0.5">Choose a view to explore your cap</p>
+        <p className="text-textMuted text-xs mt-0.5">
+          {designThumbs.length ? 'Your design — tap a thumbnail to compare angles' : 'Choose a view to explore your cap'}
+        </p>
       </div>
 
-      {/* 2×2 grid of view cards (+ optional generated design card) */}
-      <div className="grid grid-cols-2 gap-4 flex-1 min-h-0 auto-rows-fr">
-        {previewUrl && (
-          <ViewCard
-            label="Your design"
-            src={previewUrl}
-            selected={active === 'design'}
-            onClick={() => setActive('design')}
-          />
+      {/* Main image */}
+      <div className="flex-1 min-h-0 flex items-center justify-center rounded-2xl bg-surface border-2 border-border p-4">
+        {active && (
+          <img src={active.src} alt="main view" className="max-h-full max-w-full object-contain" draggable={false} />
         )}
-        {views.map(([view, src]) => (
-          <ViewCard
-            key={view}
-            label={view}
-            src={src}
-            selected={active === view}
-            onClick={() => setActive(view)}
-          />
+      </div>
+
+      {/* Thumbnail strip */}
+      <div className="flex-shrink-0 flex gap-3 overflow-x-auto pb-1">
+        {thumbs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveKey(t.key)}
+            aria-label={`Show ${t.label}`}
+            aria-pressed={activeKey === t.key}
+            title={t.label}
+            className={`group relative flex-shrink-0 w-20 h-20 rounded-xl bg-surface p-1.5 transition-colors ${
+              activeKey === t.key ? 'border-2 border-accent' : 'border-2 border-border hover:border-textMuted'
+            }`}
+          >
+            <img src={t.src} alt={t.label} className="w-full h-full object-contain" draggable={false} />
+          </button>
         ))}
       </div>
-
-      {/* Footer note */}
-      <p className="text-xs text-textMuted flex-shrink-0">
-        Your design will be emailed to you once email is verified
-      </p>
     </div>
-  )
-}
-
-interface ViewCardProps {
-  label: string
-  src: string
-  selected: boolean
-  onClick: () => void
-}
-
-function ViewCard({ label, src, selected, onClick }: ViewCardProps) {
-  return (
-    <button
-      onClick={onClick}
-      aria-label={`Show ${label}`}
-      aria-pressed={selected}
-      title={label}
-      className={`group relative flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface p-4 transition-colors ${
-        selected
-          ? 'border-2 border-accent shadow-sm'
-          : 'border-2 border-border hover:border-textMuted'
-      }`}
-    >
-      <img
-        src={src}
-        alt={label}
-        className="max-h-[75%] max-w-full object-contain"
-        draggable={false}
-      />
-      <span
-        className={`mt-auto px-4 py-1 rounded-full text-sm font-medium capitalize transition-colors ${
-          selected
-            ? 'border border-accent text-accent bg-surface'
-            : 'border border-transparent bg-base text-textMuted group-hover:text-textSub'
-        }`}
-      >
-        {label}
-      </span>
-    </button>
   )
 }
