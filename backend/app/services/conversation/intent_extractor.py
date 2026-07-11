@@ -228,3 +228,118 @@ async def generate_reply(state: str, collected: dict, persona_name: str) -> str:
         collected=json.dumps(_safe_collected(collected)),
     )
     return await _complete(prompt, system=system, max_tokens=200)
+
+
+# ---------------------------------------------------------------------------
+# Single per-turn interpreter — classifies the message and extracts fields in
+# one call. Replaces the old separate backtrack call + per-state keyword
+# ingest. The state machine still owns routing; this only classifies/extracts.
+# ---------------------------------------------------------------------------
+
+_VALID_INTENTS = {"answer", "provide_info", "ask_question", "revise", "chitchat", "backtrack"}
+_VALID_ZONES = {"front_panel", "side", "back", "under_brim"}
+
+
+def _zone_from_text(message: str) -> str | None:
+    low = message.lower()
+    if "under" in low or "brim" in low:
+        return "under_brim"
+    if "side" in low:
+        return "side"
+    if "back" in low:
+        return "back"
+    if "front" in low or "panel" in low:
+        return "front_panel"
+    return None
+
+
+def _extract_fields_for_state(state: str, message: str, collected: dict) -> dict:
+    """No-LLM per-state extraction — mirrors the pre-existing keyword ingest so
+    behaviour without an API key is unchanged (answer-to-current-step only)."""
+    fields: dict = {}
+    low = message.lower()
+    if state == "ask_name":
+        name = message.strip().split("\n")[0][:60]
+        if name:
+            fields["name"] = name
+    elif state == "ask_purpose":
+        fields["purpose"] = message.strip()
+        fields["youth_flag"] = _detect_youth_heuristic(message)
+    elif state == "ask_quantity":
+        fields["quantity"] = _parse_quantity_heuristic(message)
+    elif state in ("warn_print_setup", "recommend_decoration", "recommend_embroidery"):
+        if "embroid" in low:
+            fields["decoration_type"] = "embroidery"
+        elif "patch" in low:
+            fields["decoration_type"] = "patch"
+        elif "print" in low:
+            fields["decoration_type"] = "print"
+    elif state == "ask_has_logo":
+        fields["has_logo"] = ("upload" in low or "logo" in low or "yes" in low or "artwork" in low) and not (
+            "describe" in low or "instead" in low or "don't" in low
+        )
+    elif state == "ask_remove_bg":
+        fields["remove_bg"] = ("yes" in low or "remove" in low) and "no" not in low
+    elif state == "describe_design":
+        fields["design_description"] = {"summary": message.strip()}
+    elif state == "ask_placement_zone":
+        fields["placement_zone"] = _zone_from_text(message) or "front_panel"
+    elif state == "ask_placement_position":
+        fields["placement_position"] = message.strip()[:60]
+    return fields
+
+
+def _normalize_interpretation(data: dict, allowed_targets: list[str]) -> dict:
+    intent = data.get("intent")
+    if intent not in _VALID_INTENTS:
+        intent = "answer"
+    fields = data.get("fields")
+    fields = fields if isinstance(fields, dict) else {}
+    # Guard the enumerated zone value.
+    if fields.get("placement_zone") not in _VALID_ZONES:
+        fields.pop("placement_zone", None)
+    revise = data.get("revise_target")
+    backtrack = data.get("backtrack_target")
+    if revise not in allowed_targets:
+        revise = None
+    if backtrack not in allowed_targets:
+        backtrack = None
+    return {
+        "intent": intent,
+        "fields": fields,
+        "revise_target": revise,
+        "backtrack_target": backtrack,
+        "question_answer": (data.get("question_answer") or "").strip(),
+        "on_topic": bool(data.get("on_topic", True)),
+    }
+
+
+async def interpret_turn(
+    state: str,
+    message: str,
+    collected: dict,
+    allowed_targets: list[str],
+    faq: str,
+) -> dict:
+    """Single per-turn interpretation. Structured intent + extracted fields.
+
+    Without an API key: deterministic answer-only fallback (current step only).
+    """
+    if not _has_llm:
+        return {
+            "intent": "answer",
+            "fields": _extract_fields_for_state(state, message, collected),
+            "revise_target": None,
+            "backtrack_target": None,
+            "question_answer": "",
+            "on_topic": True,
+        }
+    prompt = prompts.TURN_INTERPRETER_PROMPT.format(
+        current_state=state,
+        collected=json.dumps(_safe_collected(collected)),
+        allowed_targets=", ".join(allowed_targets) or "(none)",
+        faq=faq or "(no FAQ provided)",
+        message=message,
+    )
+    data = _parse_json(await _complete(prompt, max_tokens=400))
+    return _normalize_interpretation(data, allowed_targets)

@@ -117,6 +117,42 @@ Extract structured design context. Respond with ONLY a JSON object:
 Use empty arrays/strings for anything not mentioned.
 """
 
+TURN_INTERPRETER_PROMPT = """You interpret one customer message in a guided cap-design chat.
+You do NOT decide what happens next — you only classify the message and extract data.
+
+Current step: "{current_state}" (the question just asked).
+Fields we may extract (only include ones the customer actually gave):
+  name, purpose, quantity (integer), decoration_type (embroidery|print|patch),
+  has_logo (bool), remove_bg (bool), design_description (short string),
+  placement_zone (front_panel|side|back|under_brim), placement_position (string).
+
+Known so far (JSON): {collected}
+Allowed "go back" steps: {allowed_targets}
+Store FAQ / knowledge (use ONLY this to answer questions; never invent prices,
+turnaround or stock — if it isn't covered, leave question_answer empty):
+{faq}
+
+Customer message: "{message}"
+
+Classify intent:
+- "answer": a direct answer to the current step.
+- "provide_info": gives info for this and/or later steps (extract all of it).
+- "ask_question": asks us something (fill question_answer from the FAQ, or "").
+- "revise": wants to change an earlier answer (set revise_target to an allowed step).
+- "chitchat": off-topic / unclear.
+- "backtrack": explicitly wants to go back (set backtrack_target to an allowed step).
+
+Respond with ONLY a JSON object:
+{{
+  "intent": "...",
+  "fields": {{ ... }},
+  "revise_target": null,
+  "backtrack_target": null,
+  "question_answer": "",
+  "on_topic": true
+}}
+"""
+
 REPLY_GENERATION_PROMPT = """Current step instruction: {state_instruction}
 
 Known details so far (JSON): {collected}
