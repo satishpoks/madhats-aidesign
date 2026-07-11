@@ -16,6 +16,7 @@ interface ChatStoreState {
   triggerGeneration: boolean
   /** Statement-only state: show a "Continue" affordance, not a text answer. */
   continuable: boolean
+  progress: { step: number; total: number } | null
   sending: boolean
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
@@ -41,7 +42,10 @@ function parseData(data: Record<string, unknown>) {
   const options2 = Array.isArray(data.options2) ? (data.options2 as string[]) : []
   const triggerGeneration = data.trigger_generation === true
   const continuable = data.continuable === true
-  return { options, options2, triggerGeneration, continuable }
+  const progress = (data.progress && typeof data.progress === 'object')
+    ? (data.progress as { step: number; total: number })
+    : null
+  return { options, options2, triggerGeneration, continuable, progress }
 }
 
 function uid(): string {
@@ -55,6 +59,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   options2: [],
   triggerGeneration: false,
   continuable: false,
+  progress: null,
   sending: false,
   chatError: null,
   kickoffDone: false,
@@ -64,7 +69,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ kickoffDone: true, sending: true, chatError: null })
     try {
       const res = await sendChat(sessionId, '')
-      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
+      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -75,6 +80,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options2,
         triggerGeneration,
         continuable,
+        progress,
         sending: false,
       }))
     } catch (err) {
@@ -102,7 +108,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }))
     try {
       const res = await sendChat(sessionId, text)
-      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
+      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -113,6 +119,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options2,
         triggerGeneration,
         continuable,
+        progress,
         sending: false,
       }))
     } catch (err) {
@@ -124,7 +131,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   hydrate: (messages, state, data) => {
-    const { options, options2, triggerGeneration, continuable } = parseData(data)
+    const { options, options2, triggerGeneration, continuable, progress } = parseData(data)
     set({
       messages: messages.map(m => ({
         id: uid(),
@@ -136,6 +143,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2,
       triggerGeneration,
       continuable,
+      progress,
       sending: false,
       chatError: null,
       // The thread already exists — never fire the greeting kickoff on resume.
@@ -149,7 +157,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollVerification(sessionId)
       if (res.reply == null) return // not verified yet — nothing to show
-      const { options, options2, triggerGeneration, continuable } = parseData(res.data)
+      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -160,6 +168,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options2,
         triggerGeneration,
         continuable,
+        progress,
       }))
     } catch {
       // Polling is best-effort — a transient failure just retries next tick.
@@ -177,6 +186,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options: [],
       options2: [],
       triggerGeneration: false,
+      progress: null,
       sending: false,
       chatError: null,
       kickoffDone: false,

@@ -336,6 +336,7 @@ export function ChatPanel() {
   const options2 = useChatStore(s => s.options2)
   const triggerGeneration = useChatStore(s => s.triggerGeneration)
   const continuable = useChatStore(s => s.continuable)
+  const progress = useChatStore(s => s.progress)
   const sending = useChatStore(s => s.sending)
   const chatError = useChatStore(s => s.chatError)
   const kickoff = useChatStore(s => s.kickoff)
@@ -457,6 +458,11 @@ export function ChatPanel() {
             Online
           </p>
         </div>
+        {progress && progress.step < progress.total && (
+          <span className="ml-auto text-xs font-medium text-textMuted">
+            Step {progress.step} of {progress.total}
+          </span>
+        )}
       </div>
 
       {/* ------------------------------------------------------------------ */}
