@@ -14,12 +14,22 @@ import asyncio
 
 import pytest
 
+from app.services.conversation import intent_extractor as ie
+from app.services.conversation import orchestrator as orch
 from app.services.conversation.intent_extractor import (
     _detect_youth_heuristic,
     _parse_quantity_heuristic,
 )
-from app.services.conversation.orchestrator import _ingest
 from app.services.conversation.state_machine import ConversationState
+
+
+async def _ingest(state: ConversationState, message: str, collected: dict) -> None:
+    """Test shim mirroring the retired orchestrator._ingest: run the no-LLM
+    interpreter field extraction for `state`, then apply it as the orchestrator
+    does. Kept so the kickoff-handshake assertions below still exercise the
+    real capture path (interpret_turn fallback -> _apply_fields)."""
+    fields = ie._extract_fields_for_state(state.value, message, collected)
+    orch._apply_fields(state, fields, collected, message)
 
 
 # ---------------------------------------------------------------------------

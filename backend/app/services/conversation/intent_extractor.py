@@ -202,14 +202,20 @@ async def extract_design_description(message: str) -> dict:
     return data or {"summary": message}
 
 
-async def generate_reply(state: str, collected: dict, persona_name: str) -> str:
+async def generate_reply(
+    state: str, collected: dict, persona_name: str, aside: str | None = None
+) -> str:
     """Word Ricardo's reply for the given state.
 
     Without a key: returns a canned reply from prompts.CANNED_REPLIES.
     With a key: calls Haiku with the STATE_PROMPTS instruction template.
+
+    ``aside`` (optional): a short answer to a side-question the customer asked;
+    when present it is spoken first, before the state's question is re-asked.
     """
     if not _has_llm:
-        return _generate_reply_canned(state, collected, persona_name)
+        base = _generate_reply_canned(state, collected, persona_name)
+        return f"{aside} {base}" if aside else base
 
     instruction = prompts.STATE_PROMPTS.get(state, "Continue the conversation politely.")
     try:
@@ -224,7 +230,9 @@ async def generate_reply(state: str, collected: dict, persona_name: str) -> str:
 
     system = prompts.RICARDO_SYSTEM_PROMPT.replace("Ricardo", persona_name)
     prompt = prompts.REPLY_GENERATION_PROMPT.format(
-        state_instruction=instruction,
+        state_instruction=(
+            f"First briefly answer: '{aside}'. Then: {instruction}" if aside else instruction
+        ),
         collected=json.dumps(_safe_collected(collected)),
     )
     return await _complete(prompt, system=system, max_tokens=200)

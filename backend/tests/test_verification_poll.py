@@ -85,8 +85,10 @@ def test_poll_advances_once_verified(monkeypatch):
 
     assert result["state"] == "email_verified"
     assert result["reply"] == "[email_verified] confirmed"
-    # email_verified is a statement-only state the user taps through.
-    assert result["data"] == {"continuable": True}
+    # email_verified is a statement-only state the user taps through; every
+    # turn also carries the step/total progress payload.
+    assert result["data"]["continuable"] is True
+    assert "progress" in result["data"]
     # Exactly one assistant line was appended — no phantom user turn.
     inserts = fake.sink.get("inserts", [])
     assert len(inserts) == 1

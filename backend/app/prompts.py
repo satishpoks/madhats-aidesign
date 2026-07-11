@@ -66,6 +66,10 @@ STATE_PROMPTS: dict[str, str] = {
     "email_verified": "Warmly confirm their email is now verified and let them know their "
     "design is on its way to their inbox for review.",
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
+    "show_design": "Tell them their design is ready and shown on screen (watermarked preview).",
+    "offer_refine": "Ask if they'd like to tweak anything about the design, or if they're happy with it.",
+    "describe_changes": "Invite them to describe the change they'd like to the design.",
+    "regenerating": "Let them know you're updating the design with their changes now.",
     "quote_requested": "Let them know one of the MadHats team will be in touch with a quote shortly.",
     "upsell_prompt": "Warmly ask if they'd like to add the design to another part of the cap, "
     "such as the side panel or under the brim.",
@@ -239,6 +243,10 @@ CANNED_REPLIES: dict[str, str] = {
     "email_verified": "Your email's verified — thank you! Your design is on its way to your "
     "inbox now for review.",
     "send_preview_email": "Your design is on its way to your inbox now.",
+    "show_design": "Here's your design — take a look on the left! It's a watermarked preview.",
+    "offer_refine": "Want to tweak anything about it, or are you happy with this design?",
+    "describe_changes": "Sure — tell me what you'd like to change and I'll update it.",
+    "regenerating": "Updating your design with those changes now…",
     "quote_requested": "One of the MadHats team will be in touch with your quote shortly.",
     "upsell_prompt": (
         "Looking great! Would you like to add the design to another part of the cap, "

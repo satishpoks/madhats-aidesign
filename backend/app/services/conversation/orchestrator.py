@@ -15,35 +15,29 @@ Flow per message:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import structlog
 
 from app.config import settings
 from app.db import get_supabase
 from app.services import leads as leads_service
+from app.services import settings_service
 from app.services.stores import get_store
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import (
+    AUTO_ADVANCE_STATES,
     ConversationState,
+    QUESTION_FIELD,
+    advance_and_skip,
     advance_state,
     allowed_backtracks,
     is_affirmative,
     is_negative,
+    progress,
 )
 
 log = structlog.get_logger()
-
-# States that are purely routing or statement nodes — they pose no question and
-# all required data was captured during the preceding state's ingest. The
-# orchestrator auto-advances through them so every reply the user sees ends with
-# an actionable question (otherwise the user's next answer is ingested one state
-# late, silently shifting all subsequent captures — an off-by-one).
-_AUTO_ADVANCE_STATES: frozenset[ConversationState] = frozenset(
-    {
-        ConversationState.CHECK_YOUTH,
-        ConversationState.DECORATION_ENGINE,
-        ConversationState.CONFIRM_DECORATION,
-    }
-)
 
 
 class SessionNotFound(Exception):
@@ -76,45 +70,59 @@ async def handle_message(session_id: str, message: str) -> dict:
         new_state = ConversationState.ASK_NAME
         reply = await ie.generate_reply(ConversationState.GREETING.value, collected, persona)
     else:
-        # --- 3. back-track detection ---
+        # --- 3+4. interpret the turn (one call: intent + fields) ---
+        faq = settings_service.get_settings().faq_knowledge
         targets = [s.value for s in allowed_backtracks(current)]
-        backtrack_target = await ie.detect_backtrack(message, current.value, targets)
+        interp = await ie.interpret_turn(current.value, message, collected, targets, faq)
 
-        if backtrack_target:
-            new_state = ConversationState(backtrack_target)
-            log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
-        else:
-            # --- 4. interpret message for the current state ---
-            await _ingest(current, message, collected)
-            # --- 4b. email capture (inline, no separate form) ---
-            # GENERATING and ASK_EMAIL ask for the email in the chat. We already
-            # have the customer's name, so the moment a usable email arrives we
-            # create the lead and send a verification email — no second form. The
-            # preview itself is released when the customer clicks that link.
-            if current in (ConversationState.GENERATING, ConversationState.ASK_EMAIL) and not collected.get(
-                "email_captured"
-            ):
-                email = leads_service.extract_email(message)
-                if email:
-                    lead_id = leads_service.capture_lead_and_verify(session, collected, email)
-                    collected["email_captured"] = True
-                    if lead_id:
-                        collected["lead_id"] = lead_id
-            # --- 5a. advance ---
-            new_state = advance_state(
-                current, collected, message=message, upsell_count=upsell_count
+        _apply_fields(current, interp.get("fields") or {}, collected, message)
+
+        # --- 4b. email capture (inline, no separate form) ---
+        # GENERATING and ASK_EMAIL ask for the email in the chat. We already
+        # have the customer's name, so the moment a usable email arrives we
+        # create the lead and send a verification email — no second form. The
+        # preview itself is released when the customer clicks that link.
+        if current in (ConversationState.GENERATING, ConversationState.ASK_EMAIL) and not collected.get(
+            "email_captured"
+        ):
+            email = leads_service.extract_email(message)
+            if email:
+                lead_id = leads_service.capture_lead_and_verify(session, collected, email)
+                collected["email_captured"] = True
+                if lead_id:
+                    collected["lead_id"] = lead_id
+
+        intent = interp["intent"]
+        if intent in ("ask_question", "chitchat"):
+            # Answer/redirect, then RE-ASK the current question. Do not advance.
+            new_state = current
+            reply = await ie.generate_reply(
+                current.value, collected, persona, aside=interp.get("question_answer") or None
             )
+        else:
+            if intent in ("revise", "backtrack"):
+                target = interp.get("revise_target") or interp.get("backtrack_target")
+                new_state = ConversationState(target) if target else current
+                if target:
+                    log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
+            elif current is ConversationState.OFFER_REFINE and collected.get("wants_changes"):
+                # Enforce the per-session edit cap here (guarded import so this
+                # file works before Task 11 lands).
+                if _can_edit(session_id):
+                    new_state = ConversationState.DESCRIBE_CHANGES
+                else:
+                    collected["edit_cap_reached"] = True
+                    new_state = ConversationState.QUOTE_REQUESTED
+            else:
+                new_state = advance_and_skip(
+                    current, collected, message=message, upsell_count=upsell_count
+                )
             if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
                 upsell_count += 1
-
-        # --- 5b. auto-advance through routing-only states ---
-        while new_state in _AUTO_ADVANCE_STATES:
-            new_state = advance_state(
-                new_state, collected, message="", upsell_count=upsell_count
-            )
-
-        # --- 6. word the reply ---
-        reply = await ie.generate_reply(new_state.value, collected, persona)
+            # auto-advance through routing-only states
+            while new_state in AUTO_ADVANCE_STATES:
+                new_state = advance_state(new_state, collected, upsell_count=upsell_count)
+            reply = await ie.generate_reply(new_state.value, collected, persona)
 
     # --- 7. persist state + messages ---
     sb.table("design_sessions").update(
@@ -122,7 +130,7 @@ async def handle_message(session_id: str, message: str) -> dict:
             "state": new_state.value,
             "collected": collected,
             "upsell_count": upsell_count,
-            "updated_at": "now()",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     ).eq("id", session_id).execute()
 
@@ -145,11 +153,9 @@ async def handle_message(session_id: str, message: str) -> dict:
         ]
     ).execute()
 
-    return {
-        "reply": reply,
-        "state": new_state.value,
-        "data": _public_data(new_state, collected),
-    }
+    data = _public_data(new_state, collected)
+    data["progress"] = progress(new_state, collected)
+    return {"reply": reply, "state": new_state.value, "data": data}
 
 
 async def check_verification(session_id: str) -> dict:
@@ -172,19 +178,21 @@ async def check_verification(session_id: str) -> dict:
     collected: dict = session.get("collected") or {}
 
     if current is not ConversationState.VERIFY_EMAIL or not collected.get("email_verified"):
-        return {"reply": None, "state": current.value, "data": _public_data(current, collected)}
+        data = _public_data(current, collected)
+        data["progress"] = progress(current, collected)
+        return {"reply": None, "state": current.value, "data": data}
 
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
 
     new_state = advance_state(current, collected)
-    while new_state in _AUTO_ADVANCE_STATES:
+    while new_state in AUTO_ADVANCE_STATES:
         new_state = advance_state(new_state, collected)
 
     reply = await ie.generate_reply(new_state.value, collected, persona)
 
     sb.table("design_sessions").update(
-        {"state": new_state.value, "updated_at": "now()"}
+        {"state": new_state.value, "updated_at": datetime.now(timezone.utc).isoformat()}
     ).eq("id", session_id).execute()
 
     sb.table("chat_messages").insert(
@@ -197,84 +205,62 @@ async def check_verification(session_id: str) -> dict:
         }
     ).execute()
 
-    return {"reply": reply, "state": new_state.value, "data": _public_data(new_state, collected)}
+    data = _public_data(new_state, collected)
+    data["progress"] = progress(new_state, collected)
+    return {"reply": reply, "state": new_state.value, "data": data}
 
 
-async def _ingest(state: ConversationState, message: str, collected: dict) -> None:
-    """Mutate `collected` based on the answer to the current state's question.
-
-    GREETING is intentionally excluded — name capture only happens at ASK_NAME.
-    """
+def _apply_fields(state: ConversationState, fields: dict, collected: dict, message: str) -> None:
+    """Merge validated interpreter fields into collected and derive the branch
+    booleans the state machine reads. The interpreter does not emit the yes/no
+    booleans for confirmation states, so we derive those from the raw message
+    (works with and without an LLM key)."""
     S = ConversationState
+    low = message.lower()
 
-    if state is S.ASK_NAME:
-        # Capture the name verbatim (first line, trimmed, max 60 chars).
-        name = message.strip().split("\n")[0][:60]
-        if name:
-            collected["name"] = name
+    for key in (
+        "name", "purpose", "quantity", "decoration_type", "design_description",
+        "placement_zone", "placement_position", "remove_bg", "has_logo", "youth_flag",
+    ):
+        if key in fields and fields[key] is not None:
+            collected[key] = fields[key]
 
-    elif state is S.ASK_PURPOSE:
-        collected["purpose"] = message.strip()
-        collected["youth_flag"] = await ie.detect_youth(message)
+    # Decoration default: if the customer just accepted the recommendation,
+    # neither the interpreter nor the heuristic set decoration_type — fall back
+    # to the recommended type for the current state (mirrors the old _ingest).
+    if state in (S.WARN_PRINT_SETUP, S.RECOMMEND_DECORATION, S.RECOMMEND_EMBROIDERY):
+        if not collected.get("decoration_type"):
+            collected["decoration_type"] = "embroidery" if state is S.RECOMMEND_EMBROIDERY else "print"
 
-    elif state is S.ASK_QUANTITY:
-        collected["quantity"] = await ie.parse_quantity(message)
+    # has_logo fallback: not explicitly set but a description was given -> describe path.
+    if state is S.ASK_HAS_LOGO and "has_logo" not in fields and fields.get("design_description"):
+        collected["has_logo"] = False
 
-    elif state in (S.WARN_PRINT_SETUP, S.RECOMMEND_DECORATION, S.RECOMMEND_EMBROIDERY):
-        # Capture an explicit decoration preference if stated, else use the recommendation.
-        low = message.lower()
-        if "embroid" in low:
-            collected["decoration_type"] = "embroidery"
-        elif "patch" in low:
-            collected["decoration_type"] = "patch"
-        elif "print" in low:
-            collected["decoration_type"] = "print"
-        else:
-            collected.setdefault(
-                "decoration_type",
-                "embroidery" if state is S.RECOMMEND_EMBROIDERY else "print",
-            )
-
-    elif state is S.ASK_HAS_LOGO:
-        low = message.lower()
-        has_logo = ("upload" in low or "logo" in low or "yes" in low or "artwork" in low) and not (
-            "describe" in low or "instead" in low or "don't" in low
-        )
-        collected["has_logo"] = has_logo
-
-    elif state is S.ASK_REMOVE_BG:
-        collected["remove_bg"] = is_affirmative(message) or "remove" in message.lower()
-
-    elif state is S.DESCRIBE_DESIGN:
-        collected["design_description"] = await ie.extract_design_description(message)
-
-    elif state is S.ASK_PLACEMENT_ZONE:
-        collected["placement_zone"] = _match_zone(message)
-
-    elif state is S.ASK_PLACEMENT_POSITION:
-        collected["placement_position"] = message.strip()[:60]
-
-    elif state is S.ASK_PIN_ANNOTATION:
+    # Confirmation states: derive the boolean from the raw message.
+    if state is S.ASK_PIN_ANNOTATION:
         collected["wants_pins"] = is_affirmative(message) and not is_negative(message)
-
     elif state is S.PIN_ANNOTATE_MODE:
-        collected["add_another_pin"] = "another" in message.lower() or (
-            is_affirmative(message) and not is_negative(message)
-        )
-
+        collected["add_another_pin"] = "another" in low or (is_affirmative(message) and not is_negative(message))
     elif state is S.UPSELL_PROMPT:
         collected["wants_upsell"] = is_affirmative(message) and not is_negative(message)
+    elif state is S.OFFER_REFINE:
+        collected["wants_changes"] = (
+            ("change" in low or "tweak" in low or "edit" in low or "adjust" in low
+             or "modif" in low or "different" in low)
+            and not ("looks good" in low or "happy" in low)
+        )
+    if state is S.DESCRIBE_CHANGES:
+        collected["last_change"] = message.strip()[:400]
 
 
-def _match_zone(message: str) -> str:
-    low = message.lower()
-    if "under" in low or "brim" in low:
-        return "under_brim"
-    if "side" in low:
-        return "side"
-    if "back" in low:
-        return "back"
-    return "front_panel"
+def _can_edit(session_id: str) -> bool:
+    """Per-session edit cap check. Guarded so this file imports cleanly before
+    the limits module (Task 11) exists."""
+    try:
+        from app.services import limits  # noqa: PLC0415
+    except ImportError:
+        return True
+    return limits.can_edit(session_id)
 
 
 def _public_data(state: ConversationState, collected: dict) -> dict:
@@ -305,6 +291,12 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Yes, add more", "No, I'm happy"]}
     if state is S.GENERATING:
         return {"trigger_generation": True}
+    if state is S.SHOW_DESIGN:
+        return {"continuable": True}
+    if state is S.OFFER_REFINE:
+        return {"options": ["Request changes", "Looks good"]}
+    if state is S.REGENERATING:
+        return {"trigger_regeneration": True}
     # Statement-only states the user taps through (no typed answer expected).
     if state in (
         S.YOUTH_REFERRAL,
