@@ -20,4 +20,15 @@ describe('generationStore designs', () => {
     await useGenerationStore.getState().startGeneration('s1')
     expect(useGenerationStore.getState().designs).toEqual(['wm.png'])
   })
+
+  it('startRegeneration appends a second design', async () => {
+    const api = await import('../lib/api')
+    ;(api.regenerate as unknown as ReturnType<typeof vi.fn>) = vi.fn().mockResolvedValue({ job_id: 'j2' })
+    vi.mocked(api.generationStatus).mockResolvedValue({
+      status: 'complete', image_url: 'c2.png', watermarked_url: 'wm2.png',
+    } as never)
+    useGenerationStore.setState({ designs: ['wm1.png'] })
+    await useGenerationStore.getState().startRegeneration('s1')
+    expect(useGenerationStore.getState().designs).toEqual(['wm1.png', 'wm2.png'])
+  })
 })

@@ -335,6 +335,7 @@ export function ChatPanel() {
   const options = useChatStore(s => s.options)
   const options2 = useChatStore(s => s.options2)
   const triggerGeneration = useChatStore(s => s.triggerGeneration)
+  const triggerRegeneration = useChatStore(s => s.triggerRegeneration)
   const continuable = useChatStore(s => s.continuable)
   const progress = useChatStore(s => s.progress)
   const sending = useChatStore(s => s.sending)
@@ -347,6 +348,7 @@ export function ChatPanel() {
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
+  const startRegeneration = useGenerationStore(s => s.startRegeneration)
   const designs = useGenerationStore(s => s.designs)
 
   // The design is delivered by email only once the address is verified — the
@@ -382,6 +384,14 @@ export function ChatPanel() {
       void startGeneration(sessionId)
     }
   }, [sessionId, triggerGeneration, chatState, startGeneration])
+
+  // Trigger regeneration when the flow reaches the regenerating state (a
+  // requested change). Not once-guarded — each edit fires a fresh run.
+  useEffect(() => {
+    if (sessionId && triggerRegeneration) {
+      void startRegeneration(sessionId)
+    }
+  }, [sessionId, triggerRegeneration, startRegeneration])
 
   // While waiting at verify_email, poll for the out-of-band email verification
   // (the customer clicks the emailed link, possibly in another tab/device) and

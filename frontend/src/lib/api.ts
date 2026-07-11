@@ -130,6 +130,14 @@ export function generationStatus(jobId: string): Promise<GenerationStatus> {
   return request<GenerationStatus>(`/generate/status/${jobId}`)
 }
 
+/** Regenerate the design with the latest requested change. */
+export function regenerate(sessionId: string): Promise<{ job_id: string }> {
+  return request<{ job_id: string }>(`/generate/regenerate/${sessionId}`, {
+    method: 'POST',
+    body: JSON.stringify({ tier: 'edit' }),
+  })
+}
+
 /** Create a lead (contact capture) for the session. */
 export function createLead(
   sessionId: string,

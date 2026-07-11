@@ -14,6 +14,7 @@ interface ChatStoreState {
   options: string[]
   options2: string[]
   triggerGeneration: boolean
+  triggerRegeneration: boolean
   /** Statement-only state: show a "Continue" affordance, not a text answer. */
   continuable: boolean
   progress: { step: number; total: number } | null
@@ -41,11 +42,12 @@ function parseData(data: Record<string, unknown>) {
   const options = Array.isArray(data.options) ? (data.options as string[]) : []
   const options2 = Array.isArray(data.options2) ? (data.options2 as string[]) : []
   const triggerGeneration = data.trigger_generation === true
+  const triggerRegeneration = data.trigger_regeneration === true
   const continuable = data.continuable === true
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, continuable, progress }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, progress }
 }
 
 function uid(): string {
@@ -58,6 +60,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   options: [],
   options2: [],
   triggerGeneration: false,
+  triggerRegeneration: false,
   continuable: false,
   progress: null,
   sending: false,
@@ -69,7 +72,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ kickoffDone: true, sending: true, chatError: null })
     try {
       const res = await sendChat(sessionId, '')
-      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
+      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -79,6 +82,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options,
         options2,
         triggerGeneration,
+        triggerRegeneration,
         continuable,
         progress,
         sending: false,
@@ -108,7 +112,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }))
     try {
       const res = await sendChat(sessionId, text)
-      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
+      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -118,6 +122,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options,
         options2,
         triggerGeneration,
+        triggerRegeneration,
         continuable,
         progress,
         sending: false,
@@ -131,7 +136,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   hydrate: (messages, state, data) => {
-    const { options, options2, triggerGeneration, continuable, progress } = parseData(data)
+    const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(data)
     set({
       messages: messages.map(m => ({
         id: uid(),
@@ -142,6 +147,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options,
       options2,
       triggerGeneration,
+      triggerRegeneration,
       continuable,
       progress,
       sending: false,
@@ -157,7 +163,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollVerification(sessionId)
       if (res.reply == null) return // not verified yet — nothing to show
-      const { options, options2, triggerGeneration, continuable, progress } = parseData(res.data)
+      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
@@ -167,6 +173,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         options,
         options2,
         triggerGeneration,
+        triggerRegeneration,
         continuable,
         progress,
       }))
@@ -186,6 +193,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options: [],
       options2: [],
       triggerGeneration: false,
+      triggerRegeneration: false,
       progress: null,
       sending: false,
       chatError: null,

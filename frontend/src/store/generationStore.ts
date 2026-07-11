@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { generatePreview, generationStatus } from '../lib/api'
+import { generatePreview, generationStatus, regenerate } from '../lib/api'
 
 type GenStatus = 'idle' | 'generating' | 'done' | 'error'
 
@@ -24,6 +24,8 @@ interface GenerationStoreState {
   startedForSession: string | null
 
   startGeneration: (sessionId: string) => Promise<void>
+  /** Fire a fresh regeneration after a requested change. Not once-guarded — each edit reruns. */
+  startRegeneration: (sessionId: string) => Promise<void>
   reset: () => void
 }
 
@@ -76,6 +78,31 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
         // Allow a retry after a hard failure.
         startedForSession: null,
       })
+    }
+  },
+
+  startRegeneration: async (sessionId: string) => {
+    set({ status: 'generating', error: null })
+    try {
+      const { job_id } = await regenerate(sessionId)
+      set({ jobId: job_id })
+      for (let i = 0; i < MAX_POLLS; i++) {
+        const res = await generationStatus(job_id)
+        if (res.status === 'complete') {
+          const url = res.watermarked_url ?? res.image_url ?? null
+          set(state => ({
+            status: 'done',
+            previewUrl: url,
+            designs: url ? [...state.designs, url] : state.designs,
+          }))
+          return
+        }
+        if (res.status === 'failed') { set({ status: 'error' }); return }
+        await delay(POLL_INTERVAL_MS)
+      }
+      set({ status: 'error' })
+    } catch (err) {
+      set({ status: 'error', error: err instanceof Error ? err.message : 'Regeneration failed' })
     }
   },
 
