@@ -308,13 +308,22 @@ On the {placement_zone}, positioned {placement_position}. Follow the panel's
 natural curvature, perspective and lighting so it looks physically applied.
 {pin_block}
 
-OUTPUT: One photorealistic image of the SAME cap from the SAME angle as the
-reference, identical in every respect except for the added decoration."""
+OUTPUT: One photorealistic image of the SAME single cap from the SAME angle as
+the reference, identical in every respect except for the added decoration. Frame
+and crop it exactly like the reference photo, with the same aspect ratio, so the
+cap fills the frame the same way. Show only that one cap: do NOT produce a
+collage, split-screen, side-by-side comparison, grid or multi-panel layout, and
+do NOT include any second image, reference swatch, logo copy or before/after
+view."""
 
 # design_block for Flow B (customer uploaded a logo/artwork — the 2nd image).
-UPLOADED_ASSET_DESIGN_BLOCK = """Apply the customer's uploaded artwork, provided as the SECOND image.
+UPLOADED_ASSET_DESIGN_BLOCK = """Apply the customer's uploaded artwork, provided as the SECOND image, ONTO the cap.
 Reproduce that artwork faithfully — exact colours, proportions and detail. Do not
-redraw, reinterpret or restyle it."""
+redraw, reinterpret or restyle it.
+The SECOND image is a REFERENCE for the decoration only. Do NOT reproduce it as a
+separate standalone element anywhere in the output — no side panel, tile, sticker,
+swatch, framed copy or floating duplicate, and never on its own background. The
+uploaded artwork may appear ONLY as decoration on the cap panel, nowhere else."""
 
 # Fallback design_block when no design intent was captured at all.
 FALLBACK_DESIGN_BLOCK = "the customer's supplied design"

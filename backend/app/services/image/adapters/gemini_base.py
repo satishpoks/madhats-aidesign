@@ -24,6 +24,15 @@ log = structlog.get_logger()
 # Rough per-image cost estimates (USD) — real figures come from billing later.
 _COST_BY_TIER = {"preview": 0.002, "final": 0.01}
 
+# Role labels interleaved before each image part. Reinforces the FIRST/SECOND
+# image references in the prompt so the model applies the logo onto the cap
+# instead of reproducing it as a separate panel.
+_FIRST_IMAGE_LABEL = "FIRST IMAGE — the exact product cap to reproduce:"
+_SECOND_IMAGE_LABEL = (
+    "SECOND IMAGE — the customer's artwork to apply onto the cap as decoration "
+    "ONLY. Use it as a reference; never reproduce it as a separate element."
+)
+
 
 async def _fetch_bytes(url: str) -> tuple[bytes, str]:
     async with httpx.AsyncClient(timeout=30) as client:
@@ -54,11 +63,17 @@ class _GeminiAdapter(ImageProvider):
         started = time.monotonic()
 
         ref_bytes, ref_mime = await _fetch_bytes(reference_image_url)
-        contents: list = [{"mime_type": ref_mime, "data": ref_bytes}]
+        # Label each image part so the model can't conflate the two inputs and
+        # echo the logo back as its own panel (the two-panel collage failure).
+        contents: list = [
+            _FIRST_IMAGE_LABEL,
+            {"mime_type": ref_mime, "data": ref_bytes},
+        ]
 
         if uploaded_asset_url:
             try:
                 logo_bytes, logo_mime = await _fetch_bytes(uploaded_asset_url)
+                contents.append(_SECOND_IMAGE_LABEL)
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
             except httpx.HTTPError:
                 log.warning("logo_fetch_failed", tier=self.tier)
