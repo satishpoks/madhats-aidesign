@@ -61,6 +61,27 @@ def test_uploaded_asset_references_second_image():
     assert "supplied logo/artwork" not in prompt
 
 
+def test_uploaded_asset_forbids_standalone_logo_reproduction():
+    """Flow B regression: Gemini was echoing the uploaded logo as its own panel
+    beside the cap (a two-panel collage). The prompt must direct the model to
+    apply the artwork ONTO the cap and never reproduce it as a separate copy."""
+    collected = {"uploaded_asset_path": "uploads/logo.png"}
+    prompt = _build(collected).lower()
+    assert "onto the cap" in prompt
+    assert "separate" in prompt
+
+
+# --- single-subject output (no collage) -------------------------------------
+
+def test_output_forbids_collage_and_locks_framing():
+    """Every prompt must pin the output to one cap framed like the reference —
+    no side-by-side/split-screen panels."""
+    prompt = _build({"design_description": {"summary": "a star"}}).lower()
+    assert "collage" in prompt
+    assert "side-by-side" in prompt
+    assert "aspect ratio" in prompt
+
+
 # --- Flow A: described design intent ----------------------------------------
 
 def test_described_design_weaves_all_structured_fields():
@@ -141,3 +162,27 @@ def test_pins_appended_when_present():
 def test_no_pin_block_when_absent():
     prompt = _build({"design_description": {"summary": "x"}})
     assert "placement note" not in prompt.lower()
+
+
+def test_uploaded_asset_includes_gathered_elements():
+    collected = {
+        "uploaded_asset_path": "uploads/logo.png",
+        "design_description": {
+            "text_elements": ["TEAM SPIRIT"],
+            "colours": ["gold"],
+            "imagery": ["star"],
+        },
+    }
+    prompt = _build(collected)
+    assert "SECOND image" in prompt          # logo still composited
+    assert "TEAM SPIRIT" in prompt           # gathered text reaches the model
+    assert "gold" in prompt
+    assert "star" in prompt
+
+
+def test_uploaded_asset_without_extras_has_no_dangling_labels():
+    collected = {"uploaded_asset_path": "uploads/logo.png"}
+    prompt = _build(collected)
+    assert "SECOND image" in prompt
+    assert "Text to include" not in prompt
+    assert "Graphics/icons" not in prompt

@@ -28,27 +28,11 @@ def build_params(collected: dict, tier: str) -> GenerationParams:
     )
 
 
-def _design_block(collected: dict) -> str:
-    """Describe ONLY the decoration to add — never the base cap.
-
-    Flow B (uploaded logo): point the model at the second image. Flow A
-    (described design): weave in every captured field (summary, text, colours,
-    imagery, style), skipping empties so no dangling labels leak into the prompt.
-    """
-    if collected.get("uploaded_asset_path"):
-        block = prompts.UPLOADED_ASSET_DESIGN_BLOCK
-        design = collected.get("design_description") or {}
-        summary = design.get("summary") if isinstance(design, dict) else str(design)
-        if summary:
-            block += f"\nExtra context from the customer: {summary}"
-        return block
-
-    design = collected.get("design_description") or {}
-    if not isinstance(design, dict):
-        return str(design) or prompts.FALLBACK_DESIGN_BLOCK
-
+def _element_lines(design: dict) -> list[str]:
+    """Enumerate the described decoration elements as prompt lines. Empty fields
+    are skipped so no dangling labels leak into the prompt."""
     lines: list[str] = []
-    summary = design.get("summary") or collected.get("design_summary")
+    summary = design.get("summary")
     if summary:
         lines.append(summary)
     text_elements = [t for t in (design.get("text_elements") or []) if t]
@@ -64,6 +48,30 @@ def _design_block(collected: dict) -> str:
     style = design.get("style")
     if style:
         lines.append(f"Design style: {style}")
+    return lines
+
+
+def _design_block(collected: dict) -> str:
+    """Describe ONLY the decoration to add — never the base cap.
+
+    Both flows funnel through one structured brief (``design_description``). Flow
+    B (uploaded logo) points the model at the second image AND enumerates any
+    extra elements the customer gathered; Flow A (described design) enumerates
+    the same fields with no logo.
+    """
+    design = collected.get("design_description") or {}
+    if not isinstance(design, dict):
+        design = {"summary": str(design)} if design else {}
+    if not design.get("summary") and collected.get("design_summary"):
+        design = {**design, "summary": collected["design_summary"]}
+
+    lines = _element_lines(design)
+
+    if collected.get("uploaded_asset_path"):
+        block = prompts.UPLOADED_ASSET_DESIGN_BLOCK
+        if lines:
+            block += "\nAlso incorporate these customer details:\n" + "\n".join(lines)
+        return block
 
     return "\n".join(lines) if lines else prompts.FALLBACK_DESIGN_BLOCK
 
