@@ -70,18 +70,20 @@ def test_backtracks_never_past_name():
 
 def test_progress_path_excludes_defaulted_position():
     # describe branch: name, purpose, quantity, decoration, has_logo,
-    # describe_design, placement_zone, email = 8 steps (position is defaulted).
+    # describe_design, email = 7 steps (position is defaulted; global
+    # placement is retired from the forward path -- placement is per-element
+    # now, inside the deep-dive).
     collected = {"has_logo": False}
     total = progress(S.ASK_NAME, collected)["total"]
-    assert total == 8
+    assert total == 7
 
 
 def test_progress_counts_logo_branch():
     # logo branch adds upload + remove_bg, drops describe:
     # name, purpose, quantity, decoration, has_logo, upload, remove_bg,
-    # placement_zone, email = 9 steps.
+    # email = 8 steps (global placement retired from the forward path).
     collected = {"has_logo": True}
-    assert progress(S.ASK_NAME, collected)["total"] == 9
+    assert progress(S.ASK_NAME, collected)["total"] == 8
 
 
 def test_progress_position_backtrack_resolves_like_zone():
@@ -102,21 +104,60 @@ def test_progress_holds_steady_during_gather_loop():
     assert zone["step"] != 1
 
 
-def test_more_elements_branch():
-    assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": True}) is S.ADD_ELEMENTS_MODE
-    assert advance_state(S.ASK_MORE_ELEMENTS, {"wants_more_elements": False}) is S.ASK_PLACEMENT_ZONE
+# NOTE: test_more_elements_branch (asserted ASK_MORE_ELEMENTS -> ADD_ELEMENTS_MODE
+# / ASK_PLACEMENT_ZONE on wants_more_elements) is superseded by
+# test_deepdive_entered_when_pending_element and
+# test_more_elements_exit_offers_pins_then_generates below, which cover the new
+# pending_element/pin_offered-driven routing.
 
 
-def test_add_elements_loops_then_exits():
+def test_add_elements_mode_is_legacy_dead_end():
+    # ADD_ELEMENTS_MODE is retired from the forward flow: the per-element
+    # deep-dive (ELEMENT_DEEPDIVE) replaced it. No branch handles it anymore,
+    # so it falls through to the default successor (its own first TRANSITIONS
+    # entry), which is itself -- it is no longer reachable going forward.
     assert advance_state(S.ADD_ELEMENTS_MODE, {"add_another_element": True}) is S.ADD_ELEMENTS_MODE
-    assert advance_state(S.ADD_ELEMENTS_MODE, {"add_another_element": False}) is S.ASK_PLACEMENT_ZONE
+    assert advance_state(S.ADD_ELEMENTS_MODE, {"add_another_element": False}) is S.ADD_ELEMENTS_MODE
 
 
 def test_design_source_paths_reach_more_elements():
     # Both the logo path (via remove-bg) and the describe path funnel into the
-    # gather loop, not straight to placement.
-    assert advance_state(S.ASK_REMOVE_BG, {}) is S.ASK_MORE_ELEMENTS
-    assert advance_state(S.DESCRIBE_DESIGN, {}) is S.ASK_MORE_ELEMENTS
+    # per-element deep-dive now, not the retired ADD_ELEMENTS_MODE gather loop.
+    assert advance_state(S.ASK_REMOVE_BG, {}) is S.ELEMENT_DEEPDIVE
+    assert advance_state(S.DESCRIBE_DESIGN, {}) is S.ELEMENT_DEEPDIVE
+
+
+def test_deepdive_entered_when_pending_element():
+    assert advance_state(S.ASK_MORE_ELEMENTS, {"pending_element": {"type": "text"}}) is S.ELEMENT_DEEPDIVE
+
+
+def test_deepdive_loops_until_element_complete():
+    assert advance_state(S.ELEMENT_DEEPDIVE, {"pending_element": {"type": "text"}}) is S.ELEMENT_DEEPDIVE
+    # pending cleared (element completed by orchestrator) -> back to the offer
+    assert advance_state(S.ELEMENT_DEEPDIVE, {}) is S.ASK_MORE_ELEMENTS
+
+
+def test_more_elements_exit_offers_pins_then_generates():
+    # no pending element, pins not yet offered -> pin offer
+    assert advance_state(S.ASK_MORE_ELEMENTS, {}) is S.ASK_PIN_ANNOTATION
+    assert advance_state(S.ASK_MORE_ELEMENTS, {"pin_offered": True}) is S.GENERATING
+
+
+def test_design_sources_funnel_into_deepdive():
+    assert advance_state(S.UPLOAD_LOGO, {}) is S.ELEMENT_DEEPDIVE
+    assert advance_state(S.DESCRIBE_DESIGN, {}) is S.ELEMENT_DEEPDIVE
+
+
+def test_progress_steady_during_deepdive_and_placement_retired():
+    # Global placement is off the path; the deep-dive holds the counter at the
+    # design-source step for both branches.
+    describe = {"has_logo": False}
+    assert progress(S.ELEMENT_DEEPDIVE, describe) == progress(S.DESCRIBE_DESIGN, describe)
+    assert progress(S.ASK_MORE_ELEMENTS, describe) == progress(S.DESCRIBE_DESIGN, describe)
+    logo = {"has_logo": True}
+    assert progress(S.ELEMENT_DEEPDIVE, logo) == progress(S.ASK_REMOVE_BG, logo)
+    # describe branch total drops by one now that ASK_PLACEMENT_ZONE is gone: 7
+    assert progress(S.ASK_NAME, describe)["total"] == 7
 
 
 def test_post_verification_collapses_to_offer_refine():

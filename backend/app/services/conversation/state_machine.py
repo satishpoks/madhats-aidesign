@@ -27,6 +27,7 @@ class ConversationState(str, Enum):
     DESCRIBE_DESIGN = "describe_design"
     ASK_MORE_ELEMENTS = "ask_more_elements"
     ADD_ELEMENTS_MODE = "add_elements_mode"
+    ELEMENT_DEEPDIVE = "element_deepdive"
     ASK_PLACEMENT_ZONE = "ask_placement_zone"
     ASK_PLACEMENT_POSITION = "ask_placement_position"
     ASK_PIN_ANNOTATION = "ask_pin_annotation"
@@ -62,10 +63,11 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.RECOMMEND_EMBROIDERY: [S.CONFIRM_DECORATION],
     S.CONFIRM_DECORATION: [S.ASK_HAS_LOGO],
     S.ASK_HAS_LOGO: [S.UPLOAD_LOGO, S.DESCRIBE_DESIGN],
-    S.UPLOAD_LOGO: [S.ASK_REMOVE_BG],
-    S.ASK_REMOVE_BG: [S.ASK_MORE_ELEMENTS],
-    S.DESCRIBE_DESIGN: [S.ASK_MORE_ELEMENTS],
-    S.ASK_MORE_ELEMENTS: [S.ADD_ELEMENTS_MODE, S.ASK_PLACEMENT_ZONE],
+    S.UPLOAD_LOGO: [S.ELEMENT_DEEPDIVE],
+    S.ASK_REMOVE_BG: [S.ELEMENT_DEEPDIVE],
+    S.DESCRIBE_DESIGN: [S.ELEMENT_DEEPDIVE],
+    S.ASK_MORE_ELEMENTS: [S.ELEMENT_DEEPDIVE, S.ASK_PIN_ANNOTATION, S.GENERATING],
+    S.ELEMENT_DEEPDIVE: [S.ELEMENT_DEEPDIVE, S.ASK_MORE_ELEMENTS],
     S.ADD_ELEMENTS_MODE: [S.ADD_ELEMENTS_MODE, S.ASK_PLACEMENT_ZONE],
     S.ASK_PLACEMENT_ZONE: [S.ASK_PLACEMENT_POSITION],
     S.ASK_PLACEMENT_POSITION: [S.ASK_PIN_ANNOTATION],
@@ -106,6 +108,7 @@ ALLOWED_BACKTRACKS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_REMOVE_BG: [S.ASK_HAS_LOGO, S.UPLOAD_LOGO],
     S.DESCRIBE_DESIGN: [S.ASK_HAS_LOGO],
     S.ASK_MORE_ELEMENTS: [S.ASK_HAS_LOGO, S.DESCRIBE_DESIGN, S.UPLOAD_LOGO],
+    S.ELEMENT_DEEPDIVE: [S.ASK_MORE_ELEMENTS],
     S.ADD_ELEMENTS_MODE: [S.ASK_MORE_ELEMENTS],
     S.ASK_PLACEMENT_ZONE: [S.ASK_HAS_LOGO, S.DESCRIBE_DESIGN, S.ASK_MORE_ELEMENTS],
     S.ASK_PLACEMENT_POSITION: [S.ASK_PLACEMENT_ZONE],
@@ -173,12 +176,16 @@ def advance_state(
         # stay in pin mode while the customer keeps adding pins
         return S.PIN_ANNOTATE_MODE if collected.get("add_another_pin") else S.GENERATING
 
-    # --- Additional-elements gather loop ---
+    # --- Per-element deep-dive ---
     if current is S.ASK_MORE_ELEMENTS:
-        return S.ADD_ELEMENTS_MODE if collected.get("wants_more_elements") else S.ASK_PLACEMENT_ZONE
+        if collected.get("pending_element"):
+            return S.ELEMENT_DEEPDIVE
+        if not collected.get("pin_offered"):
+            return S.ASK_PIN_ANNOTATION
+        return S.GENERATING
 
-    if current is S.ADD_ELEMENTS_MODE:
-        return S.ADD_ELEMENTS_MODE if collected.get("add_another_element") else S.ASK_PLACEMENT_ZONE
+    if current is S.ELEMENT_DEEPDIVE:
+        return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.ASK_MORE_ELEMENTS
 
     # --- Email capture branch ---
     # The GENERATING message asks for the email; once we have a usable one we
@@ -276,7 +283,7 @@ def _progress_path(collected: dict) -> list[ConversationState]:
         path += [S.UPLOAD_LOGO, S.ASK_REMOVE_BG]
     else:
         path += [S.DESCRIBE_DESIGN]
-    path += [S.ASK_PLACEMENT_ZONE, S.ASK_EMAIL]
+    path += [S.ASK_EMAIL]
     return path
 
 
@@ -319,17 +326,20 @@ def progress(state: ConversationState, collected: dict) -> dict:
     if state in _DECORATION_VARIANTS:
         norm = ConversationState.RECOMMEND_DECORATION
     elif state in (
+        ConversationState.ASK_PLACEMENT_ZONE,
         ConversationState.ASK_PLACEMENT_POSITION,
         ConversationState.ASK_MORE_ELEMENTS,
+        ConversationState.ELEMENT_DEEPDIVE,
         ConversationState.ADD_ELEMENTS_MODE,
     ):
-        # Placement is now one merged question; position is a backtrack
-        # target only (see ALLOWED_BACKTRACKS) and shares zone's progress.
-        # The element-gather loop sits between has_logo/describe_design and
-        # placement_zone on both branches, so it normalizes to the same step
-        # rather than falling back to "step 1" (it's absent from both
-        # _progress_path and _POST_QUESTION_STATES).
-        norm = ConversationState.ASK_PLACEMENT_ZONE
+        # Global placement is retired from the forward path (placement is
+        # per-element now); ASK_PLACEMENT_ZONE/POSITION remain only as legacy
+        # backtrack targets. The per-element deep-dive (and its legacy
+        # ADD_ELEMENTS_MODE / placement siblings) sit between the design
+        # source and email on both branches, so they all normalize to the
+        # branch's design-source step rather than falling back to "step 1"
+        # (none of them are in _progress_path or _POST_QUESTION_STATES).
+        norm = ConversationState.ASK_REMOVE_BG if collected.get("has_logo") else ConversationState.DESCRIBE_DESIGN
     else:
         norm = state
     if norm in path:

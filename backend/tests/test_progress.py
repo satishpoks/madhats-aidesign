@@ -8,17 +8,21 @@ from app.services.conversation.state_machine import (
 def test_progress_describe_branch_total():
     # has_logo False -> describe branch (no upload/remove-bg steps).
     # position is defaulted (never its own turn), so it is not counted.
+    # Global placement is retired from the forward path (placement is
+    # per-element now), so the zone step is gone too.
     collected = {"has_logo": False}
     p = progress(S.ASK_NAME, collected)
     assert p["step"] == 1
-    assert p["total"] == 8  # name,purpose,qty,decoration,has_logo,describe,zone,email
+    assert p["total"] == 7  # name,purpose,qty,decoration,has_logo,describe,email
 
 
 def test_progress_upload_branch_is_longer():
+    # ASK_PLACEMENT_ZONE is now a legacy/backtrack-only state; it still
+    # normalizes to the branch's design-source step (ASK_REMOVE_BG here).
     collected = {"has_logo": True}
     p = progress(S.ASK_PLACEMENT_ZONE, collected)
-    assert p["total"] == 9  # upload branch adds remove-bg
-    assert p["step"] == 8
+    assert p["total"] == 8  # upload branch adds remove-bg; zone retired
+    assert p["step"] == 7
 
 
 def test_progress_post_design_is_complete():
@@ -27,20 +31,13 @@ def test_progress_post_design_is_complete():
 
 
 def test_advance_and_skip_skips_already_answered_question():
-    # Placement zone already known -> after position question we should not
-    # re-ask a filled question; verify a filled zone is skipped when advancing
-    # from a state whose next is ask_placement_zone. describe_design now funnels
-    # through the (unanswered) additional-elements gather question first, so the
-    # walk stops there rather than skipping all the way to placement position.
+    # describe_design now funnels directly into the per-element deep-dive
+    # (global placement is retired from the forward path -- placement is
+    # asked per element inside the deep-dive, owned by the orchestrator, not
+    # by this gather-loop skip logic).
     collected = {"has_logo": False, "placement_zone": "front_panel"}
     nxt = advance_and_skip(S.DESCRIBE_DESIGN, collected)
-    assert nxt == S.ASK_MORE_ELEMENTS
-
-    # Once the gather question is answered (no more elements wanted), the
-    # already-filled zone is skipped straight to placement position.
-    collected["wants_more_elements"] = False
-    nxt = advance_and_skip(S.ASK_MORE_ELEMENTS, collected)
-    assert nxt == S.ASK_PLACEMENT_POSITION  # zone skipped because already filled
+    assert nxt == S.ELEMENT_DEEPDIVE
 
 
 def test_progress_pin_annotation_does_not_reset():
