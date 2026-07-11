@@ -320,6 +320,12 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
         if key in fields and fields[key] is not None:
             collected[key] = fields[key]
 
+    # Merged placement: a zone is enough. Default the position to centre so we
+    # never spend a separate turn asking for it (the customer can fine-tune via
+    # the pin tool). An explicitly-provided position is preserved.
+    if collected.get("placement_zone") and not collected.get("placement_position"):
+        collected["placement_position"] = "centre"
+
     # Decoration default: if the customer just accepted the recommendation,
     # neither the interpreter nor the heuristic set decoration_type — fall back
     # to the recommended type for the current state (mirrors the old _ingest).

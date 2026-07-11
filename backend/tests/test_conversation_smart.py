@@ -203,3 +203,23 @@ async def test_typed_have_a_logo_reaches_upload(monkeypatch):
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("ok"))
     res = await orch.handle_message("s1", "yes I have a logo ready")
     assert res["state"] == S.UPLOAD_LOGO.value
+
+
+@pytest.mark.asyncio
+async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ASK_PLACEMENT_ZONE.value,
+                         "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "design_description": {"summary": "x"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(
+        orch.ie, "interpret_turn",
+        _fixed_interpret({"intent": "answer", "fields": {"placement_zone": "front_panel"}}),
+    )
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("pin?"))
+    res = await orch.handle_message("s1", "front panel")
+    assert store["session"]["collected"]["placement_position"] == "centre"
+    # position turn skipped -> next is the pin offer, not ASK_PLACEMENT_POSITION
+    assert res["state"] == S.ASK_PIN_ANNOTATION.value
