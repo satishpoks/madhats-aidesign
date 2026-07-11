@@ -90,9 +90,14 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
     ]
     pin_block = ("\n" + "\n".join(pin_lines)) if pin_lines else ""
 
+    design_block = _design_block(collected)
+    change = collected.get("change_request")
+    if change:
+        design_block = f"{design_block}\nRequested change from the customer: {change}."
+
     return prompts.IMAGE_GEN_PROMPT.format(
         decoration_kind=decoration_kind,
-        design_block=_design_block(collected),
+        design_block=design_block,
         decoration_style=decoration_style,
         placement_zone=params.placement_zone.replace("_", " "),
         placement_position=params.placement_position,

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 from dataclasses import asdict
 
@@ -74,6 +72,19 @@ async def generate_final(
     return await _start_generation(session_id, "final", background)
 
 
+@router.post("/generate/regenerate/{session_id}", response_model=JobResponse)
+@limiter.limit(settings.rate_limit_str)
+async def generate_regenerate(
+    session_id: str, body: GenerateRequest, request: Request, background: BackgroundTasks
+) -> JobResponse:
+    """Regenerate the design with the customer's latest requested change.
+
+    Same pipeline as preview, but tagged tier='edit' and the prompt includes
+    collected['last_change']. Caps are enforced in _start_generation (Task 11).
+    """
+    return await _start_generation(session_id, "edit", background)
+
+
 async def _start_generation(session_id: str, tier: str, background: BackgroundTasks) -> JobResponse:
     sb = get_supabase()
     sess = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -83,6 +94,12 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 
     product_ref = session.get("product_ref") or {}
     collected = session.get("collected") or {}
+
+    if tier == "edit" and collected.get("last_change"):
+        # Layer the requested change onto the existing design intent so the edit
+        # modifies rather than replaces the design. build_params/build_prompt
+        # already consume collected; surface the change as an extra instruction.
+        collected = {**collected, "change_request": collected["last_change"]}
 
     if not product_ref.get("reference_image_url"):
         raise HTTPException(status_code=400, detail="Session has no product reference image")
@@ -114,6 +131,12 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     job_id = job.data[0]["job_id"]
     generation_id = job.data[0].get("id")
 
+    # get_provider() only knows the real adapter tiers (preview/final); an edit
+    # reuses the preview adapter while the generations row still records
+    # tier='edit' so downstream reporting (and Task 11's cap enforcement) can
+    # distinguish edits from fresh previews.
+    provider_tier = "preview" if tier == "edit" else tier
+
     background.add_task(
         _run_generation,
         job_id=job_id,
@@ -121,6 +144,7 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
         session_id=session_id,
         store_id=session.get("store_id"),
         tier=tier,
+        provider_tier=provider_tier,
         prompt=prompt,
         product_ref=product_ref,
         collected=collected,
@@ -131,7 +155,7 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 
 async def _run_generation(
     *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params,
-    generation_id=None,
+    generation_id=None, provider_tier=None,
 ) -> None:
     """Background worker: cache-check → provider (with retry) → watermark → store → update row.
 
@@ -142,6 +166,7 @@ async def _run_generation(
     (retries exhausted or a permanent error) it marks the row failed and alerts
     ops so a human can regenerate — the customer is never shown a failure.
     """
+    provider_tier = provider_tier or tier
     sb = get_supabase()
     p_hash = prompt_builder.prompt_hash(prompt)
     asset_hash = collected.get("asset_hash", "none")
@@ -185,7 +210,7 @@ async def _run_generation(
             _safe_maybe_send_preview(session_id)
             return
 
-        provider = get_provider(tier)
+        provider = get_provider(provider_tier)
 
         result = None
         last_exc: Exception | None = None
