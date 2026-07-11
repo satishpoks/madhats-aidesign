@@ -19,3 +19,11 @@ class VerificationPollResponse(BaseModel):
     reply: str | None = None
     state: str
     data: dict = {}
+
+
+class RegenerationPollResponse(BaseModel):
+    # reply is None if the session isn't (or is no longer) at regenerating;
+    # then it carries Ricardo's reply and `state` advances to offer_refine.
+    reply: str | None = None
+    state: str
+    data: dict = {}

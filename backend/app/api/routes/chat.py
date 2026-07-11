@@ -3,9 +3,15 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps import limiter
 from app.config import settings
-from app.models.message import ChatRequest, ChatResponse, VerificationPollResponse
+from app.models.message import (
+    ChatRequest,
+    ChatResponse,
+    RegenerationPollResponse,
+    VerificationPollResponse,
+)
 from app.services.conversation.orchestrator import (
     SessionNotFound,
+    advance_after_regeneration,
     check_verification,
     handle_message,
 )
@@ -43,3 +49,19 @@ async def poll_verification(session_id: str) -> VerificationPollResponse:
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     return VerificationPollResponse(**result)
+
+
+@router.get("/chat/{session_id}/regeneration", response_model=RegenerationPollResponse)
+async def poll_regeneration(session_id: str) -> RegenerationPollResponse:
+    """One-shot advance used by the chat right after a regeneration settles.
+
+    The frontend calls this exactly once, after startRegeneration(sessionId)
+    resolves (success or failure) — not a timed poll — so there's no
+    completion race. Advances REGENERATING -> OFFER_REFINE; a no-op if the
+    session isn't at REGENERATING.
+    """
+    try:
+        result = await advance_after_regeneration(session_id)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+    return RegenerationPollResponse(**result)

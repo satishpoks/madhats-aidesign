@@ -89,6 +89,17 @@ export function pollVerification(sessionId: string): Promise<VerificationPollRes
 }
 
 /**
+ * One-shot advance of the chat after a regeneration settles. Called exactly
+ * once by the frontend right after startRegeneration(sessionId) resolves
+ * (success or failure) — not a timed poll — so there's no completion race.
+ * `reply` is null if the session wasn't at regenerating; otherwise it carries
+ * Ricardo's reply and `state` has advanced to offer_refine.
+ */
+export function pollRegeneration(sessionId: string): Promise<VerificationPollResponse> {
+  return request<VerificationPollResponse>(`/chat/${sessionId}/regeneration`)
+}
+
+/**
  * Upload a logo image for the given session.
  * Uses multipart/form-data — the browser sets Content-Type and boundary automatically.
  */

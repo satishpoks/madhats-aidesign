@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { sendChat, pollVerification } from '../lib/api'
+import { sendChat, pollVerification, pollRegeneration } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
 
 export interface ChatMessage {
@@ -33,6 +33,8 @@ interface ChatStoreState {
   ) => void
   /** Poll for out-of-band email verification; advances the thread once verified. */
   pollVerification: (sessionId: string) => Promise<void>
+  /** One-shot advance from regenerating -> offer_refine, called after regeneration settles. */
+  advanceRegeneration: (sessionId: string) => Promise<void>
   dismissError: () => void
   setError: (msg: string) => void
   reset: () => void
@@ -179,6 +181,30 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       }))
     } catch {
       // Polling is best-effort — a transient failure just retries next tick.
+    }
+  },
+
+  advanceRegeneration: async (sessionId: string) => {
+    try {
+      const res = await pollRegeneration(sessionId)
+      if (res.reply == null) return // not at regenerating (already advanced, or n/a)
+      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      set(state => ({
+        messages: [
+          ...state.messages,
+          { id: uid(), role: 'assistant', text: res.reply as string },
+        ],
+        chatState: res.state,
+        options,
+        options2,
+        triggerGeneration,
+        triggerRegeneration,
+        continuable,
+        progress,
+      }))
+    } catch {
+      // Best-effort — a transient failure leaves the thread as-is rather than
+      // throwing; the customer can still act on the design in the viewer.
     }
   },
 

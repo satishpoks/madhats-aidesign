@@ -210,6 +210,63 @@ async def check_verification(session_id: str) -> dict:
     return {"reply": reply, "state": new_state.value, "data": data}
 
 
+async def advance_after_regeneration(session_id: str) -> dict:
+    """Poll target for the chat while it rests at REGENERATING.
+
+    Regeneration runs out-of-band on the frontend (client-side poll of
+    /generate/status), which appends the new design to the viewer but has no
+    way to move the CONVERSATION forward on its own. The frontend calls this
+    once, right after that regeneration promise settles (success or failure —
+    the customer must never be stranded at REGENERATING), to advance the
+    thread back to OFFER_REFINE.
+
+    Returns ``reply=None`` (no-op) if the session isn't at REGENERATING.
+    """
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+
+    current = ConversationState(session["state"])
+    collected: dict = session.get("collected") or {}
+
+    if current is not ConversationState.REGENERATING:
+        data = _public_data(current, collected)
+        data["progress"] = progress(current, collected)
+        return {"reply": None, "state": current.value, "data": data}
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+
+    new_state = advance_state(current, collected)
+    collected["wants_changes"] = False
+
+    reply = await ie.generate_reply(new_state.value, collected, persona)
+
+    sb.table("design_sessions").update(
+        {
+            "state": new_state.value,
+            "collected": collected,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", session_id).execute()
+
+    sb.table("chat_messages").insert(
+        {
+            "session_id": session_id,
+            "role": "assistant",
+            "content": reply,
+            "state_before": current.value,
+            "state_after": new_state.value,
+        }
+    ).execute()
+
+    data = _public_data(new_state, collected)
+    data["progress"] = progress(new_state, collected)
+    return {"reply": reply, "state": new_state.value, "data": data}
+
+
 def _apply_fields(state: ConversationState, fields: dict, collected: dict, message: str) -> None:
     """Merge validated interpreter fields into collected and derive the branch
     booleans the state machine reads. The interpreter does not emit the yes/no

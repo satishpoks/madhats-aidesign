@@ -20,3 +20,38 @@ describe('chatStore progress', () => {
     expect(useChatStore.getState().progress).toEqual({ step: 3, total: 9 })
   })
 })
+
+describe('chatStore advanceRegeneration', () => {
+  beforeEach(() => {
+    useChatStore.getState().reset()
+    vi.resetAllMocks()
+  })
+
+  it('advances from regenerating to offer_refine and appends the reply', async () => {
+    vi.mocked(api.pollRegeneration).mockResolvedValue({
+      reply: 'Happy with it?',
+      state: 'offer_refine',
+      data: { options: ['Request changes', 'Looks good'] },
+    } as never)
+
+    await useChatStore.getState().advanceRegeneration('s1')
+
+    expect(useChatStore.getState().chatState).toBe('offer_refine')
+    expect(useChatStore.getState().options).toEqual(['Request changes', 'Looks good'])
+    const messages = useChatStore.getState().messages
+    expect(messages[messages.length - 1]).toMatchObject({ role: 'assistant', text: 'Happy with it?' })
+  })
+
+  it('does nothing when reply is null (not at regenerating)', async () => {
+    vi.mocked(api.pollRegeneration).mockResolvedValue({
+      reply: null,
+      state: 'ask_quantity',
+      data: {},
+    } as never)
+
+    await useChatStore.getState().advanceRegeneration('s1')
+
+    expect(useChatStore.getState().messages).toEqual([])
+    expect(useChatStore.getState().chatState).toBe('')
+  })
+})

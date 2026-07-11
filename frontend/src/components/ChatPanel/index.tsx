@@ -343,6 +343,7 @@ export function ChatPanel() {
   const kickoff = useChatStore(s => s.kickoff)
   const sendMessage = useChatStore(s => s.sendMessage)
   const pollVerification = useChatStore(s => s.pollVerification)
+  const advanceRegeneration = useChatStore(s => s.advanceRegeneration)
   const dismissError = useChatStore(s => s.dismissError)
   const setError = useChatStore(s => s.setError)
 
@@ -386,12 +387,17 @@ export function ChatPanel() {
   }, [sessionId, triggerGeneration, chatState, startGeneration])
 
   // Trigger regeneration when the flow reaches the regenerating state (a
-  // requested change). Not once-guarded — each edit fires a fresh run.
+  // requested change). Not once-guarded — each edit fires a fresh run. Chains
+  // the chat advance (regenerating -> offer_refine) after the regeneration
+  // promise settles, success or failure, so the customer is never stranded.
   useEffect(() => {
     if (sessionId && triggerRegeneration) {
-      void startRegeneration(sessionId)
+      void startRegeneration(sessionId).then(
+        () => advanceRegeneration(sessionId),
+        () => advanceRegeneration(sessionId),
+      )
     }
-  }, [sessionId, triggerRegeneration, startRegeneration])
+  }, [sessionId, triggerRegeneration, startRegeneration, advanceRegeneration])
 
   // While waiting at verify_email, poll for the out-of-band email verification
   // (the customer clicks the emailed link, possibly in another tab/device) and
