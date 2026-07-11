@@ -7,6 +7,7 @@ from app.services.conversation.state_machine import (
 from app.services.conversation.state_machine import (
     advance_state,
     allowed_backtracks,
+    progress,
 )
 
 
@@ -65,3 +66,19 @@ def test_backtracks_never_past_name():
     for state in S:
         for target in allowed_backtracks(state):
             assert target not in (S.GREETING,)
+
+
+def test_progress_path_excludes_defaulted_position():
+    # describe branch: name, purpose, quantity, decoration, has_logo,
+    # describe_design, placement_zone, email = 8 steps (position is defaulted).
+    collected = {"has_logo": False}
+    total = progress(S.ASK_NAME, collected)["total"]
+    assert total == 8
+
+
+def test_progress_counts_logo_branch():
+    # logo branch adds upload + remove_bg, drops describe:
+    # name, purpose, quantity, decoration, has_logo, upload, remove_bg,
+    # placement_zone, email = 9 steps.
+    collected = {"has_logo": True}
+    assert progress(S.ASK_NAME, collected)["total"] == 9

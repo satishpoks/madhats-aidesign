@@ -260,7 +260,7 @@ def _progress_path(collected: dict) -> list[ConversationState]:
         path += [S.UPLOAD_LOGO, S.ASK_REMOVE_BG]
     else:
         path += [S.DESCRIBE_DESIGN]
-    path += [S.ASK_PLACEMENT_ZONE, S.ASK_PLACEMENT_POSITION, S.ASK_EMAIL]
+    path += [S.ASK_PLACEMENT_ZONE, S.ASK_EMAIL]
     return path
 
 
