@@ -458,6 +458,30 @@ async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
     assert res["state"] == S.ADD_ELEMENTS_MODE.value
 
 
+# ---------------------------------------------------------------------------
+# Per-element attribute extraction + dynamic ask_for reply wording (Task 4)
+# ---------------------------------------------------------------------------
+
+from app.services.conversation import intent_extractor as ie2
+
+
+@pytest.mark.asyncio
+async def test_extract_attributes_no_key_detects_defer_and_zone(monkeypatch):
+    monkeypatch.setattr(ie2, "_has_llm", False)
+    out = await ie2.extract_element_attributes("text", "you choose the font")
+    assert out.get("defer") is True
+    out2 = await ie2.extract_element_attributes("graphic", "put it on the left side")
+    assert out2.get("placement_zone") == "side"
+
+
+@pytest.mark.asyncio
+async def test_generate_reply_ask_for_no_key_uses_attribute_question(monkeypatch):
+    monkeypatch.setattr(ie2, "_has_llm", False)
+    reply = await ie2.generate_reply("element_deepdive", {"pending_element": {"type": "text"}},
+                                     "Ricardo", ask_for="font")
+    assert "font" in reply.lower()
+
+
 @pytest.mark.asyncio
 async def test_verification_lands_on_offer_refine_with_ack(monkeypatch):
     store = {"session": {"id": "s1", "state": S.VERIFY_EMAIL.value,

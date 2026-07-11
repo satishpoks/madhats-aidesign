@@ -202,8 +202,54 @@ async def extract_design_description(message: str) -> dict:
     return data or {"summary": message}
 
 
+_SIZE_WORDS = {"small": "small", "tiny": "small", "little": "small",
+               "medium": "medium", "mid": "medium",
+               "large": "large", "big": "large", "huge": "large"}
+
+
+def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
+    low = message.lower()
+    out: dict = {}
+    if any(w in low for w in prompts.DEFER_WORDS):
+        out["defer"] = True
+        return out
+    zone = _zone_from_text(message)
+    if zone:
+        out["placement_zone"] = zone
+    for w, val in _SIZE_WORDS.items():
+        if w in low:
+            out["size"] = val
+            break
+    if "left" in low:
+        out["placement_position"] = "left"
+    elif "right" in low:
+        out["placement_position"] = "right"
+    elif "centre" in low or "center" in low or "middle" in low:
+        out["placement_position"] = "centre"
+    return out
+
+
+async def extract_element_attributes(el_type: str, message: str) -> dict:
+    """Extract recognised per-element attributes from freeform text.
+
+    Used by the per-element deep-dive flow to fill in content/font/size/
+    colour/style/placement for a single decoration element without forcing
+    the customer through one question per attribute when they volunteer
+    several at once (or defer the choice to us).
+    """
+    if not _has_llm:
+        return _extract_attrs_heuristic(el_type, message)
+    prompt = prompts.ELEMENT_ATTRIBUTE_PROMPT.format(el_type=el_type, message=message)
+    data = _parse_json(await _complete(prompt, max_tokens=200))
+    return data if isinstance(data, dict) else {}
+
+
 async def generate_reply(
-    state: str, collected: dict, persona_name: str, aside: str | None = None
+    state: str,
+    collected: dict,
+    persona_name: str,
+    aside: str | None = None,
+    ask_for: str | None = None,
 ) -> str:
     """Word Ricardo's reply for the given state.
 
@@ -212,21 +258,36 @@ async def generate_reply(
 
     ``aside`` (optional): a short answer to a side-question the customer asked;
     when present it is spoken first, before the state's question is re-asked.
+
+    ``ask_for`` (optional): the slug of a single element attribute (e.g.
+    "font", "colour") we still need. When set, the reply asks for that
+    attribute specifically instead of the state's default question — used by
+    the per-element deep-dive flow.
     """
     if not _has_llm:
-        base = _generate_reply_canned(state, collected, persona_name)
+        if ask_for:
+            base = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
+        else:
+            base = _generate_reply_canned(state, collected, persona_name)
         return f"{aside} {base}" if aside else base
 
-    instruction = prompts.STATE_PROMPTS.get(state, "Continue the conversation politely.")
-    try:
-        instruction = instruction.format(
-            name=collected.get("name", "there"),
-            quantity=collected.get("quantity", ""),
-            decoration_type=collected.get("decoration_type", ""),
-            placement_zone=collected.get("placement_zone", ""),
+    if ask_for:
+        question = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
+        instruction = (
+            f"Acknowledge what the customer just said, then ask: {question} "
+            "Let them say 'you choose' or similar to leave it to you."
         )
-    except (KeyError, IndexError):
-        pass
+    else:
+        instruction = prompts.STATE_PROMPTS.get(state, "Continue the conversation politely.")
+        try:
+            instruction = instruction.format(
+                name=collected.get("name", "there"),
+                quantity=collected.get("quantity", ""),
+                decoration_type=collected.get("decoration_type", ""),
+                placement_zone=collected.get("placement_zone", ""),
+            )
+        except (KeyError, IndexError):
+            pass
 
     system = prompts.RICARDO_SYSTEM_PROMPT.replace("Ricardo", persona_name)
     prompt = prompts.REPLY_GENERATION_PROMPT.format(

@@ -183,6 +183,32 @@ Return ONLY the message text, no quotes or labels.
 """
 
 # ---------------------------------------------------------------------------
+# Per-element deep-dive: attribute extraction + dynamic "ask_for" wording
+# ---------------------------------------------------------------------------
+
+DEFER_WORDS = ("you choose", "your choice", "whatever", "you decide", "team decide",
+               "surprise me", "no preference", "don't mind", "dont mind", "any", "up to you")
+
+ATTRIBUTE_QUESTIONS = {
+    "content": "What would you like it to say?",
+    "font": "What font feel would you like — bold, classic, handwritten? (or say 'you choose')",
+    "size": "Roughly how big — small, medium or large? (or 'you choose')",
+    "colour": "What colour should it be? (or 'you choose')",
+    "style": "Any special styling — an outline, a shadow, or curved text? (or 'none')",
+    "placement_zone": "Where on the cap should this go — front, side, back, or under the brim?",
+    "placement_position": "Whereabouts there — left, centre or right?",
+    "remove_bg": "Should I clean up / remove the background of your artwork? (yes/no)",
+}
+
+ELEMENT_ATTRIBUTE_PROMPT = """The customer is describing ONE decoration element of type "{el_type}" for a cap.
+Message: "{message}"
+Extract ONLY attributes they actually gave. Respond with ONLY a JSON object with any of:
+{{"content": "...", "font": "...", "size": "small|medium|large", "colour": "...",
+  "style": "...", "placement_zone": "front_panel|side|back|under_brim",
+  "placement_position": "left|centre|right", "remove_bg": true, "defer": true}}
+Set "defer": true if they said to leave it to you (e.g. "you choose"). Omit anything not mentioned."""
+
+# ---------------------------------------------------------------------------
 # Canned replies — user-facing, no LLM required
 #
 # Used when settings.anthropic_api_key is empty (local dev / CI).
