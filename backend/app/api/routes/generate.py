@@ -200,7 +200,9 @@ async def _run_generation(
     attempts = 0
 
     # Inputs recorded in every generation_logs row (references, not bytes).
-    ref_url = product_ref.get("reference_image_url")
+    # Pick the reference angle that matches the design's primary placement (so a
+    # back-panel design composites onto the back-view photo when available).
+    ref_url = prompt_builder.reference_image_for(product_ref, collected)
     uploaded_path = collected.get("uploaded_asset_path")
     uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
     params_dict = asdict(params)
@@ -256,7 +258,7 @@ async def _run_generation(
             try:
                 result = await provider.generate(
                     prompt=prompt,
-                    reference_image_url=product_ref["reference_image_url"],
+                    reference_image_url=ref_url,
                     uploaded_asset_url=uploaded_url,
                     params=params,
                 )

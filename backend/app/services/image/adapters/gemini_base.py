@@ -5,11 +5,13 @@ composites onto it rather than inventing a cap shape.
 """
 from __future__ import annotations
 
+import io
 import time
 
 import google.generativeai as genai
 import httpx
 import structlog
+from PIL import Image
 
 from app.config import settings
 from app.services.image.image_provider import (
@@ -41,6 +43,29 @@ async def _fetch_bytes(url: str) -> tuple[bytes, str]:
         return resp.content, resp.headers.get("content-type", "image/png")
 
 
+def _to_square(image_bytes: bytes) -> bytes:
+    """Pad an image to a 1:1 square (white background, centred).
+
+    Gemini image models tend to match the input image's aspect ratio, so sending
+    a square reference strongly biases a square, single-cap output and leaves no
+    room for the side-by-side/second-panel collage. Returns the input unchanged
+    if it is already square or can't be decoded (never break generation on this).
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:  # noqa: BLE001
+        return image_bytes
+    w, h = img.size
+    if w == h:
+        return image_bytes
+    side = max(w, h)
+    canvas = Image.new("RGB", (side, side), (255, 255, 255))
+    canvas.paste(img, ((side - w) // 2, (side - h) // 2))
+    out = io.BytesIO()
+    canvas.save(out, format="PNG")
+    return out.getvalue()
+
+
 class _GeminiAdapter(ImageProvider):
     tier: str = "preview"
 
@@ -63,6 +88,12 @@ class _GeminiAdapter(ImageProvider):
         started = time.monotonic()
 
         ref_bytes, ref_mime = await _fetch_bytes(reference_image_url)
+        # Square the reference so the model returns a square, single-cap image
+        # (these models follow the input aspect ratio) — kills the wide canvas
+        # the model was filling with a side-by-side title panel.
+        squared = _to_square(ref_bytes)
+        if squared is not ref_bytes:
+            ref_bytes, ref_mime = squared, "image/png"
         # Label each image part so the model can't conflate the two inputs and
         # echo the logo back as its own panel (the two-panel collage failure).
         contents: list = [

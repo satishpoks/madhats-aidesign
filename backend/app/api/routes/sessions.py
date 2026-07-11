@@ -34,6 +34,7 @@ async def create_session(
         "colour": product["colour"],
         "name": product["name"],
         "reference_image_url": product["reference_image_url"],
+        "view_images": product.get("view_images") or {},
     }
 
     sb = get_supabase()

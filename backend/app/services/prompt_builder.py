@@ -23,6 +23,41 @@ def _first_with(elements: list, key: str, default):
     return default
 
 
+# Placement zone -> the product `view_images` angle key that best shows it, so a
+# design placed on the back composites onto the back-view photo, not the front.
+_ZONE_TO_VIEW = {
+    "front_panel": "front",
+    "back": "back",
+    "side": "left",
+    "under_brim": "front",
+}
+
+
+def _primary_zone(collected: dict) -> str | None:
+    """The placement zone of the first element that has one (falls back to the
+    legacy top-level key)."""
+    for el in collected.get("elements") or []:
+        if el.get("placement_zone"):
+            return el["placement_zone"]
+    return collected.get("placement_zone")
+
+
+def reference_image_for(product_ref: dict, collected: dict) -> str:
+    """Pick the product reference photo whose angle matches the primary placement.
+
+    Composite onto the real product photo (hard constraint). When the design goes
+    on the back/side and the catalogue has that view, use it so the preview shows
+    the decoration on the correct face; otherwise fall back to the front reference.
+    """
+    default = product_ref.get("reference_image_url")
+    views = product_ref.get("view_images") or {}
+    zone = _primary_zone(collected)
+    view_key = _ZONE_TO_VIEW.get(zone) if zone else None
+    if view_key and views.get(view_key):
+        return views[view_key]
+    return default
+
+
 def build_params(collected: dict, tier: str) -> GenerationParams:
     elements = collected.get("elements") or []
     return GenerationParams(

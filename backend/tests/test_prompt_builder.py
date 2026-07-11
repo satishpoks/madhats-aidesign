@@ -174,3 +174,40 @@ def test_prompt_keeps_physical_realism_instruction():
     prompt = _build({"elements": [{"type": "text", "content": "HI", "deferred": []}]}).lower()
     assert "physically applied" in prompt
     assert "curvature" in prompt
+
+
+# --- output framing: square, single cap, no title panel --------------------
+
+def test_output_demands_square_single_cap_and_forbids_titles():
+    prompt = _build({"elements": [{"type": "text", "content": "HI", "deferred": []}]}).lower()
+    assert "square" in prompt
+    assert "70-75%" in prompt                       # explicit cap coverage
+    assert "title" in prompt and "caption" in prompt  # forbids a title/caption card
+    assert "design name" in prompt and "customer name" in prompt
+    assert "side-by-side" in prompt                 # collage still forbidden
+
+
+# --- reference selection by placement zone ---------------------------------
+
+def test_reference_uses_back_view_for_back_placement():
+    product_ref = {
+        "reference_image_url": "https://cdn/front.png",
+        "view_images": {"front": "https://cdn/front.png", "back": "https://cdn/back.png"},
+    }
+    collected = {"elements": [{"type": "text", "content": "HI", "placement_zone": "back"}]}
+    assert prompt_builder.reference_image_for(product_ref, collected) == "https://cdn/back.png"
+
+
+def test_reference_falls_back_to_front_when_view_missing():
+    product_ref = {"reference_image_url": "https://cdn/front.png", "view_images": {}}
+    collected = {"elements": [{"type": "text", "content": "HI", "placement_zone": "back"}]}
+    assert prompt_builder.reference_image_for(product_ref, collected) == "https://cdn/front.png"
+
+
+def test_reference_front_placement_uses_default():
+    product_ref = {
+        "reference_image_url": "https://cdn/front.png",
+        "view_images": {"front": "https://cdn/front.png", "back": "https://cdn/back.png"},
+    }
+    collected = {"elements": [{"type": "text", "content": "HI", "placement_zone": "front_panel"}]}
+    assert prompt_builder.reference_image_for(product_ref, collected) == "https://cdn/front.png"

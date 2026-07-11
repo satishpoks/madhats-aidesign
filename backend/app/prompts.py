@@ -356,13 +356,17 @@ Every added decoration must follow the panel's natural curvature, perspective an
 {decoration_style}
 {pin_block}
 
-OUTPUT: One photorealistic image of the SAME single cap from the SAME angle as
-the reference, identical in every respect except for the added decoration. Frame
-and crop it exactly like the reference photo, with the same aspect ratio, so the
-cap fills the frame the same way. Show only that one cap: do NOT produce a
-collage, split-screen, side-by-side comparison, grid or multi-panel layout, and
-do NOT include any second image, reference swatch, logo copy or before/after
-view."""
+OUTPUT — STRICT:
+Return ONE photorealistic, SQUARE (1:1 aspect ratio) image of the SAME single cap
+from the SAME angle as the reference, identical in every respect except for the
+added decoration. The cap must be centred and fill roughly 70-75% of the frame on
+a plain, uncluttered background.
+Render NOTHING ELSE. Absolutely no title, caption, heading, label, product name,
+design name, customer name, watermark, text card, or any words that are not part
+of the decoration itself; and no second panel, collage, split-screen,
+side-by-side, grid, multi-panel, before/after, duplicate cap, reference swatch,
+logo copy, or second image of any kind. The result is a single product photo of
+one cap and nothing more."""
 
 # design_block for Flow B (customer uploaded a logo/artwork — the 2nd image).
 UPLOADED_ASSET_DESIGN_BLOCK = """Apply the customer's uploaded artwork, provided as the SECOND image, ONTO the cap.
