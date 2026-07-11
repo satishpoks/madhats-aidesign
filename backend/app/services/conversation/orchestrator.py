@@ -234,7 +234,8 @@ async def check_verification(session_id: str) -> dict:
     while new_state in AUTO_ADVANCE_STATES:
         new_state = advance_state(new_state, collected)
 
-    reply = await ie.generate_reply(new_state.value, collected, persona)
+    ack = "Your email's verified — your design's in your inbox and on-screen now."
+    reply = await ie.generate_reply(new_state.value, collected, persona, aside=ack)
 
     sb.table("design_sessions").update(
         {"state": new_state.value, "updated_at": datetime.now(timezone.utc).isoformat()}

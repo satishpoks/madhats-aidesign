@@ -374,3 +374,24 @@ async def test_refinement_add_updates_brief(monkeypatch):
     collected = store["session"]["collected"]
     assert "team name" in collected["design_description"]["text_elements"]
     assert collected["last_change"] == "add our team name in gold"  # raw change still set
+
+
+@pytest.mark.asyncio
+async def test_verification_lands_on_offer_refine_with_ack(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.VERIFY_EMAIL.value,
+                         "collected": {"name": "Al", "email_verified": True},
+                         "upsell_count": 0, "store_id": None}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+
+    captured = {}
+    async def _reply(state, collected, persona, aside=None):
+        captured["state"] = state
+        captured["aside"] = aside
+        return "worded"
+    monkeypatch.setattr(orch.ie, "generate_reply", _reply)
+
+    res = await orch.check_verification("s1")
+    assert res["state"] == S.OFFER_REFINE.value       # collapsed, no redundant taps
+    assert captured["state"] == S.OFFER_REFINE.value
+    assert captured["aside"] and "verified" in captured["aside"].lower()

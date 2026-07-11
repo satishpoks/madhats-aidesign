@@ -68,7 +68,7 @@ def _patch(monkeypatch, session_row):
     monkeypatch.setattr(orchestrator, "get_supabase", lambda: fake)
     monkeypatch.setattr(orchestrator, "get_store", lambda _sid: None)
 
-    async def _reply(state, collected, persona):
+    async def _reply(state, collected, persona, aside=None):
         return f"[{state}] confirmed"
 
     monkeypatch.setattr(orchestrator.ie, "generate_reply", _reply)
