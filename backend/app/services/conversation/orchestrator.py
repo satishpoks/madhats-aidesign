@@ -93,6 +93,15 @@ async def handle_message(session_id: str, message: str) -> dict:
                     collected["lead_id"] = lead_id
 
         intent = interp["intent"]
+        # A tapped option chip (or a message exactly matching one) is a
+        # DEFINITIVE answer — never a side-question. The interpreter occasionally
+        # misclassifies a terse decision reply as ask_question/chitchat, which
+        # would re-ask and trap the customer in a loop (e.g. the has-logo step).
+        # Force those to advance.
+        _opts = _public_data(current, collected)
+        _chip_values = [o.lower() for o in (_opts.get("options", []) + _opts.get("options2", []))]
+        if message.strip().lower() in _chip_values and intent in ("ask_question", "chitchat"):
+            intent = "answer"
         if intent in ("ask_question", "chitchat"):
             # Answer/redirect, then RE-ASK the current question. Do not advance.
             new_state = current
@@ -297,9 +306,21 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
         if not collected.get("decoration_type"):
             collected["decoration_type"] = "embroidery" if state is S.RECOMMEND_EMBROIDERY else "print"
 
-    # has_logo fallback: not explicitly set but a description was given -> describe path.
-    if state is S.ASK_HAS_LOGO and "has_logo" not in fields and fields.get("design_description"):
-        collected["has_logo"] = False
+    # has_logo: derive from the raw message when the interpreter didn't set it,
+    # so "Upload logo" / "I have a logo" reliably reaches the uploader dialog and
+    # "describe" / "walk me through" goes to the describe path. Describe/negative
+    # signals are checked first so "no logo, describe it" doesn't read as a yes.
+    if state is S.ASK_HAS_LOGO and "has_logo" not in fields:
+        _describe = ("describe", "walk me", "instead", "no logo", "don't have",
+                     "dont have", "haven't", "havent", "without", "rather")
+        _has = ("logo", "upload", "artwork", "art work", "file", "have", "got",
+                "yes", "yep", "yeah")
+        if any(w in low for w in _describe):
+            collected["has_logo"] = False
+        elif any(w in low for w in _has) and not is_negative(message):
+            collected["has_logo"] = True
+        elif fields.get("design_description"):
+            collected["has_logo"] = False
 
     # Confirmation states: derive the boolean from the raw message.
     if state is S.ASK_PIN_ANNOTATION:

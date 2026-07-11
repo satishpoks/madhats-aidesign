@@ -141,3 +141,43 @@ def _fake_settings():
     def _f():
         return type("S", (), {"faq_knowledge": ""})()
     return _f
+
+
+@pytest.mark.asyncio
+async def test_upload_logo_chip_advances_even_if_misclassified(monkeypatch):
+    # Regression: the has-logo step used to loop when the interpreter tagged the
+    # chip tap as a question. A chip answer must always advance to the uploader.
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(
+        orch.ie, "interpret_turn",
+        _fixed_interpret({"intent": "ask_question", "fields": {}, "question_answer": "..."}),
+    )
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("upload please"))
+    res = await orch.handle_message("s1", "Upload logo")
+    assert res["state"] == S.UPLOAD_LOGO.value
+
+
+@pytest.mark.asyncio
+async def test_describe_chip_routes_to_describe(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("describe please"))
+    res = await orch.handle_message("s1", "Describe what I want")
+    assert res["state"] == S.DESCRIBE_DESIGN.value
+
+
+@pytest.mark.asyncio
+async def test_typed_have_a_logo_reaches_upload(monkeypatch):
+    # Deterministic has_logo derivation: even when the interpreter omits has_logo,
+    # a typed "I have a logo" must reach the upload step (not the describe path).
+    store = {"session": {"id": "s1", "state": S.ASK_HAS_LOGO.value, "collected": {"name": "Al"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("ok"))
+    res = await orch.handle_message("s1", "yes I have a logo ready")
+    assert res["state"] == S.UPLOAD_LOGO.value
