@@ -24,6 +24,7 @@ from app.db import get_supabase
 from app.services import leads as leads_service
 from app.services import settings_service
 from app.services.stores import get_store
+from app.services.conversation import brief
 from app.services.conversation import goal_planner
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import (
@@ -43,6 +44,20 @@ _DONE_ELEMENTS = (
     "that's it", "thats it", "that's all", "thats all", "that's everything",
     "thats everything", "nothing else", "no more", "all set", "generate",
     "ready", "done",
+)
+
+# States where a (non-declining) message contributes a design element.
+_ELEMENT_STATES = frozenset(
+    {
+        ConversationState.DESCRIBE_DESIGN,
+        ConversationState.ASK_MORE_ELEMENTS,
+        ConversationState.ADD_ELEMENTS_MODE,
+        ConversationState.DESCRIBE_CHANGES,
+    }
+)
+# Bare acknowledgements that carry no element to extract on their own.
+_BARE_YES = frozenset(
+    {"yes", "yeah", "yep", "sure", "ok", "okay", "add text", "add a graphic", "add graphic"}
 )
 
 
@@ -82,6 +97,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         interp = await ie.interpret_turn(current.value, message, collected, targets, faq)
 
         _apply_fields(current, interp.get("fields") or {}, collected, message)
+        await _maybe_gather_element(current, interp.get("fields") or {}, collected, message)
 
         # --- 4b. email capture (inline, no separate form) ---
         # GENERATING and ASK_EMAIL ask for the email in the chat. We already
@@ -323,7 +339,7 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
             collected["name"] = candidate
 
     for key in (
-        "name", "purpose", "quantity", "decoration_type", "design_description",
+        "name", "purpose", "quantity", "decoration_type",
         "placement_zone", "placement_position", "remove_bg", "has_logo", "youth_flag",
     ):
         if key in fields and fields[key] is not None:
@@ -379,6 +395,30 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
         )
     if state is S.DESCRIBE_CHANGES:
         collected["last_change"] = message.strip()[:400]
+
+
+async def _maybe_gather_element(
+    state: ConversationState, fields: dict, collected: dict, message: str
+) -> None:
+    """Extract a design element from this turn (when there is one) and merge it
+    into the canonical structured brief. Runs on the describe turn, the gather
+    loop, refinement, and any out-of-order turn where the customer volunteered
+    design info. Declines and bare acknowledgements contribute nothing."""
+    volunteered = bool(fields.get("design_description"))
+    if state not in _ELEMENT_STATES and not volunteered:
+        return
+    if state is ConversationState.ASK_MORE_ELEMENTS and (
+        not collected.get("wants_more_elements") or message.strip().lower() in _BARE_YES
+    ):
+        return
+    if state is ConversationState.ADD_ELEMENTS_MODE and not collected.get("add_another_element"):
+        return
+
+    incoming = await ie.extract_design_description(message)
+    if incoming:
+        collected["design_description"] = brief.merge_brief(
+            collected.get("design_description") or {}, incoming
+        )
 
 
 def _can_edit(session_id: str) -> bool:

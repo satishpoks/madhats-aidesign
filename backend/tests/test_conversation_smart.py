@@ -275,3 +275,80 @@ def test_public_data_offers_element_chips():
     assert "That's everything" in data["options"]
     data2 = orch._public_data(S.ADD_ELEMENTS_MODE, {})
     assert "That's everything" in data2["options"]
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator: structured design brief accumulation (Task 6)
+# ---------------------------------------------------------------------------
+
+def _capture_extractor(mapping):
+    """Fake extract_design_description returning a structured dict per message."""
+    async def _f(message):
+        return mapping.get(message, {"summary": message})
+    return _f
+
+
+@pytest.mark.asyncio
+async def test_describe_then_add_accumulates_brief(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True,
+                                       "design_description": {"summary": "a mountain crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("added"))
+    monkeypatch.setattr(
+        orch.ie, "extract_design_description",
+        _capture_extractor({"add SUMMIT CO in gold": {"text_elements": ["SUMMIT CO"], "colours": ["gold"]}}),
+    )
+    await orch.handle_message("s1", "add SUMMIT CO in gold")
+    brief = store["session"]["collected"]["design_description"]
+    assert brief["summary"] == "a mountain crest"       # preserved
+    assert "SUMMIT CO" in brief["text_elements"]          # accumulated
+    assert "gold" in brief["colours"]
+
+
+@pytest.mark.asyncio
+async def test_decline_does_not_extract(monkeypatch):
+    calls = []
+    async def _spy(message):
+        calls.append(message)
+        return {"summary": message}
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True,
+                                       "design_description": {"summary": "a crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("ok"))
+    monkeypatch.setattr(orch.ie, "extract_design_description", _spy)
+    await orch.handle_message("s1", "That's everything")
+    assert calls == []  # a decline carries no element to extract
+
+
+@pytest.mark.asyncio
+async def test_refinement_add_updates_brief(monkeypatch):
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_CHANGES.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True, "placement_zone": "front_panel",
+                                       "design_description": {"summary": "a crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("updating"))
+    monkeypatch.setattr(
+        orch.ie, "extract_design_description",
+        _capture_extractor({"add our team name in gold": {"text_elements": ["team name"], "colours": ["gold"]}}),
+    )
+    await orch.handle_message("s1", "add our team name in gold")
+    collected = store["session"]["collected"]
+    assert "team name" in collected["design_description"]["text_elements"]
+    assert collected["last_change"] == "add our team name in gold"  # raw change still set
