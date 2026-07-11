@@ -403,7 +403,10 @@ async def _maybe_gather_element(
     """Extract a design element from this turn (when there is one) and merge it
     into the canonical structured brief. Runs on the describe turn, the gather
     loop, refinement, and any out-of-order turn where the customer volunteered
-    design info. Declines and bare acknowledgements contribute nothing."""
+    design info. Declines and bare acknowledgements contribute nothing to the
+    brief in either gather state — but a bare acknowledgement in
+    ADD_ELEMENTS_MODE still leaves `add_another_element` True, so the loop
+    keeps gathering on the next turn."""
     volunteered = bool(fields.get("design_description"))
     if state not in _ELEMENT_STATES and not volunteered:
         return
@@ -411,7 +414,9 @@ async def _maybe_gather_element(
         not collected.get("wants_more_elements") or message.strip().lower() in _BARE_YES
     ):
         return
-    if state is ConversationState.ADD_ELEMENTS_MODE and not collected.get("add_another_element"):
+    if state is ConversationState.ADD_ELEMENTS_MODE and (
+        not collected.get("add_another_element") or message.strip().lower() in _BARE_YES
+    ):
         return
 
     incoming = await ie.extract_design_description(message)

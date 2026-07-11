@@ -333,6 +333,28 @@ async def test_decline_does_not_extract(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_bare_yes_in_add_mode_does_not_extract(monkeypatch):
+    calls = []
+    async def _spy(message):
+        calls.append(message)
+        return {"summary": message}
+    store = {"session": {"id": "s1", "state": S.ADD_ELEMENTS_MODE.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True,
+                                       "design_description": {"summary": "a crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("ok"))
+    monkeypatch.setattr(orch.ie, "extract_design_description", _spy)
+    res = await orch.handle_message("s1", "yes")
+    assert calls == []  # a bare ack carries no element to extract
+    assert res["state"] == S.ADD_ELEMENTS_MODE.value  # loop keeps gathering
+
+
+@pytest.mark.asyncio
 async def test_refinement_add_updates_brief(monkeypatch):
     store = {"session": {"id": "s1", "state": S.DESCRIBE_CHANGES.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
