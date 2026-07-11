@@ -20,6 +20,7 @@ GATE_STATES: frozenset[S] = frozenset(
         S.PIN_ANNOTATE_MODE,
         S.ASK_MORE_ELEMENTS,
         S.ADD_ELEMENTS_MODE,
+        S.ELEMENT_DEEPDIVE,
         S.GENERATING,
         S.ASK_EMAIL,
         S.VERIFY_EMAIL,
@@ -72,29 +73,23 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if not collected.get("decoration_type"):
         return _decoration_state(collected)
 
-    # 5. design source (required) + branch
+    # 5. design source (required): at least one element must exist or be pending
     if "has_logo" not in collected:
         return S.ASK_HAS_LOGO
-    if collected.get("has_logo"):
-        if not collected.get("uploaded_asset_path"):
-            return S.UPLOAD_LOGO
-        if "remove_bg" not in collected:
-            return S.ASK_REMOVE_BG
-    else:
-        if not collected.get("design_description"):
+    if not collected.get("elements") and not collected.get("pending_element"):
+        if collected.get("has_logo"):
+            if not collected.get("uploaded_asset_path"):
+                return S.UPLOAD_LOGO
+        else:
             return S.DESCRIBE_DESIGN
 
     # 5b. additional elements (optional, offered exactly once)
     if not collected.get("elements_offered"):
         return S.ASK_MORE_ELEMENTS
 
-    # 6. placement (required; zone only — position defaults to centre elsewhere)
-    if not collected.get("placement_zone"):
-        return S.ASK_PLACEMENT_ZONE
-
-    # 7. pin annotation (optional, offered exactly once)
+    # 6. pin annotation (optional, offered exactly once) — placement is per-element
     if not collected.get("pin_offered"):
         return S.ASK_PIN_ANNOTATION
 
-    # 8. email is captured inline at GENERATING
+    # 7. email is captured inline at GENERATING
     return S.GENERATING

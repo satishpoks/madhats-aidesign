@@ -210,7 +210,8 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     store = {"session": {"id": "s1", "state": S.ASK_PLACEMENT_ZONE.value,
                          "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
-                                       "design_description": {"summary": "x"}, "elements_offered": True},
+                                       "elements": [{"type": "text", "content": "x"}],
+                                       "elements_offered": True},
                          "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
