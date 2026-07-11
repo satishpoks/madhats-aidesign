@@ -82,3 +82,13 @@ def test_progress_counts_logo_branch():
     # placement_zone, email = 9 steps.
     collected = {"has_logo": True}
     assert progress(S.ASK_NAME, collected)["total"] == 9
+
+
+def test_progress_position_backtrack_resolves_like_zone():
+    # ASK_PLACEMENT_POSITION is a backtrack target; its progress must match its
+    # merged sibling ASK_PLACEMENT_ZONE, not fall back to step 1.
+    collected = {"has_logo": False}
+    zone = progress(S.ASK_PLACEMENT_ZONE, collected)
+    pos = progress(S.ASK_PLACEMENT_POSITION, collected)
+    assert pos == zone
+    assert pos["step"] != 1

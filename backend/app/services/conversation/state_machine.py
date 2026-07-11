@@ -300,7 +300,14 @@ def progress(state: ConversationState, collected: dict) -> dict:
     customer-facing question states on the branch the customer is on."""
     path = _progress_path(collected)
     total = len(path)
-    norm = ConversationState.RECOMMEND_DECORATION if state in _DECORATION_VARIANTS else state
+    if state in _DECORATION_VARIANTS:
+        norm = ConversationState.RECOMMEND_DECORATION
+    elif state is ConversationState.ASK_PLACEMENT_POSITION:
+        # Placement is now one merged question; position is a backtrack
+        # target only (see ALLOWED_BACKTRACKS) and shares zone's progress.
+        norm = ConversationState.ASK_PLACEMENT_ZONE
+    else:
+        norm = state
     if norm in path:
         return {"step": path.index(norm) + 1, "total": total}
     if state in _POST_QUESTION_STATES:
