@@ -15,6 +15,7 @@ Flow per message:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 
 import structlog
@@ -44,6 +45,12 @@ _DONE_ELEMENTS = (
     "that's it", "thats it", "that's all", "thats all", "that's everything",
     "thats everything", "nothing else", "no more", "all set", "generate",
     "ready", "done",
+)
+# Word-boundary matcher for the above — a plain substring scan lets "ready"
+# match inside "already" (Finding 2), wrongly treating "already have the
+# logo, also add a star" as a decline and silently dropping the element.
+_DONE_ELEMENTS_RE = re.compile(
+    r"\b(" + "|".join(re.escape(p) for p in _DONE_ELEMENTS) + r")\b"
 )
 
 # States where a (non-declining) message contributes a design element.
@@ -377,10 +384,10 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
 
     # Confirmation states: derive the boolean from the raw message.
     if state is S.ASK_MORE_ELEMENTS:
-        decline = is_negative(message) or any(w in low for w in _DONE_ELEMENTS)
+        decline = is_negative(message) or bool(_DONE_ELEMENTS_RE.search(low))
         collected["wants_more_elements"] = not decline
     elif state is S.ADD_ELEMENTS_MODE:
-        decline = is_negative(message) or any(w in low for w in _DONE_ELEMENTS)
+        decline = is_negative(message) or bool(_DONE_ELEMENTS_RE.search(low))
         collected["add_another_element"] = not decline
     elif state is S.ASK_PIN_ANNOTATION:
         collected["wants_pins"] = is_affirmative(message) and not is_negative(message)
@@ -420,11 +427,31 @@ async def _maybe_gather_element(
     ):
         return
 
+    # Deliberate second extraction call: `fields["design_description"]` (from
+    # interpret_turn, if the interpreter set it at all) is a plain string —
+    # this call re-extracts the RICH structured dict (text_elements/colours/
+    # imagery/style) that the brief needs.
     incoming = await ie.extract_design_description(message)
-    if incoming:
-        collected["design_description"] = brief.merge_brief(
-            collected.get("design_description") or {}, incoming
-        )
+    if not incoming:
+        return
+    if state is ConversationState.DESCRIBE_CHANGES and not _is_structured_element(incoming):
+        # Finding 1: a refinement turn that produced only a bare `summary`
+        # (the no-key path, or the keyed fallback `data or {"summary": message}`)
+        # is a freeform instruction like "make the logo bigger" — NOT a new
+        # design element. Promoting it here would leak the raw edit text into
+        # `text_elements`, and the prompt builder renders those verbatim onto
+        # the cap. The edit still reaches generation via `last_change` /
+        # `change_request` (set in `_apply_fields`), so nothing is lost.
+        return
+    collected["design_description"] = brief.merge_brief(
+        collected.get("design_description") or {}, incoming
+    )
+
+
+def _is_structured_element(incoming: dict) -> bool:
+    """True if the extractor returned real structured content (not just a
+    bare summary echo of the raw message)."""
+    return any(incoming.get(k) for k in ("text_elements", "colours", "imagery", "style"))
 
 
 def _can_edit(session_id: str) -> bool:

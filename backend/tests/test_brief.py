@@ -29,3 +29,12 @@ def test_incoming_summary_becomes_text_element_when_summary_taken():
 def test_empty_fields_pruned():
     out = merge_brief({}, {"summary": "x", "text_elements": [], "colours": [""]})
     assert out == {"summary": "x"}
+
+
+def test_summary_not_dropped_when_incoming_has_only_falsy_list_items():
+    # Regression (Finding 3): incoming carries a non-empty LIST that contains
+    # only falsy items (e.g. [""]) — that must not count as "incoming has
+    # structured lists" and suppress the summary -> text_elements promotion.
+    out = merge_brief({"summary": "our logo"}, {"summary": "team name", "text_elements": [""]})
+    assert "team name" in out["text_elements"]
+    assert "" not in out["text_elements"]

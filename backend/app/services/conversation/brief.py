@@ -34,7 +34,13 @@ def merge_brief(existing: dict | None, incoming: dict | None) -> dict:
         out[key] = (existing.get(key) or incoming.get(key) or "").strip()
 
     inc_summary = (incoming.get(key := "summary") and incoming[key].strip()) or ""
-    has_incoming_lists = any(incoming.get(k) for k in _LIST_KEYS)
+    # A list is only "structured content" if it has a non-empty item after
+    # filtering — a bare [""] (falsy-only) must not suppress the summary's
+    # promotion into text_elements below (Finding 3: summary was being
+    # silently dropped when incoming carried an empty-string-only list).
+    has_incoming_lists = any(
+        any(item for item in (incoming.get(k) or [])) for k in _LIST_KEYS
+    )
     if inc_summary and existing.get("summary") and not has_incoming_lists:
         if inc_summary not in out["text_elements"]:
             out["text_elements"].append(inc_summary)

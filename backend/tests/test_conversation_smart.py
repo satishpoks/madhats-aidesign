@@ -377,6 +377,53 @@ async def test_refinement_add_updates_brief(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refinement_freeform_edit_does_not_leak_into_brief(monkeypatch):
+    # Regression (Finding 1): a non-additive edit ("make the logo bigger") must
+    # NOT be promoted into the structured brief's text_elements — it would then
+    # render onto the cap literally via the prompt builder. The raw instruction
+    # still flows through `last_change` / `change_request`, just not the brief.
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_CHANGES.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements_offered": True, "placement_zone": "front_panel",
+                                       "design_description": {"summary": "a crest"}},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("updating"))
+    monkeypatch.setattr(
+        orch.ie, "extract_design_description",
+        _capture_extractor({"make the logo bigger": {"summary": "make the logo bigger"}}),
+    )
+    await orch.handle_message("s1", "make the logo bigger")
+    collected = store["session"]["collected"]
+    text_elements = collected["design_description"].get("text_elements", [])
+    assert "make the logo bigger" not in text_elements
+    assert collected["design_description"] == {"summary": "a crest"}  # brief unchanged
+    assert collected["last_change"] == "make the logo bigger"
+
+
+@pytest.mark.asyncio
+async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
+    # Regression (Finding 2): "already" must not substring-match "ready" in
+    # _DONE_ELEMENTS — "already have the logo, also add a star" is NOT a
+    # decline and should route into ADD_ELEMENTS_MODE.
+    store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "design_description": {"summary": "a crest"},
+                                       "elements_offered": True}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("what would you like to add?"))
+    res = await orch.handle_message("s1", "already have the logo, also add a star")
+    assert store["session"]["collected"]["wants_more_elements"] is True
+    assert res["state"] == S.ADD_ELEMENTS_MODE.value
+
+
+@pytest.mark.asyncio
 async def test_verification_lands_on_offer_refine_with_ack(monkeypatch):
     store = {"session": {"id": "s1", "state": S.VERIFY_EMAIL.value,
                          "collected": {"name": "Al", "email_verified": True},
