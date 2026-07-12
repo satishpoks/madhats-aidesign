@@ -345,6 +345,7 @@ export function ChatPanel() {
   const sendMessage = useChatStore(s => s.sendMessage)
   const pollVerification = useChatStore(s => s.pollVerification)
   const advanceRegeneration = useChatStore(s => s.advanceRegeneration)
+  const advanceGeneration = useChatStore(s => s.advanceGeneration)
   const dismissError = useChatStore(s => s.dismissError)
   const setError = useChatStore(s => s.setError)
 
@@ -387,13 +388,17 @@ export function ChatPanel() {
     }
   }, [sessionId, kickoff])
 
-  // Trigger async generation when the flow reaches the generating state.
-  // startGeneration() is internally once-guarded per session.
+  // Trigger async generation when the flow reaches the generating state, then
+  // advance the chat once it settles (success or failure) so the customer is
+  // never stranded at 'generating'. startGeneration() is once-guarded per session.
   useEffect(() => {
     if (sessionId && (triggerGeneration || chatState === 'generating')) {
-      void startGeneration(sessionId)
+      void startGeneration(sessionId).then(
+        () => advanceGeneration(sessionId),
+        () => advanceGeneration(sessionId),
+      )
     }
-  }, [sessionId, triggerGeneration, chatState, startGeneration])
+  }, [sessionId, triggerGeneration, chatState, startGeneration, advanceGeneration])
 
   // Trigger regeneration when the flow reaches the regenerating state (a
   // requested change). Not once-guarded — each edit fires a fresh run. Chains

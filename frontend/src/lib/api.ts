@@ -100,6 +100,16 @@ export function pollRegeneration(sessionId: string): Promise<VerificationPollRes
 }
 
 /**
+ * One-shot advance of the chat after preview generation settles. Called exactly
+ * once by the frontend right after startGeneration(sessionId) resolves (success
+ * or failure). `reply` is null if the session wasn't at generating; otherwise it
+ * carries Ricardo's reply and `state` has advanced.
+ */
+export function pollGenerationAdvance(sessionId: string): Promise<VerificationPollResponse> {
+  return request<VerificationPollResponse>(`/chat/${sessionId}/generation-advance`)
+}
+
+/**
  * Upload a logo image for the given session.
  * Uses multipart/form-data — the browser sets Content-Type and boundary automatically.
  */
