@@ -29,11 +29,13 @@ async def list_hat_types(store: dict = Depends(require_store)) -> list[dict]:
 
 
 @router.patch("/admin/hat-types/{hat_type_id}", response_model=HatTypeAdmin)
-async def update_hat_type(hat_type_id: str, body: UpdateHatTypeRequest) -> dict:
+async def update_hat_type(
+    hat_type_id: str, body: UpdateHatTypeRequest, store: dict = Depends(require_store)
+) -> dict:
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if "colours" in patch:
         patch["colours"] = [c if isinstance(c, dict) else dict(c) for c in patch["colours"]]
-    row = svc.get_hat_type(hat_type_id)
+    row = svc.get_hat_type(hat_type_id, store_id=store["id"])
     if row is None:
         raise HTTPException(status_code=404, detail="Hat type not found")
     if patch.get("active") and not svc.all_angles_present(row):
@@ -45,13 +47,21 @@ async def update_hat_type(hat_type_id: str, body: UpdateHatTypeRequest) -> dict:
 
 
 @router.delete("/admin/hat-types/{hat_type_id}")
-async def delete_hat_type(hat_type_id: str) -> dict:
+async def delete_hat_type(hat_type_id: str, store: dict = Depends(require_store)) -> dict:
+    row = svc.get_hat_type(hat_type_id, store_id=store["id"])
+    if row is None:
+        raise HTTPException(status_code=404, detail="Hat type not found")
     svc.delete_hat_type(hat_type_id)
     return {"deleted": True}
 
 
 @router.post("/admin/hat-types/{hat_type_id}/angle/{view}")
-async def upload_angle(hat_type_id: str, view: str, file: UploadFile = File(...)) -> dict:
+async def upload_angle(
+    hat_type_id: str, view: str, file: UploadFile = File(...), store: dict = Depends(require_store)
+) -> dict:
+    row = svc.get_hat_type(hat_type_id, store_id=store["id"])
+    if row is None:
+        raise HTTPException(status_code=404, detail="Hat type not found")
     if view not in _VIEWS:
         raise HTTPException(status_code=400, detail="view must be front|back|left|right")
     data = await file.read()
