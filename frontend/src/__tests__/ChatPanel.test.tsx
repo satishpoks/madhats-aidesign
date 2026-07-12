@@ -82,6 +82,7 @@ function resetChat() {
     continuable: false,
     tintReady: false,
     tintHex: '',
+    colourSwatches: [],
     sending: false,
     chatError: null,
     kickoffDone: false,
@@ -587,6 +588,43 @@ describe('ChatPanel composite preview', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Colour swatches (blank-hat colour step)
+// ---------------------------------------------------------------------------
+
+describe('ChatPanel colour swatches', () => {
+  it('renders colour swatch buttons and sends the colour name on click', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'What colour would you like the hat?',
+      state: 'ask_hat_colour',
+      data: {
+        options: ['Navy', 'Black'],
+        colour_swatches: [
+          { name: 'Navy', hex: '#1a2b5c' },
+          { name: 'Black', hex: '#000000' },
+        ],
+        colour_picker: true,
+      },
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('What colour would you like the hat?')
+
+    const navy = await screen.findByRole('button', { name: 'Navy' })
+    const swatch = navy.querySelector('span')
+    expect(swatch).not.toBeNull()
+    // The dot carries the colourway hex.
+    expect((swatch as HTMLElement).style.background).toMatch(/rgb\(26, 43, 92\)|#1a2b5c/i)
+
+    // Tapping the swatch sends the colour NAME (the backend maps it to hex).
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Great choice!', state: 'recommend_embroidery', data: {},
+    })
+    fireEvent.click(navy)
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', 'Navy'))
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Logo upload
 // ---------------------------------------------------------------------------
 
@@ -893,7 +931,7 @@ describe('ChatPanel product header', () => {
 // ---------------------------------------------------------------------------
 
 describe('ChatPanel voice input hint', () => {
-  it('shows the press-space-to-talk hint when speech is supported', async () => {
+  it('shows the hold-to-talk hint (platform modifier key) when speech is supported', async () => {
     // jsdom lacks SpeechRecognition; define a stub so `supported` is true.
     ;(window as unknown as Record<string, unknown>).SpeechRecognition = class {
       lang = ''; interimResults = false; continuous = false
@@ -901,7 +939,9 @@ describe('ChatPanel voice input hint', () => {
       start() {} stop() {} abort() {}
     }
     render(<ChatPanel />)
-    expect(await screen.findByText(/press space to talk/i)).toBeInTheDocument()
+    // jsdom is non-mac, so the hint uses Ctrl. (Space is now free for typing.)
+    expect(await screen.findByText(/hold ctrl to talk/i)).toBeInTheDocument()
+    expect(screen.queryByText(/press space to talk/i)).toBeNull()
     delete (window as unknown as Record<string, unknown>).SpeechRecognition
   })
 })

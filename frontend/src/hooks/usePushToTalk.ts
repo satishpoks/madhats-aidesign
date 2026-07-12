@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useSpeechRecognition } from './useSpeechRecognition'
 
 interface PushToTalkOptions {
-  /** When false, the global spacebar listeners are not registered. Default true. */
+  /** When false, the global key listeners are not registered. Default true. */
   enabled?: boolean
 }
 
@@ -11,31 +11,27 @@ interface UsePushToTalk {
   listening: boolean
   /** Human-readable message when the mic is blocked/unavailable, else null. */
   error: string | null
+  /** The hold-to-talk key label for this platform ("Ctrl" or "⌘"). */
+  keyLabel: string
   start: () => void
   stop: () => void
 }
 
-/**
- * True when the focused element needs the spacebar for text entry, so we must
- * NOT hijack it for push-to-talk. Buttons are deliberately excluded: a chip or
- * the Send button keeps focus after a click, and the user still expects
- * "hold space to talk" to work there (we prevent the button's own space
- * activation instead — see onKeyDown).
- */
-function focusIsTextEntry(): boolean {
-  const el = document.activeElement as HTMLElement | null
-  if (!el) return false
-  const tag = el.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
-  if (el.isContentEditable) return true
-  return false
+function isMacPlatform(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const s = `${navigator.platform || ''} ${navigator.userAgent || ''}`
+  return /Mac|iPhone|iPad|iPod/.test(s)
 }
 
 /**
- * Walkie-talkie voice: hold SPACEBAR to talk, release to send.
- * Wraps useSpeechRecognition and adds global key handling with guards so a
- * held key starts recognition exactly once and typing spaces never triggers it.
- * Falls back cleanly (no listeners) where the Web Speech API is unavailable.
+ * Walkie-talkie voice: hold the platform modifier — Ctrl on Windows/Linux, ⌘
+ * (Meta) on macOS — to talk, release to send. The modifier is used instead of
+ * the spacebar so Space always types normally in the message box; talk works
+ * even while the text field is focused.
+ *
+ * Guards: starts once per hold (ignores auto-repeat); if another key is pressed
+ * while the modifier is held it's treated as a keyboard shortcut (e.g. Ctrl+V),
+ * so recognition is aborted rather than capturing stray dictation.
  */
 export function usePushToTalk(
   onResult: (text: string) => void,
@@ -43,8 +39,11 @@ export function usePushToTalk(
 ): UsePushToTalk {
   const { supported, listening, error, start, stop } = useSpeechRecognition(onResult)
   const enabled = opts.enabled !== false
+  const isMac = isMacPlatform()
+  const talkKey = isMac ? 'Meta' : 'Control'
+  const keyLabel = isMac ? '⌘' : 'Ctrl'
 
-  // Track whether OUR spacebar hold is the active source, so keyup only stops
+  // Track whether OUR modifier hold is the active source, so keyup only stops
   // recognition we started.
   const holdingRef = useRef(false)
 
@@ -52,36 +51,49 @@ export function usePushToTalk(
     if (!supported || !enabled) return
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code !== 'Space' && e.key !== ' ') return
-      if (e.repeat) return
-      if (focusIsTextEntry()) return
-      // Prevent the default even before the holding guard so a focused button
-      // never receives its own space activation while we're driving PTT.
-      e.preventDefault()
-      if (holdingRef.current) return
-      holdingRef.current = true
-      start()
-    }
-
-    function onKeyUp(e: KeyboardEvent) {
-      if (e.code !== 'Space' && e.key !== ' ') return
-      if (!holdingRef.current) return
-      holdingRef.current = false
-      e.preventDefault()
-      stop()
-    }
-
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
+      if (e.key === talkKey) {
+        if (e.repeat || holdingRef.current) return
+        holdingRef.current = true
+        start()
+        return
+      }
+      // Any other key pressed WHILE holding the talk key means it's a shortcut
+      // (e.g. Ctrl+V), not dictation — abort so we never capture stray text.
       if (holdingRef.current) {
         holdingRef.current = false
         stop()
       }
     }
-  }, [supported, enabled, start, stop])
 
-  return { supported, listening, error, start, stop }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key !== talkKey) return
+      if (!holdingRef.current) return
+      holdingRef.current = false
+      stop()
+    }
+
+    // If focus leaves the window mid-hold (e.g. the OS grabs the shortcut) we'd
+    // never see keyup — stop on blur so the mic doesn't stay open.
+    function onBlur() {
+      if (holdingRef.current) {
+        holdingRef.current = false
+        stop()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+      if (holdingRef.current) {
+        holdingRef.current = false
+        stop()
+      }
+    }
+  }, [supported, enabled, talkKey, start, stop])
+
+  return { supported, listening, error, keyLabel, start, stop }
 }

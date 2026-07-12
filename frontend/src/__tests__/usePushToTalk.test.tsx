@@ -12,11 +12,13 @@ vi.mock('../hooks/useSpeechRecognition', () => ({
 
 import { usePushToTalk } from '../hooks/usePushToTalk'
 
-function pressSpace(target: Element = document.body, extra: Partial<KeyboardEventInit> = {}) {
-  fireEvent.keyDown(target, { key: ' ', code: 'Space', ...extra })
+// The tests run under jsdom, whose navigator is NOT a Mac, so the talk key is
+// 'Control'. (The hook falls back to ⌘/'Meta' on macOS.)
+function pressTalk(target: Element = document.body, extra: Partial<KeyboardEventInit> = {}) {
+  fireEvent.keyDown(target, { key: 'Control', ...extra })
 }
-function releaseSpace(target: Element = document.body) {
-  fireEvent.keyUp(target, { key: ' ', code: 'Space' })
+function releaseTalk(target: Element = document.body) {
+  fireEvent.keyUp(target, { key: 'Control' })
 }
 
 describe('usePushToTalk', () => {
@@ -28,55 +30,56 @@ describe('usePushToTalk', () => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
   })
 
-  it('starts on space keydown and stops on keyup when nothing is focused', () => {
+  it('starts on the talk-key (Ctrl) keydown and stops on keyup', () => {
     renderHook(() => usePushToTalk(vi.fn()))
-    pressSpace()
+    pressTalk()
     expect(start).toHaveBeenCalledTimes(1)
-    releaseSpace()
+    releaseTalk()
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
   it('ignores auto-repeat keydown (starts once)', () => {
     renderHook(() => usePushToTalk(vi.fn()))
-    pressSpace(document.body)
-    pressSpace(document.body, { repeat: true })
+    pressTalk()
+    pressTalk(document.body, { repeat: true })
     expect(start).toHaveBeenCalledTimes(1)
   })
 
-  it('does not start when an input is focused', () => {
+  it('still starts while a text input is focused (Space is free to type)', () => {
     const input = document.createElement('input')
     document.body.appendChild(input)
     input.focus()
     renderHook(() => usePushToTalk(vi.fn()))
-    pressSpace(input)
+    pressTalk(input)
+    expect(start).toHaveBeenCalledTimes(1)
+  })
+
+  it('does NOT start on the spacebar (Space types normally)', () => {
+    renderHook(() => usePushToTalk(vi.fn()))
+    fireEvent.keyDown(document.body, { key: ' ', code: 'Space' })
     expect(start).not.toHaveBeenCalled()
   })
 
-  it('starts when a button is focused and suppresses the button activation', () => {
-    // A chip/Send button keeps focus after a click; "hold space to talk" must
-    // still start voice (and must NOT re-activate that button via the space key).
-    const btn = document.createElement('button')
-    document.body.appendChild(btn)
-    btn.focus()
+  it('aborts the hold if another key is pressed (a shortcut like Ctrl+V)', () => {
     renderHook(() => usePushToTalk(vi.fn()))
-    const evt = new KeyboardEvent('keydown', { key: ' ', code: 'Space', bubbles: true, cancelable: true })
-    btn.dispatchEvent(evt)
+    pressTalk()
     expect(start).toHaveBeenCalledTimes(1)
-    expect(evt.defaultPrevented).toBe(true)
+    fireEvent.keyDown(document.body, { key: 'v' })
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
   it('is a no-op when speech is unsupported', () => {
     supported = false
     renderHook(() => usePushToTalk(vi.fn()))
-    pressSpace()
-    releaseSpace()
+    pressTalk()
+    releaseTalk()
     expect(start).not.toHaveBeenCalled()
     expect(stop).not.toHaveBeenCalled()
   })
 
   it('does not register listeners when enabled is false', () => {
     renderHook(() => usePushToTalk(vi.fn(), { enabled: false }))
-    pressSpace()
+    pressTalk()
     expect(start).not.toHaveBeenCalled()
   })
 
@@ -85,9 +88,14 @@ describe('usePushToTalk', () => {
       ({ enabled }) => usePushToTalk(vi.fn(), { enabled }),
       { initialProps: { enabled: true } },
     )
-    pressSpace()
+    pressTalk()
     expect(start).toHaveBeenCalledTimes(1)
     rerender({ enabled: false })
     expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('exposes a platform key label (Ctrl on non-mac)', () => {
+    const { result } = renderHook(() => usePushToTalk(vi.fn()))
+    expect(result.current.keyLabel).toBe('Ctrl')
   })
 })

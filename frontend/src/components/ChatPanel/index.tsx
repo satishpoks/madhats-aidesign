@@ -380,6 +380,7 @@ export function ChatPanel() {
   // that colour instantly (no image generation).
   const tintReady = useChatStore(s => s.tintReady)
   const tintHex = useChatStore(s => s.tintHex)
+  const colourSwatches = useChatStore(s => s.colourSwatches)
 
   // Composited blank-hat views (front/back/left/right). Fetched the moment a
   // colour is chosen (tint_ready), and again at composite_preview (which also
@@ -410,6 +411,8 @@ export function ChatPanel() {
   // without losing the ability to reopen it. Reset whenever we leave the state.
   const [logoModalDismissed, setLogoModalDismissed] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const wasSendingRef = useRef(false)
 
   // Reset the logo-modal dismissal each time the flow leaves the upload step.
   useEffect(() => {
@@ -463,6 +466,18 @@ export function ChatPanel() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' })
   }, [messages, sending])
+
+  // Return focus to the message box once a send completes (the input is
+  // disabled while sending, so focus is lost) — so the customer can keep
+  // typing the next message without re-clicking. Skipped for the special
+  // states whose primary affordance isn't the text box.
+  useEffect(() => {
+    const justFinished = wasSendingRef.current && !sending
+    wasSendingRef.current = sending
+    if (justFinished && chatState !== 'upload_logo' && chatState !== 'pin_annotate_mode') {
+      inputRef.current?.focus()
+    }
+  }, [sending, chatState])
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -673,8 +688,32 @@ export function ChatPanel() {
           </div>
         )}
 
+        {/* Colour swatches (blank-hat colour step): a real colour dot per
+            colourway. Sends the colour name, which the backend maps to its hex
+            for the tint. Replaces the plain name chips when present. */}
+        {colourSwatches.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {colourSwatches.map(sw => (
+              <button
+                key={`${sw.hex}-${sw.name}`}
+                onClick={() => handleChip(sw.name)}
+                disabled={sending}
+                aria-label={sw.name}
+                className="flex items-center gap-2 px-3 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span
+                  className="w-4 h-4 rounded-full border border-border flex-shrink-0"
+                  style={{ background: sw.hex || '#ccc' }}
+                  aria-hidden="true"
+                />
+                {sw.name}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Option chip rows */}
-        {options.length > 0 && (
+        {options.length > 0 && colourSwatches.length === 0 && (
           <div className="flex flex-wrap gap-2">
             {options.map(opt => (
               <button
@@ -727,8 +766,8 @@ export function ChatPanel() {
               onPointerLeave={() => { if (speech.listening) speech.stop() }}
               onPointerCancel={() => speech.stop()}
               disabled={sending}
-              aria-label={speech.listening ? 'Listening — release to send' : 'Press and hold to speak'}
-              title={speech.listening ? 'Release to send' : 'Hold to speak'}
+              aria-label={speech.listening ? 'Listening — release to send' : `Hold ${speech.keyLabel} or press and hold to speak`}
+              title={speech.listening ? 'Release to send' : `Hold ${speech.keyLabel} to speak`}
               className="relative flex items-center justify-center w-14 h-14 rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {/* pulse / halo rings */}
@@ -747,10 +786,10 @@ export function ChatPanel() {
               </svg>
             </button>
             <p className="text-sm font-semibold text-textPrimary mt-1.5">
-              {speech.listening ? 'Listening… release to send' : 'Press Space to Talk'}
+              {speech.listening ? 'Listening… release to send' : `Hold ${speech.keyLabel} to Talk`}
             </p>
             <kbd className="px-2 py-0.5 text-[11px] font-medium border border-border rounded bg-base text-textMuted">
-              SPACE
+              {speech.keyLabel}
             </kbd>
             <p className="text-xs text-textMuted">or type</p>
           </div>
@@ -759,6 +798,7 @@ export function ChatPanel() {
         {/* Text input + Send */}
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
+            ref={inputRef}
             type="text"
             value={inputText}
             onChange={e => setInputText(e.target.value)}

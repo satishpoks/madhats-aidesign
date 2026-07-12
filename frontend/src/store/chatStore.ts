@@ -21,6 +21,8 @@ interface ChatStoreState {
    *  (composited) blank. `tintHex` is the chosen colour so a change re-tints. */
   tintReady: boolean
   tintHex: string
+  /** Colourway swatches offered at the hat-colour step (name + hex). */
+  colourSwatches: { name: string; hex: string }[]
   progress: { step: number; total: number } | null
   sending: boolean
   chatError: string | null
@@ -54,10 +56,13 @@ function parseData(data: Record<string, unknown>) {
   const continuable = data.continuable === true
   const tintReady = data.tint_ready === true
   const tintHex = typeof data.tint_hex === 'string' ? data.tint_hex : ''
+  const colourSwatches = Array.isArray(data.colour_swatches)
+    ? (data.colour_swatches as { name: string; hex: string }[])
+    : []
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, progress }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, progress }
 }
 
 function uid(): string {
@@ -74,6 +79,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   continuable: false,
   tintReady: false,
   tintHex: '',
+  colourSwatches: [],
   progress: null,
   sending: false,
   chatError: null,
@@ -227,6 +233,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       continuable: false,
       tintReady: false,
       tintHex: '',
+      colourSwatches: [],
       progress: null,
       sending: false,
       chatError: null,
