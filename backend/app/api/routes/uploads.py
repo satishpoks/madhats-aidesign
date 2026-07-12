@@ -8,30 +8,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from app.db import get_supabase
+from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 from app.storage import generate_signed_url, upload_asset
 
 router = APIRouter(tags=["uploads"])
 log = structlog.get_logger()
-
-_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
-
-# Allowed image types — validated by magic bytes, not just the declared header.
-_MAGIC = {
-    b"\x89PNG\r\n\x1a\n": "image/png",
-    b"\xff\xd8\xff": "image/jpeg",
-    b"GIF87a": "image/gif",
-    b"GIF89a": "image/gif",
-}
-
-
-def _sniff_mime(data: bytes) -> str | None:
-    for sig, mime in _MAGIC.items():
-        if data.startswith(sig):
-            return mime
-    # WEBP: "RIFF....WEBP"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 class PinRequest(BaseModel):
@@ -46,10 +27,10 @@ async def upload_logo(session_id: str, file: UploadFile = File(...)) -> dict:
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Empty file")
-    if len(data) > _MAX_BYTES:
+    if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds 10 MB limit")
 
-    mime = _sniff_mime(data)
+    mime = sniff_image_mime(data)
     if mime is None:
         raise HTTPException(status_code=415, detail="Unsupported file type (png/jpeg/gif/webp only)")
 

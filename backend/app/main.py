@@ -18,6 +18,7 @@ from app.api.deps import limiter
 from app.api.routes import (
     admin_deliveries,
     admin_diagnostics,
+    admin_hat_types,
     admin_leads,
     admin_prompt,
     admin_settings,
@@ -107,6 +108,7 @@ def create_app() -> FastAPI:
         admin_prompt.router,
         admin_diagnostics.router,
         admin_settings.router,
+        admin_hat_types.router,
     ):
         app.include_router(router)
 
