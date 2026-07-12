@@ -23,9 +23,15 @@ services:
     ports:
       - "5173:5173"
     environment:
-      # The browser runs on the host, so it reaches the backend at this host address.
-      # Falls back to frontend/.env when unset on the host shell.
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://100.103.149.17:8000}
+      # Vite bakes this into the bundle at container start. The BROWSER (on the
+      # host / public internet) must be able to reach the backend at this URL.
+      #  - Local dev: defaults to localhost:8000. To reach the dev stack from
+      #    another device (e.g. over Tailscale), set VITE_API_BASE_URL in your
+      #    shell or the project-root .env, e.g. http://100.103.149.17:8000.
+      #  - Server: set VITE_API_BASE_URL in the project-root .env to the PUBLIC
+      #    backend URL, e.g. http://madhats.getaiconsult.com.au:8000, then
+      #    `docker compose up -d --force-recreate frontend`.
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
