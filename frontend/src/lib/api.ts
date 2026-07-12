@@ -177,3 +177,48 @@ export function sendVerify(leadId: string): Promise<{ sent: boolean }> {
     body: JSON.stringify({ lead_id: leadId }),
   })
 }
+
+// ---------------------------------------------------------------------------
+// Blank-hat flow: hat type catalogue, blank session creation, compositing
+// ---------------------------------------------------------------------------
+
+export interface HatColour {
+  name: string
+  hex: string
+}
+
+export interface HatType {
+  id: string
+  slug: string
+  name: string
+  style: string
+  view_images: Record<string, string>
+  colours: HatColour[]
+  placement_zones: string[]
+  decoration_types: string[]
+}
+
+/** List the active hat-type catalogue (blank cap silhouettes + colourways). */
+export function listHatTypes(): Promise<HatType[]> {
+  return request<HatType[]>('/hat-types')
+}
+
+/** Create a new design session for a blank hat type + colour (no product photo). */
+export function createBlankSession(
+  hatTypeId: string,
+  colour: HatColour,
+): Promise<{ session_id: string; share_token: string; state: string }> {
+  return request<{ session_id: string; share_token: string; state: string }>('/sessions/blank', {
+    method: 'POST',
+    body: JSON.stringify({ hat_type_id: hatTypeId, colour }),
+  })
+}
+
+/** Composite the collected design elements onto the blank hat views for a session. */
+export function postComposite(
+  sessionId: string,
+): Promise<{ views: Record<string, string>; error?: string }> {
+  return request<{ views: Record<string, string>; error?: string }>(`/composite/${sessionId}`, {
+    method: 'POST',
+  })
+}
