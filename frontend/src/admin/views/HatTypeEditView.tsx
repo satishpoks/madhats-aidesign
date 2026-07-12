@@ -18,7 +18,7 @@ export function HatTypeEditView() {
   const { id } = useParams()
   const [params] = useSearchParams()
   const storeId = params.get('store') ?? ''
-  const { stores } = useStores()
+  const { stores, loading: storesLoading } = useStores()
   const storeKey = stores.find((s) => s.id === storeId)?.public_key ?? null
 
   const [hat, setHat] = useState<HatType | null>(null)
@@ -70,7 +70,15 @@ export function HatTypeEditView() {
     return (
       <div className="space-y-4">
         {error && <ErrorBanner message={error} />}
-        {!error && <p className="text-sm text-gray-500">Loading…</p>}
+        {!error && !storesLoading && !storeKey && (
+          <>
+            <ErrorBanner message="Unknown or missing store — open this from the Hat Types list." />
+            <Link to="/admin/hat-types" className="text-sm text-[#ff5c00] hover:underline">
+              ← Back to Hat Types
+            </Link>
+          </>
+        )}
+        {!error && (storesLoading || storeKey) && <p className="text-sm text-gray-500">Loading…</p>}
       </div>
     )
   }

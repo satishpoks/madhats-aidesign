@@ -35,8 +35,12 @@ function hat(overrides: Partial<api.HatType> = {}): api.HatType {
 }
 
 function renderView() {
+  return renderViewAt('/admin/hat-types')
+}
+
+function renderViewAt(initialEntry: string) {
   return render(
-    <MemoryRouter initialEntries={['/admin/hat-types']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <HatTypesView />
     </MemoryRouter>,
   )
@@ -96,5 +100,11 @@ describe('HatTypesView (list)', () => {
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
     fireEvent.click(screen.getByRole('button', { name: /confirm/i }))
     await waitFor(() => expect(api.deleteHatType).toHaveBeenCalledWith('h1', 'mh_pk_test'))
+  })
+
+  it('corrects an invalid/stale ?store= id to a real store', async () => {
+    vi.mocked(api.listHatTypes).mockResolvedValue([hat()])
+    renderViewAt('/admin/hat-types?store=bogus')
+    await waitFor(() => expect(api.listHatTypes).toHaveBeenCalledWith('mh_pk_test'))
   })
 })

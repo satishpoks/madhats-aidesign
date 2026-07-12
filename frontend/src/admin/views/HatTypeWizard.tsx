@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { createHatType, updateHatType, type HatType } from '../adminApi'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useStores, slugify, allAngles } from './hatTypes/shared'
@@ -13,7 +13,7 @@ const DECORATION_SUGGESTIONS = ['Embroidery', 'Print', 'Patch']
 const TOTAL_STEPS = 5
 
 export function HatTypeWizard() {
-  const { stores } = useStores()
+  const { stores, loading: storesLoading } = useStores()
   const [params] = useSearchParams()
   const storeId = params.get('store') ?? ''
   const storeKey = stores.find((s) => s.id === storeId)?.public_key ?? null
@@ -115,6 +115,23 @@ export function HatTypeWizard() {
   const primary =
     'rounded-lg bg-[#ff5c00] px-4 py-2 text-sm text-white hover:bg-[#e64f00] disabled:opacity-50'
   const secondary = 'rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50'
+
+  if (!storeKey) {
+    return (
+      <div className="mx-auto max-w-2xl space-y-4">
+        {storesLoading ? (
+          <p className="text-sm text-gray-500">Loading…</p>
+        ) : (
+          <>
+            <ErrorBanner message="Unknown or missing store — open this from the Hat Types list." />
+            <Link to="/admin/hat-types" className="text-sm text-[#ff5c00] hover:underline">
+              ← Back to Hat Types
+            </Link>
+          </>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">

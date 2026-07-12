@@ -25,9 +25,10 @@ export function HatTypesView() {
   const [search, setSearch] = useState('')
   const [confirmId, setConfirmId] = useState<string | null>(null)
 
-  // Default the store selection to the first store once loaded.
+  // Default the store selection to the first store once loaded, and correct
+  // a present-but-invalid ?store= (bookmarked URL, deleted store) too.
   useEffect(() => {
-    if (!storeId && stores.length > 0) {
+    if (stores.length > 0 && !stores.some((s) => s.id === storeId)) {
       setParams({ store: stores[0].id }, { replace: true })
     }
   }, [storeId, stores, setParams])
@@ -111,7 +112,7 @@ export function HatTypesView() {
       </div>
 
       {loading && <p className="text-sm text-gray-500">Loading…</p>}
-      {!loading && filtered.length === 0 && (
+      {storeKey && !loading && filtered.length === 0 && (
         <p className="text-sm text-gray-500">No hat types yet — add your first.</p>
       )}
 

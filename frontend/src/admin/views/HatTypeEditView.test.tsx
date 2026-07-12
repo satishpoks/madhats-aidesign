@@ -84,4 +84,16 @@ describe('HatTypeEditView', () => {
     await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Six Panel'))
     expect(screen.getByAltText('front')).toBeInTheDocument()
   })
+
+  it('shows a missing-store error instead of a perpetual "Loading…" for an unknown ?store=', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/hat-types/h1?store=bogus']}>
+        <Routes>
+          <Route path="/admin/hat-types/:id" element={<HatTypeEditView />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByText(/unknown or missing store/i)).toBeInTheDocument())
+    expect(screen.queryByText(/^loading…$/i)).not.toBeInTheDocument()
+  })
 })

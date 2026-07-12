@@ -92,4 +92,21 @@ describe('HatTypeWizard', () => {
     )
     expect(api.createHatType).toHaveBeenCalledTimes(1)
   })
+
+  it('shows an error and back link for an unknown/missing store instead of hanging', async () => {
+    render(
+      <MemoryRouter initialEntries={['/admin/hat-types/new?store=bogus']}>
+        <Routes>
+          <Route path="/admin/hat-types/new" element={<HatTypeWizard />} />
+          <Route path="/admin/hat-types" element={<div>LIST</div>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.getByText(/unknown or missing store/i)).toBeInTheDocument())
+    expect(screen.getByRole('link', { name: /hat types/i })).toHaveAttribute('href', '/admin/hat-types')
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: /hat types/i }))
+    await waitFor(() => expect(screen.getByText('LIST')).toBeInTheDocument())
+    expect(api.createHatType).not.toHaveBeenCalled()
+  })
 })
