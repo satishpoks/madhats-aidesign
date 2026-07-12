@@ -197,6 +197,11 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
     change = collected.get("change_request")
     if change:
         design_block = f"{design_block}\nRequested change from the customer: {change}."
+    # Per-section colour instructions / colour remarks captured at the colour
+    # deep-dive (blank flow) — apply them to the cap and pass to the team.
+    colour_note = (collected.get("colour_note") or "").strip()
+    if colour_note:
+        design_block = f"{design_block}\nCustomer's colour details (apply per section): {colour_note}."
 
     is_blank = collected.get("flow_mode") == "blank"
     template = prompts.IMAGE_GEN_PROMPT_BLANK if is_blank else prompts.IMAGE_GEN_PROMPT

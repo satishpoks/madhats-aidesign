@@ -33,6 +33,7 @@ class ConversationState(str, Enum):
     ASK_PIN_ANNOTATION = "ask_pin_annotation"
     PIN_ANNOTATE_MODE = "pin_annotate_mode"
     ASK_HAT_COLOUR = "ask_hat_colour"
+    ASK_COLOUR_DETAIL = "ask_colour_detail"
     COMPOSITE_PREVIEW = "composite_preview"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"

@@ -175,9 +175,26 @@ def test_blank_colour_not_asked_for_customise_flow():
     assert next_goal(c) is not S.ASK_HAT_COLOUR
 
 
+def test_blank_colour_detail_asked_after_colour():
+    # Once a base colour is chosen, dig deeper (whole hat vs per-section) before
+    # moving on. Asked once.
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24, "flow_mode": "blank",
+         "hat_colour": {"name": "Navy", "hex": "#1a2b5c"}}
+    assert next_goal(c) is S.ASK_COLOUR_DETAIL
+    c["colour_detail_asked"] = True
+    assert next_goal(c) is not S.ASK_COLOUR_DETAIL
+
+
+def test_customise_flow_never_asks_colour_detail():
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24,
+         "hat_colour": {"name": "Navy", "hex": "#1a2b5c"}}  # no flow_mode
+    assert next_goal(c) is not S.ASK_COLOUR_DETAIL
+
+
 def test_blank_reaches_composite_preview_before_generating():
     c = {"name": "Al", "purpose_asked": True, "quantity": 24, "flow_mode": "blank",
-         "hat_colour": {"hex": "#000"}, "decoration_type": "print", "has_logo": False,
+         "hat_colour": {"hex": "#000"}, "colour_detail_asked": True,
+         "decoration_type": "print", "has_logo": False,
          "elements": [{"type": "text", "content": "GO"}],
          "email_prompt_shown": True, "elements_offered": True}
     assert next_goal(c) is S.COMPOSITE_PREVIEW

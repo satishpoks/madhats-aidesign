@@ -268,6 +268,16 @@ def test_blank_mode_prompt_mentions_recolour():
     assert "recolour" in prompt.lower() or "colour the cap" in prompt.lower()
 
 
+def test_colour_note_included_in_prompt():
+    """Per-section colour details captured at the colour deep-dive reach the model."""
+    collected = {"flow_mode": "blank", "hat_colour": {"name": "Navy", "hex": "#1a2b5c"},
+                 "colour_note": "white stitching and a red brim",
+                 "elements": [{"type": "text", "content": "GO"}]}
+    ref = {"reference_image_url": "b/front.png", "colour": ""}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    assert "white stitching and a red brim" in prompt
+
+
 def test_blank_mode_uses_chat_chosen_colour():
     """Colour is picked in chat now (collected['hat_colour']); the recolour
     instruction must use it even when product_ref.colour is empty."""

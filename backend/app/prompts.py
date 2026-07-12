@@ -85,6 +85,11 @@ STATE_PROMPTS: dict[str, str] = {
     "about placement, or skip and generate now.",
     "pin_annotate_mode": "Acknowledge the pin note and ask if they want to add another or finish.",
     "ask_hat_colour": "Ask what colour they'd like the hat itself to be.",
+    "ask_colour_detail": "They've picked a base colour. Now dig deeper: ask whether the "
+    "WHOLE hat should be that colour, or if specific parts should be different colours — "
+    "name the parts (front/side panels, back, top button, brim/peak, stitching, back strap). "
+    "Invite them to describe any part colours, or anything else about the colour, or to just "
+    "keep the whole hat one colour. Keep it to one short, friendly question.",
     "composite_preview": "Tell them here's a quick on-screen mock-up of the design across "
     "all four angles, and ask if it looks right to generate or they'd like to tweak something.",
     "generating": "Tell them you're putting the design together now and it'll be in "
@@ -300,6 +305,11 @@ CANNED_REPLIES: dict[str, str] = {
     ),
     "pin_annotate_mode": "Got that pin! Want to add another, or are you ready to generate?",
     "ask_hat_colour": "What colour would you like the hat itself to be?",
+    "ask_colour_detail": (
+        "Should the whole hat be that colour, or would you like specific parts in different "
+        "colours — the panels, brim, top button, stitching or back strap? Tell me any part "
+        "colours (or anything else about the colour), or tap 'Whole hat — one colour'."
+    ),
     "composite_preview": (
         "Here's a quick mock-up of your design across the front, back and sides. "
         "Happy for me to generate it, or would you like to tweak something?"

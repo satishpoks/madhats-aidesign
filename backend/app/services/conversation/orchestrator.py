@@ -22,6 +22,7 @@ import structlog
 
 from app.config import settings
 from app.db import get_supabase
+from app.services import colours
 from app.services import leads as leads_service
 from app.services import settings_service
 from app.services.stores import get_store
@@ -626,7 +627,24 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
             elif val.startswith("#"):
                 collected["hat_colour"] = {"name": val, "hex": val}
             else:
-                collected["hat_colour"] = {"name": val, "hex": ""}
+                # A typed colour NAME ("blue", "forest green") — resolve it to a
+                # real hex so the tint isn't a grey block.
+                collected["hat_colour"] = {"name": val, "hex": colours.name_to_hex(val) or ""}
+
+    if state is S.ASK_COLOUR_DETAIL:
+        collected["colour_detail_asked"] = True
+        val = message.strip()
+        low = val.lower()
+        # "Whole hat" / a bare affirmative means one colour everywhere — no note.
+        # Anything descriptive (parts + colours, or a colour remark) is captured
+        # as a note for the render + the team.
+        single = (
+            "whole" in low or "one colour" in low or "one color" in low
+            or "just this" in low or "keep it simple" in low
+            or (is_affirmative(val) and len(low) <= 20)
+        )
+        if val and "?" not in val and not single:
+            collected["colour_note"] = val[:400]
 
 
 async def _maybe_gather_element(
@@ -785,6 +803,10 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         if opts:
             return {"options": opts, "colour_swatches": swatches, "colour_picker": True}
         return {"colour_picker": True}
+    if state is S.ASK_COLOUR_DETAIL:
+        # One chip for the simple case; free text captures per-section colours
+        # (brim / panels / button / stitching / strap) and any colour remark.
+        return {"options": ["Whole hat — one colour"]}
     if state is S.COMPOSITE_PREVIEW:
         return {"options": ["Looks right — generate", "Tweak something"], "composite_preview": True}
     return {}

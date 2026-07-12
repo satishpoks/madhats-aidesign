@@ -5,6 +5,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 
 from app.db import get_supabase
+from app.services import colours
 from app.services import composite as composite_svc
 from app.storage import media_url
 
@@ -22,7 +23,10 @@ async def make_composite(session_id: str, request: Request) -> dict:
     product_ref = session.get("product_ref") or {}
     collected = session.get("collected") or {}
     view_paths = product_ref.get("view_images") or {}
-    colour_hex = (collected.get("hat_colour") or {}).get("hex") or "#808080"
+    # Resolve the tint colour: an explicit swatch hex, else a typed colour name
+    # ("blue") mapped to a real hex, else neutral grey — so a typed name never
+    # renders as a grey block.
+    colour_hex = colours.resolve_hex(collected.get("hat_colour"))
 
     try:
         paths = composite_svc.render_composite_views(

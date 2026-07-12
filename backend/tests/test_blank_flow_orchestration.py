@@ -28,6 +28,27 @@ def test_public_data_colour_chips_from_colourways():
     assert data["colour_swatches"][0]["hex"] == "#1a2b5c"
 
 
+def test_public_data_colour_detail_options():
+    data = _public_data(S.ASK_COLOUR_DETAIL, {"flow_mode": "blank"})
+    assert "Whole hat — one colour" in data["options"]
+
+
+def test_apply_fields_colour_detail_whole_hat_sets_no_note():
+    from app.services.conversation.orchestrator import _apply_fields
+    collected = {"flow_mode": "blank", "hat_colour": {"name": "Navy", "hex": "#1a2b5c"}}
+    _apply_fields(S.ASK_COLOUR_DETAIL, {}, collected, "Whole hat — one colour")
+    assert collected["colour_detail_asked"] is True
+    assert "colour_note" not in collected
+
+
+def test_apply_fields_colour_detail_captures_section_note():
+    from app.services.conversation.orchestrator import _apply_fields
+    collected = {"flow_mode": "blank", "hat_colour": {"name": "Navy", "hex": "#1a2b5c"}}
+    _apply_fields(S.ASK_COLOUR_DETAIL, {}, collected, "navy body, white stitching, red brim")
+    assert collected["colour_detail_asked"] is True
+    assert collected["colour_note"] == "navy body, white stitching, red brim"
+
+
 def test_tint_ready_advertised_once_colour_chosen():
     # After a colour is chosen, EVERY subsequent state advertises tint_ready +
     # tint_hex so the left viewer can composite the tinted blank instantly.

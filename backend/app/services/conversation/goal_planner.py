@@ -79,6 +79,14 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
             and not collected.get("hat_colour_asked"):
         return S.ASK_HAT_COLOUR
 
+    # 3b. blank-mode colour detail — dig deeper once a colour is chosen: is the
+    # WHOLE hat that colour, or different colours per section (brim, panels, top
+    # button, stitching, back strap)? Also captures any free-form colour note
+    # for the team. Asked exactly once.
+    if collected.get("flow_mode") == "blank" and collected.get("hat_colour") \
+            and not collected.get("colour_detail_asked"):
+        return S.ASK_COLOUR_DETAIL
+
     # 4. decoration type (required)
     if not collected.get("decoration_type"):
         return _decoration_state(collected)
