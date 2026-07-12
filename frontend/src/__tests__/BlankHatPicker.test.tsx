@@ -38,7 +38,7 @@ it('shows a loading state before hats resolve, then an empty state if none come 
   await waitFor(() => expect(screen.getByText('No blank hats available yet.')).toBeInTheDocument())
 })
 
-it('starts a blank session with the selected hat and colour when "Start designing" is clicked', async () => {
+it('starts a blank session with the selected hat (colour is chosen later in chat)', async () => {
   vi.spyOn(api, 'listHatTypes').mockResolvedValue([
     { id: 'h1', slug: '5p', name: '5-Panel', style: '', view_images: { front: 'u' },
       colours: [{ name: 'Black', hex: '#000000' }, { name: 'Navy', hex: '#001f3f' }],
@@ -53,18 +53,16 @@ it('starts a blank session with the selected hat and colour when "Start designin
   await waitFor(() => expect(screen.getByText('5-Panel')).toBeInTheDocument())
   await user.click(screen.getByText('5-Panel'))
 
-  const navySwatch = screen.getByTitle('Navy')
-  await user.click(navySwatch)
-  expect(navySwatch.className).toMatch(/ring-2/)
+  // The entry screen no longer has a colour picker — colour is asked in chat.
+  expect(screen.queryByTitle('Navy')).not.toBeInTheDocument()
 
   await user.click(screen.getByText('Start designing'))
 
-  // Passes the full hat type (not just the id) so the store can populate the
-  // left-pane productRef from its blank angle images + name.
+  // Passes just the hat type (no colour); the store populates the left-pane
+  // productRef from its blank angle images + name.
   await waitFor(() =>
     expect(startBlankSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'h1', name: '5-Panel', view_images: { front: 'u' } }),
-      { name: 'Navy', hex: '#001f3f' },
     ),
   )
 })

@@ -234,14 +234,23 @@ describe('listHatTypes', () => {
 })
 
 describe('createBlankSession', () => {
-  it('POSTs hat_type_id and colour to /sessions/blank', async () => {
+  it('POSTs just hat_type_id to /sessions/blank when no colour is given', async () => {
     mockFetch.mockReturnValue(ok({ session_id: 's1', share_token: 'tok', state: 'collecting_brief' }))
-    const colour = { name: 'Black', hex: '#000000' }
-    await createBlankSession('h1', colour)
+    await createBlankSession('h1')
     const url: string = mockFetch.mock.calls[0][0] as string
     expect(url).toContain('/sessions/blank')
     const init = mockFetch.mock.calls[0][1] as RequestInit
     expect(init.method).toBe('POST')
+    const body = JSON.parse(init.body as string) as { hat_type_id: string; colour?: unknown }
+    expect(body).toEqual({ hat_type_id: 'h1' })
+    expect('colour' in body).toBe(false)
+  })
+
+  it('includes colour when explicitly provided (back-compat)', async () => {
+    mockFetch.mockReturnValue(ok({ session_id: 's1', share_token: 'tok', state: 'collecting_brief' }))
+    const colour = { name: 'Black', hex: '#000000' }
+    await createBlankSession('h1', colour)
+    const init = mockFetch.mock.calls[0][1] as RequestInit
     const body = JSON.parse(init.body as string) as { hat_type_id: string; colour: typeof colour }
     expect(body).toEqual({ hat_type_id: 'h1', colour })
   })

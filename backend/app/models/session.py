@@ -11,7 +11,10 @@ class CreateSessionRequest(BaseModel):
 
 class CreateBlankSessionRequest(BaseModel):
     hat_type_id: str
-    colour: dict | str
+    # Colour is optional: the landing picker now selects only the hat TYPE and
+    # the customer chooses the colour in chat (after quantity). Kept for
+    # back-compat with any caller that still sends it.
+    colour: dict | str | None = None
     channel: str = "web"
     entry_path: str = "blank_first"
 

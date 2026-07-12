@@ -203,14 +203,18 @@ export function listHatTypes(): Promise<HatType[]> {
   return request<HatType[]>('/hat-types')
 }
 
-/** Create a new design session for a blank hat type + colour (no product photo). */
+/** Create a new design session for a blank hat type (no product photo).
+ *  Colour is optional — the customer now chooses it in chat (after quantity),
+ *  so the landing picker only selects the hat type. */
 export function createBlankSession(
   hatTypeId: string,
-  colour: HatColour,
+  colour?: HatColour,
 ): Promise<{ session_id: string; share_token: string; state: string }> {
+  const body: Record<string, unknown> = { hat_type_id: hatTypeId }
+  if (colour) body.colour = colour
   return request<{ session_id: string; share_token: string; state: string }>('/sessions/blank', {
     method: 'POST',
-    body: JSON.stringify({ hat_type_id: hatTypeId, colour }),
+    body: JSON.stringify(body),
   })
 }
 

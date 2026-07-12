@@ -268,6 +268,16 @@ def test_blank_mode_prompt_mentions_recolour():
     assert "recolour" in prompt.lower() or "colour the cap" in prompt.lower()
 
 
+def test_blank_mode_uses_chat_chosen_colour():
+    """Colour is picked in chat now (collected['hat_colour']); the recolour
+    instruction must use it even when product_ref.colour is empty."""
+    collected = {"flow_mode": "blank", "hat_colour": {"name": "Forest Green", "hex": "#0b3d0b"},
+                 "elements": [{"type": "text", "content": "GO"}]}
+    ref = {"reference_image_url": "b/front.png", "colour": ""}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    assert "Forest Green" in prompt
+
+
 def test_customise_mode_prompt_unchanged():
     collected = {"elements": [{"type": "text", "content": "GO"}]}
     ref = {"reference_image_url": "p/front.png", "colour": "Black"}

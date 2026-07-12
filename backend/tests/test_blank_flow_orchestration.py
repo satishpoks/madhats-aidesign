@@ -18,3 +18,11 @@ def test_public_data_composite_preview():
 
 def test_public_data_colour_picker():
     assert _public_data(S.ASK_HAT_COLOUR, {"flow_mode": "blank"})["colour_picker"] is True
+
+
+def test_public_data_colour_chips_from_colourways():
+    collected = {"flow_mode": "blank", "hat_colours": [
+        {"name": "Navy", "hex": "#1a2b5c"}, {"name": "Black", "hex": "#000000"}]}
+    data = _public_data(S.ASK_HAT_COLOUR, collected)
+    assert data["options"] == ["Navy", "Black"]
+    assert data["colour_swatches"][0]["hex"] == "#1a2b5c"

@@ -68,13 +68,18 @@ async def create_blank_session(
     if not hat:
         raise HTTPException(status_code=404, detail="Unknown hat_type_id for this store")
 
-    colour = body.colour if isinstance(body.colour, dict) else {"name": body.colour, "hex": body.colour}
+    # Colour is optional now — the landing picker only chooses the hat type; the
+    # customer picks the colour in chat (after quantity). Only seed hat_colour
+    # when a colour was actually supplied.
+    colour = None
+    if body.colour:
+        colour = body.colour if isinstance(body.colour, dict) else {"name": body.colour, "hex": body.colour}
     blanks = hat.get("blank_view_images") or {}
     share_token = secrets.token_urlsafe(16)
     product_ref = {
         "product_id": hat["id"],
         "style": hat.get("style", ""),
-        "colour": colour.get("name") or colour.get("hex"),
+        "colour": (colour.get("name") or colour.get("hex")) if colour else "",
         "name": hat["name"],
         "reference_image_url": blanks.get("front", ""),
         "view_images": blanks,
@@ -82,10 +87,13 @@ async def create_blank_session(
     collected = {
         "flow_mode": "blank",
         "hat_type_id": hat["id"],
-        "hat_colour": colour,
+        # The hat type's colourways, offered as chips at ASK_HAT_COLOUR.
+        "hat_colours": hat.get("colours") or [],
         "placement_zones": hat.get("placement_zones") or [],
         "decoration_types": hat.get("decoration_types") or [],
     }
+    if colour:
+        collected["hat_colour"] = colour
     sb = get_supabase()
     res = (
         sb.table("design_sessions")

@@ -126,7 +126,7 @@ describe('startBlankSession', () => {
   }
 
   it('sets view to session and stores the blank session ids', async () => {
-    await useSessionStore.getState().startBlankSession(mockHatType, { name: 'Navy', hex: '#1a2b5c' })
+    await useSessionStore.getState().startBlankSession(mockHatType)
     const s = useSessionStore.getState()
     expect(s.view).toBe('session')
     expect(s.sessionId).toBe('blank-sess-1')
@@ -134,13 +134,14 @@ describe('startBlankSession', () => {
   })
 
   it('populates productRef from the hat type so the viewer loads (regression: was left null)', async () => {
-    await useSessionStore.getState().startBlankSession(mockHatType, { name: 'Navy', hex: '#1a2b5c' })
+    // Colour is chosen in chat now, so it starts empty on the productRef.
+    await useSessionStore.getState().startBlankSession(mockHatType)
     const { productRef } = useSessionStore.getState()
     expect(productRef).not.toBeNull()
     expect(productRef?.name).toBe('5-Panel')
     expect(productRef?.reference_image_url).toBe('https://example.com/blank-front.png')
     expect(productRef?.view_images.back).toBe('https://example.com/blank-back.png')
-    expect(productRef?.colour).toBe('Navy')
+    expect(productRef?.colour).toBe('')
   })
 })
 

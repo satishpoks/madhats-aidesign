@@ -47,3 +47,18 @@ def test_blank_session_sets_flow_mode_and_ref(client):
     assert row["collected"]["flow_mode"] == "blank"
     assert row["collected"]["hat_colour"]["hex"] == "#1a2b5c"
     assert row["collected"]["placement_zones"] == ["front_panel", "back"]
+
+
+def test_blank_session_without_colour_defers_to_chat(client):
+    # Landing picker now sends only the hat type; colour is chosen in chat.
+    r = client.post("/sessions/blank",
+                    json={"hat_type_id": "h1"},
+                    headers={"X-Store-Key": "k"})
+    assert r.status_code == 200
+    row = client._fake.ins.captured
+    assert row["flow_mode"] == "blank"
+    # No colour seeded yet, so the chat will ask for it (ASK_HAT_COLOUR).
+    assert "hat_colour" not in row["collected"]
+    assert row["product_ref"]["colour"] == ""
+    # The hat type's colourways travel with the session for the in-chat chips.
+    assert row["collected"]["hat_colours"] == []  # fixture hat has no colourways

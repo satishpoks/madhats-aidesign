@@ -157,10 +157,21 @@ def test_early_email_not_reoffered_without_design_source():
     assert next_goal(c) is S.DESCRIBE_DESIGN
 
 
-def test_blank_colour_fallback():
+def test_blank_colour_asked_after_quantity():
+    # Colour is now asked in chat AFTER quantity (not before). With no quantity
+    # yet, quantity comes first.
     c = {"name": "Al", "purpose_asked": True, "flow_mode": "blank"}
+    assert next_goal(c) is S.ASK_QUANTITY
+    # Once quantity is answered, the colour question follows.
+    c["quantity"] = 24
     assert next_goal(c) is S.ASK_HAT_COLOUR
+    # Not re-asked once chosen.
     c["hat_colour"] = {"name": "Navy", "hex": "#1a2b5c"}
+    assert next_goal(c) is not S.ASK_HAT_COLOUR
+
+
+def test_blank_colour_not_asked_for_customise_flow():
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24}
     assert next_goal(c) is not S.ASK_HAT_COLOUR
 
 

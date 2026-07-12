@@ -604,10 +604,21 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
         collected["composite_confirmed"] = is_affirmative(message) and not is_negative(message)
     if state is S.ASK_HAT_COLOUR:
         collected["hat_colour_asked"] = True
-        # a hex or colour name typed in chat
+        # A tapped colourway chip, a colour name, or a hex typed in chat. Match
+        # a tapped/typed name back to its catalogue hex so the composite preview
+        # can tint accurately.
         val = message.strip()
         if val and "?" not in val:
-            collected["hat_colour"] = {"name": val, "hex": val} if val.startswith("#") else {"name": val, "hex": ""}
+            swatches = collected.get("hat_colours") or []
+            match = next(
+                (c for c in swatches if (c.get("name") or "").strip().lower() == val.lower()), None
+            )
+            if match:
+                collected["hat_colour"] = {"name": match.get("name"), "hex": match.get("hex", "")}
+            elif val.startswith("#"):
+                collected["hat_colour"] = {"name": val, "hex": val}
+            else:
+                collected["hat_colour"] = {"name": val, "hex": ""}
 
 
 async def _maybe_gather_element(
@@ -741,6 +752,13 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
     ):
         return {"continuable": True}
     if state is S.ASK_HAT_COLOUR:
+        # Offer the hat type's own colourways as tappable chips (with hex
+        # swatches for the UI). Falls back to a free-text colour picker if the
+        # catalogue entry has no colourways defined.
+        swatches = [c for c in (collected.get("hat_colours") or []) if c.get("name")]
+        opts = [c["name"] for c in swatches]
+        if opts:
+            return {"options": opts, "colour_swatches": swatches, "colour_picker": True}
         return {"colour_picker": True}
     if state is S.COMPOSITE_PREVIEW:
         return {"options": ["Looks right — generate", "Tweak something"], "composite_preview": True}

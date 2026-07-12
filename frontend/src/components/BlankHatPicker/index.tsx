@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
-import { listHatTypes, type HatType, type HatColour } from '../../lib/api'
+import { listHatTypes, type HatType } from '../../lib/api'
 import { useSessionStore } from '../../store/sessionStore'
 
 export function BlankHatPicker() {
   const [hats, setHats] = useState<HatType[]>([])
   const [selected, setSelected] = useState<HatType | null>(null)
-  const [colour, setColour] = useState<HatColour>({ name: 'Custom', hex: '#1a2b5c' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
@@ -30,7 +29,7 @@ export function BlankHatPicker() {
     setStartError(null)
     setStarting(true)
     try {
-      await startBlankSession(selected, colour)
+      await startBlankSession(selected)
     } catch (err) {
       setStartError(err instanceof Error ? err.message : 'Something went wrong starting your design. Please try again.')
     } finally {
@@ -65,18 +64,9 @@ export function BlankHatPicker() {
 
       {selected && (
         <div className="mt-6">
-          <label className="block text-sm font-medium mb-2">Hat colour</label>
-          <div className="flex items-center gap-3 mb-3">
-            <input type="color" value={colour.hex}
-              onChange={e => setColour({ name: e.target.value, hex: e.target.value })} />
-            <div className="flex gap-2">
-              {selected.colours.map(c => (
-                <button key={c.hex} title={c.name} onClick={() => setColour(c)}
-                  className={`w-7 h-7 rounded-full border ${colour.hex === c.hex ? 'ring-2 ring-orange-500' : ''}`}
-                  style={{ background: c.hex }} />
-              ))}
-            </div>
-          </div>
+          <p className="text-sm text-gray-500 mb-3">
+            You'll choose the colour and everything else as you design with Ricardo.
+          </p>
           {startError && <div className="text-sm text-red-500 mb-2">{startError}</div>}
           <button onClick={() => void handleStart()} disabled={starting}
             className="bg-orange-500 text-white font-semibold px-5 py-2.5 rounded-lg disabled:opacity-50">

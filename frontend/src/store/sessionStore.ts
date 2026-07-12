@@ -32,7 +32,7 @@ interface SessionState {
   view: SessionView
 
   startSession: (product: Product) => Promise<void>
-  startBlankSession: (hatType: HatType, colour: { name: string; hex: string }) => Promise<void>
+  startBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
   resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
@@ -63,18 +63,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
   },
 
-  startBlankSession: async (hatType: HatType, colour: { name: string; hex: string }) => {
+  startBlankSession: async (hatType: HatType, colour?: { name: string; hex: string }) => {
     const response = await createBlankSession(hatType.id, colour)
     set({
       sessionId: response.session_id,
       shareToken: response.share_token,
       state: response.state,
-      // Populate the left-pane viewer from the chosen blank hat + colour.
-      // Without this the ProductViewer stays on "Loading product…".
+      // Populate the left-pane viewer from the chosen blank hat. Colour is
+      // chosen in chat (after quantity), so it starts empty here.
       productRef: {
         id: hatType.id,
         name: hatType.name,
-        colour: colour.name,
+        colour: colour?.name ?? '',
         style: hatType.style,
         reference_image_url: hatType.view_images.front ?? '',
         view_images: hatType.view_images,

@@ -67,17 +67,17 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if collected.get("youth_flag") and not collected.get("youth_referred"):
         return S.YOUTH_REFERRAL
 
-    # 2a. blank-mode hat colour (fallback if not captured at the landing picker).
-    # Checked before quantity/decoration so it fires even on a bare {name,
-    # purpose_asked, flow_mode} collected dict (matches the landing-picker
-    # ordering: colour is chosen before the questionnaire proper starts).
-    if collected.get("flow_mode") == "blank" and not collected.get("hat_colour") \
-            and not collected.get("hat_colour_asked"):
-        return S.ASK_HAT_COLOUR
-
     # 3. quantity (required; presence, not truthiness — "not sure" -> 0 counts)
     if "quantity" not in collected:
         return S.ASK_QUANTITY
+
+    # 3a. blank-mode hat colour — asked in chat RIGHT AFTER quantity. The colour
+    # is no longer captured on the landing picker (which now only picks the hat
+    # type); the customer chooses it here, and the composite preview later shows
+    # the blank tinted to it (no image generation).
+    if collected.get("flow_mode") == "blank" and not collected.get("hat_colour") \
+            and not collected.get("hat_colour_asked"):
+        return S.ASK_HAT_COLOUR
 
     # 4. decoration type (required)
     if not collected.get("decoration_type"):

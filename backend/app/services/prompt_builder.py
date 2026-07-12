@@ -208,7 +208,11 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
         pin_block=pin_block,
     )
     if is_blank:
-        fmt["hat_colour"] = product_ref.get("colour") or "the customer's chosen colour"
+        # The colour is chosen in chat now (collected["hat_colour"]); fall back
+        # to the product ref colour for any legacy session that carried it there.
+        hc = collected.get("hat_colour")
+        name = hc.get("name") if isinstance(hc, dict) else (hc if isinstance(hc, str) else None)
+        fmt["hat_colour"] = name or product_ref.get("colour") or "the customer's chosen colour"
     return template.format(**fmt)
 
 
