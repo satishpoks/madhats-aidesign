@@ -147,9 +147,11 @@ async def handle_message(session_id: str, message: str) -> dict:
         # have the customer's name, so the moment a usable email arrives we
         # create the lead and send a verification email — no second form. The
         # preview itself is released when the customer clicks that link.
-        if current in (ConversationState.GENERATING, ConversationState.ASK_EMAIL) and not collected.get(
-            "email_captured"
-        ):
+        if current in (
+            ConversationState.GENERATING,
+            ConversationState.ASK_EMAIL,
+            ConversationState.SAVE_PROGRESS_EMAIL,
+        ) and not collected.get("email_captured"):
             email = leads_service.extract_email(message)
             if email:
                 lead_id = leads_service.capture_lead_and_verify(session, collected, email)

@@ -781,3 +781,55 @@ async def test_verification_lands_on_offer_refine_with_ack(monkeypatch):
     assert res["state"] == S.OFFER_REFINE.value       # collapsed, no redundant taps
     assert captured["state"] == S.OFFER_REFINE.value
     assert captured["aside"] and "verified" in captured["aside"].lower()
+
+
+@pytest.mark.asyncio
+async def test_save_progress_email_captures_and_continues(monkeypatch):
+    # A valid email at SAVE_PROGRESS_EMAIL is captured (verification sent) and
+    # the flow continues into the deep-dive — non-blocking.
+    pend = {"type": "text", "content": "TEAM", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.SAVE_PROGRESS_EMAIL.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "pending_element": pend, "email_prompt_shown": True},
+                         "store_id": None, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("great, saved!"))
+    monkeypatch.setattr(orch.leads_service, "extract_email", lambda m: "al@example.com")
+    captured = {}
+    def _cap(session, collected, email):
+        captured["email"] = email
+        return "lead-123"
+    monkeypatch.setattr(orch.leads_service, "capture_lead_and_verify", _cap)
+
+    res = await orch.handle_message("s1", "al@example.com")
+    c = store["session"]["collected"]
+    assert captured["email"] == "al@example.com"
+    assert c["email_captured"] is True
+    assert c["lead_id"] == "lead-123"
+    # non-blocking: continues into the deep-dive (pending element still building)
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
+
+
+@pytest.mark.asyncio
+async def test_save_progress_email_no_email_still_continues(monkeypatch):
+    # A non-email reply doesn't dead-end: email_prompt_shown stays set and the
+    # flow proceeds to the deep-dive without capturing.
+    pend = {"type": "text", "content": "TEAM", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.SAVE_PROGRESS_EMAIL.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "pending_element": pend, "email_prompt_shown": True},
+                         "store_id": None, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("no worries"))
+    monkeypatch.setattr(orch.leads_service, "extract_email", lambda m: None)
+
+    res = await orch.handle_message("s1", "maybe later")
+    c = store["session"]["collected"]
+    assert not c.get("email_captured")
+    assert res["state"] == S.ELEMENT_DEEPDIVE.value
