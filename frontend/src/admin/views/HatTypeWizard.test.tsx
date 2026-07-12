@@ -70,4 +70,26 @@ describe('HatTypeWizard', () => {
     await waitFor(() => expect(api.updateHatType).toHaveBeenCalledWith('h1', { active: true }, 'mh_pk_test'))
     await waitFor(() => expect(screen.getByText('LIST')).toBeInTheDocument())
   })
+
+  it('persists edited basics when returning to step 1 (no double-create)', async () => {
+    vi.mocked(api.createHatType).mockResolvedValue(fullHat())
+    vi.mocked(api.updateHatType).mockResolvedValue(fullHat({ name: 'Six Panel' }))
+    renderWizard()
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Trucker Cap' } })
+    fireEvent.click(screen.getByRole('button', { name: /next/i })) // Basics -> Angles
+    await waitFor(() => expect(screen.getByText(/step 2 of 5/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /back/i })) // Angles -> Basics
+    await waitFor(() => expect(screen.getByLabelText('Name')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Six Panel' } })
+    fireEvent.click(screen.getByRole('button', { name: /next/i })) // Basics -> Angles again
+    await waitFor(() =>
+      expect(api.updateHatType).toHaveBeenCalledWith(
+        'h1',
+        { name: 'Six Panel', style: '', description: '' },
+        'mh_pk_test',
+      ),
+    )
+    expect(api.createHatType).toHaveBeenCalledTimes(1)
+  })
 })

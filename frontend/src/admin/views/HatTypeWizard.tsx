@@ -42,19 +42,29 @@ export function HatTypeWizard() {
     setBusy(true)
     setError(null)
     try {
-      const created =
-        hat ??
-        (await createHatType(
+      if (hat) {
+        const updated = await updateHatType(
+          hat.id,
+          { name: basics.name, style: basics.style, description: basics.description },
+          storeKey,
+        )
+        // PATCH response does not include view_images (defaults to {}) and may
+        // re-carry blank_view_images paths — preserve the locally-known angle
+        // state so uploaded thumbnails survive the round-trip.
+        setHat({ ...updated, view_images: hat.view_images, blank_view_images: hat.blank_view_images })
+      } else {
+        const created = await createHatType(
           { name: basics.name, slug: slugify(basics.name), style: basics.style, description: basics.description },
           storeKey,
-        ))
-      setHat(created)
-      setColours(created.colours ?? [])
-      setZones(created.placement_zones ?? [])
-      setDecoration(created.decoration_types ?? [])
+        )
+        setHat(created)
+        setColours(created.colours ?? [])
+        setZones(created.placement_zones ?? [])
+        setDecoration(created.decoration_types ?? [])
+      }
       setStep(2)
     } catch (e: unknown) {
-      fail(e, 'Could not create hat type')
+      fail(e, 'Could not save hat type')
     } finally {
       setBusy(false)
     }
