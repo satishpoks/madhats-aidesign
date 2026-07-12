@@ -136,6 +136,51 @@ def test_output_forbids_collage_and_locks_framing():
     assert "aspect ratio" in prompt
 
 
+# --- rich brief context reaches the prompt (regression: dropped detail) ------
+
+def test_brief_context_imagery_colours_style_included():
+    """The rich design_description brief (imagery/colours/style/extra text) that
+    Haiku accumulates across turns must reach the model — previously _design_block
+    only enumerated `elements` and dropped the brief entirely."""
+    collected = {
+        "elements": [{"type": "graphic", "content": "a mountain range", "deferred": []}],
+        "design_description": {
+            "summary": "a mountain range at sunset",
+            "imagery": ["snow-capped peaks", "a rising sun"],
+            "colours": ["orange", "deep purple"],
+            "style": "vintage outdoors badge",
+            "text_elements": ["EST. 2024"],
+        },
+    }
+    prompt = _build(collected)
+    assert "snow-capped peaks" in prompt
+    assert "rising sun" in prompt
+    assert "orange" in prompt and "deep purple" in prompt
+    assert "vintage outdoors badge" in prompt
+    assert "EST. 2024" in prompt
+
+
+def test_brief_only_no_elements_still_renders_detail():
+    """A brief with no discrete elements must still describe the design rather
+    than fall back to the generic placeholder."""
+    collected = {"design_description": {"imagery": ["a soaring eagle"], "colours": ["gold"]}}
+    prompt = _build(collected)
+    assert "soaring eagle" in prompt and "gold" in prompt
+    assert prompts_fallback() not in prompt
+
+
+def prompts_fallback():
+    from app import prompts
+    return prompts.FALLBACK_DESIGN_BLOCK
+
+
+def test_no_brief_no_dangling_context_labels():
+    """When there is no brief, no empty context labels leak into the prompt."""
+    prompt = _build({"elements": [{"type": "text", "content": "HI", "deferred": []}]})
+    assert "Imagery" not in prompt
+    assert "Overall colours" not in prompt
+
+
 # --- decoration style -------------------------------------------------------
 
 def test_embroidery_selects_stitched_kind_and_modifier():

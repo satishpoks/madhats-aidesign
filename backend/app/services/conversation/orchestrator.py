@@ -482,7 +482,7 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
 
     if state is S.DESCRIBE_DESIGN and not collected.get("pending_element"):
         etype = "text" if _looks_like_text(message) else "graphic"
-        el = {"type": etype, "content": message.strip()[:200], "deferred": []}
+        el = {"type": etype, "content": message.strip()[:500], "deferred": []}
         collected["pending_element"] = el
         # One extraction pass so a rich description fills volunteered
         # attributes on this same turn (e.g. colour/size) instead of waiting a
@@ -523,7 +523,7 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
                 ask_for and ask_for not in el and not attrs and not deferred_now
                 and ask_for in ("content", "font", "colour", "style")
             ):
-                el[ask_for] = message.strip()[:120]
+                el[ask_for] = message.strip()[:200]
         if ep.is_complete(el):
             collected.setdefault("elements", []).append(el)
             collected["pending_element"] = None

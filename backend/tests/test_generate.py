@@ -195,6 +195,44 @@ def test_logs_request_and_response_on_success(monkeypatch):
     assert resp["output_image_url"] == "generations/clean.png"
 
 
+def test_raw_storage_ref_path_is_signed_before_generation(monkeypatch):
+    """Blank-hat sessions carry a raw storage path (not an http URL) as the
+    product reference. It must be signed before being fetched — otherwise httpx
+    raises "Request URL is missing an 'http://' or 'https://' protocol"."""
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([], result=_ok_result())
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    kwargs = _base_kwargs(
+        product_ref={
+            "product_id": "hat-1",
+            "colour": "black",
+            "name": "Blank Cap",
+            "reference_image_url": "hat-types/hat-1/front.png",
+            "view_images": {"front": "hat-types/hat-1/front.png"},
+        }
+    )
+    asyncio.run(generate_routes._run_generation(**kwargs))
+
+    req = logs["request"][0]
+    assert req["reference_image_url"] == "signed:hat-types/hat-1/front.png"
+
+
+def test_http_ref_url_passed_through_unsigned(monkeypatch):
+    """A full http(s) reference (Shopify/stub catalogue) must NOT be re-signed."""
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([], result=_ok_result())
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert logs["request"][0]["reference_image_url"] == "http://x/ref.png"
+
+
 def test_logs_failure_with_error(monkeypatch):
     row = _generation_row()
     fake = _FakeSB({"generations": [row]})

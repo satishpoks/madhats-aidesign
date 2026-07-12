@@ -111,22 +111,64 @@ def _element_line(el: dict) -> str:
     return ", ".join(bits) + _placement_phrase(el) + "."
 
 
+def _brief_context_block(collected: dict) -> str:
+    """Render the rich, accumulated design brief (``collected["design_description"]``)
+    as extra context for the model.
+
+    The deep-dive captures discrete ``elements``, but Haiku also accumulates a
+    fuller brief across turns — imagery/motifs, an overall colour palette, an
+    overall style, and any extra text the customer named. That detail used to be
+    dropped entirely (``_design_block`` only enumerated ``elements``). We now
+    append it so nothing the customer described is lost. Empty fields are pruned
+    so no dangling labels leak in.
+    """
+    brief = collected.get("design_description")
+    if not isinstance(brief, dict):
+        return ""
+    imagery = [str(i).strip() for i in (brief.get("imagery") or []) if str(i).strip()]
+    colours = [str(c).strip() for c in (brief.get("colours") or []) if str(c).strip()]
+    texts = [str(t).strip() for t in (brief.get("text_elements") or []) if str(t).strip()]
+    style = str(brief.get("style") or "").strip()
+    summary = str(brief.get("summary") or "").strip()
+    lines: list[str] = []
+    if summary:
+        lines.append(f"Overall design the customer described: {summary}.")
+    if imagery:
+        lines.append(f"Imagery / motifs to include: {', '.join(imagery)}.")
+    if texts:
+        lines.append("Text the customer wants included: " + "; ".join(f'"{t}"' for t in texts) + ".")
+    if colours:
+        lines.append(f"Overall colours to use: {', '.join(colours)}.")
+    if style:
+        lines.append(f"Overall style: {style}.")
+    return "\n".join(lines)
+
+
 def _design_block(collected: dict) -> str:
     """Describe ONLY the decoration to add — never the base cap.
 
-    Enumerates ``collected["elements"]`` — one line/block per element, each
-    carrying its own placement. Falls back to the legacy flat shape only if
-    ``elements`` is absent (back-compat for any un-migrated caller).
+    Enumerates ``collected["elements"]`` (one line/block per element, each with
+    its own placement) AND appends the rich accumulated brief context so no
+    detail the customer gave is dropped. Falls back to the legacy flat shape only
+    if neither is present.
     """
-    elements = collected.get("elements")
-    if not elements:
-        if collected.get("uploaded_asset_path"):
-            return prompts.UPLOADED_ASSET_DESIGN_BLOCK
-        return prompts.FALLBACK_DESIGN_BLOCK
+    elements = collected.get("elements") or []
     lines = [_element_line(el) for el in elements if el.get("type") != "logo"]
     logo_lines = [_element_line(el) for el in elements if el.get("type") == "logo"]
-    all_lines = logo_lines + [f"- {ln}" for ln in lines]
-    return "\n".join(all_lines) if all_lines else prompts.FALLBACK_DESIGN_BLOCK
+    element_lines = logo_lines + [f"- {ln}" for ln in lines]
+
+    parts: list[str] = []
+    if element_lines:
+        parts.append("\n".join(element_lines))
+    context = _brief_context_block(collected)
+    if context:
+        parts.append(context)
+    if parts:
+        return "\n".join(parts)
+
+    if collected.get("uploaded_asset_path"):
+        return prompts.UPLOADED_ASSET_DESIGN_BLOCK
+    return prompts.FALLBACK_DESIGN_BLOCK
 
 
 def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -> str:

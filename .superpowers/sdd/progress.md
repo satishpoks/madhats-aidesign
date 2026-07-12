@@ -1,57 +1,41 @@
-# SDD progress — Early Email + Hide Pin
-Plan: docs/superpowers/plans/2026-07-12-early-email-hide-pin.md
-Branch: feat/smarter-studio
-BASE: b178a3029e694b6f3907cd51e7c4e3fbdb6e192d
+# SDD progress — Hat Types Admin CMS UX
+Plan: docs/superpowers/plans/2026-07-12-hat-types-admin-ux.md
+Branch: feat/hat-types-admin-ux
+BASE: 8d9e741ff1b2ae627e705f58aed506aca3a6ce6b
 
-Task 1: complete (commits b178a30..cb5d52c, review clean — Spec ✅, Quality Approved). 3/3 new tests, full suite 279. Purely additive scaffolding.
-  Minor (non-blocking, for final review): state_machine.py:78-82 comment above `S.GENERATING: [VERIFY_EMAIL, ASK_EMAIL]` is now stale (says email is asked in the GENERATING message; after Task 1 it no longer is). Fix when Task 3 reworks GENERATING email capture, or at final review.
+(tasks not yet started)
 
-Task 2: FIRST ATTEMPT REJECTED + reset (37db6fd discarded) — implementer confabulated a large unrequested "neutral decoration + low-qty nudge" feature. Redone clean.
-Task 2: complete (commits cb5d52c..0c9a837, review clean — Spec ✅, Quality Approved). Scope guard verified: `_decoration_state` + decoration tests untouched; only the 6 brief files changed. Focused 78/78, full suite 280.
-  Minor (non-blocking, for final review): goal_planner.next_goal docstring (lines ~53-54) still says email is "captured inline" at GENERATING — now only a fallback; update wording.
+Task 1: complete (commit 43da567, review clean — Spec ✅, Quality Approved, no Critical/Important). view_images proxy URLs on admin GET list + angle-upload POST; blank_view_images preserved. 2 new tests (16/16 file), full backend suite 335.
+  CARRY TO TASK 9 (reviewer Minor): PATCH /admin/hat-types/{id} returns HatTypeAdmin WITHOUT view_images (defaults to {}). Edit view's save() does setHat(updated) → would wipe angle thumbnails. FIX in Task 9: preserve local view_images on save, e.g. setHat({ ...updated, view_images: hat.view_images }).
+  Minor (final review): 2-line media_url comprehension duplicated (_with_view_images vs upload_angle inline) in admin_hat_types.py.
 
-Task 3: complete (commits 0c9a837..bb23640, review clean — Spec ✅, Quality Approved). Guard extended to SAVE_PROGRESS_EMAIL; 2 new tests, full suite 282. Scope: only orchestrator.py guard + 2 tests.
-  Minor (non-blocking): both new tests seed email_prompt_shown=True (per brief), so the first-turn-fresh SAVE_PROGRESS_EMAIL path isn't directly exercised — residual gap only.
+Task 2: complete (commit 79a0724, review clean — Spec ✅, Quality Approved, no Crit/Imp). adminApi HatType.view_images + createHatType(style/description) + uploadHatAngle return; shared.ts (VIEWS/slugify/angleCount/allAngles/hatStatus/useStores) + shared.test.ts (3/3). Incidental +1 line view_images:{} in HatTypesView.test.tsx mock (forced by required-field widening; Task 7 rewrites that file). Full suite 138 (+2 pre-existing adminQuotes).
+  Minor (final review): useStores hook has no direct test (covered indirectly by list/wizard/edit view tests later).
 
-Task 4: complete (commits bb23640..ffb4264, review clean — Spec ✅, Quality Approved, no issues). advance_after_generation + GET /chat/{id}/generation-advance, reuses RegenerationPollResponse. 4 new tests, full suite 286. Scope: only orchestrator.py, routes/chat.py, new test file.
+Task 3: complete (commit d25e287, review clean — Spec ✅, Quality Approved, no Crit/Imp). ChipListEditor.tsx + test (3/3). Full suite 141 (+2 pre-existing). Minor (final review): dedup is case-sensitive ("Front"/"front" coexist); placeholder prop untested.
 
-Task 5: complete (commits ffb4264..51e311c, review clean — Spec ✅, Quality Approved). Progress path email slot renamed ASK_EMAIL→SAVE_PROGRESS_EMAIL; ASK_EMAIL added to _POST_QUESTION_STATES. Totals unchanged (7/8). 7/7 progress tests, full suite 288.
-  Minor (non-blocking, for final review): state_machine.py:352 comment `# GREETING / ASK_EMAIL fallback etc.` now slightly stale (ASK_EMAIL no longer reaches that fallback). Left per scope guard.
+Task 4: complete (commit c97d0ad, review clean — Spec ✅, Quality Approved, no Crit/Imp). ColourwayEditor.tsx + test (3/3). Full suite 144 (+2 pre-existing). Minor (final review): key={i} array index (focus-loss UX nit only, correctness fine); hex-edit path shares patch() but untested.
 
-Task 6: complete (my commit ab00307, review clean — Spec ✅, Quality Approved, verified real: 35/35 target tests + build clean). Frontend advanceGeneration + pollGenerationAdvance + ChatPanel chain, mirrors regeneration. `.at(-1)`→index swap (tsc ES2020) accepted. Scope: only the 4 frontend files.
+Task 5: complete (commits 7bf4429 + fix 0f1ada6, review clean — Spec ✅, Quality Approved). AngleUploader.tsx + test. Important finding (silent no-op when response lacks view_images[view]) FIXED: else-branch sets error + covering test; 3/3 pass. Reviewer ⚠️ (couldn't read shared.ts/adminApi) was env path confusion — VIEWS + uploadHatAngle contract confirmed in Task 2. Minor (final review): no disabled guard on input during busy; input.value not reset (same-file re-upload no-ops).
 
-CONCURRENCY NOTE: a PARALLEL session is committing an unrelated "blank-hat design flow" feature onto the SAME branch (feat/smarter-studio), interleaved with my commits: b274ce7 (spec) landed between Task 5 and Task 6; 33cf93a (plan) is now HEAD, ahead of my ab00307. These are DOCS-only so far (no code overlap). NOT mine — left untouched. Reviewed Task 6 isolated (b274ce7..ab00307). Final whole-branch review must be scoped to MY code paths only, not b178a30..HEAD. Surface to user.
+Task 6: complete (commit 7b6ec07, approved — verbatim-from-brief trivial component, verified directly by controller; focused test 1/1 pass, tsc clean). BasicsFields.tsx + BasicsValue export + test. Note: intermittent tinypool 'Worker exited' crash is pre-existing Windows flakiness, unrelated.
 
-Task 7: complete (commit 923417a — verification + CLAUDE.md doc). Backend pytest 288 passed. Frontend: only the 2 known pre-existing adminQuotes failures (Router context); ChatPanel 33 pass, chatStore new tests pass, `npm run build` clean (verified in Task 6 review). CLAUDE.md updated with early-email + hidden-pin + advance_after_generation.
+Task 7: complete (commit 0e60c5d, review clean — Spec ✅, Quality Approved, no Crit/Imp). HatTypesView.tsx list rewrite + test rewrite (6/6), admin suite 20/20, tsc+build clean. Minor (final review): store-default effect doesn't validate a stale/invalid ?store= id → list silently empty (no error) if URL has bad store id.
 
-ALL 7 TASKS COMPLETE. My feature commits: cb5d52c, 0c9a837, bb23640, ffb4264, 51e311c, ab00307, 923417a (+ specs/plan docs at b178a30 & earlier). Blank-hat commits b274ce7 & 33cf93a are the parallel session's, docs-only, left untouched.
+Task 8: complete (commits f9cee5f + fix de22329, review clean after fix — Spec ✅, Quality Approved). HatTypeWizard.tsx 5-step create + AdminApp route (new before hat-types) + test. Important finding (Back→Basics silently dropped edits; Review showed unsaved values) FIXED: leaveBasics PATCHes basics when draft exists, preserves local view_images/blank_view_images; 3/3 pass, tsc clean. (Controller committed base f9cee5f — implementer had left it uncommitted.) Minor (final review): "Please enter a name." message also shows when storeKey null; angles-disabled-gating not directly tested.
 
-FINAL REVIEW (opus, scoped diff): Ready to merge = YES with minor fixes. No Critical/Important. 3 Minor:
-  #1 (USER DECISION — plan-conflicting): progress counter jumps 7→6 after the email step. Email step appended as last path slot (total), but deep-dive runs AFTER it and normalizes to design-source step (total-1), so counter reads …6→7(email)→6→…→7. Plan Task 5/§5 explicitly mandated email=last slot; reviewer's fix (normalize SAVE_PROGRESS_EMAIL to design-source step) contradicts that + breaks test_progress_early_email_is_the_email_step. HELD for user.
-  #2 (fixing now): 5 stale routing comments — state_machine.py ~78-82 & ~192-195 & ~352; goal_planner.py docstring ~53-54; orchestrator.py ~145-149.
-  #3 (fixing now, cheap): add orchestrator test for the fresh describe→SAVE_PROGRESS_EMAIL transition (existing tests pre-seed email_prompt_shown).
-  Known limitation (plan-documented): early verify link 15-min TTL may expire during a long deep-dive; backfill + terminal fallback cover eventual delivery — reviewer suggests a tracked ticket.
+Task 9: complete (commit 6f9bd2a, review clean — Spec ✅, Quality Approved, no Crit/Imp). HatTypeEditView.tsx per-section edit + AdminApp route (:id after hat-types) + test. REQUIRED DEVIATION applied at single choke point save(): preserves local view_images/blank_view_images on every save incl. Active toggle (resolves Task 1 carry-over) + regression test proves thumbnails survive Basics save with view_images:{}. 4/4 tests, 13/13 hat-types views regression, tsc clean. Minor (final review): load effect lacks unmount guard; Active checkbox not disabled mid-save; stale ?store= → stuck on Loading (shared latent gap w/ wizard).
 
-Minor #2 + #3: FIXED (commit 0930036, only the 4 intended files). 5 stale comments refreshed + new test_describe_then_early_email_checkpoint. Full backend suite 289 passed. #1 still HELD for user.
+ALL 9 IMPLEMENTATION TASKS COMPLETE. Feature commits: 43da567, 79a0724, d25e287, c97d0ad, 7bf4429, 0f1ada6, 7b6ec07, 0e60c5d, f9cee5f, de22329, 6f9bd2a.
 
-BRANCH TANGLE (parallel session, needs user): this checkout was switched off feat/smarter-studio onto a NEW branch feat/blank-hat-flow (HEAD 0930036); a separate worktree (C:/Users/satis/madhats-blank-hat-wt) is on feat/blank-hat. Blank-hat commits (b274ce7, 33cf93a, f6f1a8e) are INTERLEAVED with my 8 feature commits on the linear chain. feat/smarter-studio ref is FROZEN at 33cf93a — missing my T7 (923417a) + fix (0930036). Nothing lost — everything is reachable from feat/blank-hat-flow. My clean feature commits to isolate if desired: cb5d52c, 0c9a837, bb23640, ffb4264, 51e311c, ab00307, 923417a, 0930036. Do NOT do branch surgery without user consent (parallel session in-flight).
+Task 10: complete (commit for CLAUDE.md). VERIFICATION: backend pytest 335 passed; frontend vitest 157 passed / 2 failed (pre-existing adminQuotes Router-context, confirmed by focused rerun — NOT a regression) + pre-existing Windows tinypool "Worker exited" flake; npm run build clean (tsc + vite, 0 errors). CLAUDE.md updated (hat-types admin CMS UX bullet + test counts 335/157).
 
-RESOLVED (user consent): cherry-picked my 8 commits onto a CLEAN branch. Could NOT base off master (master is the merge-base; my work is 68 commits ahead — the whole unmerged smarter-studio base my feature builds on). Instead branched at b178a30 (= smarter-studio + my spec/plan docs, pre-blank-hat) in an isolated worktree.
-  Clean branch: feat/early-email-hide-pin @ 65cfee9, worktree C:/Users/satis/madhats-early-email-wt. My 8 re-parented commits: 6e0b9d4, c70812d, 5193820, 49aac03, b2be786, 653fe4a, e6ce7cd, 65cfee9. ZERO blank-hat commits. Zero-conflict cherry-pick; branch content byte-identical to verified tip 0930036 for all my files (git diff empty) -> verified-equivalent (backend 289 pass, frontend green at T6). Original checkout left on feat/blank-hat-flow (parallel session's), untouched.
-  STILL OPEN: progress-counter finding #1 (user decision).
+ALL 10 TASKS COMPLETE. Ready for final whole-branch review.
 
----
-# Blank-hat flow — CONSOLIDATION (merge, not re-implementation)
-The full blank-hat plan (docs/superpowers/plans/2026-07-12-blank-hat-design-flow.md,
-all 17 tasks) was ALREADY implemented by a parallel session on branch feat/blank-hat
-(worktree madhats-blank-hat-wt, 21 commits 0ea4898..925d4dc). Re-executing would have
-duplicated it. Per user decision: MERGED feat/blank-hat into feat/blank-hat-flow.
-  Merge commit: 6a10500. Backup of pre-merge tip: tag backup/pre-blank-hat-merge -> 53175ed.
-  Conflicts (2): state_machine.py (kept BOTH features' states; kept early-email's current
-    SAVE_PROGRESS_EMAIL comment, dropped blank-hat's stale GENERATING-email comment);
-    CLAUDE.md §13 (kept fuller Smarter-Studio bullet + added Blank-hat bullet).
-  hat_types migration existed on both branches (same file, no conflict).
-  Verified: backend pytest 333 passed; frontend vitest 133 passed / 2 failed
-    (pre-existing adminQuotes Router-context failures, unrelated to merge).
-  NOTE: feature code was built (and per its own history, reviewed) by the parallel
-    session; my work here was only the merge resolution, which the full suites cover.
+FINAL REVIEW (opus, whole-branch 8d9e741..d157bcd): Ready to merge = YES. No Critical, no Important. All findings Minor + deferrable. Cross-task fixes (AngleUploader missing-url, wizard Back-to-Basics persistence, edit-view thumbnail preservation) verified coherent; security (proxy URLs + X-Admin-Secret/X-Store-Key scoping) intact; backward compat (PATCH omits view_images, handled locally) sound.
+  User-facing Minors worth considering before merge: (a) stale/invalid ?store= id → list silently empty / wizard+edit stuck on "Loading…" (shared across all 3 views); (b) empty-state "No hat types yet" flashes before storeKey resolves.
+  Other Minors → ticket: DRY media_url comprehension (admin_hat_types.py); case-sensitive ChipListEditor dedup; ColourwayEditor key={i}; AngleUploader no busy-disable / input.value not reset; edit load-effect no unmount guard; Active checkbox not disabled mid-save; wizard "enter a name" msg when storeKey null.
+
+POLISH (user-approved, commit b2feca2): fixed both user-facing Minors. Invalid/stale ?store= now self-corrects in list (default effect corrects unresolved id) and shows ErrorBanner + "← Back to Hat Types" in wizard/edit instead of infinite "Loading…"; empty-state gated on resolved storeKey (no flash). +3 tests (16 focused / 30 admin pass), tsc clean. Verified directly by controller.
+Remaining Minors deferred to cleanup ticket (DRY comprehension; case-sensitive dedup; key={i}; AngleUploader busy-guard/input reset; edit unmount guard; Active checkbox mid-save; wizard name-msg when storeKey null).
+FEATURE COMPLETE — ready to integrate.

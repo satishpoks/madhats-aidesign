@@ -203,6 +203,12 @@ async def _run_generation(
     # Pick the reference angle that matches the design's primary placement (so a
     # back-panel design composites onto the back-view photo when available).
     ref_url = prompt_builder.reference_image_for(product_ref, collected)
+    # Blank-hat references are raw storage paths (hat_types.set_angle stores the
+    # path, not a URL); Shopify/stub references are already full http(s) URLs.
+    # Sign the raw path so the provider can fetch it — an unsigned bare path makes
+    # httpx raise "Request URL is missing an 'http://' or 'https://' protocol".
+    if ref_url and not ref_url.startswith("http"):
+        ref_url = generate_signed_url(ref_url)
     uploaded_path = collected.get("uploaded_asset_path")
     uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
     params_dict = asdict(params)
