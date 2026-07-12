@@ -516,6 +516,14 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
             for k, v in attrs.items():
                 if v not in (None, ""):
                     el[k] = v
+            # remove_bg is a strict yes/no the LLM extractor sometimes omits
+            # (e.g. it reads "keep as is" as giving no value), which left it
+            # unset and looped the question. When it's the attribute being
+            # asked, resolve it deterministically from the message.
+            if ask_for == "remove_bg" and "remove_bg" not in el and not deferred_now:
+                decided = ie.decide_remove_bg(message)
+                if decided is not None:
+                    el["remove_bg"] = decided
             # a plain answer with no structured field fills the attribute we asked
             # (never on a defer -- that must ONLY append to `deferred`, never
             # write a junk value like "you choose" into the attribute itself)

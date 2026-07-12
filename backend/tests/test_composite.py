@@ -6,14 +6,25 @@ from app.services import composite
 def test_tint_darkens_white_toward_colour():
     white = Image.new("RGB", (10, 10), (255, 255, 255))
     tinted = composite.tint_image(white, "#1a2b5c")
-    # a white pixel multiplied by the colour becomes the colour
-    assert tinted.getpixel((5, 5)) == (0x1a, 0x2b, 0x5c)
+    # a white pixel multiplied by the colour becomes the colour (opaque)
+    assert tinted.mode == "RGBA"
+    assert tinted.getpixel((5, 5)) == (0x1a, 0x2b, 0x5c, 255)
 
 
 def test_tint_preserves_black_shadows():
     black = Image.new("RGB", (10, 10), (0, 0, 0))
     tinted = composite.tint_image(black, "#1a2b5c")
-    assert tinted.getpixel((5, 5)) == (0, 0, 0)
+    assert tinted.getpixel((5, 5)) == (0, 0, 0, 255)
+
+
+def test_tint_preserves_transparent_background():
+    # A blank with a transparent background: the transparent pixels stay
+    # transparent (only the hat is recoloured, no solid colour block).
+    img = Image.new("RGBA", (10, 10), (255, 255, 255, 0))  # fully transparent white
+    img.putpixel((5, 5), (255, 255, 255, 255))             # one opaque "hat" pixel
+    tinted = composite.tint_image(img, "#1a2b5c")
+    assert tinted.getpixel((0, 0))[3] == 0                 # background alpha untouched
+    assert tinted.getpixel((5, 5)) == (0x1a, 0x2b, 0x5c, 255)  # hat pixel recoloured
 
 
 def test_zone_box_front_panel_centre_is_upper_middle():

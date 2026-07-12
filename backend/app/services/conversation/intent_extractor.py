@@ -224,6 +224,23 @@ _REMOVE_BG_YES_RE = re.compile(r"\b(remove|clean[- ]?up|yes|yep|yeah)\b")
 _REMOVE_BG_NO_RE = re.compile(r"\b(keep|no|nope|leave|as[- ]is)\b")
 
 
+def decide_remove_bg(message: str) -> bool | None:
+    """Resolve the remove-background yes/no from the raw message.
+
+    remove_bg is a strict yes/no, so the message itself is authoritative — the
+    LLM extractor sometimes omits it (e.g. it reads "keep as is" as giving no
+    value), which left it unset and re-asked the question in a loop. Returns
+    True (remove), False (keep), or None (genuinely unclear)."""
+    low = message.lower()
+    yes = bool(_REMOVE_BG_YES_RE.search(low))
+    no = bool(_REMOVE_BG_NO_RE.search(low))
+    if yes and not no:
+        return True
+    if no and not yes:
+        return False
+    return None
+
+
 def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
     low = message.lower()
     out: dict = {}

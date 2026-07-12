@@ -10,7 +10,7 @@ import io
 
 import httpx
 import structlog
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 from app.storage import generate_signed_url, write_composite
 
@@ -30,12 +30,21 @@ def _hex_to_rgb(hex_colour: str) -> tuple[int, int, int]:
 
 
 def tint_image(img: Image.Image, hex_colour: str) -> Image.Image:
-    """Multiply the target colour over the blank's luminance (keeps shadows)."""
+    """Recolour the blank to ``hex_colour``, preserving shading AND transparency.
+
+    Multiply-blends the target colour over the blank's RGB (so a light mockup
+    takes the exact colour while its shadows/highlights survive) and keeps the
+    ORIGINAL alpha channel — so a transparent background stays transparent and
+    only the hat pixels are recoloured (no solid colour block). Returns RGBA.
+    """
     r, g, b = _hex_to_rgb(hex_colour)
-    rgb = img.convert("RGB")
-    lum = rgb.convert("L")
+    base = img.convert("RGBA")
+    alpha = base.getchannel("A")
+    rgb = base.convert("RGB")
     solid = Image.new("RGB", rgb.size, (r, g, b))
-    return Image.composite(solid, Image.new("RGB", rgb.size, (0, 0, 0)), lum)
+    tinted = ImageChops.multiply(rgb, solid).convert("RGBA")
+    tinted.putalpha(alpha)
+    return tinted
 
 
 # Approximate bounding boxes as fractions of the image, per (view, zone).
@@ -104,7 +113,9 @@ def _load_image(path: str) -> Image.Image:
 
 def _save_image(img: Image.Image) -> str:
     buf = io.BytesIO()
-    img.convert("RGB").save(buf, format="PNG")
+    # Keep alpha so a transparent blank background survives to the preview
+    # (RGB flattening would fill it with black).
+    img.convert("RGBA").save(buf, format="PNG")
     return write_composite(buf.getvalue())
 
 

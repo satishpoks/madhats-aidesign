@@ -417,6 +417,31 @@ async def test_deepdive_remove_bg_captured_when_actually_asked(monkeypatch):
     assert el["remove_bg"] is False
 
 
+@pytest.mark.asyncio
+async def test_deepdive_remove_bg_resolved_when_llm_omits_it(monkeypatch):
+    # Bug: with a real Haiku key, extract_element_attributes can return {} for
+    # "keep as is" (it reads it as giving no value). remove_bg then stayed unset
+    # and the question looped forever. It must be resolved deterministically
+    # from the message so the element advances past remove_bg.
+    pend = {"type": "logo", "asset_path": "x.png", "content": "uploaded logo", "deferred": []}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 24, "decoration_type": "embroidery", "has_logo": True,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "remove_bg"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m):
+        return {}  # LLM omitted remove_bg for "keep as is"
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("size?"))
+    await orch.handle_message("s1", "keep as it is")
+    el = store["session"]["collected"]["pending_element"]
+    assert el["remove_bg"] is False  # resolved from the message, not left unset
+
+
 # ---------------------------------------------------------------------------
 # Orchestrator: structured design brief accumulation (Task 6)
 # ---------------------------------------------------------------------------
