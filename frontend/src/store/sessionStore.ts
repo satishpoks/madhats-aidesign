@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Product } from '../lib/types'
-import { createSession, createBlankSession, fetchProduct, getSession } from '../lib/api'
+import { createSession, createBlankSession, fetchProduct, getSession, type HatType } from '../lib/api'
 import { useChatStore } from './chatStore'
 
 export type SessionView = 'picker' | 'session' | 'blank'
@@ -32,7 +32,7 @@ interface SessionState {
   view: SessionView
 
   startSession: (product: Product) => Promise<void>
-  startBlankSession: (hatTypeId: string, colour: { name: string; hex: string }) => Promise<void>
+  startBlankSession: (hatType: HatType, colour: { name: string; hex: string }) => Promise<void>
   resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
@@ -63,12 +63,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
   },
 
-  startBlankSession: async (hatTypeId: string, colour: { name: string; hex: string }) => {
-    const response = await createBlankSession(hatTypeId, colour)
+  startBlankSession: async (hatType: HatType, colour: { name: string; hex: string }) => {
+    const response = await createBlankSession(hatType.id, colour)
     set({
       sessionId: response.session_id,
       shareToken: response.share_token,
       state: response.state,
+      // Populate the left-pane viewer from the chosen blank hat + colour.
+      // Without this the ProductViewer stays on "Loading product…".
+      productRef: {
+        id: hatType.id,
+        name: hatType.name,
+        colour: colour.name,
+        style: hatType.style,
+        reference_image_url: hatType.view_images.front ?? '',
+        view_images: hatType.view_images,
+      },
       view: 'session',
     })
   },

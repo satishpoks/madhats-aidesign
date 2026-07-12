@@ -8,6 +8,11 @@ vi.mock('../lib/api', () => ({
     share_token: 'tok-test-abc',
     state: 'collecting_brief',
   }),
+  createBlankSession: vi.fn().mockResolvedValue({
+    session_id: 'blank-sess-1',
+    share_token: 'blank-tok-1',
+    state: 'greeting',
+  }),
   fetchProduct: vi.fn().mockResolvedValue({
     id: 'prod-1',
     name: 'Classic Snapback',
@@ -105,6 +110,37 @@ describe('startSession', () => {
     expect(productRef?.name).toBe('Classic Snapback')
     expect(productRef?.colour).toBe('Black')
     expect(productRef?.id).toBe('prod-1')
+  })
+})
+
+describe('startBlankSession', () => {
+  const mockHatType = {
+    id: 'hat-1',
+    slug: 'five-panel',
+    name: '5-Panel',
+    style: 'flat',
+    view_images: { front: 'https://example.com/blank-front.png', back: 'https://example.com/blank-back.png' },
+    colours: [{ name: 'Black', hex: '#000000' }],
+    placement_zones: ['front_panel'],
+    decoration_types: ['print'],
+  }
+
+  it('sets view to session and stores the blank session ids', async () => {
+    await useSessionStore.getState().startBlankSession(mockHatType, { name: 'Navy', hex: '#1a2b5c' })
+    const s = useSessionStore.getState()
+    expect(s.view).toBe('session')
+    expect(s.sessionId).toBe('blank-sess-1')
+    expect(s.shareToken).toBe('blank-tok-1')
+  })
+
+  it('populates productRef from the hat type so the viewer loads (regression: was left null)', async () => {
+    await useSessionStore.getState().startBlankSession(mockHatType, { name: 'Navy', hex: '#1a2b5c' })
+    const { productRef } = useSessionStore.getState()
+    expect(productRef).not.toBeNull()
+    expect(productRef?.name).toBe('5-Panel')
+    expect(productRef?.reference_image_url).toBe('https://example.com/blank-front.png')
+    expect(productRef?.view_images.back).toBe('https://example.com/blank-back.png')
+    expect(productRef?.colour).toBe('Navy')
   })
 })
 

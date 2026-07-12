@@ -30,7 +30,7 @@ export function BlankHatPicker() {
     setStartError(null)
     setStarting(true)
     try {
-      await startBlankSession(selected.id, colour)
+      await startBlankSession(selected, colour)
     } catch (err) {
       setStartError(err instanceof Error ? err.message : 'Something went wrong starting your design. Please try again.')
     } finally {

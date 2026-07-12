@@ -59,7 +59,14 @@ it('starts a blank session with the selected hat and colour when "Start designin
 
   await user.click(screen.getByText('Start designing'))
 
-  await waitFor(() => expect(startBlankSession).toHaveBeenCalledWith('h1', { name: 'Navy', hex: '#001f3f' }))
+  // Passes the full hat type (not just the id) so the store can populate the
+  // left-pane productRef from its blank angle images + name.
+  await waitFor(() =>
+    expect(startBlankSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'h1', name: '5-Panel', view_images: { front: 'u' } }),
+      { name: 'Navy', hex: '#001f3f' },
+    ),
+  )
 })
 
 it('shows an error message if starting the session fails', async () => {
