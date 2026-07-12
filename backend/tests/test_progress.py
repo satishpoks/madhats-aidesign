@@ -40,9 +40,21 @@ def test_advance_and_skip_skips_already_answered_question():
     assert nxt == S.ELEMENT_DEEPDIVE
 
 
-def test_progress_pin_annotation_does_not_reset():
-    # Every session passes through pin-annotation after placement-position;
-    # it must not drop back to step 1 — it's post-questionnaire (step == total).
+def test_progress_pin_annotation_still_post_question():
+    # Pin states are hidden from the flow but remain post-questionnaire, so if
+    # ever reached they read as complete (step == total), never step 1.
     for st in (S.ASK_PIN_ANNOTATION, S.PIN_ANNOTATE_MODE):
         p = progress(st, {"has_logo": False})
         assert p["step"] == p["total"], st
+
+
+def test_progress_early_email_is_the_email_step():
+    # SAVE_PROGRESS_EMAIL is the email step in both branches (last counted step).
+    p = progress(S.SAVE_PROGRESS_EMAIL, {"has_logo": False})
+    assert p["step"] == p["total"] == 7
+
+
+def test_progress_terminal_ask_email_fallback_is_complete():
+    # The rare terminal fallback ask must not drop back to step 1.
+    p = progress(S.ASK_EMAIL, {"has_logo": False})
+    assert p["step"] == p["total"]

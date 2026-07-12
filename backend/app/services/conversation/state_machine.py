@@ -285,7 +285,7 @@ def _progress_path(collected: dict) -> list[ConversationState]:
         path += [S.UPLOAD_LOGO, S.ASK_REMOVE_BG]
     else:
         path += [S.DESCRIBE_DESIGN]
-    path += [S.ASK_EMAIL]
+    path += [S.SAVE_PROGRESS_EMAIL]
     return path
 
 
@@ -294,6 +294,7 @@ _POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
     {
         ConversationState.ASK_PIN_ANNOTATION,
         ConversationState.PIN_ANNOTATE_MODE,
+        ConversationState.ASK_EMAIL,
         ConversationState.GENERATING,
         ConversationState.VERIFY_EMAIL,
         ConversationState.EMAIL_VERIFIED,
