@@ -62,7 +62,9 @@ def zone_box(view: str, zone: str, position: str, size: tuple[int, int]) -> tupl
 
 def _element_view(el: dict) -> str:
     zone = el.get("placement_zone") or "front_panel"
-    return {"back": "back", "side": "left", "front_panel": "front", "under_brim": "front"}.get(zone, "front")
+    if zone == "side":
+        return "right" if el.get("placement_position") == "right" else "left"
+    return {"back": "back", "front_panel": "front", "under_brim": "front"}.get(zone, "front")
 
 
 def _font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -79,18 +81,18 @@ def _draw_element(img: Image.Image, el: dict, view: str) -> None:
     etype = el.get("type")
     if etype in ("text",):
         draw = ImageDraw.Draw(img)
-        draw.text((x, y), el.get("content", "")[:40], fill=(255, 255, 255), font=_font(max(16, h // 2)))
+        draw.text((x, y), (el.get("content") or "")[:40], fill=(255, 255, 255), font=_font(max(16, h // 2)))
     elif etype in ("logo", "graphic") and el.get("asset_path"):
         try:
             logo = _load_image(el["asset_path"]).convert("RGBA")
             logo.thumbnail((w, h))
             img.paste(logo, (x, y), logo)
         except Exception as exc:  # noqa: BLE001
-            log.warning("composite_logo_skip", error=str(exc))
+            log.warning("composite_logo_skip", error=type(exc).__name__)
     else:  # graphic described in words -> label placeholder
         draw = ImageDraw.Draw(img)
         draw.rectangle([x, y, x + w, y + h], outline=(255, 255, 255), width=2)
-        draw.text((x + 4, y + 4), (el.get("content", "graphic"))[:24], fill=(255, 255, 255), font=_font(14))
+        draw.text((x + 4, y + 4), (el.get("content") or "graphic")[:24], fill=(255, 255, 255), font=_font(14))
 
 
 def _load_image(path: str) -> Image.Image:
@@ -115,6 +117,9 @@ def render_composite_views(view_paths: dict[str, str], colour_hex: str, elements
         base = tint_image(_load_image(path), colour_hex)
         for el in elements or []:
             if _element_view(el) == view:
-                _draw_element(base, el, view)
+                try:
+                    _draw_element(base, el, view)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("element_draw_skip", error=type(exc).__name__)
         out[view] = _save_image(base)
     return out
