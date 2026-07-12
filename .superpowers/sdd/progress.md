@@ -39,3 +39,19 @@ BRANCH TANGLE (parallel session, needs user): this checkout was switched off fea
 RESOLVED (user consent): cherry-picked my 8 commits onto a CLEAN branch. Could NOT base off master (master is the merge-base; my work is 68 commits ahead — the whole unmerged smarter-studio base my feature builds on). Instead branched at b178a30 (= smarter-studio + my spec/plan docs, pre-blank-hat) in an isolated worktree.
   Clean branch: feat/early-email-hide-pin @ 65cfee9, worktree C:/Users/satis/madhats-early-email-wt. My 8 re-parented commits: 6e0b9d4, c70812d, 5193820, 49aac03, b2be786, 653fe4a, e6ce7cd, 65cfee9. ZERO blank-hat commits. Zero-conflict cherry-pick; branch content byte-identical to verified tip 0930036 for all my files (git diff empty) -> verified-equivalent (backend 289 pass, frontend green at T6). Original checkout left on feat/blank-hat-flow (parallel session's), untouched.
   STILL OPEN: progress-counter finding #1 (user decision).
+
+---
+# Blank-hat flow — CONSOLIDATION (merge, not re-implementation)
+The full blank-hat plan (docs/superpowers/plans/2026-07-12-blank-hat-design-flow.md,
+all 17 tasks) was ALREADY implemented by a parallel session on branch feat/blank-hat
+(worktree madhats-blank-hat-wt, 21 commits 0ea4898..925d4dc). Re-executing would have
+duplicated it. Per user decision: MERGED feat/blank-hat into feat/blank-hat-flow.
+  Merge commit: 6a10500. Backup of pre-merge tip: tag backup/pre-blank-hat-merge -> 53175ed.
+  Conflicts (2): state_machine.py (kept BOTH features' states; kept early-email's current
+    SAVE_PROGRESS_EMAIL comment, dropped blank-hat's stale GENERATING-email comment);
+    CLAUDE.md §13 (kept fuller Smarter-Studio bullet + added Blank-hat bullet).
+  hat_types migration existed on both branches (same file, no conflict).
+  Verified: backend pytest 333 passed; frontend vitest 133 passed / 2 failed
+    (pre-existing adminQuotes Router-context failures, unrelated to merge).
+  NOTE: feature code was built (and per its own history, reviewed) by the parallel
+    session; my work here was only the merge resolution, which the full suites cover.
