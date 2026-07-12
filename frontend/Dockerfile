@@ -7,12 +7,10 @@
 # `.env` files are excluded from the image (see .dockerignore) so a developer's
 # local `frontend/.env` can never leak into a production build.
 #
-# On Railway (Dockerfile build), declared ARGs are populated from the service's
-# variables automatically — set VITE_API_BASE_URL (and VITE_STORE_KEY) there.
-#   Local build example:
+# Pass the config as build args when building the image, e.g.:
 #   docker build -t madhats-frontend \
-#     --build-arg VITE_API_BASE_URL=https://your-backend.example.com \
-#     --build-arg VITE_STORE_KEY=mh_pk_yourstore ./frontend
+#     --build-arg VITE_API_BASE_URL=http://madhats.getaiconsult.com.au:8000 \
+#     --build-arg VITE_STORE_KEY=mh_pk_madhats_local ./frontend
 
 # ---- Build stage ----------------------------------------------------------
 FROM node:20-slim AS build
@@ -42,7 +40,7 @@ RUN npm install -g serve@14
 
 COPY --from=build /app/dist ./dist
 
-# Railway (and most PaaS) inject the listening port via $PORT.
-ENV PORT=4173
-EXPOSE 4173
-CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT:-4173}"]
+# Serve on 5173 (the port this project's frontend has always used, so it drops
+# straight into the existing docker-compose port mapping / reverse proxy).
+EXPOSE 5173
+CMD ["serve", "-s", "dist", "-l", "tcp://0.0.0.0:5173"]
