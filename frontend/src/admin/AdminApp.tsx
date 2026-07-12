@@ -6,6 +6,7 @@ import { SubmissionsView } from './views/SubmissionsView'
 import { SubmissionDetailView } from './views/SubmissionDetailView'
 import { QuoteRequestsView } from './views/QuoteRequestsView'
 import { StoresView } from './views/StoresView'
+import { HatTypesView } from './views/HatTypesView'
 import { OpsView } from './views/OpsView'
 import { LeadsView } from './views/LeadsView'
 import { LeadDetailView } from './views/LeadDetailView'
@@ -33,6 +34,7 @@ export default function AdminApp() {
           <Route path="leads/:id" element={<LeadDetailView />} />
           <Route path="diagnostics" element={<DiagnosticsView />} />
           <Route path="stores" element={<StoresView />} />
+          <Route path="hat-types" element={<HatTypesView />} />
           <Route path="ops" element={<OpsView />} />
           <Route path="settings" element={<SettingsView />} />
         </Route>

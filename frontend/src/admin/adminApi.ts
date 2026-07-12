@@ -85,8 +85,13 @@ export interface PromptPreview {
 
 export type BackfillResult = Record<string, unknown>
 
-/** Authenticated request: attaches the stored X-Admin-Secret; logs out on 401/403. */
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+/**
+ * Authenticated request: attaches the stored X-Admin-Secret; logs out on 401/403.
+ * `storeKey`, when passed, is sent as X-Store-Key — used only by the hat-type
+ * admin functions below, which are store-scoped on the backend (require_store).
+ * Do not thread this through by default; other admin routes must be unaffected.
+ */
+async function request<T>(path: string, init: RequestInit = {}, storeKey?: string): Promise<T> {
   const secret = getSecret()
   if (secret === null) {
     logout()
@@ -94,6 +99,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const headers = new Headers(init.headers as HeadersInit | undefined)
   headers.set('X-Admin-Secret', secret)
+  if (storeKey) {
+    headers.set('X-Store-Key', storeKey)
+  }
   if (init.body !== undefined && typeof init.body === 'string') {
     headers.set('Content-Type', 'application/json')
   }
@@ -341,4 +349,86 @@ export function updateSettings(body: Partial<StudioSettings>): Promise<StudioSet
     method: 'PATCH',
     body: JSON.stringify(body),
   })
+}
+
+// ---------------------------------------------------------------------------
+// Hat types: blank cap catalogue (per-style angle images, colourways, pricing)
+// ---------------------------------------------------------------------------
+
+export interface HatType {
+  id: string
+  store_id: string | null
+  slug: string
+  name: string
+  style: string
+  description: string | null
+  blank_view_images: Record<string, string>
+  colours: { name: string; hex: string }[]
+  placement_zones: string[]
+  decoration_types: string[]
+  pricing_slabs: Record<string, unknown>[]
+  active: boolean
+}
+
+/**
+ * Backend hat-type admin routes are store-scoped (require_store): every call
+ * needs both X-Admin-Secret (handled by `request`) and X-Store-Key, so every
+ * function here takes the selected store's `public_key` as `storeKey`.
+ */
+export function listHatTypes(storeKey: string): Promise<HatType[]> {
+  return request<HatType[]>('/admin/hat-types', {}, storeKey)
+}
+
+export function createHatType(
+  body: { name: string; slug: string; style?: string },
+  storeKey: string,
+): Promise<HatType> {
+  return request<HatType>('/admin/hat-types', { method: 'POST', body: JSON.stringify(body) }, storeKey)
+}
+
+export function updateHatType(id: string, body: Partial<HatType>, storeKey: string): Promise<HatType> {
+  return request<HatType>(`/admin/hat-types/${id}`, { method: 'PATCH', body: JSON.stringify(body) }, storeKey)
+}
+
+export function deleteHatType(id: string, storeKey: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/hat-types/${id}`, { method: 'DELETE' }, storeKey)
+}
+
+/**
+ * Upload a reference angle image (e.g. "front", "side") for a hat type.
+ * Multipart FormData — built and sent directly (not via the JSON `request`
+ * helper) so the browser sets the multipart Content-Type + boundary itself.
+ */
+export async function uploadHatAngle(
+  id: string,
+  view: string,
+  file: File,
+  storeKey: string,
+): Promise<{ blank_view_images: Record<string, string> }> {
+  const secret = getSecret()
+  if (secret === null) {
+    logout()
+    throw new ApiError(401, 'Not authenticated')
+  }
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE_URL}/admin/hat-types/${id}/angle/${view}`, {
+    method: 'POST',
+    headers: { 'X-Admin-Secret': secret, 'X-Store-Key': storeKey },
+    body: form,
+  })
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      logout()
+    }
+    let detail = res.statusText
+    try {
+      const json = (await res.json()) as { detail?: string; message?: string }
+      detail = json.detail ?? json.message ?? detail
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<{ blank_view_images: Record<string, string> }>
 }

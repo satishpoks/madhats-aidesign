@@ -21,6 +21,7 @@ GATE_STATES: frozenset[S] = frozenset(
         S.ASK_MORE_ELEMENTS,
         S.ADD_ELEMENTS_MODE,
         S.ELEMENT_DEEPDIVE,
+        S.COMPOSITE_PREVIEW,
         S.GENERATING,
         S.ASK_EMAIL,
         S.VERIFY_EMAIL,
@@ -66,6 +67,14 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if collected.get("youth_flag") and not collected.get("youth_referred"):
         return S.YOUTH_REFERRAL
 
+    # 2a. blank-mode hat colour (fallback if not captured at the landing picker).
+    # Checked before quantity/decoration so it fires even on a bare {name,
+    # purpose_asked, flow_mode} collected dict (matches the landing-picker
+    # ordering: colour is chosen before the questionnaire proper starts).
+    if collected.get("flow_mode") == "blank" and not collected.get("hat_colour") \
+            and not collected.get("hat_colour_asked"):
+        return S.ASK_HAT_COLOUR
+
     # 3. quantity (required; presence, not truthiness — "not sure" -> 0 counts)
     if "quantity" not in collected:
         return S.ASK_QUANTITY
@@ -101,6 +110,7 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if not collected.get("elements_offered"):
         return S.ASK_MORE_ELEMENTS
 
-    # 6. email is captured earlier (SAVE_PROGRESS_EMAIL); generation is the last step.
-    # Pin placement is hidden for now.
+    # 6. generation gateway — blank mode shows the composite preview first.
+    if collected.get("flow_mode") == "blank" and not collected.get("composite_confirmed"):
+        return S.COMPOSITE_PREVIEW
     return S.GENERATING

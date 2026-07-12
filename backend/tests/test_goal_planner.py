@@ -155,3 +155,28 @@ def test_early_email_not_reoffered_without_design_source():
     c = {"name": "Al", "purpose_asked": True, "quantity": 24,
          "decoration_type": "embroidery", "has_logo": False}
     assert next_goal(c) is S.DESCRIBE_DESIGN
+
+
+def test_blank_colour_fallback():
+    c = {"name": "Al", "purpose_asked": True, "flow_mode": "blank"}
+    assert next_goal(c) is S.ASK_HAT_COLOUR
+    c["hat_colour"] = {"name": "Navy", "hex": "#1a2b5c"}
+    assert next_goal(c) is not S.ASK_HAT_COLOUR
+
+
+def test_blank_reaches_composite_preview_before_generating():
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24, "flow_mode": "blank",
+         "hat_colour": {"hex": "#000"}, "decoration_type": "print", "has_logo": False,
+         "elements": [{"type": "text", "content": "GO"}],
+         "email_prompt_shown": True, "elements_offered": True}
+    assert next_goal(c) is S.COMPOSITE_PREVIEW
+    c["composite_confirmed"] = True
+    assert next_goal(c) is S.GENERATING
+
+
+def test_customise_still_reaches_generating_directly():
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24,
+         "decoration_type": "print", "has_logo": False,
+         "elements": [{"type": "text", "content": "GO"}],
+         "email_prompt_shown": True, "elements_offered": True}
+    assert next_goal(c) is S.GENERATING

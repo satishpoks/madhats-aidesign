@@ -31,6 +31,7 @@ vi.mock('../lib/api', () => ({
   }),
   createLead: vi.fn().mockResolvedValue({ lead_id: 'lead-1' }),
   sendVerify: vi.fn().mockResolvedValue({ sent: true }),
+  postComposite: vi.fn().mockResolvedValue({ views: {} }),
 }))
 
 import {
@@ -39,6 +40,7 @@ import {
   addPin,
   generatePreview,
   generationStatus,
+  postComposite,
 } from '../lib/api'
 import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
@@ -106,6 +108,7 @@ beforeEach(() => {
     image_url: 'https://cdn.example.com/clean.png',
     watermarked_url: 'https://cdn.example.com/wm.png',
   })
+  vi.mocked(postComposite).mockResolvedValue({ views: {} })
   useGenerationStore.getState().reset()
 })
 
@@ -509,6 +512,48 @@ describe('ChatPanel special state banners', () => {
     await waitFor(() =>
       expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'sam@example.com'),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Composite preview (blank-hat flow)
+// ---------------------------------------------------------------------------
+
+describe('ChatPanel composite preview', () => {
+  it('fetches and shows the composite preview when data.composite_preview is set', async () => {
+    vi.mocked(postComposite).mockResolvedValue({
+      views: { front: 'https://cdn.example.com/f.png', back: 'https://cdn.example.com/b.png', left: 'https://cdn.example.com/l.png', right: 'https://cdn.example.com/r.png' },
+    })
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Here is your design on the cap.',
+      state: 'composite_preview',
+      data: { composite_preview: true, options: ['Looks right — generate', 'Tweak something'] },
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('Here is your design on the cap.')
+
+    await waitFor(() => expect(vi.mocked(postComposite)).toHaveBeenCalledWith('sess-test-123'))
+    await waitFor(() => expect(screen.getAllByAltText(/preview/i).length).toBeGreaterThan(0))
+
+    // Confirm/tweak chips are still rendered from data.options — not hardcoded.
+    expect(screen.getByRole('button', { name: 'Looks right — generate' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tweak something' })).toBeInTheDocument()
+  })
+
+  it('calls postComposite only once for a single composite_preview visit', async () => {
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Here is your design on the cap.',
+      state: 'composite_preview',
+      data: { composite_preview: true, options: ['Looks right — generate', 'Tweak something'] },
+    })
+
+    const { rerender } = render(<ChatPanel />)
+    await screen.findByText('Here is your design on the cap.')
+    await waitFor(() => expect(vi.mocked(postComposite)).toHaveBeenCalledTimes(1))
+
+    rerender(<ChatPanel />)
+    expect(vi.mocked(postComposite)).toHaveBeenCalledTimes(1)
   })
 })
 

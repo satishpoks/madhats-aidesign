@@ -32,6 +32,8 @@ class ConversationState(str, Enum):
     ASK_PLACEMENT_POSITION = "ask_placement_position"
     ASK_PIN_ANNOTATION = "ask_pin_annotation"
     PIN_ANNOTATE_MODE = "pin_annotate_mode"
+    ASK_HAT_COLOUR = "ask_hat_colour"
+    COMPOSITE_PREVIEW = "composite_preview"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
     SAVE_PROGRESS_EMAIL = "save_progress_email"
@@ -75,6 +77,8 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_PLACEMENT_POSITION: [S.ASK_PIN_ANNOTATION],
     S.ASK_PIN_ANNOTATION: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
+    S.ASK_HAT_COLOUR: [S.ASK_MORE_ELEMENTS, S.GENERATING],
+    S.COMPOSITE_PREVIEW: [S.GENERATING, S.ASK_MORE_ELEMENTS],
     # Email is captured earlier, at SAVE_PROGRESS_EMAIL (right after the design
     # source) — no separate name/phone form, since we already have the name. We
     # still keep the double opt-in: capturing the email sends a verification
@@ -119,6 +123,7 @@ ALLOWED_BACKTRACKS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_PIN_ANNOTATION: [S.ASK_PLACEMENT_ZONE, S.ASK_PLACEMENT_POSITION],
     S.PIN_ANNOTATE_MODE: [S.ASK_PLACEMENT_POSITION],
     S.ASK_EMAIL: [S.ASK_PLACEMENT_ZONE],
+    S.COMPOSITE_PREVIEW: [S.ASK_MORE_ELEMENTS],
 }
 
 # Number of distinct placement zones a session may add via upsell.
@@ -215,6 +220,10 @@ def advance_state(
             return S.ASK_PLACEMENT_ZONE
         return S.SESSION_END
 
+    # --- Composite preview branch (blank-hat flow) ---
+    if current is S.COMPOSITE_PREVIEW:
+        return S.GENERATING if collected.get("composite_confirmed") else S.ASK_MORE_ELEMENTS
+
     # --- Default: first declared successor ---
     nexts = TRANSITIONS.get(current, [])
     return nexts[0] if nexts else S.SESSION_END
@@ -297,6 +306,7 @@ _POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
     {
         ConversationState.ASK_PIN_ANNOTATION,
         ConversationState.PIN_ANNOTATE_MODE,
+        ConversationState.COMPOSITE_PREVIEW,
         ConversationState.ASK_EMAIL,
         ConversationState.GENERATING,
         ConversationState.VERIFY_EMAIL,

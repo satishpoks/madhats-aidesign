@@ -171,3 +171,11 @@ def test_post_verification_collapses_to_offer_refine():
             continue
         break
     assert state is S.OFFER_REFINE
+
+
+def test_composite_preview_confirm_goes_to_generating():
+    assert advance_state(S.COMPOSITE_PREVIEW, {"composite_confirmed": True}) is S.GENERATING
+
+
+def test_composite_preview_tweak_goes_back_to_more_elements():
+    assert advance_state(S.COMPOSITE_PREVIEW, {"composite_confirmed": False}) is S.ASK_MORE_ELEMENTS

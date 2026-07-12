@@ -156,12 +156,18 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
     if change:
         design_block = f"{design_block}\nRequested change from the customer: {change}."
 
-    return prompts.IMAGE_GEN_PROMPT.format(
+    is_blank = collected.get("flow_mode") == "blank"
+    template = prompts.IMAGE_GEN_PROMPT_BLANK if is_blank else prompts.IMAGE_GEN_PROMPT
+
+    fmt = dict(
         decoration_kind=decoration_kind,
         design_block=design_block,
         decoration_style=decoration_style,
         pin_block=pin_block,
     )
+    if is_blank:
+        fmt["hat_colour"] = product_ref.get("colour") or "the customer's chosen colour"
+    return template.format(**fmt)
 
 
 def prompt_hash(prompt: str) -> str:

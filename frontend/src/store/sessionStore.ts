@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import type { Product } from '../lib/types'
-import { createSession, fetchProduct, getSession } from '../lib/api'
+import { createSession, createBlankSession, fetchProduct, getSession } from '../lib/api'
 import { useChatStore } from './chatStore'
 
-export type SessionView = 'picker' | 'session'
+export type SessionView = 'picker' | 'session' | 'blank'
 
 export interface ProductRef {
   id: string
@@ -32,6 +32,7 @@ interface SessionState {
   view: SessionView
 
   startSession: (product: Product) => Promise<void>
+  startBlankSession: (hatTypeId: string, colour: { name: string; hex: string }) => Promise<void>
   resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
@@ -58,6 +59,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         reference_image_url: product.reference_image_url,
         view_images: product.view_images,
       },
+      view: 'session',
+    })
+  },
+
+  startBlankSession: async (hatTypeId: string, colour: { name: string; hex: string }) => {
+    const response = await createBlankSession(hatTypeId, colour)
+    set({
+      sessionId: response.session_id,
+      shareToken: response.share_token,
+      state: response.state,
       view: 'session',
     })
   },
@@ -117,6 +128,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       } catch (err) {
         console.warn('[MadHats] resumeSession failed — falling back', err)
       }
+    }
+
+    if (params.get('mode') === 'blank') {
+      set({ view: 'blank' })
+      return
     }
 
     const productId = params.get('product_id')

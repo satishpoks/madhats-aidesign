@@ -1,5 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { fetchProducts, createSession, sendChat, getSession, uploadLogo, addPin, ApiError } from '../lib/api'
+import {
+  fetchProducts,
+  createSession,
+  sendChat,
+  getSession,
+  uploadLogo,
+  addPin,
+  listHatTypes,
+  createBlankSession,
+  postComposite,
+  ApiError,
+} from '../lib/api'
 
 // Stub fetch globally for all tests in this file
 const mockFetch = vi.fn()
@@ -201,5 +212,49 @@ describe('addPin', () => {
     mockFetch.mockReturnValue(ok({ pin_id: 'pin-42' }))
     const result = await addPin('sess-1', { view: 'back', x_pct: 20, y_pct: 80, comment: '' })
     expect(result.pin_id).toBe('pin-42')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// listHatTypes / createBlankSession / postComposite
+// ---------------------------------------------------------------------------
+
+describe('listHatTypes', () => {
+  it('GETs /hat-types with store key', async () => {
+    mockFetch.mockReturnValue(
+      ok([{ id: 'h1', slug: '5-panel', name: '5-Panel', style: 'snapback', view_images: {}, colours: [], placement_zones: [], decoration_types: [] }]),
+    )
+    const out = await listHatTypes()
+    expect(out[0].name).toBe('5-Panel')
+    const url: string = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('/hat-types')
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    expect(init.headers.get('X-Store-Key')).not.toBeNull()
+  })
+})
+
+describe('createBlankSession', () => {
+  it('POSTs hat_type_id and colour to /sessions/blank', async () => {
+    mockFetch.mockReturnValue(ok({ session_id: 's1', share_token: 'tok', state: 'collecting_brief' }))
+    const colour = { name: 'Black', hex: '#000000' }
+    await createBlankSession('h1', colour)
+    const url: string = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('/sessions/blank')
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
+    const body = JSON.parse(init.body as string) as { hat_type_id: string; colour: typeof colour }
+    expect(body).toEqual({ hat_type_id: 'h1', colour })
+  })
+})
+
+describe('postComposite', () => {
+  it('POSTs /composite/{id}', async () => {
+    mockFetch.mockReturnValue(ok({ views: { front: 'u' } }))
+    const out = await postComposite('s1')
+    expect(out.views.front).toBe('u')
+    const url: string = mockFetch.mock.calls[0][0] as string
+    expect(url).toContain('/composite/s1')
+    const init = mockFetch.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('POST')
   })
 })

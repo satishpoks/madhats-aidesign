@@ -5,7 +5,7 @@ import { useGenerationStore } from '../../store/generationStore'
 import { ProductViewer } from '../ProductViewer'
 import { Modal } from '../Modal'
 import { usePushToTalk } from '../../hooks/usePushToTalk'
-import { uploadLogo, addPin } from '../../lib/api'
+import { uploadLogo, addPin, postComposite } from '../../lib/api'
 
 // ---------------------------------------------------------------------------
 // TypingIndicator
@@ -370,6 +370,27 @@ export function ChatPanel() {
   ]
   const designReleased = RELEASED_STATES.includes(chatState)
 
+  // The backend only sets data.composite_preview: true for the
+  // composite_preview state (see orchestrator.py _state_data_extra), so the
+  // chat state name is an equivalent, already-exposed signal — no need to
+  // thread the raw `data` payload through the store for this one flag.
+  const compositePreview = chatState === 'composite_preview'
+
+  // Composited blank-hat preview (front/back/left/right), fetched once per
+  // composite_preview visit. Reset when the state moves off composite_preview
+  // so a later "Tweak -> back" re-fetches a fresh composite.
+  const [composite, setComposite] = useState<Record<string, string> | null>(null)
+  useEffect(() => {
+    if (compositePreview && sessionId && !composite) {
+      void postComposite(sessionId).then(
+        r => setComposite(r.views),
+        () => setComposite({}),
+      )
+    } else if (!compositePreview && composite) {
+      setComposite(null)
+    }
+  }, [compositePreview, sessionId, composite])
+
   const [inputText, setInputText] = useState('')
   // Lets the customer dismiss the logo-upload modal (to type a different reply)
   // without losing the ability to reopen it. Reset whenever we leave the state.
@@ -504,7 +525,11 @@ export function ChatPanel() {
                email verified AND generation complete — matching the same gate
                as the emailed preview. Before that, the viewer shows only the
                blank product angles. */
-            <ProductViewer productRef={productRef} designUrls={designReleased ? designs : []} />
+            <ProductViewer
+              productRef={productRef}
+              designUrls={designReleased ? designs : []}
+              compositeViews={composite ?? undefined}
+            />
           )}
         </div>
 
@@ -615,6 +640,23 @@ export function ChatPanel() {
 
         {/* Email is captured inline from the chat input (asked in the
             'generating' message) — no separate contact form. */}
+
+        {/* Composited blank-hat preview (front/back/left/right), shown above
+            the confirm/tweak chips while at composite_preview. */}
+        {composite && (
+          <div className="grid grid-cols-2 gap-2 my-3">
+            {(['front', 'back', 'left', 'right'] as const).map(v =>
+              composite[v] ? (
+                <img
+                  key={v}
+                  src={composite[v]}
+                  alt={`${v} preview`}
+                  className="w-full rounded border border-border"
+                />
+              ) : null,
+            )}
+          </div>
+        )}
 
         {/* Option chip rows */}
         {options.length > 0 && (

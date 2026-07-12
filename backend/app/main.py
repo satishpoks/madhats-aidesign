@@ -18,12 +18,15 @@ from app.api.deps import limiter
 from app.api.routes import (
     admin_deliveries,
     admin_diagnostics,
+    admin_hat_types,
     admin_leads,
     admin_prompt,
     admin_settings,
     admin_stores,
     chat,
+    composite,
     generate,
+    hat_types,
     health,
     leads,
     media,
@@ -93,8 +96,10 @@ def create_app() -> FastAPI:
     for router in (
         health.router,
         products.router,
+        hat_types.router,
         sessions.router,
         chat.router,
+        composite.router,
         uploads.router,
         generate.router,
         leads.router,
@@ -107,6 +112,7 @@ def create_app() -> FastAPI:
         admin_prompt.router,
         admin_diagnostics.router,
         admin_settings.router,
+        admin_hat_types.router,
     ):
         app.include_router(router)
 

@@ -600,6 +600,15 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
     if state is S.DESCRIBE_CHANGES:
         collected["last_change"] = message.strip()[:400]
 
+    if state is S.COMPOSITE_PREVIEW:
+        collected["composite_confirmed"] = is_affirmative(message) and not is_negative(message)
+    if state is S.ASK_HAT_COLOUR:
+        collected["hat_colour_asked"] = True
+        # a hex or colour name typed in chat
+        val = message.strip()
+        if val and "?" not in val:
+            collected["hat_colour"] = {"name": val, "hex": val} if val.startswith("#") else {"name": val, "hex": ""}
+
 
 async def _maybe_gather_element(
     state: ConversationState, fields: dict, collected: dict, message: str
@@ -731,4 +740,8 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         S.QUOTE_REQUESTED,
     ):
         return {"continuable": True}
+    if state is S.ASK_HAT_COLOUR:
+        return {"colour_picker": True}
+    if state is S.COMPOSITE_PREVIEW:
+        return {"options": ["Looks right — generate", "Tweak something"], "composite_preview": True}
     return {}

@@ -58,6 +58,17 @@ def write_watermarked(image_bytes: bytes, content_type: str = "image/png") -> st
     return path
 
 
+def write_composite(image_bytes: bytes, content_type: str = "image/png") -> str:
+    """Store a composited preview image and return its storage path."""
+    path = f"composite/{uuid.uuid4().hex}.png"
+    _bucket().upload(
+        path=path,
+        file=image_bytes,
+        file_options={"content-type": content_type, "upsert": "false"},
+    )
+    return path
+
+
 def generate_signed_url(path: str, ttl: int | None = None) -> str:
     """Return a signed, TTL-limited URL for a stored object."""
     if not path:
