@@ -36,6 +36,10 @@ services:
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
       TAILSCALE_HOST: ${TAILSCALE_HOST:-}
+      # Extra hostnames the Vite dev server accepts (comma-separated) when the
+      # stack is fronted by a public domain, e.g.
+      # ALLOWED_HOSTS=madhats.getaiconsult.com.au. Relaxes the host check only.
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-}
       # File events don't cross the Windows host → container boundary reliably;
       # poll so Vite HMR picks up source edits.
       CHOKIDAR_USEPOLLING: "true"
