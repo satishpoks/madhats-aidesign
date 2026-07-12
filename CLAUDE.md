@@ -309,6 +309,62 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 
 ---
 
+## 13c. Deployment — Production
+
+> Prod runs on a self-hosted box (Docker), **not** Railway. Backend + frontend
+> are containers on the same public IP, different ports (backend `:8000`,
+> frontend `:5173`), reached via `http://madhats.getaiconsult.com.au:<port>`
+> (plain HTTP). Supabase is the hosted project (URL/keys in `.env`).
+
+**Golden rule — the frontend API URL is a BUILD-TIME value.** Vite inlines every
+`VITE_*` var into the JS bundle when it builds; a hosted frontend never reads a
+runtime `.env`. So `VITE_API_BASE_URL` must be correct *when the image is built*.
+Symptom of getting this wrong: the browser calls `http://localhost:8000` or a
+stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked in.
+
+**Two ways the frontend can run:**
+
+| | `docker-compose.yml` (dev) | `docker-compose.prod.yml` (prod) |
+|---|---|---|
+| Frontend | Vite dev server + HMR (`Dockerfile.dev`) | static build (`frontend/Dockerfile`, `serve -s dist`) |
+| Host check | needs `ALLOWED_HOSTS` (set `*` behind a proxy) | **none** (static server doesn't host-check) |
+| API URL | runtime env, re-bakeable on restart | **compiled in** — rebuild to change |
+| Backend | `uvicorn --reload` + source bind-mount | image CMD (no reload), no mount |
+
+**Recommended prod deploy (static build, one command):**
+```bash
+git pull
+# project-root .env must have (prod values):
+#   VITE_API_BASE_URL=http://madhats.getaiconsult.com.au:8000   # baked into the bundle
+#   VITE_STORE_KEY=mh_pk_madhats_local
+#   ALLOWED_ORIGINS=http://madhats.getaiconsult.com.au:5173     # backend CORS — MUST include the site origin
+#   (+ SUPABASE_URL/keys, ADMIN_SECRET, provider keys …)
+docker compose down                                            # stop dev stack if running
+docker compose -f docker-compose.prod.yml up -d --build
+# after ANY VITE_API_BASE_URL change, rebuild the frontend (it's compiled in):
+docker compose -f docker-compose.prod.yml up -d --build frontend
+```
+
+**If instead running the dev stack in prod** (`docker-compose.yml`): set
+`VITE_API_BASE_URL` in the **project-root `.env`** (NOT `frontend/.env` — the
+compose `environment:` block overrides that), set `ALLOWED_HOSTS=*` (the Vite
+dev server otherwise blocks the public Host header, esp. with a `:5173` port in
+it), then `docker compose up -d --force-recreate frontend`. Env is only read at
+container **start**, so always `--force-recreate`; hard-refresh the browser
+(old bundle is cached).
+
+**Gotchas checklist:**
+- `.env*` is git-ignored and excluded from images (`frontend/.dockerignore`) — a
+  local `frontend/.env` can never leak into a build.
+- Wrong API host in the browser → rebuild frontend with the right
+  `VITE_API_BASE_URL` (prod) or fix root `.env` + recreate (dev).
+- CORS error after the page loads → backend `ALLOWED_ORIGINS` missing the
+  frontend origin; fix `.env`, recreate backend.
+- "Blocked request … host not allowed" → dev server only; set `ALLOWED_HOSTS=*`
+  and recreate, or switch to the static prod build (no host check).
+
+---
+
 ## 14. Design Assets
 
 | Asset | URL |
