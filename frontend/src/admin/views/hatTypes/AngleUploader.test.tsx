@@ -27,4 +27,17 @@ describe('AngleUploader', () => {
     await waitFor(() => expect(onUploaded).toHaveBeenCalledWith('front', 'http://img/front.png'))
     expect(api.uploadHatAngle).toHaveBeenCalledWith('h1', 'front', file, 'k')
   })
+
+  it('surfaces an error when the response has no url for the view', async () => {
+    vi.mocked(api.uploadHatAngle).mockResolvedValue({
+      blank_view_images: {},
+      view_images: {},
+    })
+    const onUploaded = vi.fn()
+    render(<AngleUploader hatId="h1" storeKey="k" viewImages={{}} onUploaded={onUploaded} />)
+    const file = new File(['x'], 'front.png', { type: 'image/png' })
+    fireEvent.change(screen.getByLabelText('Upload front'), { target: { files: [file] } })
+    expect(await screen.findByText(/no image url/i)).toBeInTheDocument()
+    expect(onUploaded).not.toHaveBeenCalled()
+  })
 })

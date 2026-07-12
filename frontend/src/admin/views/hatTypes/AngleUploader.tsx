@@ -19,7 +19,11 @@ export function AngleUploader({ hatId, storeKey, viewImages, onUploaded }: Props
     try {
       const res = await uploadHatAngle(hatId, view, file, storeKey)
       const url = res.view_images[view]
-      if (url) onUploaded(view, url)
+      if (url) {
+        onUploaded(view, url)
+      } else {
+        setError('Upload succeeded but no image URL was returned')
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
