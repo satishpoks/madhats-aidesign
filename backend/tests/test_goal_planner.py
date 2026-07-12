@@ -56,48 +56,46 @@ def test_decoration_by_quantity():
     assert next_goal({**c, "quantity": 24}) is S.RECOMMEND_EMBROIDERY
 
 
-def test_logo_branch_upload_then_more_elements_then_pin():
-    # remove_bg and global placement are gone: once the logo is uploaded, the
-    # design source is met and the flow moves straight to the elements offer.
+def test_logo_branch_upload_then_email_then_more_elements():
+    # Once the logo is uploaded, the design source is met; the early-email
+    # checkpoint fires next (once), then the elements offer.
     c = {"name": "Al", "purpose_asked": True, "quantity": 24,
          "decoration_type": "embroidery", "has_logo": True}
     assert next_goal(c) is S.UPLOAD_LOGO
     c["uploaded_asset_path"] = "uploads/logo.png"
+    c["elements"] = [{"type": "logo", "content": "uploaded logo"}]
+    assert next_goal(c) is S.SAVE_PROGRESS_EMAIL
+    c["email_prompt_shown"] = True
     assert next_goal(c) is S.ASK_MORE_ELEMENTS
     c["elements_offered"] = True
-    assert next_goal(c) is S.ASK_PIN_ANNOTATION
+    assert next_goal(c) is S.GENERATING
 
 
-def test_describe_branch_reaches_pin():
+def test_describe_branch_reaches_generating():
     c = {"name": "Al", "purpose_asked": True, "quantity": 24,
          "decoration_type": "embroidery", "has_logo": False,
-         "elements": [{"type": "text", "content": "x"}], "elements_offered": True}
-    assert next_goal(c) is S.ASK_PIN_ANNOTATION
-
-
-def test_elements_offered_then_pin_offer_then_generating():
-    c = _base()
-    c["elements_offered"] = True
-    assert next_goal(c) is S.ASK_PIN_ANNOTATION
-    c["pin_offered"] = True
+         "elements": [{"type": "text", "content": "x"}], "elements_offered": True,
+         "email_prompt_shown": True}
     assert next_goal(c) is S.GENERATING
 
 
-def test_pin_offer_is_optional_never_blocks():
+def test_elements_offered_then_generating():
     c = _base()
+    c["email_prompt_shown"] = True
     c["elements_offered"] = True
-    c["pin_offered"] = True
     assert next_goal(c) is S.GENERATING
 
 
-def test_gather_goal_offered_once_before_pin():
+def test_email_checkpoint_before_gather_offer():
     collected = _base()
+    assert next_goal(collected) is S.SAVE_PROGRESS_EMAIL
+    collected["email_prompt_shown"] = True
     assert next_goal(collected) is S.ASK_MORE_ELEMENTS
 
 
 def test_gather_goal_skipped_once_offered():
-    collected = {**_base(), "elements_offered": True}
-    assert next_goal(collected) is S.ASK_PIN_ANNOTATION
+    collected = {**_base(), "email_prompt_shown": True, "elements_offered": True}
+    assert next_goal(collected) is S.GENERATING
 
 
 def test_gather_states_are_gates():
@@ -112,13 +110,14 @@ def test_no_elements_yet_asks_design_source():
     assert next_goal(c) is S.DESCRIBE_DESIGN
 
 
-def test_with_an_element_offers_more_then_pins_then_generating():
+def test_with_an_element_offers_email_then_more_then_generating():
     base = {"name":"Al","purpose":"p","purpose_asked":True,"quantity":24,
             "decoration_type":"embroidery","has_logo":False,
             "elements":[{"type":"text","content":"TEAM"}]}
+    assert next_goal(base) is S.SAVE_PROGRESS_EMAIL
+    base["email_prompt_shown"] = True
     assert next_goal(base) is S.ASK_MORE_ELEMENTS
-    assert next_goal({**base,"elements_offered":True}) is S.ASK_PIN_ANNOTATION
-    assert next_goal({**base,"elements_offered":True,"pin_offered":True}) is S.GENERATING
+    assert next_goal({**base,"elements_offered":True}) is S.GENERATING
 
 
 def test_deepdive_is_a_gate():
@@ -133,8 +132,26 @@ def test_pending_element_routes_to_deepdive_regardless_of_elements_offered():
     # element falls all the way through to ASK_MORE_ELEMENTS and its deep-dive
     # question is never asked.
     c = {"name": "Al", "purpose_asked": True, "quantity": 24,
-         "decoration_type": "embroidery", "has_logo": False,
+         "decoration_type": "embroidery", "has_logo": False, "email_prompt_shown": True,
          "pending_element": {"type": "text", "content": "TEAM", "deferred": []}}
     assert next_goal(c) is S.ELEMENT_DEEPDIVE
     c["elements_offered"] = True
     assert next_goal(c) is S.ELEMENT_DEEPDIVE
+
+
+def test_early_email_fires_once_then_deepdive():
+    # A mid-build element (pending_element) triggers the email checkpoint once,
+    # then falls through to the deep-dive.
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24,
+         "decoration_type": "embroidery", "has_logo": False,
+         "pending_element": {"type": "text", "content": "TEAM", "deferred": []}}
+    assert next_goal(c) is S.SAVE_PROGRESS_EMAIL
+    c["email_prompt_shown"] = True
+    assert next_goal(c) is S.ELEMENT_DEEPDIVE
+
+
+def test_early_email_not_reoffered_without_design_source():
+    # No element yet -> no early email; normal design-source questions first.
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24,
+         "decoration_type": "embroidery", "has_logo": False}
+    assert next_goal(c) is S.DESCRIBE_DESIGN

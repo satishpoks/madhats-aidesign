@@ -197,6 +197,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             collected["purpose_asked"] = True
         elif new_state is ConversationState.YOUTH_REFERRAL:
             collected["youth_referred"] = True
+        elif new_state is ConversationState.SAVE_PROGRESS_EMAIL:
+            collected["email_prompt_shown"] = True
         elif new_state is ConversationState.ASK_MORE_ELEMENTS:
             collected["elements_offered"] = True
         elif new_state is ConversationState.ASK_PIN_ANNOTATION:

@@ -137,9 +137,9 @@ def test_deepdive_loops_until_element_complete():
     assert advance_state(S.ELEMENT_DEEPDIVE, {}) is S.ASK_MORE_ELEMENTS
 
 
-def test_more_elements_exit_offers_pins_then_generates():
-    # no pending element, pins not yet offered -> pin offer
-    assert advance_state(S.ASK_MORE_ELEMENTS, {}) is S.ASK_PIN_ANNOTATION
+def test_more_elements_exit_generates_pin_hidden():
+    # Pin placement is hidden: no pending element -> straight to generation.
+    assert advance_state(S.ASK_MORE_ELEMENTS, {}) is S.GENERATING
     assert advance_state(S.ASK_MORE_ELEMENTS, {"pin_offered": True}) is S.GENERATING
 
 

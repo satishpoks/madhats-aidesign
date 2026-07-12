@@ -73,6 +73,15 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if not collected.get("decoration_type"):
         return _decoration_state(collected)
 
+    # 4b. early email checkpoint — the moment a design source exists (a
+    # described element or an uploaded logo has seeded one), capture the email
+    # once, framed as "saves your progress", BEFORE the per-element deep-dive.
+    # Non-blocking: once offered (email_prompt_shown), fall through whether or
+    # not a usable email was given.
+    if (collected.get("pending_element") or collected.get("elements")) \
+            and not collected.get("email_prompt_shown"):
+        return S.SAVE_PROGRESS_EMAIL
+
     # an element is mid-build -> the per-element deep-dive owns it
     if collected.get("pending_element"):
         return S.ELEMENT_DEEPDIVE
@@ -91,9 +100,6 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     if not collected.get("elements_offered"):
         return S.ASK_MORE_ELEMENTS
 
-    # 6. pin annotation (optional, offered exactly once) — placement is per-element
-    if not collected.get("pin_offered"):
-        return S.ASK_PIN_ANNOTATION
-
-    # 7. email is captured inline at GENERATING
+    # 6. email is captured earlier (SAVE_PROGRESS_EMAIL); generation is the last step.
+    # Pin placement is hidden for now.
     return S.GENERATING

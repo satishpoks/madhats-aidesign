@@ -211,7 +211,7 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
                          "collected": {"name": "Al", "purpose": "gifts", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
                                        "elements": [{"type": "text", "content": "x"}],
-                                       "elements_offered": True},
+                                       "elements_offered": True, "email_prompt_shown": True},
                          "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
@@ -222,8 +222,8 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("pin?"))
     res = await orch.handle_message("s1", "front panel")
     assert store["session"]["collected"]["placement_position"] == "centre"
-    # position turn skipped -> next is the pin offer, not ASK_PLACEMENT_POSITION
-    assert res["state"] == S.ASK_PIN_ANNOTATION.value
+    # position turn skipped -> pin is hidden, so next is generation
+    assert res["state"] == S.GENERATING.value
 
 
 @pytest.mark.asyncio
@@ -246,10 +246,9 @@ async def test_more_elements_yes_enters_add_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_more_elements_decline_goes_to_placement(monkeypatch):
-    # Rewritten for Task 5: global placement is retired from the forward path
-    # — a decline at ASK_MORE_ELEMENTS with no pending element exits toward
-    # the pin offer (or straight to generation), never ASK_PLACEMENT_ZONE.
+async def test_more_elements_decline_goes_to_generating(monkeypatch):
+    # Pin placement is hidden: a decline at ASK_MORE_ELEMENTS with no pending
+    # element goes straight to generation.
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
@@ -260,7 +259,7 @@ async def test_more_elements_decline_goes_to_placement(monkeypatch):
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("mark a spot?"))
     res = await orch.handle_message("s1", "That's everything")
-    assert res["state"] == S.ASK_PIN_ANNOTATION.value
+    assert res["state"] == S.GENERATING.value
     assert "pending_element" not in store["session"]["collected"] or not store["session"]["collected"]["pending_element"]
 
 
@@ -713,7 +712,8 @@ async def test_describe_design_first_turn_enters_deepdive(monkeypatch):
     # reply (meant to answer the deep-dive) is silently dropped.
     store = {"session": {"id": "s1", "state": S.DESCRIBE_DESIGN.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
-                                       "decoration_type": "embroidery", "has_logo": False},
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "email_prompt_shown": True},
                          "upsell_count": 0}}
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())

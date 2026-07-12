@@ -183,8 +183,7 @@ def advance_state(
     if current is S.ASK_MORE_ELEMENTS:
         if collected.get("pending_element"):
             return S.ELEMENT_DEEPDIVE
-        if not collected.get("pin_offered"):
-            return S.ASK_PIN_ANNOTATION
+        # Pin placement is hidden for now — go straight to generation.
         return S.GENERATING
 
     if current is S.ELEMENT_DEEPDIVE:
