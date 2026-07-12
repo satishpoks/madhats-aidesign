@@ -23,6 +23,7 @@ function hat(overrides: Partial<api.HatType> = {}): api.HatType {
     style: '',
     description: null,
     blank_view_images: {},
+    view_images: {},
     colours: [],
     placement_zones: [],
     decoration_types: [],

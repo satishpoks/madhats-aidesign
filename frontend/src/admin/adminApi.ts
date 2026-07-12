@@ -363,6 +363,7 @@ export interface HatType {
   style: string
   description: string | null
   blank_view_images: Record<string, string>
+  view_images: Record<string, string>
   colours: { name: string; hex: string }[]
   placement_zones: string[]
   decoration_types: string[]
@@ -380,7 +381,7 @@ export function listHatTypes(storeKey: string): Promise<HatType[]> {
 }
 
 export function createHatType(
-  body: { name: string; slug: string; style?: string },
+  body: { name: string; slug: string; style?: string; description?: string },
   storeKey: string,
 ): Promise<HatType> {
   return request<HatType>('/admin/hat-types', { method: 'POST', body: JSON.stringify(body) }, storeKey)
@@ -404,7 +405,7 @@ export async function uploadHatAngle(
   view: string,
   file: File,
   storeKey: string,
-): Promise<{ blank_view_images: Record<string, string> }> {
+): Promise<{ blank_view_images: Record<string, string>; view_images: Record<string, string> }> {
   const secret = getSecret()
   if (secret === null) {
     logout()
@@ -430,5 +431,5 @@ export async function uploadHatAngle(
     }
     throw new ApiError(res.status, detail)
   }
-  return res.json() as Promise<{ blank_view_images: Record<string, string> }>
+  return res.json() as Promise<{ blank_view_images: Record<string, string>; view_images: Record<string, string> }>
 }
