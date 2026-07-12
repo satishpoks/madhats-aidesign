@@ -1,0 +1,49 @@
+# Production stack — self-contained (NOT a `-f base -f prod` override).
+#
+# Differences from docker-compose.yml (the dev stack):
+#   - frontend is a STATIC build (frontend/Dockerfile), not the Vite dev server:
+#     no HMR, no Host allow-list, minified; the API URL is BAKED at build time
+#     from VITE_API_BASE_URL, so there is no runtime .env to read.
+#   - backend runs the image's default CMD (uvicorn, no --reload) with no source
+#     bind-mount, and takes SUPABASE_URL etc. straight from .env (no local
+#     host.docker.internal override).
+#
+# Usage (from the project root, with a populated .env):
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   # rebuild after changing VITE_API_BASE_URL (it is compiled in):
+#   docker compose -f docker-compose.prod.yml up -d --build frontend
+#
+# Required in the project-root .env:
+#   VITE_API_BASE_URL   public backend URL the BROWSER calls, e.g.
+#                       http://madhats.getaiconsult.com.au:8000   (baked at build)
+#   VITE_STORE_KEY      e.g. mh_pk_madhats_local
+#   ALLOWED_ORIGINS     backend CORS — MUST include the frontend origin, e.g.
+#                       http://madhats.getaiconsult.com.au:5173
+#   SUPABASE_URL / keys / ADMIN_SECRET / provider keys …  (as usual)
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file: .env
+    # host.docker.internal is available if SUPABASE_URL points at a Supabase
+    # running on the host; harmless when SUPABASE_URL is a hosted URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # No --reload, no source bind-mount: run the built image's code and CMD.
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile          # production static build
+      args:
+        # Compiled into the JS bundle at build time (Vite inlines VITE_*).
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_STORE_KEY: ${VITE_STORE_KEY:-}
+    restart: unless-stopped
+    ports:
+      - "5173:5173"                    # static server (serve -s) listens on 5173
+    depends_on:
+      - backend
