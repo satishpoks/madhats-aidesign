@@ -75,11 +75,12 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.ASK_PLACEMENT_POSITION: [S.ASK_PIN_ANNOTATION],
     S.ASK_PIN_ANNOTATION: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
-    # Email is captured inline from the chat (asked in the GENERATING message) —
-    # no separate name/phone form, since we already have the name. We still keep
-    # the double opt-in: capturing the email sends a verification link, and
-    # clicking it (handled by the leads route) releases the preview. ASK_EMAIL is
-    # only reached as a fallback when the message wasn't a usable email address.
+    # Email is captured earlier, at SAVE_PROGRESS_EMAIL (right after the design
+    # source) — no separate name/phone form, since we already have the name. We
+    # still keep the double opt-in: capturing the email sends a verification
+    # link, and clicking it (handled by the leads route) releases the preview.
+    # By the time GENERATING is reached the email is usually already captured;
+    # it and ASK_EMAIL only fallback-capture it if that early ask was skipped.
     S.GENERATING: [S.VERIFY_EMAIL, S.ASK_EMAIL],
     S.ASK_EMAIL: [S.VERIFY_EMAIL, S.ASK_EMAIL],
     S.VERIFY_EMAIL: [S.EMAIL_VERIFIED, S.VERIFY_EMAIL],
@@ -190,9 +191,11 @@ def advance_state(
         return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.ASK_MORE_ELEMENTS
 
     # --- Email capture branch ---
-    # The GENERATING message asks for the email; once we have a usable one we
-    # move to the verification step, otherwise fall through to ASK_EMAIL to ask
-    # once more. ASK_EMAIL behaves the same on retry.
+    # The email is normally already captured by now (asked earlier, at
+    # SAVE_PROGRESS_EMAIL). GENERATING/ASK_EMAIL only fallback-capture it here:
+    # once we have a usable one we move to the verification step, otherwise
+    # fall through to ASK_EMAIL to ask once more. ASK_EMAIL behaves the same on
+    # retry.
     if current in (S.GENERATING, S.ASK_EMAIL):
         return S.VERIFY_EMAIL if collected.get("email_captured") else S.ASK_EMAIL
 
@@ -349,5 +352,5 @@ def progress(state: ConversationState, collected: dict) -> dict:
         return {"step": path.index(norm) + 1, "total": total}
     if state in _POST_QUESTION_STATES:
         return {"step": total, "total": total}
-    # GREETING / ASK_EMAIL fallback etc.
+    # GREETING fallback etc.
     return {"step": 1, "total": total}

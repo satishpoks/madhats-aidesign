@@ -50,8 +50,9 @@ def _decoration_state(collected: dict) -> S:
 def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     """Return the state for the first unmet forward-questionnaire goal.
 
-    Pure function of ``collected``. When every goal is met, returns GENERATING
-    (where the email is captured inline).
+    Pure function of ``collected``. The email is captured earlier, at
+    SAVE_PROGRESS_EMAIL (right after the design source); when every goal is
+    met, returns GENERATING, the final step, which only fallback-captures it.
     """
     # 1. name (required)
     if not collected.get("name"):

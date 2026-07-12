@@ -143,10 +143,12 @@ async def handle_message(session_id: str, message: str) -> dict:
         await _advance_elements(current, collected, message)
 
         # --- 4b. email capture (inline, no separate form) ---
-        # GENERATING and ASK_EMAIL ask for the email in the chat. We already
-        # have the customer's name, so the moment a usable email arrives we
-        # create the lead and send a verification email — no second form. The
-        # preview itself is released when the customer clicks that link.
+        # SAVE_PROGRESS_EMAIL asks for the email right after the design source
+        # is captured; GENERATING and ASK_EMAIL only fallback-capture it later
+        # if that early ask was skipped or unusable. We already have the
+        # customer's name, so the moment a usable email arrives we create the
+        # lead and send a verification email — no second form. The preview
+        # itself is released when the customer clicks that link.
         if current in (
             ConversationState.GENERATING,
             ConversationState.ASK_EMAIL,

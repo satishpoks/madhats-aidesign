@@ -729,6 +729,29 @@ async def test_describe_design_first_turn_enters_deepdive(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_describe_then_early_email_checkpoint(monkeypatch):
+    # Finding #3 (coverage): the fresh (non-pre-seeded) transition into
+    # SAVE_PROGRESS_EMAIL. Every other DESCRIBE_DESIGN test pre-seeds
+    # `email_prompt_shown=True`, so none of them exercise the first-time path
+    # where `_advance_elements` seeds `pending_element` on this same turn and
+    # `goal_planner.next_goal` routes to the early "saves your progress" email
+    # checkpoint (goal_planner.py ~line 81-83) before the deep-dive ever runs.
+    store = {"session": {"id": "s1", "state": S.DESCRIBE_DESIGN.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    async def _attrs(t, m): return {}
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("tell me more"))
+    res = await orch.handle_message("s1", "a mountain crest logo")
+    assert res["state"] == S.SAVE_PROGRESS_EMAIL.value
+    assert store["session"]["collected"]["email_prompt_shown"] is True
+
+
+@pytest.mark.asyncio
 async def test_describe_design_does_not_double_extract_flat_brief(monkeypatch):
     # Finding 2 (Moderate) / Finding 4 (whole-branch review): DESCRIBE_DESIGN
     # must no longer be an `_ELEMENT_STATES` member -- the element lifecycle
