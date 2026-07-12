@@ -50,10 +50,24 @@ def test_quantity_presence_not_truthiness():
 
 
 def test_decoration_by_quantity():
-    c = {"name": "Al", "purpose_asked": True}
+    # Decoration is asked AFTER the design source now, so the customer must have
+    # answered has_logo and supplied a source (an element) for it to be next.
+    c = {"name": "Al", "purpose_asked": True, "has_logo": False,
+         "elements": [{"type": "text", "content": "x"}]}
     assert next_goal({**c, "quantity": 1}) is S.WARN_PRINT_SETUP
     assert next_goal({**c, "quantity": 6}) is S.RECOMMEND_DECORATION
     assert next_goal({**c, "quantity": 24}) is S.RECOMMEND_EMBROIDERY
+
+
+def test_decoration_asked_after_design_source():
+    # With quantity known but no design source yet, we ask for the source FIRST
+    # (has_logo), NOT the decoration.
+    c = {"name": "Al", "purpose_asked": True, "quantity": 24}
+    assert next_goal(c) is S.ASK_HAS_LOGO
+    # Once a design source exists and decoration is still unset, decoration is
+    # the next goal.
+    c = {**c, "has_logo": False, "elements": [{"type": "text", "content": "TEAM"}]}
+    assert next_goal(c) is S.RECOMMEND_EMBROIDERY
 
 
 def test_logo_branch_upload_then_email_then_more_elements():

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Product } from '../lib/types'
 import { createSession, createBlankSession, fetchProduct, getSession, type HatType } from '../lib/api'
 import { useChatStore } from './chatStore'
+import { useGenerationStore } from './generationStore'
 
 export type SessionView = 'picker' | 'session' | 'blank'
 
@@ -124,6 +125,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       view: 'session',
     })
     useChatStore.getState().hydrate(detail.messages, detail.state, detail.data)
+    // Rehydrate the already-generated design (front→back→…) so a resumed session
+    // shows it immediately instead of an empty viewer.
+    if (detail.designs?.length) {
+      useGenerationStore.getState().hydrateDesigns(detail.designs)
+    }
   },
 
   bootstrapFromUrl: async () => {

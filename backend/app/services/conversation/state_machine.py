@@ -35,6 +35,7 @@ class ConversationState(str, Enum):
     ASK_HAT_COLOUR = "ask_hat_colour"
     ASK_COLOUR_DETAIL = "ask_colour_detail"
     COMPOSITE_PREVIEW = "composite_preview"
+    CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
     SAVE_PROGRESS_EMAIL = "save_progress_email"
@@ -44,6 +45,8 @@ class ConversationState(str, Enum):
     SHOW_DESIGN = "show_design"
     OFFER_REFINE = "offer_refine"
     DESCRIBE_CHANGES = "describe_changes"
+    REFINE_FOLLOWUP = "refine_followup"
+    REFINE_CONFIRM = "refine_confirm"
     REGENERATING = "regenerating"
     QUOTE_REQUESTED = "quote_requested"
     UPSELL_PROMPT = "upsell_prompt"
@@ -80,6 +83,8 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.ASK_HAT_COLOUR: [S.ASK_MORE_ELEMENTS, S.GENERATING],
     S.COMPOSITE_PREVIEW: [S.GENERATING, S.ASK_MORE_ELEMENTS],
+    # Pre-generation confirmation of the extracted brief (limited generations).
+    S.CONFIRM_BRIEF: [S.GENERATING, S.ELEMENT_DEEPDIVE],
     # Email is captured earlier, at SAVE_PROGRESS_EMAIL (right after the design
     # source) — no separate name/phone form, since we already have the name. We
     # still keep the double opt-in: capturing the email sends a verification
@@ -93,7 +98,9 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.SEND_PREVIEW_EMAIL: [S.SHOW_DESIGN],
     S.SHOW_DESIGN: [S.OFFER_REFINE],
     S.OFFER_REFINE: [S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
-    S.DESCRIBE_CHANGES: [S.REGENERATING],
+    S.DESCRIBE_CHANGES: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
+    S.REFINE_FOLLOWUP: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
+    S.REFINE_CONFIRM: [S.REGENERATING],
     S.REGENERATING: [S.OFFER_REFINE],
     S.QUOTE_REQUESTED: [S.UPSELL_PROMPT],
     S.UPSELL_PROMPT: [S.ASK_PLACEMENT_ZONE, S.SESSION_END],
@@ -111,7 +118,7 @@ ALLOWED_BACKTRACKS: dict[ConversationState, list[ConversationState]] = {
     S.RECOMMEND_DECORATION: [S.ASK_QUANTITY],
     S.RECOMMEND_EMBROIDERY: [S.ASK_QUANTITY],
     S.CONFIRM_DECORATION: [S.ASK_QUANTITY],
-    S.ASK_HAS_LOGO: [S.ASK_QUANTITY, S.CONFIRM_DECORATION],
+    S.ASK_HAS_LOGO: [S.ASK_QUANTITY],
     S.UPLOAD_LOGO: [S.ASK_HAS_LOGO],
     S.ASK_REMOVE_BG: [S.ASK_HAS_LOGO, S.UPLOAD_LOGO],
     S.DESCRIBE_DESIGN: [S.ASK_HAS_LOGO],
@@ -194,7 +201,16 @@ def advance_state(
         return S.GENERATING
 
     if current is S.ELEMENT_DEEPDIVE:
-        return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.ASK_MORE_ELEMENTS
+        if collected.get("pending_element"):
+            return S.ELEMENT_DEEPDIVE
+        # A completed element returns to the step that sent it into the deep-dive:
+        # the refine "anything else" confirm, the pre-generation brief confirm, or
+        # (main flow) the elements offer.
+        if collected.get("refine_mode"):
+            return S.REFINE_CONFIRM
+        if collected.get("brief_confirm_mode"):
+            return S.CONFIRM_BRIEF
+        return S.ASK_MORE_ELEMENTS
 
     # --- Email capture branch ---
     # The email is normally already captured by now (asked earlier, at
@@ -215,6 +231,24 @@ def advance_state(
     if current is S.OFFER_REFINE:
         return S.DESCRIBE_CHANGES if collected.get("wants_changes") else S.QUOTE_REQUESTED
 
+    # --- Refine sub-flow: describe -> (deep-dive a new element | follow-ups) ->
+    #     confirm -> regen. Adding a text/graphic/logo seeds a pending_element,
+    #     which routes into the SAME per-element deep-dive as the main flow.
+    if current is S.DESCRIBE_CHANGES:
+        if collected.get("pending_element"):
+            return S.ELEMENT_DEEPDIVE
+        return S.REFINE_FOLLOWUP if (collected.get("refine_followups") or []) else S.REFINE_CONFIRM
+
+    if current is S.REFINE_FOLLOWUP:
+        queue = collected.get("refine_followups") or []
+        idx = int(collected.get("refine_followup_idx") or 0)
+        return S.REFINE_FOLLOWUP if idx < len(queue) else S.REFINE_CONFIRM
+
+    if current is S.REFINE_CONFIRM:
+        # A newly-added element (typed at the "anything else" prompt) deep-dives
+        # before we regenerate; otherwise go straight to regeneration.
+        return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.REGENERATING
+
     # --- Upsell branch ---
     if current is S.UPSELL_PROMPT:
         if collected.get("wants_upsell") and upsell_count < MAX_UPSELL_ZONES:
@@ -224,6 +258,12 @@ def advance_state(
     # --- Composite preview branch (blank-hat flow) ---
     if current is S.COMPOSITE_PREVIEW:
         return S.GENERATING if collected.get("composite_confirmed") else S.ASK_MORE_ELEMENTS
+
+    # --- Pre-generation brief confirmation ---
+    if current is S.CONFIRM_BRIEF:
+        if collected.get("pending_element"):
+            return S.ELEMENT_DEEPDIVE
+        return S.GENERATING if collected.get("brief_confirmed") else S.CONFIRM_BRIEF
 
     # --- Default: first declared successor ---
     nexts = TRANSITIONS.get(current, [])
@@ -293,12 +333,15 @@ def advance_and_skip(
 # represents the single decoration-choice question (whichever variant is shown).
 def _progress_path(collected: dict) -> list[ConversationState]:
     S = ConversationState
-    path = [S.ASK_NAME, S.ASK_PURPOSE, S.ASK_QUANTITY, S.RECOMMEND_DECORATION, S.ASK_HAS_LOGO]
+    # Decoration now comes AFTER the design source (has_logo -> upload/describe),
+    # so the counter reflects: name, purpose, quantity, has_logo, design source,
+    # decoration, email.
+    path = [S.ASK_NAME, S.ASK_PURPOSE, S.ASK_QUANTITY, S.ASK_HAS_LOGO]
     if collected.get("has_logo"):
         path += [S.UPLOAD_LOGO, S.ASK_REMOVE_BG]
     else:
         path += [S.DESCRIBE_DESIGN]
-    path += [S.SAVE_PROGRESS_EMAIL]
+    path += [S.RECOMMEND_DECORATION, S.SAVE_PROGRESS_EMAIL]
     return path
 
 
@@ -308,6 +351,7 @@ _POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
         ConversationState.ASK_PIN_ANNOTATION,
         ConversationState.PIN_ANNOTATE_MODE,
         ConversationState.COMPOSITE_PREVIEW,
+        ConversationState.CONFIRM_BRIEF,
         ConversationState.ASK_EMAIL,
         ConversationState.GENERATING,
         ConversationState.VERIFY_EMAIL,
@@ -316,6 +360,8 @@ _POST_QUESTION_STATES: frozenset[ConversationState] = frozenset(
         ConversationState.SHOW_DESIGN,
         ConversationState.OFFER_REFINE,
         ConversationState.DESCRIBE_CHANGES,
+        ConversationState.REFINE_FOLLOWUP,
+        ConversationState.REFINE_CONFIRM,
         ConversationState.REGENERATING,
         ConversationState.QUOTE_REQUESTED,
         ConversationState.UPSELL_PROMPT,

@@ -21,6 +21,7 @@ class StubAdapter(ImageProvider):
         reference_image_url: str,
         uploaded_asset_url: str | None,
         params: GenerationParams,
+        prior_design_url: str | None = None,
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required")

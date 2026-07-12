@@ -270,19 +270,53 @@ def _extract_attrs_heuristic(el_type: str, message: str) -> dict:
     return out
 
 
-async def extract_element_attributes(el_type: str, message: str) -> dict:
+async def extract_element_attributes(
+    el_type: str, message: str, ask_for: str | None = None
+) -> dict:
     """Extract recognised per-element attributes from freeform text.
 
     Used by the per-element deep-dive flow to fill in content/font/size/
     colour/style/placement for a single decoration element without forcing
     the customer through one question per attribute when they volunteer
     several at once (or defer the choice to us).
+
+    ``ask_for`` (optional): the attribute we just asked about. Passed to the
+    model so a short answer (e.g. "Back" answering placement) is read as THAT
+    attribute rather than greedily inferred as ``content``.
     """
     if not _has_llm:
         return _extract_attrs_heuristic(el_type, message)
-    prompt = prompts.ELEMENT_ATTRIBUTE_PROMPT.format(el_type=el_type, message=message)
+    prompt = prompts.ELEMENT_ATTRIBUTE_PROMPT.format(
+        el_type=el_type, message=message, ask_for=ask_for or "any attribute they mention"
+    )
     data = _parse_json(await _complete(prompt, max_tokens=200))
     return data if isinstance(data, dict) else {}
+
+
+_VIEW_WORDS = ("front", "back", "side", "left", "right", "under", "brim", "peak")
+
+
+async def refine_followups(change: str, collected: dict) -> list[str]:
+    """Up to 3 clarifying questions for a requested design change (or [] if clear).
+
+    With a key: Haiku proposes questions tailored to the change. Without a key:
+    a single canned question — ask which part of the cap the change applies to,
+    but only when the change didn't already name a view.
+    """
+    low = (change or "").lower()
+    if not _has_llm:
+        if not any(w in low for w in _VIEW_WORDS):
+            return ["Which part of the cap should this change apply to — the front, back, or a side?"]
+        return []
+    try:
+        raw = await _complete(
+            prompts.REFINE_FOLLOWUP_PROMPT.format(change=(change or "")[:400]), max_tokens=200
+        )
+        data = _parse_json(raw)
+        questions = data.get("questions") if isinstance(data, dict) else None
+        return [str(q).strip() for q in (questions or []) if str(q).strip()][:3]
+    except Exception:  # noqa: BLE001 — never break the flow on a followup miss
+        return []
 
 
 async def generate_reply(
@@ -291,6 +325,8 @@ async def generate_reply(
     persona_name: str,
     aside: str | None = None,
     ask_for: str | None = None,
+    ask_text: str | None = None,
+    element: dict | None = None,
 ) -> str:
     """Word Ricardo's reply for the given state.
 
@@ -306,16 +342,33 @@ async def generate_reply(
     the per-element deep-dive flow.
     """
     if not _has_llm:
-        if ask_for:
+        if ask_text:
+            base = ask_text
+        elif ask_for:
             base = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
         else:
             base = _generate_reply_canned(state, collected, persona_name)
         return f"{aside} {base}" if aside else base
 
-    if ask_for:
-        question = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
+    if ask_text:
         instruction = (
-            f"Acknowledge what the customer just said, then ask: {question} "
+            "Briefly acknowledge what the customer just said, then ask them exactly "
+            f"this, in your own warm words: {ask_text}"
+        )
+    elif ask_for:
+        question = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
+        el_ctx = ""
+        if element:
+            etype = element.get("type", "element")
+            content = element.get("content")
+            el_ctx = f" You are asking about the customer's {etype} element"
+            # A logo's `content` is a placeholder ("uploaded logo"), never text
+            # to speak back; only quote real text/graphic content.
+            if content and etype in ("text", "graphic"):
+                el_ctx += f' (which says "{content}")'
+            el_ctx += f". Refer to it as their {etype}, not as anything else."
+        instruction = (
+            f"Acknowledge what the customer just said.{el_ctx} Then ask: {question} "
             "Let them say 'you choose' or similar to leave it to you."
         )
     else:

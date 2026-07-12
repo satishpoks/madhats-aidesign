@@ -18,6 +18,8 @@ interface ProductViewerProps {
    * unchanged. Absent for the customise flow — behaviour there is untouched.
    */
   compositeViews?: Record<string, string>
+  /** True while an AI render is in flight — shows a "creating your design" overlay. */
+  generating?: boolean
 }
 
 const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
@@ -28,7 +30,7 @@ interface Thumb {
   src: string
 }
 
-export function ProductViewer({ productRef, designUrls = [], compositeViews }: ProductViewerProps) {
+export function ProductViewer({ productRef, designUrls = [], compositeViews, generating = false }: ProductViewerProps) {
   const angleThumbs = useMemo<Thumb[]>(() => {
     const imgs = productRef?.view_images ?? {}
     // Front keeps the plain blank photo ONLY once a real design exists (the
@@ -87,9 +89,24 @@ export function ProductViewer({ productRef, designUrls = [], compositeViews }: P
       </div>
 
       {/* Main image */}
-      <div className="flex-1 min-h-0 flex items-center justify-center rounded-2xl bg-surface border-2 border-border p-4">
+      <div className="relative flex-1 min-h-0 flex items-center justify-center rounded-2xl bg-surface border-2 border-border p-4">
         {active && (
-          <img src={active.src} alt="main view" className="max-h-full max-w-full object-contain" draggable={false} />
+          <img
+            src={active.src}
+            alt="main view"
+            className={`max-h-full max-w-full object-contain transition-opacity ${generating ? 'opacity-40' : ''}`}
+            draggable={false}
+          />
+        )}
+        {generating && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface/70 backdrop-blur-[1px]">
+            <span
+              className="w-10 h-10 rounded-full border-[3px] border-border border-t-accent animate-spin"
+              aria-hidden="true"
+            />
+            <p className="text-sm font-medium text-textPrimary">Creating your design…</p>
+            <p className="text-xs text-textMuted">This usually takes a few moments</p>
+          </div>
         )}
       </div>
 

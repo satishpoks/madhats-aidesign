@@ -6,7 +6,12 @@ import io
 
 from PIL import Image
 
-from app.services.image.adapters.gemini_base import _to_square
+from app.services.image.adapters.gemini_base import (
+    _OUTPUT_SIZE,
+    _normalise_output,
+    _to_square,
+    _to_square_logo,
+)
 
 
 def _png(w: int, h: int) -> bytes:
@@ -33,3 +38,34 @@ def test_already_square_returned_unchanged():
 def test_undecodable_bytes_returned_unchanged():
     # never break generation on a decode hiccup
     assert _to_square(b"not an image") == b"not an image"
+
+
+# --- logo squaring: the output shape must follow the cap, not a long logo ---
+
+def test_long_logo_padded_to_square_transparently():
+    # A wide/long logo (the reported failure) is padded to a square so its
+    # aspect ratio can't bias the output; padding is transparent (no white box).
+    out = _to_square_logo(_png(600, 100))
+    img = Image.open(io.BytesIO(out))
+    assert img.size == (600, 600)
+    assert img.mode == "RGBA"
+    assert img.getpixel((0, 0))[3] == 0  # top-left corner is transparent padding
+
+
+def test_square_logo_returned_unchanged():
+    src = _png(200, 200)
+    assert _to_square_logo(src) is src
+
+
+def test_logo_undecodable_bytes_returned_unchanged():
+    assert _to_square_logo(b"not an image") == b"not an image"
+
+
+# --- output normalisation: exactly 1000x1000 every time ---
+
+def test_output_normalised_to_1000_square():
+    assert _OUTPUT_SIZE == 1000
+    out = _normalise_output(_png(1600, 900))
+    img = Image.open(io.BytesIO(out))
+    assert img.size == (1000, 1000)
+    assert img.mode == "RGB"

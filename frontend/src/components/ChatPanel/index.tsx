@@ -353,6 +353,7 @@ export function ChatPanel() {
   const startGeneration = useGenerationStore(s => s.startGeneration)
   const startRegeneration = useGenerationStore(s => s.startRegeneration)
   const designs = useGenerationStore(s => s.designs)
+  const genStatus = useGenerationStore(s => s.status)
 
   // The design is delivered by email only once the address is verified — the
   // on-screen viewer must not reveal it any earlier. These are the chat states
@@ -363,6 +364,8 @@ export function ChatPanel() {
     'show_design',
     'offer_refine',
     'describe_changes',
+    'refine_followup',
+    'refine_confirm',
     'regenerating',
     'quote_requested',
     'upsell_prompt',
@@ -381,6 +384,7 @@ export function ChatPanel() {
   const tintReady = useChatStore(s => s.tintReady)
   const tintHex = useChatStore(s => s.tintHex)
   const colourSwatches = useChatStore(s => s.colourSwatches)
+  const colourPicker = useChatStore(s => s.colourPicker)
 
   // Composited blank-hat views (front/back/left/right). Fetched the moment a
   // colour is chosen (tint_ready), and again at composite_preview (which also
@@ -407,6 +411,9 @@ export function ChatPanel() {
   }, [tintReady, tintHex, compositePreview, sessionId, composite])
 
   const [inputText, setInputText] = useState('')
+  // Custom hat colour chosen via the native colour picker (blank-hat colour
+  // step). Sent as a hex string, which the backend accepts directly for the tint.
+  const [customColour, setCustomColour] = useState('#1e40af')
   // Lets the customer dismiss the logo-upload modal (to type a different reply)
   // without losing the ability to reopen it. Reset whenever we leave the state.
   const [logoModalDismissed, setLogoModalDismissed] = useState(false)
@@ -558,6 +565,7 @@ export function ChatPanel() {
               productRef={productRef}
               designUrls={designReleased ? designs : []}
               compositeViews={composite ?? undefined}
+              generating={genStatus === 'generating'}
             />
           )}
         </div>
@@ -611,7 +619,7 @@ export function ChatPanel() {
             className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+              className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
                   ? 'bg-accent text-white rounded-br-sm'
                   : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
@@ -709,6 +717,38 @@ export function ChatPanel() {
                 {sw.name}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Custom colour picker (blank-hat colour step). Shown alongside any
+            preset swatches so the customer can pick an exact colour when their
+            hat type has no predefined colourways (or none of them fit). Sends
+            the chosen hex, which the backend maps straight to the tint. */}
+        {colourPicker && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-2 px-3 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary cursor-pointer">
+              <span
+                className="w-4 h-4 rounded-full border border-border flex-shrink-0"
+                style={{ background: customColour }}
+                aria-hidden="true"
+              />
+              <span>{colourSwatches.length > 0 ? 'Custom colour' : 'Pick a colour'}</span>
+              <input
+                type="color"
+                value={customColour}
+                onChange={e => setCustomColour(e.target.value)}
+                disabled={sending}
+                aria-label="Pick a custom hat colour"
+                className="w-6 h-6 p-0 border-0 bg-transparent cursor-pointer"
+              />
+            </label>
+            <button
+              onClick={() => handleChip(customColour)}
+              disabled={sending}
+              className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Use this colour
+            </button>
           </div>
         )}
 

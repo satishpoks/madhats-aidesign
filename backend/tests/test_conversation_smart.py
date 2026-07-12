@@ -222,8 +222,8 @@ async def test_placement_zone_defaults_position_and_skips_position_turn(monkeypa
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("pin?"))
     res = await orch.handle_message("s1", "front panel")
     assert store["session"]["collected"]["placement_position"] == "centre"
-    # position turn skipped -> pin is hidden, so next is generation
-    assert res["state"] == S.GENERATING.value
+    # position turn skipped -> pin hidden -> the pre-generation brief confirmation
+    assert res["state"] == S.CONFIRM_BRIEF.value
 
 
 @pytest.mark.asyncio
@@ -246,9 +246,9 @@ async def test_more_elements_yes_enters_add_mode(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_more_elements_decline_goes_to_generating(monkeypatch):
+async def test_more_elements_decline_goes_to_confirm_brief(monkeypatch):
     # Pin placement is hidden: a decline at ASK_MORE_ELEMENTS with no pending
-    # element goes straight to generation.
+    # element heads to the pre-generation brief confirmation (before generation).
     store = {"session": {"id": "s1", "state": S.ASK_MORE_ELEMENTS.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
@@ -259,8 +259,48 @@ async def test_more_elements_decline_goes_to_generating(monkeypatch):
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("mark a spot?"))
     res = await orch.handle_message("s1", "That's everything")
+    assert res["state"] == S.CONFIRM_BRIEF.value
+    assert not store["session"]["collected"].get("pending_element")
+
+
+@pytest.mark.asyncio
+async def test_confirm_brief_then_generates(monkeypatch):
+    # From the pre-generation confirmation, tapping confirm sets brief_confirmed
+    # and routes to GENERATING.
+    store = {"session": {"id": "s1", "state": S.CONFIRM_BRIEF.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements": [{"type": "text", "content": "TEAM"}],
+                                       "elements_offered": True, "email_prompt_shown": True},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch, "_can_start_design", lambda sid: True)
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("generating"))
+    res = await orch.handle_message("s1", "Looks good — generate")
+    assert store["session"]["collected"]["brief_confirmed"] is True
     assert res["state"] == S.GENERATING.value
-    assert "pending_element" not in store["session"]["collected"] or not store["session"]["collected"]["pending_element"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_brief_note_recorded_and_restays(monkeypatch):
+    # A note/change at the confirmation step is recorded (folded into the prompt)
+    # and we re-show the brief rather than generating.
+    store = {"session": {"id": "s1", "state": S.CONFIRM_BRIEF.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "elements": [{"type": "text", "content": "TEAM"}],
+                                       "elements_offered": True, "email_prompt_shown": True},
+                         "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("brief"))
+    res = await orch.handle_message("s1", "please keep the text gold")
+    assert "please keep the text gold" in store["session"]["collected"]["brief_notes"]
+    assert res["state"] == S.CONFIRM_BRIEF.value
+    assert not store["session"]["collected"].get("brief_confirmed")
 
 
 @pytest.mark.asyncio
@@ -336,7 +376,7 @@ async def test_deepdive_captures_then_completes_and_appends(monkeypatch):
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
-    async def _attrs(t, m): return {"placement_position": "centre"}
+    async def _attrs(t, m, ask_for=None): return {"placement_position": "centre"}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("anything else?"))
     res = await orch.handle_message("s1", "centre")
@@ -356,7 +396,7 @@ async def test_defer_marks_attribute_and_moves_on(monkeypatch):
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
-    async def _attrs(t, m): return {"defer": True}
+    async def _attrs(t, m, ask_for=None): return {"defer": True}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("size?"))
     await orch.handle_message("s1", "you choose")
@@ -385,7 +425,7 @@ async def test_deepdive_remove_bg_not_flipped_by_later_turn(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
 
-    async def _attrs(t, m):
+    async def _attrs(t, m, ask_for=None):
         return {"size": "medium", "remove_bg": False}  # simulates the stray heuristic match
 
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
@@ -407,7 +447,7 @@ async def test_deepdive_remove_bg_captured_when_actually_asked(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
 
-    async def _attrs(t, m):
+    async def _attrs(t, m, ask_for=None):
         return {"remove_bg": False}
 
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
@@ -432,7 +472,7 @@ async def test_deepdive_remove_bg_resolved_when_llm_omits_it(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
 
-    async def _attrs(t, m):
+    async def _attrs(t, m, ask_for=None):
         return {}  # LLM omitted remove_bg for "keep as is"
 
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
@@ -440,6 +480,60 @@ async def test_deepdive_remove_bg_resolved_when_llm_omits_it(monkeypatch):
     await orch.handle_message("s1", "keep as it is")
     el = store["session"]["collected"]["pending_element"]
     assert el["remove_bg"] is False  # resolved from the message, not left unset
+
+
+@pytest.mark.asyncio
+async def test_deepdive_later_answer_does_not_clobber_content(monkeypatch):
+    # Regression (session XejU8PSYL2n928oSJjw3_w): the text content "satish"
+    # was overwritten to "Back" when the customer answered the PLACEMENT
+    # question with "Back", because the context-free extractor re-parses "Back"
+    # as content too. An answer to the asked attribute must never clobber an
+    # already-captured attribute.
+    pend = {"type": "text", "content": "satish", "font": "clean", "size": "small",
+            "style": "clean", "deferred": ["colour"]}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 35, "decoration_type": "embroidery", "has_logo": True,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "placement_zone"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    async def _attrs(t, m, ask_for=None):
+        return {"content": "Back", "placement_zone": "back"}  # greedy: "Back" read as content too
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("whereabouts?"))
+    await orch.handle_message("s1", "Back")
+    el = store["session"]["collected"]["pending_element"]
+    assert el["content"] == "satish"          # NOT clobbered by the placement answer
+    assert el["placement_zone"] == "back"     # the asked attribute is captured
+
+
+@pytest.mark.asyncio
+async def test_deepdive_passes_ask_for_to_extractor(monkeypatch):
+    # The extractor must receive the attribute currently being asked so it can
+    # focus the parse (and not, e.g., read a one-word placement answer as content).
+    pend = {"type": "text", "content": "satish", "font": "clean", "size": "small",
+            "style": "clean", "deferred": ["colour"]}
+    store = {"session": {"id": "s1", "state": S.ELEMENT_DEEPDIVE.value,
+        "collected": {"name": "Al", "quantity": 35, "decoration_type": "embroidery", "has_logo": True,
+                     "elements": [], "elements_offered": True, "pending_element": pend,
+                     "deepdive_ask_for": "placement_zone"}, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+
+    captured = {}
+
+    async def _attrs(t, m, ask_for=None):
+        captured["ask_for"] = ask_for
+        return {"placement_zone": "back"}
+
+    monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("whereabouts?"))
+    await orch.handle_message("s1", "Back")
+    assert captured["ask_for"] == "placement_zone"
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +621,10 @@ async def test_bare_yes_in_add_mode_does_not_extract(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_refinement_add_updates_brief(monkeypatch):
+async def test_refinement_add_starts_deepdive(monkeypatch):
+    # Adding a new text/graphic during refine now seeds a pending_element so the
+    # SAME per-element deep-dive as the main flow runs (asking placement etc.),
+    # rather than merging into the flat brief.
     store = {"session": {"id": "s1", "state": S.DESCRIBE_CHANGES.value,
                          "collected": {"name": "Al", "purpose": "p", "quantity": 24,
                                        "decoration_type": "embroidery", "has_logo": False,
@@ -538,14 +635,13 @@ async def test_refinement_add_updates_brief(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("updating"))
-    monkeypatch.setattr(
-        orch.ie, "extract_design_description",
-        _capture_extractor({"add our team name in gold": {"text_elements": ["team name"], "colours": ["gold"]}}),
-    )
-    await orch.handle_message("s1", "add our team name in gold")
+    out = await orch.handle_message("s1", "add our team name in gold")
     collected = store["session"]["collected"]
-    assert "team name" in collected["design_description"]["text_elements"]
+    assert collected.get("refine_mode") is True
+    pending = collected.get("pending_element")
+    assert pending is not None and pending["type"] == "text"
     assert collected["last_change"] == "add our team name in gold"  # raw change still set
+    assert out["state"] == S.ELEMENT_DEEPDIVE.value  # routed into the deep-dive
 
 
 @pytest.mark.asyncio
@@ -626,7 +722,7 @@ async def test_already_have_logo_is_not_treated_as_decline(monkeypatch):
     # runs one extract_element_attributes pass to capture any volunteered
     # content along with the type choice -- mock it so the test stays
     # hermetic (no real LLM call) regardless of local .env key configuration.
-    async def _attrs(t, m): return {}
+    async def _attrs(t, m, ask_for=None): return {}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     res = await orch.handle_message("s1", "already have the logo, also add a star")
     assert res["state"] == S.ELEMENT_DEEPDIVE.value
@@ -647,7 +743,7 @@ async def test_type_choice_with_content_captures_volunteered_content(monkeypatch
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
 
-    async def _attrs(t, m):
+    async def _attrs(t, m, ask_for=None):
         return {"content": "GO TEAM"}
 
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
@@ -672,7 +768,7 @@ async def test_bare_type_chip_does_not_call_extractor(monkeypatch):
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
 
-    async def _attrs(t, m):
+    async def _attrs(t, m, ask_for=None):
         calls.append(m)
         return {}
 
@@ -743,7 +839,7 @@ async def test_describe_design_first_turn_enters_deepdive(monkeypatch):
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
-    async def _attrs(t, m): return {}
+    async def _attrs(t, m, ask_for=None): return {}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("tell me more"))
     res = await orch.handle_message("s1", "a mountain crest logo")
@@ -768,7 +864,7 @@ async def test_describe_then_early_email_checkpoint(monkeypatch):
     monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
     monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
-    async def _attrs(t, m): return {}
+    async def _attrs(t, m, ask_for=None): return {}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("tell me more"))
     res = await orch.handle_message("s1", "a mountain crest logo")
@@ -797,7 +893,7 @@ async def test_describe_design_does_not_double_extract_flat_brief(monkeypatch):
         orch.ie, "interpret_turn",
         _fixed_interpret({"intent": "answer", "fields": {"design_description": {"summary": "a mountain crest logo"}}}),
     )
-    async def _attrs(t, m): return {}
+    async def _attrs(t, m, ask_for=None): return {}
     monkeypatch.setattr(orch.ie, "extract_element_attributes", _attrs)
     calls = []
     async def _spy(message):

@@ -93,6 +93,30 @@ def _element_brief_line(el: dict) -> str:
     return f"{label} — {', '.join(bits)}" if bits else label
 
 
+def customer_brief(collected: dict, product_ref: dict | None = None) -> str:
+    """A short, customer-facing bullet summary of the WHOLE design, for the
+    pre-generation confirmation step (cap, colour, decoration, every element,
+    and any notes). One bullet per line; falls back to a generic phrase."""
+    product_ref = product_ref or {}
+    lines: list[str] = []
+    if product_ref.get("name"):
+        lines.append(f"• Cap: {product_ref['name']}")
+    hc = collected.get("hat_colour")
+    colour = (hc.get("name") or hc.get("hex")) if isinstance(hc, dict) else (hc if isinstance(hc, str) else None)
+    colour = colour or product_ref.get("colour")
+    if colour:
+        lines.append(f"• Colour: {colour}")
+    if collected.get("decoration_type"):
+        lines.append(f"• Decoration: {collected['decoration_type']}")
+    for el in collected.get("elements") or []:
+        ln = _element_brief_line(el)
+        if ln:
+            lines.append(f"• {ln}")
+    for note in collected.get("brief_notes") or []:
+        lines.append(f"• Note: {note}")
+    return "\n".join(lines) if lines else "• Your custom design"
+
+
 def summarise_elements(collected: dict) -> str:
     """Short human-readable brief of the design, one line per element.
 

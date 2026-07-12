@@ -59,6 +59,9 @@ export interface SessionDetailResponse {
   status: string
   messages: ChatMessageOut[]
   data: Record<string, unknown>
+  /** Signed design URLs (front→back→…) for a resumed, already-generated session.
+   *  Empty until the email is verified. */
+  designs?: string[]
 }
 
 /** Verification poll (GET /chat/{id}/verification). reply is null until verified. */
@@ -72,4 +75,10 @@ export interface GenerationStatus {
   status: string
   image_url: string
   watermarked_url: string
+  /**
+   * Per-view signed (watermarked) URLs { view: url } for a multi-view design —
+   * the front hero plus any decorated back/side view, in front→back→left→right
+   * order. Empty for a single-view design.
+   */
+  view_images?: Record<string, string>
 }

@@ -120,6 +120,9 @@ def test_regenerate_uses_preview_provider_for_edit_tier(monkeypatch):
         def eq(self, *a, **k):
             return self
 
+        def order(self, *a, **k):
+            return self
+
         def limit(self, *a, **k):
             return self
 

@@ -47,3 +47,8 @@ class SessionDetail(BaseModel):
     # resumed session can rebuild the right controls without re-deriving them
     # client-side. Mirrors the ChatResponse.data shape.
     data: dict = Field(default_factory=dict)
+    # Signed (watermarked) design URLs for the latest completed generation, in
+    # front→back→left→right order — so a resumed session shows the already-made
+    # design immediately. Only populated once the email is verified (same gate as
+    # the on-screen reveal); empty otherwise.
+    designs: list[str] = Field(default_factory=list)

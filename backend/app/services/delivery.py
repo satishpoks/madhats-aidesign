@@ -28,6 +28,10 @@ from app.storage import generate_signed_url
 
 log = structlog.get_logger()
 
+# Order + friendly labels for the multi-view preview email.
+_VIEW_ORDER = ("front", "back", "left", "right")
+_VIEW_LABELS = {"front": "Front", "back": "Back", "left": "Left side", "right": "Right side"}
+
 
 def _to_signed(path: str | None) -> str:
     """Sign a storage path; pass through external URLs (e.g. the stub
@@ -153,10 +157,28 @@ def maybe_send_preview(session_id: str) -> bool:
     mailto = f"mailto:{settings.resend_from_address}"
     quote_token = leads_service.make_quote_token(lead)
     quote_url = f"{settings.email_verify_base_url}/quote/{quote_token}"
-    # Inline the image bytes so the recipient's mail client never has to fetch
-    # (and fail to reach) the private storage URL. Falls back to the URL src if
-    # the fetch fails.
-    image_bytes = _fetch_image_bytes(customer_image_url)
+    # Gather every rendered view (front hero + any decorated back/side view) so
+    # the email shows them all, stacked at equal size. Inline each image's bytes
+    # so the recipient's mail client never has to fetch (and fail to reach) the
+    # private storage URL; fall back to the URL src if a fetch fails. Legacy /
+    # single-view rows (no view_images) fall back to the single hero image.
+    raw_views = gen.get("view_images") or {}
+    preview_images: list[dict] = []
+    for view in _VIEW_ORDER:
+        entry = raw_views.get(view)
+        if not entry:
+            continue
+        url = _to_signed(entry.get("watermarked_url") or entry.get("image_url"))
+        if not url:
+            continue
+        preview_images.append(
+            {"url": url, "bytes": _fetch_image_bytes(url), "label": _VIEW_LABELS.get(view, view)}
+        )
+    if not preview_images:
+        preview_images = [
+            {"url": customer_image_url, "bytes": _fetch_image_bytes(customer_image_url), "label": ""}
+        ]
+
     preview_sent = email_service.send_preview_email(
         lead["email"],
         lead["name"],
@@ -165,7 +187,8 @@ def maybe_send_preview(session_id: str) -> bool:
         quote_url=quote_url,
         edit_url=edit_url,
         talk_url=mailto,
-        image_bytes=image_bytes,
+        image_bytes=preview_images[0]["bytes"],
+        images=preview_images,
     )
 
     if not lead.get("quote_request_sent"):

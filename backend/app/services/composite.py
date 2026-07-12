@@ -18,6 +18,14 @@ log = structlog.get_logger()
 
 _VIEWS = ("front", "back", "left", "right")
 
+# How strongly the colour tint is applied to the on-screen blank preview.
+# A full 100% multiply looks too dark (especially for deep colours), so we blend
+# the tinted result back toward the untinted blank: 0.75 => 75% tint / 25%
+# original (lighter). DISPLAY-ONLY — the AI render recolours from the chosen
+# colour hex + prompt, never from this composite, so this never touches
+# generation. Lower it (e.g. 0.5) for an even lighter on-screen tint.
+_TINT_STRENGTH = 0.75
+
 
 def _hex_to_rgb(hex_colour: str) -> tuple[int, int, int]:
     h = (hex_colour or "#808080").lstrip("#")
@@ -42,7 +50,12 @@ def tint_image(img: Image.Image, hex_colour: str) -> Image.Image:
     alpha = base.getchannel("A")
     rgb = base.convert("RGB")
     solid = Image.new("RGB", rgb.size, (r, g, b))
-    tinted = ImageChops.multiply(rgb, solid).convert("RGBA")
+    multiplied = ImageChops.multiply(rgb, solid)
+    # Blend the full multiply back toward the untinted blank so the on-screen
+    # tint isn't too dark (display-only; see _TINT_STRENGTH). At strength 1.0
+    # this is the raw multiply; below that the original lightens it.
+    lightened = Image.blend(rgb, multiplied, _TINT_STRENGTH)
+    tinted = lightened.convert("RGBA")
     tinted.putalpha(alpha)
     return tinted
 

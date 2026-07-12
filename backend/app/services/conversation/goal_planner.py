@@ -22,6 +22,7 @@ GATE_STATES: frozenset[S] = frozenset(
         S.ADD_ELEMENTS_MODE,
         S.ELEMENT_DEEPDIVE,
         S.COMPOSITE_PREVIEW,
+        S.CONFIRM_BRIEF,
         S.GENERATING,
         S.ASK_EMAIL,
         S.VERIFY_EMAIL,
@@ -30,6 +31,8 @@ GATE_STATES: frozenset[S] = frozenset(
         S.SHOW_DESIGN,
         S.OFFER_REFINE,
         S.DESCRIBE_CHANGES,
+        S.REFINE_FOLLOWUP,
+        S.REFINE_CONFIRM,
         S.REGENERATING,
         S.QUOTE_REQUESTED,
         S.UPSELL_PROMPT,
@@ -87,24 +90,10 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
             and not collected.get("colour_detail_asked"):
         return S.ASK_COLOUR_DETAIL
 
-    # 4. decoration type (required)
-    if not collected.get("decoration_type"):
-        return _decoration_state(collected)
-
-    # 4b. early email checkpoint — the moment a design source exists (a
-    # described element or an uploaded logo has seeded one), capture the email
-    # once, framed as "saves your progress", BEFORE the per-element deep-dive.
-    # Non-blocking: once offered (email_prompt_shown), fall through whether or
-    # not a usable email was given.
-    if (collected.get("pending_element") or collected.get("elements")) \
-            and not collected.get("email_prompt_shown"):
-        return S.SAVE_PROGRESS_EMAIL
-
-    # an element is mid-build -> the per-element deep-dive owns it
-    if collected.get("pending_element"):
-        return S.ELEMENT_DEEPDIVE
-
-    # 5. design source (required): at least one element must exist or be pending
+    # 4. design source (required): establish WHAT we're decorating FIRST. At
+    # least one element must exist or be pending — ask for the logo/graphic or a
+    # description before anything else about the decoration, because without a
+    # graphic there's no question of how to decorate it.
     if "has_logo" not in collected:
         return S.ASK_HAS_LOGO
     if not collected.get("elements") and not collected.get("pending_element"):
@@ -114,7 +103,24 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
         else:
             return S.DESCRIBE_DESIGN
 
-    # 5b. additional elements (optional, offered exactly once)
+    # 5. decoration type (required) — asked AFTER the design source exists, since
+    # print vs embroidery only makes sense once there's a graphic/logo to apply.
+    if not collected.get("decoration_type"):
+        return _decoration_state(collected)
+
+    # 5b. early email checkpoint — with a design source captured and the
+    # decoration chosen, capture the email once, framed as "saves your
+    # progress", BEFORE the per-element deep-dive. Non-blocking: once offered
+    # (email_prompt_shown), fall through whether or not a usable email was given.
+    if (collected.get("pending_element") or collected.get("elements")) \
+            and not collected.get("email_prompt_shown"):
+        return S.SAVE_PROGRESS_EMAIL
+
+    # an element is mid-build -> the per-element deep-dive owns it
+    if collected.get("pending_element"):
+        return S.ELEMENT_DEEPDIVE
+
+    # 5c. additional elements (optional, offered exactly once)
     if not collected.get("elements_offered"):
         return S.ASK_MORE_ELEMENTS
 

@@ -3,12 +3,20 @@ from PIL import Image
 from app.services import composite
 
 
-def test_tint_darkens_white_toward_colour():
+def test_tint_white_takes_lightened_colour():
     white = Image.new("RGB", (10, 10), (255, 255, 255))
     tinted = composite.tint_image(white, "#1a2b5c")
-    # a white pixel multiplied by the colour becomes the colour (opaque)
+    # The tint is applied at _TINT_STRENGTH (display-only lightening), so a white
+    # pixel lands between the full colour and white: clearly coloured, but lighter
+    # than a 100% multiply.
     assert tinted.mode == "RGBA"
-    assert tinted.getpixel((5, 5)) == (0x1a, 0x2b, 0x5c, 255)
+    r, g, b, a = tinted.getpixel((5, 5))
+    assert a == 255
+    s = composite._TINT_STRENGTH
+    for chan, target in zip((r, g, b), (0x1a, 0x2b, 0x5c)):
+        expected = round(255 * (1 - s) + target * s)
+        assert abs(chan - expected) <= 1
+        assert chan > target  # lighter than the raw full-strength colour
 
 
 def test_tint_preserves_black_shadows():
@@ -24,7 +32,10 @@ def test_tint_preserves_transparent_background():
     img.putpixel((5, 5), (255, 255, 255, 255))             # one opaque "hat" pixel
     tinted = composite.tint_image(img, "#1a2b5c")
     assert tinted.getpixel((0, 0))[3] == 0                 # background alpha untouched
-    assert tinted.getpixel((5, 5)) == (0x1a, 0x2b, 0x5c, 255)  # hat pixel recoloured
+    r, g, b, a = tinted.getpixel((5, 5))                   # hat pixel recoloured
+    assert a == 255
+    assert (r, g, b) != (0x1a, 0x2b, 0x5c)                 # lightened, not full-strength
+    assert r > 0x1a and g > 0x2b and b > 0x5c              # lighter than raw colour
 
 
 def test_zone_box_front_panel_centre_is_upper_middle():

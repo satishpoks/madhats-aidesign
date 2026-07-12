@@ -186,7 +186,9 @@ def test_logs_request_and_response_on_success(monkeypatch):
     req = logs["request"][0]
     assert req["attempt"] == 1
     assert req["reference_image_url"] == "http://x/ref.png"
-    assert req["full_prompt"] == "a design prompt"
+    # The worker now builds the prompt PER VIEW (not the pre-passed string), so
+    # the logged prompt reflects the front hero's brief.
+    assert "bold logo" in req["full_prompt"]
     assert len(logs["response"]) == 1
     log_id, resp = logs["response"][0]
     assert log_id == "log-1"

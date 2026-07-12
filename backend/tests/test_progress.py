@@ -13,7 +13,7 @@ def test_progress_describe_branch_total():
     collected = {"has_logo": False}
     p = progress(S.ASK_NAME, collected)
     assert p["step"] == 1
-    assert p["total"] == 7  # name,purpose,qty,decoration,has_logo,describe,email
+    assert p["total"] == 7  # name,purpose,qty,has_logo,describe,decoration,email
 
 
 def test_progress_upload_branch_is_longer():
@@ -22,7 +22,9 @@ def test_progress_upload_branch_is_longer():
     collected = {"has_logo": True}
     p = progress(S.ASK_PLACEMENT_ZONE, collected)
     assert p["total"] == 8  # upload branch adds remove-bg; zone retired
-    assert p["step"] == 7
+    # ASK_REMOVE_BG is the design-source step; decoration now follows it, so the
+    # remove-bg step is 6th (name,purpose,qty,has_logo,upload,remove-bg).
+    assert p["step"] == 6
 
 
 def test_progress_post_design_is_complete():

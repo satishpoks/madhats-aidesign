@@ -102,7 +102,20 @@ STATE_PROMPTS: dict[str, str] = {
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
     "show_design": "Tell them their design is ready and shown on screen (watermarked preview).",
     "offer_refine": "Ask if they'd like to tweak anything about the design, or if they're happy with it.",
-    "describe_changes": "Invite them to describe the change they'd like to the design.",
+    "describe_changes": (
+        "Tell the customer you'll refine the design in ONE pass, so they should "
+        "describe EVERYTHING they'd like changed — colours, text, size, placement, "
+        "and which view (front/back/side) — as clearly as they can. Then ask what "
+        "they'd like to change. Warm, 1-2 sentences."
+    ),
+    "refine_followup": (
+        "Briefly acknowledge the change the customer described, then ask the single "
+        "follow-up question provided to you. One short sentence."
+    ),
+    "refine_confirm": (
+        "Ask whether there's anything else they'd like to add before you put the "
+        "updated design together — and that if not, you'll get started. One sentence."
+    ),
     "regenerating": "Let them know you're updating the design with their changes now.",
     "quote_requested": "Let them know one of the MadHats team will be in touch with a quote shortly.",
     "upsell_prompt": "Warmly ask if they'd like to add the design to another part of the cap, "
@@ -218,9 +231,23 @@ ATTRIBUTE_QUESTIONS = {
     "remove_bg": "Should I clean up / remove the background of your artwork? (yes/no)",
 }
 
+REFINE_FOLLOWUP_PROMPT = """The customer asked to change their already-generated cap design.
+Their requested change: "{change}"
+
+Produce up to THREE short, specific follow-up questions that would help you apply
+this change accurately — for example which view/panel it applies to, the exact
+colour, the size, or the precise wording. ONLY ask about things the change did not
+already make clear. If the change is already fully clear, return an empty list.
+
+Respond with ONLY a JSON object: {{"questions": ["...", "..."]}}"""
+
 ELEMENT_ATTRIBUTE_PROMPT = """The customer is describing ONE decoration element of type "{el_type}" for a cap.
+We just asked them about this attribute: "{ask_for}".
 Message: "{message}"
-Extract ONLY attributes they actually gave. Respond with ONLY a JSON object with any of:
+Extract ONLY attributes they actually gave. Read the message primarily as an answer
+to "{ask_for}"; do NOT infer "content" from a short answer that is really a
+placement/size/colour choice (e.g. "Back" answering placement is placement_zone, NOT content).
+Respond with ONLY a JSON object with any of:
 {{"content": "...", "font": "...", "size": "small|medium|large", "colour": "...",
   "style": "...", "placement_zone": "front_panel|side|back|under_brim",
   "placement_position": "left|centre|right", "remove_bg": true, "defer": true}}
@@ -328,7 +355,16 @@ CANNED_REPLIES: dict[str, str] = {
     "send_preview_email": "Your design is on its way to your inbox now.",
     "show_design": "Here's your design — take a look on the left! It's a watermarked preview.",
     "offer_refine": "Want to tweak anything about it, or are you happy with this design?",
-    "describe_changes": "Sure — tell me what you'd like to change and I'll update it.",
+    "describe_changes": (
+        "Sure — I'll refine your design in one pass, so tell me everything you'd like "
+        "changed: colours, text, size, placement, and which view (front, back or side). "
+        "What would you like to change?"
+    ),
+    "refine_followup": "Got it — just one quick thing to make sure I nail it.",
+    "refine_confirm": (
+        "Anything else you'd like to add or change before I put the updated design "
+        "together? If not, tap below and I'll get started."
+    ),
     "regenerating": "Updating your design with those changes now…",
     "quote_requested": "One of the MadHats team will be in touch with your quote shortly.",
     "upsell_prompt": (
@@ -337,6 +373,27 @@ CANNED_REPLIES: dict[str, str] = {
     ),
     "session_end": "Thanks so much, {name}! It was great designing with you. The MadHats team will be in touch soon.",
 }
+
+# Spoken (as an aside) when the customer has hit their per-day design limit, so
+# a new render can't be produced right now. We route them to the quote handoff
+# instead of the normal generation flow — never claim a design was produced when
+# it wasn't. See orchestrator._apply_generation_gate.
+# Pre-generation confirmation. Shown once before the FIRST AI render so the
+# customer can confirm/adjust everything that will be sent to the image model —
+# AI designs are limited, so we get it right in one go. {summary} is filled by
+# design_summary.customer_brief().
+CONFIRM_BRIEF_MESSAGE = (
+    "Before I create your design, here's what I've got:\n\n{summary}\n\n"
+    "Does that all look right? Reply to change anything, or add a note for our team "
+    "— or tap below and I'll get started. Quick heads-up: you get a limited number "
+    "of AI designs, so it's worth making sure it's spot-on here first."
+)
+
+GENERATION_BLOCKED_ASIDE = (
+    "You've reached today's design limit, so I can't spin up a fresh render right "
+    "now — but I've got your brief saved and the MadHats team will follow up about "
+    "your design."
+)
 
 # ---------------------------------------------------------------------------
 # Image generation prompt templates
@@ -381,13 +438,22 @@ DECORATION(S) TO ADD (each placed exactly as noted):
 DECORATION STYLE:
 Every added decoration must follow the panel's natural curvature, perspective and lighting so it looks physically applied, not like a flat sticker.
 {decoration_style}
+
+PLACEMENT DISCIPLINE — every decoration MUST sit entirely on the cap's fabric:
+- Keep each decoration FULLY WITHIN the boundaries of its cap panel. It must be completely ON the hat — never off the cap's edge, never overhanging into the background, and never on any empty, blank or transparent area around the cap.
+- If a decoration would be too large to fit its panel, scale it DOWN so it sits entirely on the panel.
+- "Back" means the MAIN BACK PANEL of the cap. Do NOT place a decoration on the strap, closure, buckle or adjuster unless the customer explicitly asked for the strap.
 {pin_block}
 
 OUTPUT — STRICT:
 Return ONE photorealistic, SQUARE (1:1 aspect ratio) image of the SAME single cap
 from the SAME angle as the reference, identical in every respect except for the
-added decoration. The cap must be centred and fill roughly 70-75% of the frame on
-a plain, uncluttered background.
+added decoration. The cap must be centred and fill roughly 70-75% of the frame.
+BACKGROUND: a plain, solid, pure-WHITE (#FFFFFF) background — completely flat and
+uniform, edge to edge, every time. No gradient, tint, vignette, texture, floor,
+surface, wall, backdrop prop or scenery, and no shadow cast onto the background.
+The cap may keep its own natural contact shadow, but the backdrop itself stays
+pure white.
 Render NOTHING ELSE. Absolutely no title, caption, heading, label, product name,
 design name, customer name, watermark, text card, or any words that are not part
 of the decoration itself; and no second panel, collage, split-screen,
@@ -423,13 +489,21 @@ DECORATION(S) TO ADD (each placed exactly as noted):
 DECORATION STYLE:
 Every added decoration must follow the panel's natural curvature, perspective and lighting so it looks physically applied, not like a flat sticker.
 {decoration_style}
+
+PLACEMENT DISCIPLINE — every decoration MUST sit entirely on the cap's fabric:
+- Keep each decoration FULLY WITHIN the boundaries of its cap panel. It must be completely ON the hat — never off the cap's edge, never overhanging into the background, and never on any empty, blank or transparent area around the cap.
+- If a decoration would be too large to fit its panel, scale it DOWN so it sits entirely on the panel.
+- "Back" means the MAIN BACK PANEL of the cap. Do NOT place a decoration on the strap, closure, buckle or adjuster unless the customer explicitly asked for the strap.
 {pin_block}
 
 OUTPUT — STRICT:
 Return ONE photorealistic, SQUARE (1:1) image of the SAME single cap from the SAME
 angle as the reference, identical in shape and framing, recoloured as specified and
 carrying only the added decoration. The cap must be centred and fill roughly 70-75%
-of the frame on a plain, uncluttered background. Render NOTHING ELSE — no title,
+of the frame. BACKGROUND: a plain, solid, pure-WHITE (#FFFFFF) background —
+completely flat and uniform, edge to edge, every time. No gradient, tint, vignette,
+texture, surface, backdrop prop or scenery, and no shadow cast onto the background.
+Render NOTHING ELSE — no title,
 caption, label, watermark, second panel, collage, grid, duplicate cap or reference
 swatch. One product photo of one cap and nothing more."""
 
@@ -444,6 +518,13 @@ uploaded artwork may appear ONLY as decoration on the cap panel, nowhere else.""
 
 # Fallback design_block when no design intent was captured at all.
 FALLBACK_DESIGN_BLOCK = "the customer's supplied design"
+
+# design_block for a view that carries NO decoration (e.g. the front hero of a
+# design whose only elements sit on the back). The cap is reproduced clean.
+NO_DECORATION_DESIGN_BLOCK = (
+    "No decoration is added on this view. Reproduce the cap exactly as in the "
+    "reference photo — no logo, text, graphic or embellishment of any kind on it."
+)
 
 # {decoration_kind} values interpolated into IMAGE_GEN_PROMPT.
 DECORATION_KIND_EMBROIDERY = "stitched embroidery"
@@ -476,7 +557,40 @@ This link expires in 15 minutes. If you didn't request this, you can ignore this
 — Ricardo, MadHats AI Design Studio
 """
 
+# Sent when the customer verifies their email EARLY — before the design has
+# finished generating/delivering — so they have a link back into the chat to
+# continue if they've closed the tab. Filled with .format(name=, resume_url=).
+RESUME_EMAIL_SUBJECT = "Pick up where you left off — your MadHats design"
+
+RESUME_EMAIL_BODY = """Hi {name},
+
+Thanks for confirming your email! Your design's still being put together — but you
+can jump back into the chat and pick up right where you left off any time:
+
+{resume_url}
+
+We'll also email your finished design the moment it's ready, so keep an eye on
+your inbox.
+
+— Ricardo, MadHats AI Design Studio
+"""
+
 PREVIEW_EMAIL_SUBJECT = "Your MadHats design is ready to review 🎉"
+
+# One image row within the preview email, repeated per rendered view (a design
+# may render multiple angles — front hero + decorated back/side views). Filled by
+# email.send_preview_email with .format(src=, caption=): {src} is a cid: ref or an
+# escaped URL; {caption} is already HTML-escaped. Substituted into
+# PREVIEW_EMAIL_HTML as $images_block. No CSS braces here, so .format() is safe.
+PREVIEW_EMAIL_IMAGE_BLOCK = """\
+        <tr><td style="padding:24px 32px 0 32px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fcf7f2;border:2px solid #ff5c00;border-radius:12px;">
+            <tr><td align="center" style="padding:16px;">
+              <img src="{src}" alt="Your MadHats design preview" width="100%" style="display:block;width:100%;max-width:504px;border-radius:8px;" />
+              <div style="margin-top:10px;font-size:10px;color:#9e9eab;">{caption}</div>
+            </td></tr>
+          </table>
+        </td></tr>"""
 
 FINAL_DESIGN_EMAIL_SUBJECT = "Your updated MadHats design 🎉"
 
@@ -512,14 +626,7 @@ PREVIEW_EMAIL_HTML = """\
           <div style="font-size:20px;font-weight:bold;color:#1a1a2e;">Hi $name,</div>
           <p style="font-size:13px;line-height:20px;color:#6b6b80;margin:12px 0 0 0;">$brief</p>
         </td></tr>
-        <tr><td style="padding:24px 32px 0 32px;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fcf7f2;border:2px solid #ff5c00;border-radius:12px;">
-            <tr><td align="center" style="padding:16px;">
-              <img src="$image_url" alt="Your MadHats design preview" width="100%" style="display:block;width:100%;max-width:504px;border-radius:8px;" />
-              <div style="margin-top:10px;font-size:10px;color:#9e9eab;">Watermarked preview</div>
-            </td></tr>
-          </table>
-        </td></tr>
+$images_block
         <tr><td style="padding:24px 32px 0 32px;">
           <hr style="border:none;border-top:1px solid #e0e1ea;margin:0;" />
         </td></tr>

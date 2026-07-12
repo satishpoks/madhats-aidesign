@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_store
 from app.db import get_supabase
+from app.services import prompt_builder
+from app.storage import generate_signed_url
 from app.models.session import (
     ChatMessageOut,
     CreateBlankSessionRequest,
@@ -147,4 +149,48 @@ async def get_session(token: str) -> SessionDetail:
         status=session["status"],
         messages=messages,
         data=data,
+        designs=_released_designs(sb, session["id"], collected),
     )
+
+
+def _sign_design(path: str | None) -> str:
+    if not path:
+        return ""
+    return path if path.startswith("http") else generate_signed_url(path)
+
+
+def _released_designs(sb, session_id: str, collected: dict) -> list[str]:
+    """Signed design URLs for the latest completed generation, front→back→…
+
+    Gated on email verification (same reveal rule as the chat + email); returns
+    []
+    until then so a resumed session never leaks the design early. Multi-view
+    designs return every rendered angle; single-view fall back to the hero.
+    """
+    if not collected.get("email_verified"):
+        return []
+    gen = (
+        sb.table("generations")
+        .select("*")
+        .eq("session_id", session_id)
+        .eq("status", "complete")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not gen.data:
+        return []
+    row = gen.data[0]
+    raw_views = row.get("view_images") or {}
+    urls: list[str] = []
+    for view in prompt_builder.RENDER_VIEW_ORDER:
+        entry = raw_views.get(view)
+        if entry:
+            signed = _sign_design(entry.get("watermarked_url") or entry.get("image_url"))
+            if signed:
+                urls.append(signed)
+    if not urls:
+        signed = _sign_design(row.get("watermarked_url") or row.get("image_url"))
+        if signed:
+            urls.append(signed)
+    return urls

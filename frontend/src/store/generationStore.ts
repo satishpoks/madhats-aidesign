@@ -1,7 +1,23 @@
 import { create } from 'zustand'
 import { generatePreview, generationStatus, regenerate } from '../lib/api'
+import type { GenerationStatus } from '../lib/types'
 
 type GenStatus = 'idle' | 'generating' | 'done' | 'error'
+
+const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
+
+/**
+ * A completed design may have rendered several angles (front hero + decorated
+ * back/side views). Return every rendered view URL in canonical order; fall back
+ * to the single hero URL for a single-view design.
+ */
+function completedUrls(res: GenerationStatus): string[] {
+  const views = res.view_images ?? {}
+  const ordered = VIEW_ORDER.map(v => views[v]).filter((u): u is string => Boolean(u))
+  if (ordered.length) return ordered
+  const hero = res.watermarked_url ?? res.image_url ?? null
+  return hero ? [hero] : []
+}
 
 interface GenerationStoreState {
   /**
@@ -26,6 +42,8 @@ interface GenerationStoreState {
   startGeneration: (sessionId: string) => Promise<void>
   /** Fire a fresh regeneration after a requested change. Not once-guarded — each edit reruns. */
   startRegeneration: (sessionId: string) => Promise<void>
+  /** Seed the already-generated design when resuming a session (no new render). */
+  hydrateDesigns: (urls: string[]) => void
   reset: () => void
 }
 
@@ -56,11 +74,11 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
       for (let i = 0; i < MAX_POLLS; i++) {
         const res = await generationStatus(job_id)
         if (res.status === 'complete') {
-          const url = res.watermarked_url ?? res.image_url ?? null
+          const urls = completedUrls(res)
           set(state => ({
             status: 'done',
-            previewUrl: url,
-            designs: url ? [...state.designs, url] : state.designs,
+            previewUrl: urls[0] ?? null,
+            designs: urls.length ? [...state.designs, ...urls] : state.designs,
           }))
           return
         }
@@ -89,11 +107,11 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
       for (let i = 0; i < MAX_POLLS; i++) {
         const res = await generationStatus(job_id)
         if (res.status === 'complete') {
-          const url = res.watermarked_url ?? res.image_url ?? null
+          const urls = completedUrls(res)
           set(state => ({
             status: 'done',
-            previewUrl: url,
-            designs: url ? [...state.designs, url] : state.designs,
+            previewUrl: urls[0] ?? null,
+            designs: urls.length ? [...state.designs, ...urls] : state.designs,
           }))
           return
         }
@@ -104,6 +122,13 @@ export const useGenerationStore = create<GenerationStoreState>((set, get) => ({
     } catch (err) {
       set({ status: 'error', error: err instanceof Error ? err.message : 'Regeneration failed' })
     }
+  },
+
+  hydrateDesigns: (urls: string[]) => {
+    if (!urls.length) return
+    // Mark the session as already-generated so startGeneration's once-guard
+    // doesn't kick off a duplicate render for a design we just rehydrated.
+    set({ status: 'done', designs: urls, previewUrl: urls[0] })
   },
 
   reset: () =>

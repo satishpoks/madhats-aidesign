@@ -114,3 +114,32 @@ def test_ingest_ask_name_trims_whitespace() -> None:
     collected: dict = {}
     asyncio.run(_ingest(ConversationState.ASK_NAME, "  Jordan  ", collected))
     assert collected.get("name") == "Jordan"
+
+
+# ---------------------------------------------------------------------------
+# generate_reply — per-element deep-dive must give the model element context
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_generate_reply_deepdive_gives_model_element_context(monkeypatch):
+    """Regression (session XejU8PSYL2n928oSJjw3_w): a TEXT element's deep-dive
+    questions called it "your logo" and re-asked the cap colour, because the
+    model was never told which element it was asking about. The prompt must
+    carry the element type and its content."""
+    monkeypatch.setattr(ie, "_has_llm", True)
+    captured: dict = {}
+
+    async def fake_complete(prompt, **kw):
+        captured["prompt"] = prompt
+        return "ok"
+
+    monkeypatch.setattr(ie, "_complete", fake_complete)
+    el = {"type": "text", "content": "satish"}
+    await ie.generate_reply(
+        "element_deepdive", {"name": "Al"}, "Ricardo",
+        ask_for="placement_zone", element=el,
+    )
+    p = captured["prompt"].lower()
+    assert "text" in p        # model told the element is text (not a logo)
+    assert "satish" in p      # model told what the text says

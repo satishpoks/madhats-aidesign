@@ -109,11 +109,15 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     product_ref = session.get("product_ref") or {}
     collected = session.get("collected") or {}
 
-    if tier == "edit" and collected.get("last_change"):
+    if tier == "edit":
         # Layer the requested change onto the existing design intent so the edit
-        # modifies rather than replaces the design. build_params/build_prompt
-        # already consume collected; surface the change as an extra instruction.
-        collected = {**collected, "change_request": collected["last_change"]}
+        # modifies rather than replaces the design. Compile every captured
+        # refinement instruction (description + follow-up answers + "anything
+        # else") into one change_request; fall back to the single last_change.
+        details = [str(d).strip() for d in (collected.get("refine_details") or []) if str(d).strip()]
+        change = " ; ".join(details) or collected.get("last_change")
+        if change:
+            collected = {**collected, "change_request": change}
 
     if not product_ref.get("reference_image_url"):
         raise HTTPException(status_code=400, detail="Session has no product reference image")
@@ -177,161 +181,236 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     return JobResponse(job_id=job_id)
 
 
+async def _render_view(
+    *, view, provider, job_id, generation_id, session_id, tier,
+    prompt, ref_url, uploaded_url, params, params_dict, key, prior_design_url=None,
+) -> dict:
+    """Render ONE view: cache-check → provider (with retry) → watermark.
+
+    Never raises — always returns a result dict:
+      success: {"ok": True, view, clean_path, watermarked_path, model,
+                cost_usd, latency_ms, key, attempts, from_cache}
+      failure: {"ok": False, view, error, attempts}
+    so the caller can enforce all-or-nothing across the whole view set.
+    """
+    cached = generation_cache.lookup(key)
+    if cached:
+        generation_logger.log_cache_hit(
+            generation_id=generation_id, job_id=job_id, session_id=session_id,
+            tier=tier, reference_image_url=ref_url, uploaded_asset_url=uploaded_url,
+            full_prompt=prompt, params=params_dict, model=cached["model"],
+            output_image_url=cached["image_url"],
+        )
+        return {
+            "ok": True, "view": view, "clean_path": cached["image_url"],
+            "watermarked_path": cached.get("watermarked_url"), "model": cached["model"],
+            "cost_usd": 0, "latency_ms": 0, "key": key, "attempts": 0, "from_cache": True,
+        }
+
+    result = None
+    last_exc: Exception | None = None
+    attempts = 0
+    for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
+        attempts = attempt
+        # Record the inputs + full prompt BEFORE the call so a crash still
+        # leaves a 'requested' row; the response is patched in afterwards.
+        log_id = generation_logger.log_request(
+            generation_id=generation_id, job_id=job_id, session_id=session_id,
+            attempt=attempt, tier=tier, reference_image_url=ref_url,
+            uploaded_asset_url=uploaded_url, full_prompt=prompt, params=params_dict,
+        )
+        try:
+            result = await provider.generate(
+                prompt=prompt, reference_image_url=ref_url,
+                uploaded_asset_url=uploaded_url, params=params,
+                prior_design_url=prior_design_url,
+            )
+            last_exc = None
+            generation_logger.log_response(
+                log_id, status="complete", model=result.model,
+                output_image_url=result.image_url, response_meta=result.response_meta,
+                raw_response=result.raw_response, latency_ms=result.latency_ms,
+            )
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            generation_logger.log_response(log_id, status="failed", error=str(exc))
+            if attempt >= MAX_GENERATION_ATTEMPTS or not _is_transient(exc):
+                break
+            backoff = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
+            log.warning(
+                "generation_retrying", tier=tier, view=view, attempt=attempt,
+                error_type=type(exc).__name__,
+            )
+            await asyncio.sleep(backoff)
+
+    if last_exc is not None:
+        return {"ok": False, "view": view, "error": str(last_exc), "attempts": attempts}
+
+    clean_path = result.image_url  # storage path (or external stub URL)
+    watermarked_path = _make_watermarked(clean_path)
+    return {
+        "ok": True, "view": view, "clean_path": clean_path,
+        "watermarked_path": watermarked_path, "model": result.model,
+        "cost_usd": result.cost_usd, "latency_ms": result.latency_ms,
+        "key": key, "attempts": attempts, "from_cache": False,
+    }
+
+
 async def _run_generation(
     *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params,
     generation_id=None, provider_tier=None,
 ) -> None:
-    """Background worker: cache-check → provider (with retry) → watermark → store → update row.
+    """Background worker: render every decorated view → store → update row.
 
-    Generation and email verification are independent async tracks (see
-    docs/superpowers/specs/2026-07-01-decoupled-generation-gated-delivery-design.md
-    §4.2-4.3). On success this calls `delivery.maybe_send_preview` so a design
-    whose email was already verified is delivered immediately. On final failure
-    (retries exhausted or a permanent error) it marks the row failed and alerts
-    ops so a human can regenerate — the customer is never shown a failure.
+    Multi-view: the design AI-renders the front hero PLUS any back/side view
+    that carries decoration (prompt_builder.render_views), each as its own model
+    call, fired CONCURRENTLY. Delivery is all-or-nothing — if any view fails all
+    its retries, the whole row is marked failed and ops is alerted so a human can
+    regenerate the set; the customer is never shown a failure. On full success
+    the hero lands in image_url/watermarked_url (backward-compatible) and every
+    view is recorded in view_images, then the gated delivery primitive fires.
+
+    ``prompt`` (the pre-assembled full-design prompt) is used only for moderation
+    upstream in _start_generation; the per-view prompts are built here.
     """
     provider_tier = provider_tier or tier
     sb = get_supabase()
-    p_hash = prompt_builder.prompt_hash(prompt)
     asset_hash = collected.get("asset_hash", "none")
-    key = generation_cache.cache_key(
-        product_ref.get("product_id", ""), product_ref.get("colour", ""), p_hash, asset_hash
-    )
-    attempts = 0
-
-    # Inputs recorded in every generation_logs row (references, not bytes).
-    # Pick the reference angle that matches the design's primary placement (so a
-    # back-panel design composites onto the back-view photo when available).
-    ref_url = prompt_builder.reference_image_for(product_ref, collected)
-    # Blank-hat references are raw storage paths (hat_types.set_angle stores the
-    # path, not a URL); Shopify/stub references are already full http(s) URLs.
-    # Sign the raw path so the provider can fetch it — an unsigned bare path makes
-    # httpx raise "Request URL is missing an 'http://' or 'https://' protocol".
-    if ref_url and not ref_url.startswith("http"):
-        ref_url = generate_signed_url(ref_url)
     uploaded_path = collected.get("uploaded_asset_path")
-    uploaded_url = generate_signed_url(uploaded_path) if uploaded_path else None
+    uploaded_url_full = generate_signed_url(uploaded_path) if uploaded_path else None
     params_dict = asdict(params)
 
-    try:
-        cached = generation_cache.lookup(key)
-        if cached:
-            sb.table("generations").update(
-                {
-                    "status": "complete",
-                    "model": cached["model"],
-                    "image_url": cached["image_url"],
-                    "watermarked_url": cached["watermarked_url"],
-                    "prompt_hash": key,
-                    "cost_usd": 0,
-                    "latency_ms": 0,
-                }
-            ).eq("job_id", job_id).execute()
-            generation_logger.log_cache_hit(
-                generation_id=generation_id,
-                job_id=job_id,
-                session_id=session_id,
-                tier=tier,
-                reference_image_url=ref_url,
-                uploaded_asset_url=uploaded_url,
-                full_prompt=prompt,
-                params=params_dict,
-                model=cached["model"],
-                output_image_url=cached["image_url"],
-            )
-            _safe_maybe_send_preview(session_id)
-            return
+    # An edit re-renders ONLY the affected views and REFINES from the previous
+    # design; a fresh design renders every decorated view. Carry forward the
+    # previous render's unaffected views so the delivered set stays complete.
+    is_edit = tier == "edit"
+    if is_edit:
+        views = prompt_builder.affected_render_views(collected)
+        prev_gen = _latest_complete_generation(session_id)
+        prev_views = _prev_view_map(prev_gen)
+    else:
+        views = prompt_builder.render_views(collected)
+        prev_views = {}
 
+    try:
         provider = get_provider(provider_tier)
 
-        result = None
-        last_exc: Exception | None = None
-        for attempt in range(1, MAX_GENERATION_ATTEMPTS + 1):
-            attempts = attempt
-            # Record the inputs + full prompt BEFORE the call so a crash still
-            # leaves a 'requested' row; the response is patched in afterwards.
-            log_id = generation_logger.log_request(
-                generation_id=generation_id,
-                job_id=job_id,
-                session_id=session_id,
-                attempt=attempt,
-                tier=tier,
-                reference_image_url=ref_url,
-                uploaded_asset_url=uploaded_url,
-                full_prompt=prompt,
-                params=params_dict,
-            )
+        async def _one(view: str) -> dict:
             try:
-                result = await provider.generate(
-                    prompt=prompt,
-                    reference_image_url=ref_url,
-                    uploaded_asset_url=uploaded_url,
-                    params=params,
+                view_prompt = prompt_builder.build_view_prompt(collected, product_ref, params, view)
+                # Reference angle for this view (blank-hat refs are raw storage
+                # paths → sign them; Shopify/stub refs are already http URLs).
+                ref = prompt_builder.reference_image_url_for_view(product_ref, view)
+                if ref and not ref.startswith("http"):
+                    ref = generate_signed_url(ref)
+                # Only the view carrying the uploaded logo gets it as a 2nd image.
+                uploaded = uploaded_url_full if prompt_builder.view_has_logo(collected, view) else None
+                # On an edit, feed this view's PREVIOUS render so the model
+                # refines it rather than re-rendering from scratch.
+                prior = None
+                if is_edit:
+                    prev_clean = (prev_views.get(view) or {}).get("image_url")
+                    if prev_clean:
+                        prior = prev_clean if prev_clean.startswith("http") else generate_signed_url(prev_clean)
+                key = generation_cache.cache_key(
+                    product_ref.get("product_id", ""), product_ref.get("colour", ""),
+                    prompt_builder.prompt_hash(view_prompt), asset_hash if uploaded else "none",
                 )
-                last_exc = None
-                generation_logger.log_response(
-                    log_id,
-                    status="complete",
-                    model=result.model,
-                    output_image_url=result.image_url,
-                    response_meta=result.response_meta,
-                    raw_response=result.raw_response,
-                    latency_ms=result.latency_ms,
+                return await _render_view(
+                    view=view, provider=provider, job_id=job_id, generation_id=generation_id,
+                    session_id=session_id, tier=tier, prompt=view_prompt, ref_url=ref,
+                    uploaded_url=uploaded, params=params, params_dict={**params_dict, "view": view},
+                    key=key, prior_design_url=prior,
                 )
-                break
-            except Exception as exc:  # noqa: BLE001
-                last_exc = exc
-                generation_logger.log_response(log_id, status="failed", error=str(exc))
-                if attempt >= MAX_GENERATION_ATTEMPTS or not _is_transient(exc):
-                    break
-                backoff = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
-                log.warning(
-                    "generation_retrying",
-                    tier=tier,
-                    attempt=attempt,
-                    error_type=type(exc).__name__,
-                )
-                await asyncio.sleep(backoff)
+            except Exception as exc:  # noqa: BLE001 — never let a build error escape gather
+                return {"ok": False, "view": view, "error": str(exc), "attempts": 0}
 
-        if last_exc is not None:
-            raise last_exc
+        results = await asyncio.gather(*[_one(v) for v in views])
+        attempts = max((r.get("attempts", 0) for r in results), default=0)
 
-        clean_path = result.image_url  # storage path (or external stub URL)
-        watermarked_path = _make_watermarked(clean_path)
+        failures = [r for r in results if not r["ok"]]
+        if failures:
+            # All-or-nothing: any failed view fails the whole design.
+            err = failures[0]["error"]
+            log.error("generation_failed", tier=tier, views=len(views), failed=len(failures))
+            sb.table("generations").update(
+                {"status": "failed", "error": err, "attempts": attempts}
+            ).eq("job_id", job_id).execute()
+            _send_ops_alert(session_id, store_id, product_ref, collected, err)
+            return
+
+        new_views = {
+            r["view"]: {"image_url": r["clean_path"], "watermarked_url": r["watermarked_path"]}
+            for r in results
+        }
+        # Carry forward previously-rendered unaffected views (edit only), then
+        # overwrite the ones we just re-rendered.
+        view_images = {**prev_views, **new_views}
+        by_view = {r["view"]: r for r in results}
+        anchor = by_view.get(prompt_builder.PRIMARY_VIEW) or results[0]
+        hero_entry = view_images.get(prompt_builder.PRIMARY_VIEW) or next(iter(view_images.values()))
 
         sb.table("generations").update(
             {
                 "status": "complete",
-                "model": result.model,
-                "image_url": clean_path,
-                "watermarked_url": watermarked_path,
-                "prompt_hash": key,
-                "cost_usd": result.cost_usd,
-                "latency_ms": result.latency_ms,
+                "model": anchor["model"],
+                "image_url": hero_entry["image_url"],
+                "watermarked_url": hero_entry["watermarked_url"],
+                "view_images": view_images,
+                "prompt_hash": anchor["key"],
+                "cost_usd": sum(r.get("cost_usd") or 0 for r in results),
+                "latency_ms": max((r.get("latency_ms") or 0 for r in results), default=0),
                 "attempts": attempts,
             }
         ).eq("job_id", job_id).execute()
         log.info(
-            "generation_complete",
-            tier=tier,
-            model=result.model,
-            latency_ms=result.latency_ms,
-            attempts=attempts,
+            "generation_complete", tier=tier, model=anchor["model"], views=len(results),
+            total_views=len(view_images), attempts=attempts,
         )
 
         _safe_maybe_send_preview(session_id)
 
     except Exception as exc:  # noqa: BLE001
-        log.error(
-            "generation_failed",
-            tier=tier,
-            error_type=type(exc).__name__,
-            attempts=attempts,
-        )
+        log.error("generation_failed", tier=tier, error_type=type(exc).__name__)
         sb.table("generations").update(
-            {"status": "failed", "error": str(exc), "attempts": attempts}
+            {"status": "failed", "error": str(exc)}
         ).eq("job_id", job_id).execute()
         _send_ops_alert(session_id, store_id, product_ref, collected, str(exc))
+
+
+def _latest_complete_generation(session_id: str) -> dict | None:
+    """Most recent completed generation for a session — the design an edit
+    refines from and carries unaffected views forward from."""
+    res = (
+        get_supabase()
+        .table("generations")
+        .select("*")
+        .eq("session_id", session_id)
+        .eq("status", "complete")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def _prev_view_map(prev_gen: dict | None) -> dict:
+    """The previous generation's per-view images, falling back to its single
+    hero for a legacy/single-view row."""
+    if not prev_gen:
+        return {}
+    views = prev_gen.get("view_images") or {}
+    if views:
+        return dict(views)
+    if prev_gen.get("image_url"):
+        return {
+            "front": {
+                "image_url": prev_gen.get("image_url"),
+                "watermarked_url": prev_gen.get("watermarked_url"),
+            }
+        }
+    return {}
 
 
 def _safe_maybe_send_preview(session_id: str) -> None:
@@ -407,10 +486,24 @@ async def generation_status(job_id: str) -> GenerationStatus:
     image_url = _to_signed(row.get("image_url"))
     watermarked_url = _to_signed(row.get("watermarked_url"))
 
+    # Sign each view's watermarked image (fall back to its clean image) so a
+    # multi-view design surfaces every angle on-screen. Ordered front→back→
+    # left→right. Empty for single-view designs.
+    view_images: dict[str, str] = {}
+    raw_views = row.get("view_images") or {}
+    for view in prompt_builder.RENDER_VIEW_ORDER:
+        entry = raw_views.get(view)
+        if not entry:
+            continue
+        signed = _to_signed(entry.get("watermarked_url") or entry.get("image_url"))
+        if signed:
+            view_images[view] = signed
+
     return GenerationStatus(
         status=row["status"],
         image_url=image_url,
         watermarked_url=watermarked_url,
+        view_images=view_images,
     )
 
 

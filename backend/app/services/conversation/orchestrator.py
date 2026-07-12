@@ -20,9 +20,11 @@ from datetime import datetime, timezone
 
 import structlog
 
+from app import prompts
 from app.config import settings
 from app.db import get_supabase
 from app.services import colours
+from app.services import design_summary
 from app.services import leads as leads_service
 from app.services import settings_service
 from app.services.stores import get_store
@@ -104,8 +106,174 @@ def _looks_like_text(message: str) -> bool:
     return len(message.split()) <= 5 and any(c.isalpha() for c in message)
 
 
+# A refine turn that ADDS a new decoration (vs. modifying the existing one).
+_ADD_ELEMENT_RE = re.compile(r"\b(add|adding|include|put|also|another|extra|new|second)\b", re.I)
+
+
+def _refine_new_element_type(message: str) -> str | None:
+    """If a refine message asks to ADD a text/graphic/note, return its type."""
+    if not _ADD_ELEMENT_RE.search(message or ""):
+        return None
+    etype = _element_type_from(message or "")
+    return etype if etype in ("text", "graphic", "note") else None
+
+
+def _parse_change_views(message: str) -> list[str]:
+    """Which cap views a change text names (front/back/left/right). An unqualified
+    'side' means both sides. Used to re-render ONLY the affected views on an edit."""
+    low = (message or "").lower()
+    views: list[str] = []
+    if "back" in low:
+        views.append("back")
+    if "right" in low:
+        views.append("right")
+    if "left" in low:
+        views.append("left")
+    if "side" in low and "right" not in low and "left" not in low:
+        views.extend(["left", "right"])
+    if any(w in low for w in ("front", "under", "brim", "peak")):
+        views.append("front")
+    return views
+
+
+def _add_refine_views(collected: dict, views: list[str]) -> None:
+    acc = collected.setdefault("refine_views", [])
+    for v in views:
+        if v not in acc:
+            acc.append(v)
+
+
+async def _apply_refine(current: ConversationState, collected: dict, message: str) -> None:
+    """Own field capture for the refine sub-flow.
+
+    Accumulates every refinement instruction into ``refine_details`` (compiled
+    into the regeneration prompt). A request to ADD a new text/graphic/note seeds
+    a ``pending_element`` so the SAME per-element deep-dive as the main flow runs
+    (asking placement etc. with chips); otherwise a modification builds a short
+    follow-up-question queue.
+    """
+    S = ConversationState
+    text = (message or "").strip()
+    low = text.lower()
+    collected["refine_mode"] = True
+    details = collected.setdefault("refine_details", [])
+    # Track which views the change touches so regeneration re-renders ONLY those.
+    _add_refine_views(collected, _parse_change_views(text))
+
+    async def _seed_element(etype: str) -> None:
+        el: dict = {"type": etype, "deferred": []}
+        if etype == "note":
+            el["content"] = text[:300]
+        else:
+            attrs = await ie.extract_element_attributes(etype, text)
+            attrs.pop("defer", None)
+            for k, v in attrs.items():
+                if v not in (None, "") and k not in el:
+                    el[k] = v
+        collected["pending_element"] = el
+
+    if current is S.DESCRIBE_CHANGES:
+        details.append(text[:400])
+        collected["last_change"] = text[:400]
+        etype = _refine_new_element_type(text)
+        if etype:
+            await _seed_element(etype)
+            return
+        collected["refine_followups"] = await ie.refine_followups(text, collected)
+        collected["refine_followup_idx"] = 0
+        return
+
+    if current is S.REFINE_FOLLOWUP:
+        details.append(text[:200])
+        collected["refine_followup_idx"] = int(collected.get("refine_followup_idx") or 0) + 1
+        return
+
+    if current is S.REFINE_CONFIRM:
+        # "Anything else?" — a further add deep-dives; anything else is extra
+        # detail; a decline ends the loop (advance_state -> REGENERATING).
+        if is_negative(text) or bool(_DONE_ELEMENTS_RE.search(low)):
+            return
+        etype = _refine_new_element_type(text)
+        if etype:
+            await _seed_element(etype)
+        else:
+            details.append(text[:200])
+
+
+_CONFIRM_WORDS = (
+    "generate", "looks good", "confirm", "go ahead", "that's right", "thats right",
+    "perfect", "correct", "all good", "spot on", "that's everything",
+)
+
+
+async def _apply_brief_confirm(collected: dict, message: str) -> None:
+    """Field capture at the pre-generation CONFIRM_BRIEF step.
+
+    Confirming moves to generation; adding a text/graphic/note deep-dives it
+    (``brief_confirm_mode`` routes back here after); anything else is recorded as
+    a note folded into the image prompt.
+    """
+    text = (message or "").strip()
+    low = text.lower()
+    etype = _refine_new_element_type(text)
+    if etype:
+        collected["brief_confirm_mode"] = True
+        el: dict = {"type": etype, "deferred": []}
+        if etype == "note":
+            el["content"] = text[:300]
+        else:
+            attrs = await ie.extract_element_attributes(etype, text)
+            attrs.pop("defer", None)
+            for k, v in attrs.items():
+                if v not in (None, "") and k not in el:
+                    el[k] = v
+        collected["pending_element"] = el
+        return
+    if (is_affirmative(text) or any(w in low for w in _CONFIRM_WORDS)) and not is_negative(text):
+        collected["brief_confirmed"] = True
+        return
+    # A change or note -> record it for the prompt and re-summarise.
+    collected.setdefault("brief_notes", []).append(text[:300])
+
+
 class SessionNotFound(Exception):
     pass
+
+
+def _apply_generation_gate(
+    new_state: ConversationState, collected: dict, *, can_start_design: bool
+) -> tuple[ConversationState, str | None]:
+    """Guard entry into GENERATING against the per-day design cap.
+
+    When the customer has hit their daily design limit, POST /generate/preview
+    returns 429 with NO generation row created. The frontend deliberately
+    swallows generation errors (to hide *transient* provider failures), so it
+    would advance the flow and falsely announce the design is ready — with
+    nothing generated, no retry, and no backfill. So never route to GENERATING
+    when a fresh design can't be started: reroute to the quote handoff and speak
+    an honest aside instead. Returns ``(state, aside_or_None)``.
+    """
+    if new_state is ConversationState.GENERATING and not can_start_design:
+        collected["generation_blocked"] = "daily_limit"
+        return ConversationState.QUOTE_REQUESTED, prompts.GENERATION_BLOCKED_ASIDE
+    return new_state, None
+
+
+def _can_start_design(session_id: str) -> bool:
+    """Daily-cap check for the session's lead email (True when no lead yet)."""
+    from app.services import limits  # noqa: PLC0415
+
+    res = (
+        get_supabase()
+        .table("leads")
+        .select("email")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    email = res.data[0]["email"] if res.data else None
+    return limits.can_start_design(email)
 
 
 async def handle_message(session_id: str, message: str) -> dict:
@@ -140,6 +308,16 @@ async def handle_message(session_id: str, message: str) -> dict:
         interp = await ie.interpret_turn(current.value, message, collected, targets, faq)
 
         _apply_fields(current, interp.get("fields") or {}, collected, message)
+        # Refine capture runs BEFORE the brief-merge so an "add element" seeds a
+        # pending_element and doesn't ALSO leak into the flat design brief.
+        if current in (
+            ConversationState.DESCRIBE_CHANGES,
+            ConversationState.REFINE_FOLLOWUP,
+            ConversationState.REFINE_CONFIRM,
+        ):
+            await _apply_refine(current, collected, message)
+        elif current is ConversationState.CONFIRM_BRIEF:
+            await _apply_brief_confirm(collected, message)
         await _maybe_gather_element(current, interp.get("fields") or {}, collected, message)
         await _advance_elements(current, collected, message)
 
@@ -209,11 +387,46 @@ async def handle_message(session_id: str, message: str) -> dict:
         elif new_state is ConversationState.ASK_PIN_ANNOTATION:
             collected["pin_offered"] = True
 
+        # Pre-generation confirmation: before the FIRST render, summarise the
+        # extracted brief and let the customer confirm / adjust / add notes.
+        # AI designs are limited, so we make sure everything's captured first.
+        # Intercept EVERY path into GENERATING at this one point.
+        if new_state is ConversationState.GENERATING and not collected.get("brief_confirmed"):
+            new_state = ConversationState.CONFIRM_BRIEF
+            collected["brief_prompt_shown"] = True
+
+        # Daily-design cap: if we'd enter GENERATING but the customer has used up
+        # their per-day design allowance, generation would 429 and the frontend
+        # would falsely claim success. Reroute to an honest quote handoff.
+        if new_state is ConversationState.GENERATING and not _can_start_design(session_id):
+            new_state, gate_aside = _apply_generation_gate(
+                new_state, collected, can_start_design=False
+            )
+            aside = gate_aside if not aside else f"{gate_aside} {aside}"
+
         ask_for = None
+        ask_text = None
         if new_state is ConversationState.ELEMENT_DEEPDIVE and collected.get("pending_element"):
             ask_for = ep.next_attribute(collected["pending_element"])
             collected["deepdive_ask_for"] = ask_for
-        reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside, ask_for=ask_for)
+        elif new_state is ConversationState.REFINE_FOLLOWUP:
+            queue = collected.get("refine_followups") or []
+            idx = int(collected.get("refine_followup_idx") or 0)
+            if idx < len(queue):
+                ask_text = queue[idx]
+
+        if new_state is ConversationState.CONFIRM_BRIEF:
+            # Deterministic summary (never paraphrased by the LLM, so no captured
+            # detail is dropped before the customer confirms).
+            summary = design_summary.customer_brief(collected, session.get("product_ref") or {})
+            reply = prompts.CONFIRM_BRIEF_MESSAGE.format(summary=summary)
+            if aside:
+                reply = f"{aside} {reply}"
+        else:
+            reply = await ie.generate_reply(
+                new_state.value, collected, persona, aside=aside, ask_for=ask_for, ask_text=ask_text,
+                element=collected.get("pending_element"),
+            )
 
     if new_state is ConversationState.QUOTE_REQUESTED:
         try:
@@ -341,6 +554,10 @@ async def advance_after_regeneration(session_id: str) -> dict:
 
     new_state = advance_state(current, collected)
     collected["wants_changes"] = False
+    # Clear the refine sub-flow scratch so the NEXT edit starts fresh.
+    for k in ("refine_mode", "refine_details", "refine_followups", "refine_followup_idx",
+              "last_change", "refine_views"):
+        collected.pop(k, None)
 
     reply = await ie.generate_reply(new_state.value, collected, persona)
 
@@ -502,7 +719,7 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
         if bool(_DONE_ELEMENTS_RE.search(low)):
             ep.defer_remaining(el)
         else:
-            attrs = await ie.extract_element_attributes(el.get("type"), message)
+            attrs = await ie.extract_element_attributes(el.get("type"), message, ask_for=ask_for)
             # remove_bg is the only yes/no attribute, so the no-key heuristic
             # can stray-match bare "yes"/"no"/"keep"/"leave" filler in a turn
             # answering a DIFFERENT attribute. Only accept it when it's the
@@ -515,7 +732,14 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
                 if ask_for not in el["deferred"]:
                     el["deferred"].append(ask_for)
             for k, v in attrs.items():
-                if v not in (None, ""):
+                # Only fill the attribute we asked, or one still unset. A
+                # context-free extractor can re-derive an unrelated field from a
+                # one-word answer (e.g. "Back" answering placement is also read
+                # as content) — that must never clobber an already-captured
+                # attribute (regression: text "satish" -> "Back").
+                if v in (None, ""):
+                    continue
+                if k == ask_for or el.get(k) in (None, ""):
                     el[k] = v
             # remove_bg is a strict yes/no the LLM extractor sometimes omits
             # (e.g. it reads "keep as is" as giving no value), which left it
@@ -535,6 +759,11 @@ async def _advance_elements(state: ConversationState, collected: dict, message: 
                 el[ask_for] = message.strip()[:200]
         if ep.is_complete(el):
             collected.setdefault("elements", []).append(el)
+            # An element added during a refine marks its view as affected, so the
+            # regeneration re-renders that view (and carries the rest forward).
+            if collected.get("refine_mode") or collected.get("brief_confirm_mode"):
+                from app.services import prompt_builder  # noqa: PLC0415
+                _add_refine_views(collected, [prompt_builder.element_view(el)])
             collected["pending_element"] = None
             collected.pop("deepdive_ask_for", None)
 
@@ -666,6 +895,10 @@ async def _maybe_gather_element(
     # extra LLM call) on every describe turn. Guard the state explicitly.
     if state is ConversationState.DESCRIBE_DESIGN:
         return
+    # A refine turn that seeded a NEW element (via _apply_refine) is owned by the
+    # deep-dive — don't ALSO merge it into the flat brief (double-render).
+    if state is ConversationState.DESCRIBE_CHANGES and collected.get("pending_element"):
+        return
     volunteered = bool(fields.get("design_description"))
     if state not in _ELEMENT_STATES and not volunteered:
         return
@@ -778,12 +1011,16 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Yes, mark a spot", "No, generate now"]}
     if state is S.UPSELL_PROMPT:
         return {"options": ["Yes, add more", "No, I'm happy"]}
+    if state is S.CONFIRM_BRIEF:
+        return {"options": ["Looks good — generate"]}
     if state is S.GENERATING:
         return {"trigger_generation": True}
     if state is S.SHOW_DESIGN:
         return {"continuable": True}
     if state is S.OFFER_REFINE:
         return {"options": ["Request changes", "Looks good"]}
+    if state is S.REFINE_CONFIRM:
+        return {"options": ["No, that's everything"]}
     if state is S.REGENERATING:
         return {"trigger_regeneration": True}
     # Statement-only states the user taps through (no typed answer expected).

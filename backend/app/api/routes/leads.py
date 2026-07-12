@@ -12,6 +12,7 @@ from app.config import settings
 from app.db import get_supabase
 from app.models.lead import CreateLeadRequest, LeadResponse, VerifySendRequest
 from app.services import delivery
+from app.services import email as email_service
 from app.services import leads as leads_service
 
 router = APIRouter(tags=["leads"])
@@ -107,10 +108,22 @@ async def confirm_verification(token: str) -> HTMLResponse:
     # into an error page for the customer clicking the link. maybe_send_preview
     # is idempotent and gated on generation being complete with a real image —
     # see app/services/delivery.py.
+    preview_sent = False
     try:
-        delivery.maybe_send_preview(session_id)
+        preview_sent = delivery.maybe_send_preview(session_id)
     except Exception as exc:  # noqa: BLE001
         log.error("post_verification_actions_failed", lead_id=lead_id, error_type=type(exc).__name__)
+
+    # If the preview did NOT go out, the customer verified EARLY — before the
+    # design finished generating. Email them a link to resume the session so they
+    # can continue if they've closed the chat tab. Fires at most once (guarded by
+    # collected.resume_email_sent). The finished-design preview email still goes
+    # out later via the normal delivery path.
+    if not preview_sent:
+        try:
+            _maybe_send_resume_email(sb, session_id, lead)
+        except Exception as exc:  # noqa: BLE001
+            log.error("resume_email_failed", lead_id=lead_id, error_type=type(exc).__name__)
 
     log.info("lead_verified", lead_id=lead_id, session_id=session_id)
     # Confirmation only — NO design image/preview here. The design is delivered
@@ -128,3 +141,32 @@ def _mark_session_verified(sb, session_id: str) -> None:
     collected = row.data[0].get("collected") or {}
     collected["email_verified"] = True
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
+
+
+def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
+    """Send a 'continue your design' email with a resume link, at most once.
+
+    Called only when the preview email hasn't gone out yet (design not ready),
+    i.e. the customer verified early. Reads the session fresh (after
+    _mark_session_verified) so the guard write preserves email_verified. The
+    resume link reuses the same ``?session=<share_token>`` deep link the preview
+    email's edit CTA uses. PII (name/email) is never logged.
+    """
+    row = (
+        sb.table("design_sessions")
+        .select("collected, share_token")
+        .eq("id", session_id)
+        .limit(1)
+        .execute()
+    )
+    if not row.data:
+        return
+    collected = row.data[0].get("collected") or {}
+    if collected.get("resume_email_sent"):
+        return
+    share_token = row.data[0].get("share_token") or ""
+    resume_url = f"{settings.studio_base_url}/?session={share_token}"
+    email_service.send_resume_email(lead["email"], lead.get("name") or "there", resume_url)
+    collected["resume_email_sent"] = True
+    sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
+    log.info("resume_email_sent", session_id=session_id)  # no PII

@@ -36,8 +36,9 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     image_provider_preview: str = "stub"
     image_provider_final: str = "stub"
-    gemini_preview_model: str = "gemini-2.0-flash-exp"
-    gemini_final_model: str = "gemini-2.0-pro-exp"
+    # Single image model — nano banana pro (gemini-3-pro-image) for both tiers.
+    gemini_preview_model: str = "gemini-3-pro-image"
+    gemini_final_model: str = "gemini-3-pro-image"
 
     # --- Email ---
     resend_api_key: str = ""

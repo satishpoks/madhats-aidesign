@@ -68,6 +68,12 @@ def send_verification_email(to: str, name: str, verify_url: str) -> bool:
     return _send(to, prompts.VERIFICATION_EMAIL_SUBJECT, body)
 
 
+def send_resume_email(to: str, name: str, resume_url: str) -> bool:
+    """Email a link back into the chat when the design isn't ready yet."""
+    body = prompts.RESUME_EMAIL_BODY.format(name=name, resume_url=resume_url)
+    return _send(to, prompts.RESUME_EMAIL_SUBJECT, body)
+
+
 # Content-ID for the inline preview image (referenced as cid:<this> in the HTML).
 _PREVIEW_CID = "madhats-preview"
 
@@ -82,46 +88,61 @@ def send_preview_email(
     talk_url: str = "",
     image_bytes: bytes | None = None,
     subject: str | None = None,
+    images: list[dict] | None = None,
 ) -> bool:
     """Send the branded design preview (Figma E1 template).
 
-    When ``image_bytes`` is supplied the design rides along as an inline CID
+    Supports one OR several stacked images (a design may render multiple
+    angles — front hero + decorated back/side views). Pass ``images`` as a list
+    of ``{"url": str, "bytes": bytes | None, "label": str}`` to render each view
+    full-width, stacked, same size. When ``images`` is omitted the single
+    ``image_url``/``image_bytes`` pair is used (backward-compatible).
+
+    When an image's ``bytes`` are supplied it rides along as an inline CID
     attachment (``<img src="cid:…">``) so the recipient's mail client never has
     to fetch it from storage. This is what makes the image show up: a signed
     storage URL points at the private Supabase stack (``127.0.0.1`` in dev,
     a TTL-limited link in prod) which Gmail's image proxy can't reach — so a
     bare ``<img src=http…>`` renders broken. Inlining the bytes side-steps
-    reachability and TTL expiry entirely.
+    reachability and TTL expiry entirely. Falls back to a plain URL ``src`` when
+    no bytes are available (best-effort, never a blank image).
 
-    Falls back to a plain URL ``src`` when no bytes are available (best-effort,
-    never a blank image).
-
-    All caller-supplied values are HTML-escaped before templating so a name or
-    URL can never break out of the markup.
+    All caller-supplied values are HTML-escaped before templating so a name,
+    URL or label can never break out of the markup.
     """
-    attachments: list[dict] | None = None
-    if image_bytes:
-        img_src = f"cid:{_PREVIEW_CID}"  # literal, safe — no user input
-        attachments = [
-            {
-                "filename": "madhats-preview.png",
-                "content": base64.b64encode(image_bytes).decode("ascii"),
-                "content_type": "image/png",
-                "content_id": _PREVIEW_CID,
-            }
-        ]
-    else:
-        img_src = html_lib.escape(image_url, quote=True)
+    if images is None:
+        images = [{"url": image_url, "bytes": image_bytes, "label": ""}]
+
+    attachments: list[dict] = []
+    blocks: list[str] = []
+    for i, im in enumerate(images):
+        raw = im.get("bytes")
+        if raw:
+            cid = f"{_PREVIEW_CID}-{i}"  # literal + index, safe — no user input
+            attachments.append(
+                {
+                    "filename": f"madhats-preview-{i}.png",
+                    "content": base64.b64encode(raw).decode("ascii"),
+                    "content_type": "image/png",
+                    "content_id": cid,
+                }
+            )
+            src = f"cid:{cid}"
+        else:
+            src = html_lib.escape(im.get("url") or "", quote=True)
+        label = (im.get("label") or "").strip()
+        caption = html_lib.escape(f"{label} — watermarked preview") if label else "Watermarked preview"
+        blocks.append(prompts.PREVIEW_EMAIL_IMAGE_BLOCK.format(src=src, caption=caption))
 
     html = Template(prompts.PREVIEW_EMAIL_HTML).substitute(
         name=html_lib.escape(name or "there"),
         brief=html_lib.escape(brief),
-        image_url=img_src,
+        images_block="".join(blocks),
         quote_url=html_lib.escape(quote_url or "#", quote=True),
         edit_url=html_lib.escape(edit_url or "#", quote=True),
         talk_url=html_lib.escape(talk_url or "#", quote=True),
     )
-    return _dispatch(to, subject or prompts.PREVIEW_EMAIL_SUBJECT, html, attachments=attachments)
+    return _dispatch(to, subject or prompts.PREVIEW_EMAIL_SUBJECT, html, attachments=attachments or None)
 
 
 def send_quote_to_sales(

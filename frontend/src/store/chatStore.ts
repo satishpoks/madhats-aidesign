@@ -23,6 +23,8 @@ interface ChatStoreState {
   tintHex: string
   /** Colourway swatches offered at the hat-colour step (name + hex). */
   colourSwatches: { name: string; hex: string }[]
+  /** Blank flow: the hat-colour step wants a free colour picker (custom hex). */
+  colourPicker: boolean
   progress: { step: number; total: number } | null
   sending: boolean
   chatError: string | null
@@ -59,10 +61,11 @@ function parseData(data: Record<string, unknown>) {
   const colourSwatches = Array.isArray(data.colour_swatches)
     ? (data.colour_swatches as { name: string; hex: string }[])
     : []
+  const colourPicker = data.colour_picker === true
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, progress }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress }
 }
 
 function uid(): string {
@@ -80,6 +83,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   tintReady: false,
   tintHex: '',
   colourSwatches: [],
+  colourPicker: false,
   progress: null,
   sending: false,
   chatError: null,
@@ -234,6 +238,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       tintReady: false,
       tintHex: '',
       colourSwatches: [],
+      colourPicker: false,
       progress: null,
       sending: false,
       chatError: null,

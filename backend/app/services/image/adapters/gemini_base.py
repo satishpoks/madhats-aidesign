@@ -26,13 +26,29 @@ log = structlog.get_logger()
 # Rough per-image cost estimates (USD) — real figures come from billing later.
 _COST_BY_TIER = {"preview": 0.002, "final": 0.01}
 
+# Every generated image is normalised to this exact square size before storage,
+# so the output is a consistent 1000x1000 PNG on a white backdrop regardless of
+# what the model returns (the prompt asks for white + square, this guarantees it).
+_OUTPUT_SIZE = 1000
+
 # Role labels interleaved before each image part. Reinforces the FIRST/SECOND
 # image references in the prompt so the model applies the logo onto the cap
 # instead of reproducing it as a separate panel.
-_FIRST_IMAGE_LABEL = "FIRST IMAGE — the exact product cap to reproduce:"
+_FIRST_IMAGE_LABEL = (
+    "FIRST IMAGE — the exact product cap to reproduce. Its shape, framing and "
+    "square 1:1 aspect ratio define the OUTPUT; match it exactly."
+)
 _SECOND_IMAGE_LABEL = (
     "SECOND IMAGE — the customer's artwork to apply onto the cap as decoration "
-    "ONLY. Use it as a reference; never reproduce it as a separate element."
+    "ONLY. Use it as a reference; never reproduce it as a separate element. It "
+    "does NOT set the output shape, size or aspect ratio — those come only from "
+    "the FIRST image, whatever this artwork's proportions are."
+)
+_PRIOR_DESIGN_LABEL = (
+    "CURRENT DESIGN — this image is the customer's existing design on this cap. "
+    "REFINE it: reproduce it exactly and change ONLY what the customer requested "
+    "below; keep every other detail identical. It does NOT change the output "
+    "shape or aspect ratio — those come only from the FIRST image."
 )
 
 
@@ -66,6 +82,66 @@ def _to_square(image_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
+def _to_square_logo(image_bytes: bytes) -> bytes:
+    """Center-pad an uploaded logo/artwork to a 1:1 square on a TRANSPARENT canvas.
+
+    The output aspect ratio must follow the reference CAP (the first image),
+    never the logo. A long/wide logo sent at its native aspect ratio biases
+    Gemini toward a wide output, which then letterboxes/distorts the cap once we
+    square it. Padding the logo to a square removes that bias while leaving the
+    artwork itself untouched — the padding is transparent, so no white box is
+    introduced around the logo. Returns the input unchanged if it is already
+    square or can't be decoded (never break generation on this).
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    except Exception:  # noqa: BLE001
+        return image_bytes
+    w, h = img.size
+    if w == h:
+        return image_bytes
+    side = max(w, h)
+    canvas = Image.new("RGBA", (side, side), (255, 255, 255, 0))
+    canvas.alpha_composite(img, ((side - w) // 2, (side - h) // 2))
+    out = io.BytesIO()
+    canvas.save(out, format="PNG")
+    return out.getvalue()
+
+
+def _normalise_output(image_bytes: bytes) -> bytes:
+    """Force the generated image to an exact ``_OUTPUT_SIZE`` square PNG on white.
+
+    Gemini returns whatever dimensions it likes and can leave a non-white or
+    off-square canvas even when the prompt asks for one. To make the delivered
+    asset consistent every time, pad the image onto a pure-white square (any
+    transparency composited over white) and resize to exactly 1000x1000. Returns
+    the input unchanged only if it can't be decoded (never break generation).
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+    except Exception:  # noqa: BLE001
+        return image_bytes
+    # Flatten any alpha onto white so transparent corners don't render grey/black.
+    if img.mode in ("RGBA", "LA", "P"):
+        img = img.convert("RGBA")
+        canvas = Image.new("RGBA", img.size, (255, 255, 255, 255))
+        canvas.alpha_composite(img)
+        img = canvas.convert("RGB")
+    else:
+        img = img.convert("RGB")
+    w, h = img.size
+    side = max(w, h)
+    if w != h:
+        square = Image.new("RGB", (side, side), (255, 255, 255))
+        square.paste(img, ((side - w) // 2, (side - h) // 2))
+        img = square
+    if img.size != (_OUTPUT_SIZE, _OUTPUT_SIZE):
+        img = img.resize((_OUTPUT_SIZE, _OUTPUT_SIZE), Image.LANCZOS)
+    out = io.BytesIO()
+    img.save(out, format="PNG")
+    return out.getvalue()
+
+
 class _GeminiAdapter(ImageProvider):
     tier: str = "preview"
 
@@ -81,6 +157,7 @@ class _GeminiAdapter(ImageProvider):
         reference_image_url: str,
         uploaded_asset_url: str | None,
         params: GenerationParams,
+        prior_design_url: str | None = None,
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required — never generate a cap from scratch")
@@ -101,9 +178,23 @@ class _GeminiAdapter(ImageProvider):
             {"mime_type": ref_mime, "data": ref_bytes},
         ]
 
+        # On an edit, the previous render rides along as the design to REFINE.
+        if prior_design_url:
+            try:
+                prior_bytes, prior_mime = await _fetch_bytes(prior_design_url)
+                contents.append(_PRIOR_DESIGN_LABEL)
+                contents.append({"mime_type": prior_mime, "data": prior_bytes})
+            except httpx.HTTPError:
+                log.warning("prior_design_fetch_failed", tier=self.tier)
+
         if uploaded_asset_url:
             try:
                 logo_bytes, logo_mime = await _fetch_bytes(uploaded_asset_url)
+                # Square the logo (transparently) so its aspect ratio can't bias
+                # the output shape — the output follows the reference cap only.
+                squared_logo = _to_square_logo(logo_bytes)
+                if squared_logo is not logo_bytes:
+                    logo_bytes, logo_mime = squared_logo, "image/png"
                 contents.append(_SECOND_IMAGE_LABEL)
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
             except httpx.HTTPError:
@@ -118,6 +209,9 @@ class _GeminiAdapter(ImageProvider):
         if image_bytes is None:
             raise RuntimeError("Gemini returned no image data")
 
+        # Guarantee a consistent 500x500 white-background PNG regardless of what
+        # the model actually returned.
+        image_bytes = _normalise_output(image_bytes)
         storage_path = write_generated(image_bytes, tier=self.tier)
         latency_ms = int((time.monotonic() - started) * 1000)
 

@@ -83,6 +83,7 @@ function resetChat() {
     tintReady: false,
     tintHex: '',
     colourSwatches: [],
+    colourPicker: false,
     sending: false,
     chatError: null,
     kickoffDone: false,
@@ -621,6 +622,31 @@ describe('ChatPanel colour swatches', () => {
     })
     fireEvent.click(navy)
     await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', 'Navy'))
+  })
+
+  it('renders a custom colour picker and sends the picked hex', async () => {
+    // Hat type with no predefined colourways: backend sends colour_picker only.
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'What colour would you like the hat?',
+      state: 'ask_hat_colour',
+      data: { colour_picker: true },
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('What colour would you like the hat?')
+
+    const picker = document.querySelector('input[type="color"]') as HTMLInputElement
+    expect(picker).not.toBeNull()
+
+    fireEvent.input(picker, { target: { value: '#1b5e20' } })
+
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Great choice!', state: 'recommend_embroidery', data: {},
+    })
+    fireEvent.click(await screen.findByRole('button', { name: /use this colour/i }))
+    await waitFor(() =>
+      expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', '#1b5e20'),
+    )
   })
 })
 

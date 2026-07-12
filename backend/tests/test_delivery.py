@@ -375,6 +375,56 @@ def test_verify_route_triggers_send(monkeypatch):
     assert len(sent.get("preview", [])) == 1
 
 
+def test_verify_early_sends_resume_email(monkeypatch):
+    """Verifying BEFORE the design is ready (no complete generation) sends a
+    resume email with a ?session=<share_token> link, exactly once, and does NOT
+    send the preview."""
+    from app.api.routes import leads as leads_routes
+
+    token = jwt.encode({"lead_id": "lead-1"}, settings.admin_secret, algorithm="HS256")
+    token_hash = leads_routes.leads_service.hash_token(token)
+
+    lead = _lead_row(email_verified=False, preview_email_sent=False)
+    verification = {"id": "ver-1", "token_hash": token_hash, "used_at": None}
+    session = _session_row(collected={"quantity": 24})
+    tables = {
+        "leads": [lead],
+        "email_verifications": [verification],
+        "generations": [],  # nothing complete yet -> preview gate fails
+        "design_sessions": [session],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    resume_calls: list = []
+
+    monkeypatch.setattr(leads_routes, "get_supabase", lambda: fake)
+    _patch_common(monkeypatch, fake, sent)
+    monkeypatch.setattr(
+        leads_routes.email_service,
+        "send_resume_email",
+        lambda *a, **k: resume_calls.append((a, k)) or True,
+    )
+
+    import asyncio
+
+    html = asyncio.run(leads_routes.confirm_verification(token))
+
+    assert html.status_code == 200
+    assert lead["email_verified"] is True
+    assert sent.get("preview") is None  # design wasn't ready -> no preview
+    assert len(resume_calls) == 1
+    # link carries the resume deep-link into the chat
+    assert "?session=share-tok" in resume_calls[0][0][2]
+    assert session["collected"]["resume_email_sent"] is True
+
+    # A second verify (e.g. link re-click / resend) must NOT re-send it.
+    resume_calls.clear()
+    verification["used_at"] = None  # pretend a fresh token exists
+    _maybe = leads_routes._maybe_send_resume_email
+    _maybe(fake, "sess-1", lead)
+    assert len(resume_calls) == 0
+
+
 def test_preview_email_quote_url_is_quote_page(monkeypatch):
     """The preview email's 'request a quote' CTA must link to the real quote
     page (/quote/<token>), not a mailto: placeholder, and the token must decode

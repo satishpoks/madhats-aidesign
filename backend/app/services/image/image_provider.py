@@ -40,5 +40,6 @@ class ImageProvider(ABC):
         reference_image_url: str,  # real product photo — always required
         uploaded_asset_url: str | None,  # customer logo/artwork, if any
         params: GenerationParams,
+        prior_design_url: str | None = None,  # previous render to REFINE (edits only)
     ) -> GenerationResult:
         ...

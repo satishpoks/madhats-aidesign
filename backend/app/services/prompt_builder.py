@@ -58,6 +58,62 @@ def reference_image_for(product_ref: dict, collected: dict) -> str:
     return default
 
 
+# --- Multi-view rendering: one AI render per decorated angle -----------------
+
+# Canonical order the views are rendered/shown/emailed in.
+RENDER_VIEW_ORDER = ("front", "back", "left", "right")
+PRIMARY_VIEW = "front"
+
+
+def element_view(el: dict) -> str:
+    """Which product angle best shows this element's placement.
+
+    ``side`` splits into left/right by the element's position; ``back`` -> back;
+    ``front_panel``/``under_brim`` -> front. Mirrors composite._element_view so
+    the on-screen mock-up and the AI render agree on where each element lands.
+    """
+    zone = el.get("placement_zone") or "front_panel"
+    if zone == "side":
+        return "right" if el.get("placement_position") == "right" else "left"
+    return _ZONE_TO_VIEW.get(zone, "front")
+
+
+def render_views(collected: dict) -> list[str]:
+    """Views to AI-render: always the front hero PLUS every other view that
+    carries at least one decoration element, in canonical order."""
+    views = {PRIMARY_VIEW}
+    for el in collected.get("elements") or []:
+        views.add(element_view(el))
+    return [v for v in RENDER_VIEW_ORDER if v in views]
+
+
+def elements_for_view(collected: dict, view: str) -> list[dict]:
+    return [el for el in (collected.get("elements") or []) if element_view(el) == view]
+
+
+def affected_render_views(collected: dict) -> list[str]:
+    """For an EDIT: the decorated views the change actually touches.
+
+    Uses ``collected["refine_views"]`` (accumulated during the refine sub-flow
+    from the change text + any newly-added element's placement). When empty or
+    unknown, re-renders every decorated view — the safe fallback."""
+    all_views = render_views(collected)
+    wanted = {v for v in (collected.get("refine_views") or []) if v in all_views}
+    return [v for v in all_views if v in wanted] or all_views
+
+
+def view_has_logo(collected: dict, view: str) -> bool:
+    """True if this view carries an uploaded-logo element (so only that view's
+    render should receive the uploaded artwork as a second image)."""
+    return any(el.get("type") == "logo" for el in elements_for_view(collected, view))
+
+
+def reference_image_url_for_view(product_ref: dict, view: str) -> str:
+    """The product reference photo for a specific angle (falls back to front)."""
+    views = product_ref.get("view_images") or {}
+    return views.get(view) or product_ref.get("reference_image_url") or ""
+
+
 def build_params(collected: dict, tier: str) -> GenerationParams:
     elements = collected.get("elements") or []
     return GenerationParams(
@@ -71,7 +127,7 @@ def build_params(collected: dict, tier: str) -> GenerationParams:
     )
 
 
-_ZONE_LABEL = {"front_panel": "front panel", "side": "side", "back": "back", "under_brim": "under the brim"}
+_ZONE_LABEL = {"front_panel": "front panel", "side": "side", "back": "main back panel (not the strap)", "under_brim": "under the brim"}
 
 
 def _placement_phrase(el: dict) -> str:
@@ -171,10 +227,32 @@ def _design_block(collected: dict) -> str:
     return prompts.FALLBACK_DESIGN_BLOCK
 
 
-def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -> str:
-    if not product_ref or not product_ref.get("reference_image_url"):
-        raise PromptBuildError("product reference_image_url missing — cannot composite")
+def _augment_design_block(design_block: str, collected: dict) -> str:
+    """Append the requested-change and per-section colour notes (both global,
+    so they apply to every view's render)."""
+    change = collected.get("change_request")
+    if change:
+        design_block = (
+            f"{design_block}\nRequested change from the customer: {change}."
+            "\nStart from the CURRENT DESIGN image (the existing design on this cap) "
+            "and change ONLY what is requested — keep every other detail identical."
+        )
+    # Per-section colour instructions / colour remarks captured at the colour
+    # deep-dive (blank flow) — apply them to the cap and pass to the team.
+    colour_note = (collected.get("colour_note") or "").strip()
+    if colour_note:
+        design_block = f"{design_block}\nCustomer's colour details (apply per section): {colour_note}."
+    # Free-form notes the customer added at the pre-generation confirmation step.
+    notes = [str(n).strip() for n in (collected.get("brief_notes") or []) if str(n).strip()]
+    if notes:
+        design_block = f"{design_block}\nCustomer's notes/requests: {'; '.join(notes)}."
+    return design_block
 
+
+def _render_template(
+    collected: dict, product_ref: dict, params: GenerationParams, design_block: str
+) -> str:
+    """Assemble the final image prompt from a ready-made ``design_block``."""
     if params.decoration_type == "embroidery":
         decoration_kind = prompts.DECORATION_KIND_EMBROIDERY
         decoration_style = prompts.EMBROIDERY_STYLE_MODIFIER
@@ -193,16 +271,6 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
     ]
     pin_block = ("\n" + "\n".join(pin_lines)) if pin_lines else ""
 
-    design_block = _design_block(collected)
-    change = collected.get("change_request")
-    if change:
-        design_block = f"{design_block}\nRequested change from the customer: {change}."
-    # Per-section colour instructions / colour remarks captured at the colour
-    # deep-dive (blank flow) — apply them to the cap and pass to the team.
-    colour_note = (collected.get("colour_note") or "").strip()
-    if colour_note:
-        design_block = f"{design_block}\nCustomer's colour details (apply per section): {colour_note}."
-
     is_blank = collected.get("flow_mode") == "blank"
     template = prompts.IMAGE_GEN_PROMPT_BLANK if is_blank else prompts.IMAGE_GEN_PROMPT
 
@@ -219,6 +287,43 @@ def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -
         name = hc.get("name") if isinstance(hc, dict) else (hc if isinstance(hc, str) else None)
         fmt["hat_colour"] = name or product_ref.get("colour") or "the customer's chosen colour"
     return template.format(**fmt)
+
+
+def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -> str:
+    if not product_ref or not product_ref.get("reference_image_url"):
+        raise PromptBuildError("product reference_image_url missing — cannot composite")
+    design_block = _augment_design_block(_design_block(collected), collected)
+    return _render_template(collected, product_ref, params, design_block)
+
+
+def build_view_prompt(
+    collected: dict, product_ref: dict, params: GenerationParams, view: str
+) -> str:
+    """Build the image prompt for a SINGLE view, enumerating only that view's
+    elements onto that view's reference photo.
+
+    A view with no elements renders the clean cap (or, for the primary front
+    view, whatever overall brief context exists). The global brief and the
+    uploaded logo are scoped to the view that actually carries them so a
+    back-panel render doesn't try to re-apply front decoration.
+    """
+    if not product_ref or not product_ref.get("reference_image_url"):
+        raise PromptBuildError("product reference_image_url missing — cannot composite")
+
+    view_elements = elements_for_view(collected, view)
+    if view_elements:
+        scoped = {**collected, "elements": view_elements}
+        if view != PRIMARY_VIEW:
+            # Overall brief / uploaded logo belong to the primary view only.
+            scoped["design_description"] = None
+            scoped["uploaded_asset_path"] = None
+        design_block = _design_block(scoped)
+    else:
+        brief_ctx = _brief_context_block(collected) if view == PRIMARY_VIEW else ""
+        design_block = brief_ctx or prompts.NO_DECORATION_DESIGN_BLOCK
+
+    design_block = _augment_design_block(design_block, collected)
+    return _render_template(collected, product_ref, params, design_block)
 
 
 def prompt_hash(prompt: str) -> str:
