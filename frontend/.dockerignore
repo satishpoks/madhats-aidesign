@@ -1,3 +1,9 @@
 node_modules
 dist
 .vite
+# Never bake a developer's local env into an image. Vite inlines VITE_* at
+# build time, so a stray .env here would override the intended build args.
+# (Local dev gets its values from docker-compose `environment:` instead.)
+.env
+.env.*
+!.env.example
