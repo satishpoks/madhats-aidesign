@@ -84,6 +84,9 @@ STATE_PROMPTS: dict[str, str] = {
     "ask_pin_annotation": "Ask if they'd like to drop a pin on the cap to add a specific note "
     "about placement, or skip and generate now.",
     "pin_annotate_mode": "Acknowledge the pin note and ask if they want to add another or finish.",
+    "ask_hat_colour": "Ask what colour they'd like the hat itself to be.",
+    "composite_preview": "Tell them here's a quick on-screen mock-up of the design across "
+    "all four angles, and ask if it looks right to generate or they'd like to tweak something.",
     "generating": "Tell them you're putting the design together now and it'll be in "
     "their inbox and on-screen the moment it's ready. Do NOT ask for their email.",
     "ask_email": "Politely ask for their email so you can send the finished design.",
@@ -296,6 +299,11 @@ CANNED_REPLIES: dict[str, str] = {
         "or skip straight to generating?"
     ),
     "pin_annotate_mode": "Got that pin! Want to add another, or are you ready to generate?",
+    "ask_hat_colour": "What colour would you like the hat itself to be?",
+    "composite_preview": (
+        "Here's a quick mock-up of your design across the front, back and sides. "
+        "Happy for me to generate it, or would you like to tweak something?"
+    ),
     "generating": (
         "Putting your design together now — I'll pop it in your inbox and "
         "on-screen the moment it's ready."

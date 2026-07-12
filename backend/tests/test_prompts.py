@@ -14,3 +14,9 @@ def test_deepdive_states_have_copy():
         assert slug in prompts.CANNED_REPLIES
         assert slug in prompts.STATE_PROMPTS
     assert "graphic" in prompts.CANNED_REPLIES["ask_more_elements"].lower()
+
+
+def test_new_state_copy_present():
+    for key in ("ask_hat_colour", "composite_preview"):
+        assert key in prompts.STATE_PROMPTS
+        assert key in prompts.CANNED_REPLIES
