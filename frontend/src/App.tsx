@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useSessionStore } from './store/sessionStore'
 import { ApiProductPicker } from './components/ApiProductPicker'
+import { BlankHatPicker } from './components/BlankHatPicker'
 import { useStudioStore } from './store/studioStore'
 import { StudioCanvas } from './components/StudioCanvas'
 import { RefineScreen } from './components/RefineScreen'
@@ -25,6 +26,10 @@ export default function App() {
   // Session flow (new chatbot path) takes priority
   if (sessionView === 'session') {
     return <ChatPanel />
+  }
+
+  if (sessionView === 'blank') {
+    return <BlankHatPicker />
   }
 
   // Old studio flow — preserved for existing functionality
