@@ -11,6 +11,7 @@ from app.models.message import (
 )
 from app.services.conversation.orchestrator import (
     SessionNotFound,
+    advance_after_generation,
     advance_after_regeneration,
     check_verification,
     handle_message,
@@ -62,6 +63,22 @@ async def poll_regeneration(session_id: str) -> RegenerationPollResponse:
     """
     try:
         result = await advance_after_regeneration(session_id)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
+    return RegenerationPollResponse(**result)
+
+
+@router.get("/chat/{session_id}/generation-advance", response_model=RegenerationPollResponse)
+async def poll_generation_advance(session_id: str) -> RegenerationPollResponse:
+    """One-shot advance used by the chat right after preview generation settles.
+
+    Called exactly once by the frontend after startGeneration(sessionId) resolves
+    (success or failure). Advances GENERATING -> VERIFY_EMAIL (or collapses to
+    OFFER_REFINE if already verified, or -> ASK_EMAIL if no email was captured);
+    a no-op if the session isn't at GENERATING.
+    """
+    try:
+        result = await advance_after_generation(session_id)
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     return RegenerationPollResponse(**result)

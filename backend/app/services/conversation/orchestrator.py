@@ -364,6 +364,67 @@ async def advance_after_regeneration(session_id: str) -> dict:
     return {"reply": reply, "state": new_state.value, "data": data}
 
 
+async def advance_after_generation(session_id: str) -> dict:
+    """One-shot advance used by the chat right after preview generation settles.
+
+    The email is captured earlier now (SAVE_PROGRESS_EMAIL), so GENERATING has
+    no user email turn to move it forward. The frontend calls this once, after
+    startGeneration(sessionId) settles (success or failure), to advance:
+      - email captured + already verified (clicked the link during the
+        deep-dive) -> collapse straight through to OFFER_REFINE;
+      - email captured, not yet verified -> rest at VERIFY_EMAIL (the verify
+        poll finishes it);
+      - no email captured -> ASK_EMAIL (terminal fallback ask).
+    No-op (reply=None) if the session isn't at GENERATING.
+    """
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+
+    current = ConversationState(session["state"])
+    collected: dict = session.get("collected") or {}
+
+    if current is not ConversationState.GENERATING:
+        data = _public_data(current, collected)
+        data["progress"] = progress(current, collected)
+        return {"reply": None, "state": current.value, "data": data}
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+
+    new_state = advance_state(current, collected)  # VERIFY_EMAIL or ASK_EMAIL
+    aside = None
+    if new_state is ConversationState.VERIFY_EMAIL and collected.get("email_verified"):
+        # Verified during the deep-dive — collapse through the post-verification
+        # statement states to OFFER_REFINE (same landing as check_verification).
+        new_state = advance_state(new_state, collected)  # EMAIL_VERIFIED
+        while new_state in AUTO_ADVANCE_STATES:
+            new_state = advance_state(new_state, collected)
+        aside = "Your email's verified — your design's in your inbox and on-screen now."
+
+    reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside)
+
+    sb.table("design_sessions").update(
+        {"state": new_state.value, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", session_id).execute()
+
+    sb.table("chat_messages").insert(
+        {
+            "session_id": session_id,
+            "role": "assistant",
+            "content": reply,
+            "state_before": current.value,
+            "state_after": new_state.value,
+        }
+    ).execute()
+
+    data = _public_data(new_state, collected)
+    data["progress"] = progress(new_state, collected)
+    return {"reply": reply, "state": new_state.value, "data": data}
+
+
 def _route(
     current: ConversationState, collected: dict, upsell_count: int
 ) -> ConversationState:
