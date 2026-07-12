@@ -11,6 +11,13 @@ interface ProductViewerProps {
   productRef: ProductRefLike | null
   /** Watermarked design images (newest last). Shown once released. */
   designUrls?: string[]
+  /**
+   * Composited blank-hat views (front/back/left/right), from the composite
+   * endpoint. When present, back/left/right prefer these over the blank
+   * product-reference angle photos; front keeps the AI hero (design/reference)
+   * unchanged. Absent for the customise flow — behaviour there is untouched.
+   */
+  compositeViews?: Record<string, string>
 }
 
 const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
@@ -21,15 +28,21 @@ interface Thumb {
   src: string
 }
 
-export function ProductViewer({ productRef, designUrls = [] }: ProductViewerProps) {
+export function ProductViewer({ productRef, designUrls = [], compositeViews }: ProductViewerProps) {
   const angleThumbs = useMemo<Thumb[]>(() => {
     const imgs = productRef?.view_images ?? {}
-    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => ({ key: v, label: v, src: imgs[v] }))
+    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => ({
+      key: v,
+      label: v,
+      // Front keeps the AI hero (blank reference / design thumbs win via
+      // ordering below); back/left/right prefer the composited view when available.
+      src: v !== 'front' && compositeViews?.[v] ? compositeViews[v] : imgs[v],
+    }))
     if (ordered.length === 0 && productRef?.reference_image_url) {
       return [{ key: 'front', label: 'front', src: productRef.reference_image_url }]
     }
     return ordered
-  }, [productRef])
+  }, [productRef, compositeViews])
 
   const designThumbs = useMemo<Thumb[]>(
     () => designUrls.map((src, i) => ({ key: `design-${i}`, label: designUrls.length > 1 ? `design ${i + 1}` : 'design', src })),
