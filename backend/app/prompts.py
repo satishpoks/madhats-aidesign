@@ -56,6 +56,11 @@ STATE_PROMPTS: dict[str, str] = {
     "upload_logo": "Invite them to upload their logo or artwork now.",
     "ask_remove_bg": "Ask if they'd like the background removed from their logo for a cleaner look.",
     "describe_design": "Invite them to describe the design they have in mind, in their own words.",
+    "save_progress_email": (
+        "Ask for the customer's email, explaining it saves their progress so they "
+        "can return to this design anytime and lets you send the finished design "
+        "when it's ready. One or two warm sentences — not pushy."
+    ),
     "ask_more_elements": (
         "Ask whether the customer wants to add another element — text, a graphic, "
         "or a note for the team — making clear they can also say they're done. "
@@ -79,8 +84,8 @@ STATE_PROMPTS: dict[str, str] = {
     "ask_pin_annotation": "Ask if they'd like to drop a pin on the cap to add a specific note "
     "about placement, or skip and generate now.",
     "pin_annotate_mode": "Acknowledge the pin note and ask if they want to add another or finish.",
-    "generating": "Tell them you're putting the design together now, and while it renders ask "
-    "for their email so you can send it across when ready.",
+    "generating": "Tell them you're putting the design together now and it'll be in "
+    "their inbox and on-screen the moment it's ready. Do NOT ask for their email.",
     "ask_email": "Politely ask for their email so you can send the finished design.",
     "verify_email": "Let them know you've sent a quick verification email and ask them to click "
     "the link to confirm. Mention to check spam.",
@@ -265,6 +270,10 @@ CANNED_REPLIES: dict[str, str] = {
         "Tell me about the design you have in mind — colours, text, graphics, vibe — "
         "whatever comes to mind!"
     ),
+    "save_progress_email": (
+        "What's the best email for you? I'll save your progress so you can pick this "
+        "design back up anytime — and send the finished design across once it's ready."
+    ),
     "ask_more_elements": (
         "Anything to add — some text, a graphic, or a note for our team? "
         "Or say 'that's everything' and I'll put it together."
@@ -288,8 +297,8 @@ CANNED_REPLIES: dict[str, str] = {
     ),
     "pin_annotate_mode": "Got that pin! Want to add another, or are you ready to generate?",
     "generating": (
-        "I'm putting your design together now! "
-        "While that renders, what's your email so I can send it across when it's ready?"
+        "Putting your design together now — I'll pop it in your inbox and "
+        "on-screen the moment it's ready."
     ),
     "ask_email": "What's the best email address to send your design to?",
     "verify_email": (
