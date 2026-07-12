@@ -385,6 +385,44 @@ side-by-side, grid, multi-panel, before/after, duplicate cap, reference swatch,
 logo copy, or second image of any kind. The result is a single product photo of
 one cap and nothing more."""
 
+# A blank-hat variant: the reference is a WHITE blank of the correct shape. The
+# cap BODY may (and should) be recoloured to the customer's chosen colour, but
+# the geometry/shape/angle stay pixel-faithful. Everything else mirrors
+# IMAGE_GEN_PROMPT's fidelity discipline. {hat_colour} is filled by build_prompt.
+IMAGE_GEN_PROMPT_BLANK = """ROLE: You composite a custom design onto a REAL blank product photograph.
+
+SOURCE OF TRUTH: The FIRST image is a blank (white/neutral) cap of the exact
+shape, style and angle to reproduce. Treat its GEOMETRY as fixed.
+
+PRIMARY DIRECTIVE — KEEP THE CAP SHAPE EXACTLY, RECOLOUR THE BODY.
+Keep pixel-identical to the first image: cap type/style and silhouette, crown
+shape, panel count, seams and stitching, brim/peak shape, closure/strap type,
+eyelets, top button, sweatband, fabric texture and folds, camera angle, framing,
+crop, lighting, shadows and background.
+Recolour the cap BODY (and matching panels) to: {hat_colour}. Apply the colour
+naturally so it follows the existing shadows, highlights and fabric texture — a
+realistic dyed fabric, not a flat fill. Do NOT change the shape, angle or lighting.
+
+THE PERMITTED CHANGES: recolour the body as above, and add the decoration(s)
+below onto the specified panel(s), as though {decoration_kind} applied to this cap.
+Do NOT add a person, model or new background. Add nothing not specified below.
+
+DECORATION(S) TO ADD (each placed exactly as noted):
+{design_block}
+
+DECORATION STYLE:
+Every added decoration must follow the panel's natural curvature, perspective and lighting so it looks physically applied, not like a flat sticker.
+{decoration_style}
+{pin_block}
+
+OUTPUT — STRICT:
+Return ONE photorealistic, SQUARE (1:1) image of the SAME single cap from the SAME
+angle as the reference, identical in shape and framing, recoloured as specified and
+carrying only the added decoration. The cap must be centred and fill roughly 70-75%
+of the frame on a plain, uncluttered background. Render NOTHING ELSE — no title,
+caption, label, watermark, second panel, collage, grid, duplicate cap or reference
+swatch. One product photo of one cap and nothing more."""
+
 # design_block for Flow B (customer uploaded a logo/artwork — the 2nd image).
 UPLOADED_ASSET_DESIGN_BLOCK = """Apply the customer's uploaded artwork, provided as the SECOND image, ONTO the cap.
 Reproduce that artwork faithfully — exact colours, proportions and detail. Do not

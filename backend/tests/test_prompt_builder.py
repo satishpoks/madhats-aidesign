@@ -211,3 +211,21 @@ def test_reference_front_placement_uses_default():
     }
     collected = {"elements": [{"type": "text", "content": "HI", "placement_zone": "front_panel"}]}
     assert prompt_builder.reference_image_for(product_ref, collected) == "https://cdn/front.png"
+
+
+# --- blank-mode recolour variant (flow_mode == "blank") ---------------------
+
+def test_blank_mode_prompt_mentions_recolour():
+    collected = {"flow_mode": "blank", "elements": [{"type": "text", "content": "GO"}]}
+    ref = {"reference_image_url": "b/front.png", "colour": "Navy"}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    assert "Navy" in prompt
+    assert "recolour" in prompt.lower() or "colour the cap" in prompt.lower()
+
+
+def test_customise_mode_prompt_unchanged():
+    collected = {"elements": [{"type": "text", "content": "GO"}]}
+    ref = {"reference_image_url": "p/front.png", "colour": "Black"}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    # customise mode still forbids recolour (fidelity-locked base prompt)
+    assert "Do NOT recolour" in prompt
