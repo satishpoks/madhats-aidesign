@@ -1,35 +1,36 @@
-import { useEffect, useState } from 'react'
-import {
-  listHatTypes,
-  createHatType,
-  updateHatType,
-  uploadHatAngle,
-  listStores,
-  type HatType,
-  type Store,
-} from '../adminApi'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { listHatTypes, deleteHatType, type HatType } from '../adminApi'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { useStores, hatStatus, angleCount, VIEWS, type HatStatus } from './hatTypes/shared'
 
-const VIEWS = ['front', 'back', 'left', 'right'] as const
+const STATUS_LABEL: Record<HatStatus, string> = {
+  active: 'Active',
+  draft: 'Draft',
+  needs_images: 'Needs images',
+}
+const STATUS_CLASS: Record<HatStatus, string> = {
+  active: 'bg-green-100 text-green-700',
+  draft: 'bg-amber-100 text-amber-700',
+  needs_images: 'bg-gray-100 text-gray-500',
+}
 
 export function HatTypesView() {
-  const [stores, setStores] = useState<Store[]>([])
-  const [storeId, setStoreId] = useState('')
+  const { stores, error: storesError } = useStores()
+  const [params, setParams] = useSearchParams()
+  const storeId = params.get('store') ?? ''
   const [hats, setHats] = useState<HatType[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [slug, setSlug] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [search, setSearch] = useState('')
+  const [confirmId, setConfirmId] = useState<string | null>(null)
 
+  // Default the store selection to the first store once loaded.
   useEffect(() => {
-    listStores()
-      .then((data) => {
-        setStores(data)
-        if (data.length > 0) setStoreId((prev) => prev || data[0].id)
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load stores'))
-  }, [])
+    if (!storeId && stores.length > 0) {
+      setParams({ store: stores[0].id }, { replace: true })
+    }
+  }, [storeId, stores, setParams])
 
   const storeKey = stores.find((s) => s.id === storeId)?.public_key ?? null
 
@@ -46,149 +47,135 @@ export function HatTypesView() {
 
   useEffect(() => {
     if (storeKey) reload(storeKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [storeKey])
 
-  async function onCreate(e: React.FormEvent) {
-    e.preventDefault()
-    if (!storeKey || !name || !slug) return
-    setCreating(true)
-    setError(null)
-    try {
-      await createHatType({ name, slug }, storeKey)
-      setName('')
-      setSlug('')
-      reload(storeKey)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Create failed')
-    } finally {
-      setCreating(false)
-    }
-  }
+  const filtered = useMemo(
+    () => hats.filter((h) => h.name.toLowerCase().includes(search.toLowerCase())),
+    [hats, search],
+  )
 
-  async function onUpload(id: string, view: string, file: File) {
+  async function onDelete(id: string) {
     if (!storeKey) return
     setError(null)
     try {
-      await uploadHatAngle(id, view, file, storeKey)
+      await deleteHatType(id, storeKey)
+      setConfirmId(null)
       reload(storeKey)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Upload failed')
+      setError(e instanceof Error ? e.message : 'Delete failed')
     }
   }
-
-  async function onToggleActive(h: HatType, active: boolean) {
-    if (!storeKey) return
-    setError(null)
-    try {
-      await updateHatType(h.id, { active }, storeKey)
-      reload(storeKey)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Update failed')
-    }
-  }
-
-  const allAngles = (h: HatType) => VIEWS.every((v) => h.blank_view_images[v])
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold">Hat Types</h1>
-      {error && <ErrorBanner message={error} />}
-
-      <label className="block text-sm">
-        Store
-        <select
-          value={storeId}
-          onChange={(e) => setStoreId(e.target.value)}
-          className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm"
-        >
-          {stores.length === 0 && <option value="">No stores</option>}
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {storeKey && (
-        <>
-          <form
-            onSubmit={onCreate}
-            className="flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-white p-4"
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Hat Types</h1>
+        {storeId && (
+          <Link
+            to={`/admin/hat-types/new?store=${storeId}`}
+            className="rounded-lg bg-[#ff5c00] px-4 py-2 text-sm text-white hover:bg-[#e64f00]"
           >
-            <label className="text-sm">
-              Name
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="text-sm">
-              Slug
-              <input
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                required
-                className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-lg bg-[#ff5c00] text-white px-4 py-2 text-sm hover:bg-[#e64f00] disabled:opacity-50"
-            >
-              {creating ? 'Creating…' : 'Add hat type'}
-            </button>
-          </form>
+            + Add hat type
+          </Link>
+        )}
+      </div>
 
-          {loading && <p className="text-sm text-gray-500">Loading…</p>}
-          {!loading && hats.length === 0 && <p className="text-sm text-gray-500">No hat types yet</p>}
+      {(error || storesError) && <ErrorBanner message={error ?? storesError!} />}
 
-          <div className="space-y-4">
-            {hats.map((h) => (
-              <div key={h.id} className="rounded-lg border border-gray-200 bg-white p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="font-semibold">
-                    {h.name} <span className="font-normal text-gray-400">({h.slug})</span>
-                  </div>
-                  <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={h.active}
-                      disabled={!allAngles(h)}
-                      onChange={(e) => onToggleActive(h, e.target.checked)}
-                    />
-                    Active
-                    {!allAngles(h) && (
-                      <span className="text-xs text-gray-400">(needs all 4 angles)</span>
-                    )}
-                  </label>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {VIEWS.map((v) => (
-                    <div key={v} className="text-center">
-                      <div className="text-xs uppercase text-gray-500">{v}</div>
-                      {h.blank_view_images[v] ? (
-                        <div className="text-xs text-green-600">uploaded</div>
-                      ) : (
-                        <div className="text-xs text-gray-300">—</div>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => e.target.files?.[0] && onUpload(h.id, v, e.target.files[0])}
-                        className="mt-1 text-xs"
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="block text-sm">
+          Store
+          <select
+            value={storeId}
+            onChange={(e) => setParams({ store: e.target.value }, { replace: true })}
+            className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm"
+          >
+            {stores.length === 0 && <option value="">No stores</option>}
+            {stores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
             ))}
-          </div>
-        </>
+          </select>
+        </label>
+        <label className="block text-sm">
+          Search
+          <input
+            value={search}
+            placeholder="Search hat types…"
+            onChange={(e) => setSearch(e.target.value)}
+            className="mt-1 block rounded border border-gray-300 px-2 py-1 text-sm"
+          />
+        </label>
+      </div>
+
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
+      {!loading && filtered.length === 0 && (
+        <p className="text-sm text-gray-500">No hat types yet — add your first.</p>
       )}
+
+      <div className="space-y-3">
+        {filtered.map((h) => {
+          const status = hatStatus(h)
+          return (
+            <div
+              key={h.id}
+              className="flex flex-wrap items-center gap-4 rounded-lg border border-gray-200 bg-white p-3"
+            >
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded bg-gray-50">
+                {h.view_images.front ? (
+                  <img src={h.view_images.front} alt={h.name} className="max-h-14 object-contain" />
+                ) : (
+                  <span className="text-gray-300">—</span>
+                )}
+              </div>
+              <div className="min-w-[8rem] flex-1">
+                <div className="font-semibold">{h.name}</div>
+                <div className="text-xs text-gray-400">{h.style || '—'}</div>
+              </div>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CLASS[status]}`}>
+                {STATUS_LABEL[status]}
+              </span>
+              <span className="text-xs text-gray-500">
+                {h.colours.length} colour{h.colours.length === 1 ? '' : 's'} · {angleCount(h)}/
+                {VIEWS.length} angles
+              </span>
+              <div className="flex items-center gap-2">
+                <Link
+                  to={`/admin/hat-types/${h.id}?store=${storeId}`}
+                  className="rounded border border-gray-300 px-3 py-1 text-sm hover:bg-gray-50"
+                >
+                  Edit
+                </Link>
+                {confirmId === h.id ? (
+                  <>
+                    <button
+                      onClick={() => onDelete(h.id)}
+                      className="rounded bg-red-600 px-3 py-1 text-sm text-white hover:bg-red-700"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      className="rounded px-2 py-1 text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(h.id)}
+                    className="rounded border border-gray-300 px-3 py-1 text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
