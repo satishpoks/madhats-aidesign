@@ -25,6 +25,7 @@ from app.api.routes import (
     admin_stores,
     chat,
     generate,
+    hat_types,
     health,
     leads,
     media,
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     for router in (
         health.router,
         products.router,
+        hat_types.router,
         sessions.router,
         chat.router,
         uploads.router,
