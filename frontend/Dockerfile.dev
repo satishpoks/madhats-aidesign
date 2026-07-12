@@ -1,0 +1,17 @@
+# Dev-mode container for the Vite frontend (used by docker-compose for local
+# development with HMR). The API base URL is provided at runtime by
+# docker-compose's `environment:` block (VITE_API_BASE_URL), NOT baked in.
+# For production, use the top-level `Dockerfile` (a static build).
+FROM node:20-slim
+
+WORKDIR /app
+
+COPY package.json package-lock.json* ./
+RUN npm install
+
+COPY . .
+
+EXPOSE 5173
+
+# --host 0.0.0.0 so the dev server is reachable from outside the container.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
