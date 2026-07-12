@@ -9,6 +9,13 @@ class CreateSessionRequest(BaseModel):
     entry_path: str = "pick_first"
 
 
+class CreateBlankSessionRequest(BaseModel):
+    hat_type_id: str
+    colour: dict | str
+    channel: str = "web"
+    entry_path: str = "blank_first"
+
+
 class SessionResponse(BaseModel):
     session_id: str
     share_token: str

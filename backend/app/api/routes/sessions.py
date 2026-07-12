@@ -8,10 +8,12 @@ from app.api.deps import require_store
 from app.db import get_supabase
 from app.models.session import (
     ChatMessageOut,
+    CreateBlankSessionRequest,
     CreateSessionRequest,
     SessionDetail,
     SessionResponse,
 )
+from app.services import hat_types as hat_types_service
 from app.services.conversation.orchestrator import _public_data
 from app.services.conversation.state_machine import ConversationState
 from app.services.products import get_product
@@ -49,6 +51,54 @@ async def create_session(
                 "entry_path": body.entry_path,
                 "product_ref": product_ref,
                 "collected": {},
+                "status": "draft",
+            }
+        )
+        .execute()
+    )
+    row = res.data[0]
+    return SessionResponse(session_id=row["id"], share_token=share_token, state=row["state"])
+
+
+@router.post("/sessions/blank", response_model=SessionResponse)
+async def create_blank_session(
+    body: CreateBlankSessionRequest, store: dict = Depends(require_store)
+) -> SessionResponse:
+    hat = hat_types_service.get_hat_type(body.hat_type_id, store_id=store["id"])
+    if not hat:
+        raise HTTPException(status_code=404, detail="Unknown hat_type_id for this store")
+
+    colour = body.colour if isinstance(body.colour, dict) else {"name": body.colour, "hex": body.colour}
+    blanks = hat.get("blank_view_images") or {}
+    share_token = secrets.token_urlsafe(16)
+    product_ref = {
+        "product_id": hat["id"],
+        "style": hat.get("style", ""),
+        "colour": colour.get("name") or colour.get("hex"),
+        "name": hat["name"],
+        "reference_image_url": blanks.get("front", ""),
+        "view_images": blanks,
+    }
+    collected = {
+        "flow_mode": "blank",
+        "hat_type_id": hat["id"],
+        "hat_colour": colour,
+        "placement_zones": hat.get("placement_zones") or [],
+        "decoration_types": hat.get("decoration_types") or [],
+    }
+    sb = get_supabase()
+    res = (
+        sb.table("design_sessions")
+        .insert(
+            {
+                "store_id": store["id"],
+                "share_token": share_token,
+                "state": "greeting",
+                "channel": body.channel,
+                "entry_path": body.entry_path,
+                "flow_mode": "blank",
+                "product_ref": product_ref,
+                "collected": collected,
                 "status": "draft",
             }
         )
