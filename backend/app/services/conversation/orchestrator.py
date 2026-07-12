@@ -697,6 +697,23 @@ def _can_edit(session_id: str) -> bool:
 
 
 def _public_data(state: ConversationState, collected: dict) -> dict:
+    """Per-state UI data, plus a cross-state blank-flow tint signal.
+
+    Once a blank-hat colour is chosen, every subsequent turn advertises
+    ``tint_ready`` + ``tint_hex`` so the frontend can composite (tint) the blank
+    to the chosen colour in the left viewer immediately — no image generation,
+    no dedicated chat state.
+    """
+    data = dict(_state_public_data(state, collected))
+    if collected.get("flow_mode") == "blank":
+        hc = collected.get("hat_colour")
+        if hc:
+            data.setdefault("tint_ready", True)
+            data.setdefault("tint_hex", (hc.get("hex") if isinstance(hc, dict) else "") or "")
+    return data
+
+
+def _state_public_data(state: ConversationState, collected: dict) -> dict:
     """Non-PII data the frontend may need to drive the UI for this state.
 
     `continuable: True` marks a STATEMENT-only state (no question, no typed

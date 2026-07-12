@@ -17,6 +17,10 @@ interface ChatStoreState {
   triggerRegeneration: boolean
   /** Statement-only state: show a "Continue" affordance, not a text answer. */
   continuable: boolean
+  /** Blank flow: a colour has been chosen — the left viewer can show the tinted
+   *  (composited) blank. `tintHex` is the chosen colour so a change re-tints. */
+  tintReady: boolean
+  tintHex: string
   progress: { step: number; total: number } | null
   sending: boolean
   chatError: string | null
@@ -48,10 +52,12 @@ function parseData(data: Record<string, unknown>) {
   const triggerGeneration = data.trigger_generation === true
   const triggerRegeneration = data.trigger_regeneration === true
   const continuable = data.continuable === true
+  const tintReady = data.tint_ready === true
+  const tintHex = typeof data.tint_hex === 'string' ? data.tint_hex : ''
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, progress }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, progress }
 }
 
 function uid(): string {
@@ -66,6 +72,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   triggerGeneration: false,
   triggerRegeneration: false,
   continuable: false,
+  tintReady: false,
+  tintHex: '',
   progress: null,
   sending: false,
   chatError: null,
@@ -76,19 +84,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ kickoffDone: true, sending: true, chatError: null })
     try {
       const res = await sendChat(sessionId, '')
-      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      const parsed = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
           { id: uid(), role: 'assistant', text: res.reply },
         ],
         chatState: res.state,
-        options,
-        options2,
-        triggerGeneration,
-        triggerRegeneration,
-        continuable,
-        progress,
+        ...parsed,
         sending: false,
       }))
     } catch (err) {
@@ -116,19 +119,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }))
     try {
       const res = await sendChat(sessionId, text)
-      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      const parsed = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
           { id: uid(), role: 'assistant', text: res.reply },
         ],
         chatState: res.state,
-        options,
-        options2,
-        triggerGeneration,
-        triggerRegeneration,
-        continuable,
-        progress,
+        ...parsed,
         sending: false,
       }))
     } catch (err) {
@@ -140,7 +138,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   hydrate: (messages, state, data) => {
-    const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(data)
+    const parsed = parseData(data)
     set({
       messages: messages.map(m => ({
         id: uid(),
@@ -148,12 +146,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         text: m.content,
       })),
       chatState: state,
-      options,
-      options2,
-      triggerGeneration,
-      triggerRegeneration,
-      continuable,
-      progress,
+      ...parsed,
       sending: false,
       chatError: null,
       // The thread already exists — never fire the greeting kickoff on resume.
@@ -167,19 +160,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollVerification(sessionId)
       if (res.reply == null) return // not verified yet — nothing to show
-      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      const parsed = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
           { id: uid(), role: 'assistant', text: res.reply as string },
         ],
         chatState: res.state,
-        options,
-        options2,
-        triggerGeneration,
-        triggerRegeneration,
-        continuable,
-        progress,
+        ...parsed,
       }))
     } catch {
       // Polling is best-effort — a transient failure just retries next tick.
@@ -190,19 +178,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollRegeneration(sessionId)
       if (res.reply == null) return // not at regenerating (already advanced, or n/a)
-      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      const parsed = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
           { id: uid(), role: 'assistant', text: res.reply as string },
         ],
         chatState: res.state,
-        options,
-        options2,
-        triggerGeneration,
-        triggerRegeneration,
-        continuable,
-        progress,
+        ...parsed,
       }))
     } catch {
       // Best-effort — a transient failure leaves the thread as-is rather than
@@ -214,19 +197,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollGenerationAdvance(sessionId)
       if (res.reply == null) return // not at generating (already advanced, or n/a)
-      const { options, options2, triggerGeneration, triggerRegeneration, continuable, progress } = parseData(res.data)
+      const parsed = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
           { id: uid(), role: 'assistant', text: res.reply as string },
         ],
         chatState: res.state,
-        options,
-        options2,
-        triggerGeneration,
-        triggerRegeneration,
-        continuable,
-        progress,
+        ...parsed,
       }))
     } catch {
       // Best-effort — a transient failure leaves the thread as-is; the verify
@@ -246,6 +224,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2: [],
       triggerGeneration: false,
       triggerRegeneration: false,
+      continuable: false,
+      tintReady: false,
+      tintHex: '',
       progress: null,
       sending: false,
       chatError: null,

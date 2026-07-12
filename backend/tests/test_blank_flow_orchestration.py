@@ -26,3 +26,19 @@ def test_public_data_colour_chips_from_colourways():
     data = _public_data(S.ASK_HAT_COLOUR, collected)
     assert data["options"] == ["Navy", "Black"]
     assert data["colour_swatches"][0]["hex"] == "#1a2b5c"
+
+
+def test_tint_ready_advertised_once_colour_chosen():
+    # After a colour is chosen, EVERY subsequent state advertises tint_ready +
+    # tint_hex so the left viewer can composite the tinted blank instantly.
+    collected = {"flow_mode": "blank", "hat_colour": {"name": "Navy", "hex": "#1a2b5c"}}
+    data = _public_data(S.RECOMMEND_EMBROIDERY, collected)
+    assert data["tint_ready"] is True
+    assert data["tint_hex"] == "#1a2b5c"
+
+
+def test_no_tint_before_colour_or_for_customise():
+    # Blank, no colour yet -> no tint signal.
+    assert "tint_ready" not in _public_data(S.ASK_HAT_COLOUR, {"flow_mode": "blank"})
+    # Customise flow -> never tinted.
+    assert "tint_ready" not in _public_data(S.RECOMMEND_EMBROIDERY, {"decoration_type": "print"})

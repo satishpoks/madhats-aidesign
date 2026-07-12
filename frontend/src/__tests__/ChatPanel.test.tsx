@@ -80,6 +80,8 @@ function resetChat() {
     options2: [],
     triggerGeneration: false,
     continuable: false,
+    tintReady: false,
+    tintHex: '',
     sending: false,
     chatError: null,
     kickoffDone: false,
@@ -539,6 +541,33 @@ describe('ChatPanel composite preview', () => {
     // Confirm/tweak chips are still rendered from data.options — not hardcoded.
     expect(screen.getByRole('button', { name: 'Looks right — generate' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tweak something' })).toBeInTheDocument()
+  })
+
+  it('tints the left viewer instantly when a colour is chosen (tint_ready), without the confirm grid', async () => {
+    vi.mocked(postComposite).mockResolvedValue({
+      views: {
+        front: 'https://cdn.example.com/tint-f.png',
+        back: 'https://cdn.example.com/tint-b.png',
+      },
+    })
+    vi.mocked(sendChat).mockResolvedValueOnce({
+      reply: 'Navy it is!',
+      state: 'recommend_embroidery',
+      data: { tint_ready: true, tint_hex: '#1a2b5c', options: ['Yes, that works'] },
+    })
+
+    render(<ChatPanel />)
+    await screen.findByText('Navy it is!')
+
+    // Composite (tint) is fetched the moment the colour is set...
+    await waitFor(() => expect(vi.mocked(postComposite)).toHaveBeenCalledWith('sess-test-123'))
+    // ...and the tinted front hero shows in the left viewer.
+    await waitFor(() => {
+      const imgs = screen.getAllByRole('img') as HTMLImageElement[]
+      expect(imgs.some(i => i.src.includes('tint-f.png'))).toBe(true)
+    })
+    // The bottom confirm grid (alt "* preview") only shows at composite_preview.
+    expect(screen.queryByAltText(/preview/i)).toBeNull()
   })
 
   it('calls postComposite only once for a single composite_preview visit', async () => {

@@ -31,18 +31,23 @@ interface Thumb {
 export function ProductViewer({ productRef, designUrls = [], compositeViews }: ProductViewerProps) {
   const angleThumbs = useMemo<Thumb[]>(() => {
     const imgs = productRef?.view_images ?? {}
-    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => ({
-      key: v,
-      label: v,
-      // Front keeps the AI hero (blank reference / design thumbs win via
-      // ordering below); back/left/right prefer the composited view when available.
-      src: v !== 'front' && compositeViews?.[v] ? compositeViews[v] : imgs[v],
-    }))
+    // Front keeps the plain blank photo ONLY once a real design exists (the
+    // design hero wins via ordering below). Before that, front prefers the
+    // composited tint too, so the chosen blank colour shows on the hero image
+    // the instant it's picked. Back/left/right always prefer the composite.
+    const ordered = VIEW_ORDER.filter(v => imgs[v]).map(v => {
+      const preferComposite = v !== 'front' || designUrls.length === 0
+      return {
+        key: v,
+        label: v,
+        src: preferComposite && compositeViews?.[v] ? compositeViews[v] : imgs[v],
+      }
+    })
     if (ordered.length === 0 && productRef?.reference_image_url) {
       return [{ key: 'front', label: 'front', src: productRef.reference_image_url }]
     }
     return ordered
-  }, [productRef, compositeViews])
+  }, [productRef, compositeViews, designUrls.length])
 
   const designThumbs = useMemo<Thumb[]>(
     () => designUrls.map((src, i) => ({ key: `design-${i}`, label: designUrls.length > 1 ? `design ${i + 1}` : 'design', src })),

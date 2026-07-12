@@ -375,21 +375,35 @@ export function ChatPanel() {
   // chat state name is an equivalent, already-exposed signal — no need to
   // thread the raw `data` payload through the store for this one flag.
   const compositePreview = chatState === 'composite_preview'
+  // Blank flow: once a colour is chosen the backend advertises tint_ready +
+  // tint_hex on every turn, so the left viewer can show the blank tinted to
+  // that colour instantly (no image generation).
+  const tintReady = useChatStore(s => s.tintReady)
+  const tintHex = useChatStore(s => s.tintHex)
 
-  // Composited blank-hat preview (front/back/left/right), fetched once per
-  // composite_preview visit. Reset when the state moves off composite_preview
-  // so a later "Tweak -> back" re-fetches a fresh composite.
+  // Composited blank-hat views (front/back/left/right). Fetched the moment a
+  // colour is chosen (tint_ready), and again at composite_preview (which also
+  // overlays the decoration elements). Keyed on colour + purpose so a colour
+  // change — or the move to the element-composited preview — re-fetches.
   const [composite, setComposite] = useState<Record<string, string> | null>(null)
+  const lastCompositeKey = useRef<string | null>(null)
   useEffect(() => {
-    if (compositePreview && sessionId && !composite) {
-      void postComposite(sessionId).then(
-        r => setComposite(r.views),
-        () => setComposite({}),
-      )
-    } else if (!compositePreview && composite) {
-      setComposite(null)
+    if (!sessionId) return
+    if (!tintReady && !compositePreview) {
+      if (composite) {
+        setComposite(null)
+        lastCompositeKey.current = null
+      }
+      return
     }
-  }, [compositePreview, sessionId, composite])
+    const key = `${compositePreview ? 'preview' : 'tint'}:${tintHex}`
+    if (lastCompositeKey.current === key) return
+    lastCompositeKey.current = key
+    void postComposite(sessionId).then(
+      r => setComposite(r.views),
+      () => setComposite({}),
+    )
+  }, [tintReady, tintHex, compositePreview, sessionId, composite])
 
   const [inputText, setInputText] = useState('')
   // Lets the customer dismiss the logo-upload modal (to type a different reply)
@@ -642,8 +656,9 @@ export function ChatPanel() {
             'generating' message) — no separate contact form. */}
 
         {/* Composited blank-hat preview (front/back/left/right), shown above
-            the confirm/tweak chips while at composite_preview. */}
-        {composite && (
+            the confirm/tweak chips while at composite_preview. (The colour tint
+            also shows continuously in the left viewer via compositeViews.) */}
+        {compositePreview && composite && (
           <div className="grid grid-cols-2 gap-2 my-3">
             {(['front', 'back', 'left', 'right'] as const).map(v =>
               composite[v] ? (
