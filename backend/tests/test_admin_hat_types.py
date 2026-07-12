@@ -200,6 +200,31 @@ def test_delete_happy_path(client):
     assert r.json() == {"deleted": True}
 
 
+def test_list_includes_proxied_view_images(client):
+    h = {"X-Admin-Secret": "s3cr3t", "X-Store-Key": "k"}
+    created = client.post("/admin/hat-types", json={"name": "5P", "slug": "5p"}, headers=h)
+    hat_id = created.json()["id"]
+    client.post(
+        f"/admin/hat-types/{hat_id}/angle/front",
+        headers=h,
+        files={"file": ("front.png", PNG_MAGIC, "image/png")},
+    )
+    rows = client.get("/admin/hat-types", headers=h).json()
+    assert "/media/" in rows[0]["view_images"]["front"]
+
+
+def test_angle_upload_returns_proxied_url(client):
+    h = {"X-Admin-Secret": "s3cr3t", "X-Store-Key": "k"}
+    created = client.post("/admin/hat-types", json={"name": "5P", "slug": "5p"}, headers=h)
+    hat_id = created.json()["id"]
+    r = client.post(
+        f"/admin/hat-types/{hat_id}/angle/front",
+        headers=h,
+        files={"file": ("front.png", PNG_MAGIC, "image/png")},
+    )
+    assert "/media/" in r.json()["view_images"]["front"]
+
+
 def test_other_store_cannot_patch_delete_or_upload_angle(client, monkeypatch):
     h = {"X-Admin-Secret": "s3cr3t", "X-Store-Key": "k"}
     created = client.post("/admin/hat-types", json={"name": "5P", "slug": "5p"}, headers=h)

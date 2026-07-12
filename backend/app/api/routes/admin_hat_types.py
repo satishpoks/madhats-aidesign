@@ -2,18 +2,24 @@
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
 from app.api.deps import require_admin, require_store
 from app.models.hat_type import CreateHatTypeRequest, HatTypeAdmin, UpdateHatTypeRequest
 from app.services import hat_types as svc
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
-from app.storage import upload_asset
+from app.storage import media_url, upload_asset
 
 router = APIRouter(tags=["admin-hat-types"], dependencies=[Depends(require_admin)])
 log = structlog.get_logger()
 
 _VIEWS = {"front", "back", "left", "right"}
+
+
+def _with_view_images(row: dict, base_url: str) -> dict:
+    imgs = row.get("blank_view_images") or {}
+    row["view_images"] = {v: media_url(p, base_url) for v, p in imgs.items() if p}
+    return row
 
 
 @router.post("/admin/hat-types", response_model=HatTypeAdmin)
@@ -24,8 +30,9 @@ async def create_hat_type(body: CreateHatTypeRequest, store: dict = Depends(requ
 
 
 @router.get("/admin/hat-types", response_model=list[HatTypeAdmin])
-async def list_hat_types(store: dict = Depends(require_store)) -> list[dict]:
-    return svc.list_hat_types(store["id"])
+async def list_hat_types(request: Request, store: dict = Depends(require_store)) -> list[dict]:
+    base = str(request.base_url)
+    return [_with_view_images(row, base) for row in svc.list_hat_types(store["id"])]
 
 
 @router.patch("/admin/hat-types/{hat_type_id}", response_model=HatTypeAdmin)
@@ -57,7 +64,11 @@ async def delete_hat_type(hat_type_id: str, store: dict = Depends(require_store)
 
 @router.post("/admin/hat-types/{hat_type_id}/angle/{view}")
 async def upload_angle(
-    hat_type_id: str, view: str, file: UploadFile = File(...), store: dict = Depends(require_store)
+    request: Request,
+    hat_type_id: str,
+    view: str,
+    file: UploadFile = File(...),
+    store: dict = Depends(require_store),
 ) -> dict:
     row = svc.get_hat_type(hat_type_id, store_id=store["id"])
     if row is None:
@@ -74,4 +85,9 @@ async def upload_angle(
         raise HTTPException(status_code=415, detail="Unsupported file type (png/jpeg/gif/webp only)")
     path = upload_asset(data, file.filename or "blank", mime)
     updated = svc.set_angle(hat_type_id, view, path)
-    return {"blank_view_images": updated["blank_view_images"]}
+    imgs = updated["blank_view_images"]
+    base = str(request.base_url)
+    return {
+        "blank_view_images": imgs,
+        "view_images": {v: media_url(p, base) for v, p in imgs.items() if p},
+    }

@@ -38,6 +38,7 @@ class HatTypeAdmin(BaseModel):
     style: str = ""
     description: str | None = None
     blank_view_images: dict[str, str] = Field(default_factory=dict)
+    view_images: dict[str, str] = Field(default_factory=dict)  # browser-loadable proxy URLs
     colours: list[dict] = Field(default_factory=list)
     placement_zones: list[str] = Field(default_factory=list)
     decoration_types: list[str] = Field(default_factory=list)
