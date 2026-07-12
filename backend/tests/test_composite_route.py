@@ -43,3 +43,13 @@ def test_composite_returns_proxied_urls(client):
 
 def test_composite_missing_session_404(client):
     assert client.post("/composite/nope").status_code == 404
+
+
+def test_composite_render_failure_returns_200_graceful(client, monkeypatch):
+    def _raise(vp, hexc, els):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(composite, "render_composite_views", _raise)
+    r = client.post("/composite/s1")
+    assert r.status_code == 200
+    assert r.json() == {"views": {}, "error": "composite_failed"}
