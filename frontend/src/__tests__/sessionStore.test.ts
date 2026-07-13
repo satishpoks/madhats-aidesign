@@ -23,6 +23,11 @@ vi.mock('../lib/api', () => ({
     placement_zones: ['front'],
     decoration_types: ['embroidery'],
   } satisfies Product),
+  createCanvasSession: vi.fn().mockResolvedValue({
+    session_id: 'canvas-sess-1',
+    share_token: 'canvas-tok-1',
+    state: 'canvas_design',
+  }),
   getSession: vi.fn().mockResolvedValue({
     session_id: 'sess-resume-1',
     share_token: 'tok-resume-1',
@@ -153,13 +158,13 @@ describe('bootstrapFromUrl', () => {
     expect(useSessionStore.getState().sessionId).toBeNull()
   })
 
-  it('starts a session when product_id is present in URL', async () => {
+  it('starts a canvas session when product_id is present in URL', async () => {
     Object.defineProperty(window, 'location', {
       value: { search: '?product_id=prod-1&source=shopify' },
       writable: true,
     })
     await useSessionStore.getState().bootstrapFromUrl()
-    expect(useSessionStore.getState().view).toBe('session')
+    expect(useSessionStore.getState().view).toBe('canvas')
     // Restore
     Object.defineProperty(window, 'location', {
       value: { search: '' },
@@ -273,6 +278,30 @@ describe('bootstrapFromUrl', () => {
     expect(useSessionStore.getState().view).toBe('picker')
 
     warnSpy.mockRestore()
+    Object.defineProperty(window, 'location', {
+      value: { search: '' },
+      writable: true,
+    })
+  })
+
+  it('bootstrapFromUrl with ?product_id starts a canvas session', async () => {
+    const api = await import('../lib/api')
+    vi.spyOn(api, 'fetchProduct').mockResolvedValue({
+      id: 'p1', style: 's', colour: 'navy', name: 'Cap', reference_image_url: 'http://x/f.png',
+      view_images: { front: 'http://x/f.png' }, placement_zones: [], decoration_types: [],
+    } as never)
+    vi.spyOn(api, 'createCanvasSession').mockResolvedValue({ session_id: 's1', share_token: 't', state: 'canvas_design' } as never)
+    // NOTE: this file's other tests shadow window.location with a plain object via
+    // Object.defineProperty, which breaks history.pushState's link to window.location —
+    // follow the same convention here rather than pushState (matches brief intent: the
+    // store reads window.location.search).
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=p1' },
+      writable: true,
+    })
+    const { useSessionStore } = await import('../store/sessionStore')
+    await useSessionStore.getState().bootstrapFromUrl()
+    expect(useSessionStore.getState().view).toBe('canvas')
     Object.defineProperty(window, 'location', {
       value: { search: '' },
       writable: true,

@@ -1,10 +1,10 @@
 import { create } from 'zustand'
 import type { Product } from '../lib/types'
-import { createSession, createBlankSession, fetchProduct, getSession, type HatType } from '../lib/api'
+import { createSession, createBlankSession, createCanvasSession, fetchProduct, getSession, type HatType } from '../lib/api'
 import { useChatStore } from './chatStore'
 import { useGenerationStore } from './generationStore'
 
-export type SessionView = 'picker' | 'session' | 'blank'
+export type SessionView = 'picker' | 'session' | 'blank' | 'canvas'
 
 export interface ProductRef {
   id: string
@@ -34,6 +34,8 @@ interface SessionState {
 
   startSession: (product: Product) => Promise<void>
   startBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
+  startCanvasSession: (product: Product) => Promise<void>
+  startCanvasBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
   resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
@@ -81,6 +83,42 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         view_images: hatType.view_images,
       },
       view: 'session',
+    })
+  },
+
+  startCanvasSession: async (product: Product) => {
+    const response = await createCanvasSession({ productId: product.id })
+    set({
+      sessionId: response.session_id,
+      shareToken: response.share_token,
+      state: response.state,
+      productRef: {
+        id: product.id,
+        name: product.name,
+        colour: product.colour,
+        style: product.style,
+        reference_image_url: product.reference_image_url,
+        view_images: product.view_images,
+      },
+      view: 'canvas',
+    })
+  },
+
+  startCanvasBlankSession: async (hatType: HatType, colour?: { name: string; hex: string }) => {
+    const response = await createCanvasSession({ hatTypeId: hatType.id, colour })
+    set({
+      sessionId: response.session_id,
+      shareToken: response.share_token,
+      state: response.state,
+      productRef: {
+        id: hatType.id,
+        name: hatType.name,
+        colour: colour?.name ?? '',
+        style: hatType.style,
+        reference_image_url: hatType.view_images.front ?? '',
+        view_images: hatType.view_images,
+      },
+      view: 'canvas',
     })
   },
 
@@ -165,7 +203,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
     try {
       const product = await fetchProduct(productId)
-      await get().startSession(product)
+      await get().startCanvasSession(product)
       set({ entryContext: { variantId, colour, source } })
     } catch (err) {
       // If bootstrap fails (product not found, backend down, etc.) stay at picker.

@@ -9,7 +9,7 @@ export function BlankHatPicker() {
   const [error, setError] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [startError, setStartError] = useState<string | null>(null)
-  const startBlankSession = useSessionStore(s => s.startBlankSession)
+  const startCanvasBlankSession = useSessionStore(s => s.startCanvasBlankSession)
 
   useEffect(() => {
     setLoading(true)
@@ -29,7 +29,7 @@ export function BlankHatPicker() {
     setStartError(null)
     setStarting(true)
     try {
-      await startBlankSession(selected)
+      await startCanvasBlankSession(selected)
     } catch (err) {
       setStartError(err instanceof Error ? err.message : 'Something went wrong starting your design. Please try again.')
     } finally {

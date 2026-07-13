@@ -44,8 +44,8 @@ it('starts a blank session with the selected hat (colour is chosen later in chat
       colours: [{ name: 'Black', hex: '#000000' }, { name: 'Navy', hex: '#001f3f' }],
       placement_zones: [], decoration_types: [] },
   ])
-  const startBlankSession = vi.fn().mockResolvedValue(undefined)
-  useSessionStore.setState({ startBlankSession })
+  const startCanvasBlankSession = vi.fn().mockResolvedValue(undefined)
+  useSessionStore.setState({ startCanvasBlankSession })
 
   const user = userEvent.setup()
   render(<BlankHatPicker />)
@@ -61,7 +61,7 @@ it('starts a blank session with the selected hat (colour is chosen later in chat
   // Passes just the hat type (no colour); the store populates the left-pane
   // productRef from its blank angle images + name.
   await waitFor(() =>
-    expect(startBlankSession).toHaveBeenCalledWith(
+    expect(startCanvasBlankSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'h1', name: '5-Panel', view_images: { front: 'u' } }),
     ),
   )
@@ -72,8 +72,8 @@ it('shows an error message if starting the session fails', async () => {
     { id: 'h1', slug: '5p', name: '5-Panel', style: '', view_images: { front: 'u' },
       colours: [{ name: 'Black', hex: '#000000' }], placement_zones: [], decoration_types: [] },
   ])
-  const startBlankSession = vi.fn().mockRejectedValue(new Error('network down'))
-  useSessionStore.setState({ startBlankSession })
+  const startCanvasBlankSession = vi.fn().mockRejectedValue(new Error('network down'))
+  useSessionStore.setState({ startCanvasBlankSession })
 
   const user = userEvent.setup()
   render(<BlankHatPicker />)
