@@ -47,3 +47,43 @@ def test_image_on_left_maps_to_side_left_logo():
 
 def test_face_zone_map_covers_all_four_faces():
     assert set(FACE_ZONE) == {"front", "back", "left", "right"}
+
+
+def test_shape_maps_to_graphic_with_description():
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [{
+                "id": "s1", "type": "shape", "shapeKind": "rect",
+                "x": 0.3, "y": 0.3, "width": 0.3, "height": 0.2, "rotation": 0, "zIndex": 0,
+                "fill": "#2563eb", "filled": True,
+            }],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, description = canvas_to_elements(design)
+    el = elements[0]
+    assert el["type"] == "graphic"
+    assert "rectangle" in el["content"] and "filled" in el["content"]
+    assert el["placement_zone"] == "front_panel"
+    assert el["colour"] == "#2563eb"
+    assert "rectangle" in description
+
+
+def test_outlined_and_line_shapes_described():
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [
+                {"id": "c1", "type": "shape", "shapeKind": "circle", "x": 0.1, "y": 0.1,
+                 "width": 0.2, "height": 0.2, "rotation": 0, "zIndex": 0, "fill": "#ff0000", "filled": False},
+                {"id": "a1", "type": "shape", "shapeKind": "doubleArrow", "x": 0.4, "y": 0.5,
+                 "width": 0.3, "height": 0.06, "rotation": 0, "zIndex": 1, "fill": "#00ff00"},
+            ],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, _ = canvas_to_elements(design)
+    assert "outlined" in elements[0]["content"]  # filled=False
+    assert "double-headed arrow" in elements[1]["content"]  # no filled/outlined prefix for lines
+    assert "filled" not in elements[1]["content"] and "outlined" not in elements[1]["content"]

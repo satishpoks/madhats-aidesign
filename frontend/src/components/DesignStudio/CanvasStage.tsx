@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, type RefObject } from 'react'
 import { Stage, Layer, Image as KonvaImage, Rect } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
-import { TextNode, ImageNode } from './nodes'
+import { TextNode, ImageNode, ShapeNode } from './nodes'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 
 export const STAGE_W = 480
@@ -48,17 +48,17 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
           <Rect width={STAGE_W} height={STAGE_H} fill={colourway.hex}
                 globalCompositeOperation="multiply" listening={false} />
         )}
-        {els.map(el =>
-          el.type === 'text' ? (
-            <TextNode key={el.id} el={el} stageW={STAGE_W} stageH={STAGE_H}
-              isSelected={el.id === selectedId} onSelect={() => select(el.id)}
-              onChange={p => updateElement(el.id, p)} />
-          ) : (
-            <ImageNode key={el.id} el={el} stageW={STAGE_W} stageH={STAGE_H}
-              isSelected={el.id === selectedId} onSelect={() => select(el.id)}
-              onChange={p => updateElement(el.id, p)} />
-          ),
-        )}
+        {els.map(el => {
+          const props = {
+            el, stageW: STAGE_W, stageH: STAGE_H,
+            isSelected: el.id === selectedId,
+            onSelect: () => select(el.id),
+            onChange: (p: Partial<typeof el>) => updateElement(el.id, p),
+          }
+          if (el.type === 'text') return <TextNode key={el.id} {...props} />
+          if (el.type === 'shape') return <ShapeNode key={el.id} {...props} />
+          return <ImageNode key={el.id} {...props} />
+        })}
       </Layer>
     </Stage>
   )

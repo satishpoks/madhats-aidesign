@@ -1,25 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import {
-  listGraphics,
-  uploadGraphic,
-  deleteGraphic,
-  type AdminGraphic,
-  type GraphicCategory,
-} from '../adminApi'
+import { listGraphics, uploadGraphic, deleteGraphic, type AdminGraphic } from '../adminApi'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useStores } from './hatTypes/shared'
 
-const TABS: { key: GraphicCategory; label: string }[] = [
-  { key: 'clipart', label: 'Clipart' },
-  { key: 'company', label: 'Company graphics' },
-]
+// Admin manages only "company" graphics — clipart is a built-in shape palette
+// on the customer side, not company-uploaded.
+const CATEGORY = 'company' as const
 
 export function GraphicsView() {
   const { stores, error: storesError } = useStores()
   const [params, setParams] = useSearchParams()
   const storeId = params.get('store') ?? ''
-  const [category, setCategory] = useState<GraphicCategory>('clipart')
   const [items, setItems] = useState<AdminGraphic[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,27 +29,27 @@ export function GraphicsView() {
 
   const storeKey = stores.find(s => s.id === storeId)?.public_key ?? null
 
-  function reload(key: string, cat: GraphicCategory) {
+  function reload(key: string) {
     setLoading(true)
-    listGraphics(key, cat)
+    listGraphics(key, CATEGORY)
       .then(data => { setItems(data); setError(null) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load graphics'))
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    if (storeKey) reload(storeKey, category)
+    if (storeKey) reload(storeKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeKey, category])
+  }, [storeKey])
 
   async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !storeKey) return
     setBusy(true); setError(null)
     try {
-      await uploadGraphic(category, name.trim(), file, storeKey)
+      await uploadGraphic(CATEGORY, name.trim(), file, storeKey)
       setName('')
-      reload(storeKey, category)
+      reload(storeKey)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     } finally {
@@ -72,7 +64,7 @@ export function GraphicsView() {
     try {
       await deleteGraphic(id, storeKey)
       setConfirmId(null)
-      if (storeKey) reload(storeKey, category)
+      reload(storeKey)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Delete failed')
     }
@@ -81,7 +73,7 @@ export function GraphicsView() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-[20px] font-semibold">Graphics library</h1>
+        <h1 className="text-[20px] font-semibold">Company graphics</h1>
         <select
           value={storeId}
           onChange={e => setParams({ store: e.target.value }, { replace: true })}
@@ -90,24 +82,10 @@ export function GraphicsView() {
         >
           {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
+        <span className="text-[12px] text-[#9a9ab0]">Patterns, logos & graphics customers can drop on their design. (Clipart shapes are built in.)</span>
       </div>
 
       {(storesError || error) && <ErrorBanner message={storesError || error || ''} />}
-
-      {/* Category tabs */}
-      <div className="flex gap-2">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setCategory(t.key)}
-            className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-              category === t.key ? 'bg-[#fff2ea] text-[#ff5c00]' : 'text-[#6b6b80] hover:bg-[#f0f1f5]'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
 
       {/* Upload form */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-[#e0e1ea] bg-white p-4">
@@ -119,7 +97,7 @@ export function GraphicsView() {
           aria-label="Graphic name"
         />
         <label className={`cursor-pointer rounded-lg bg-[#ff5c00] px-4 py-1.5 text-[13px] font-medium text-white ${busy ? 'opacity-50' : 'hover:bg-[#e65300]'}`}>
-          {busy ? 'Uploading…' : `Upload to ${TABS.find(t => t.key === category)?.label}`}
+          {busy ? 'Uploading…' : 'Upload graphic'}
           <input
             ref={fileRef}
             type="file"
@@ -136,7 +114,7 @@ export function GraphicsView() {
       {loading ? (
         <p className="text-[13px] text-[#6b6b80]">Loading…</p>
       ) : items.length === 0 ? (
-        <p className="text-[13px] text-[#6b6b80]">No {category === 'clipart' ? 'clipart' : 'company graphics'} yet — upload one above.</p>
+        <p className="text-[13px] text-[#6b6b80]">No company graphics yet — upload one above.</p>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
           {items.map(g => (

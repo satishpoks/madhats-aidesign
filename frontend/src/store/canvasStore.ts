@@ -3,15 +3,31 @@ import { create } from 'zustand'
 export type Face = 'front' | 'back' | 'left' | 'right'
 export const FACES: Face[] = ['front', 'back', 'left', 'right']
 
+/** Built-in vector shapes (the "Clipart" palette) — recolourable, not images. */
+export type ShapeKind =
+  | 'rect' | 'square' | 'roundedRect'
+  | 'circle' | 'ellipse'
+  | 'triangle' | 'diamond' | 'pentagon' | 'hexagon' | 'star'
+  | 'line' | 'arrow' | 'doubleArrow'
+
+/** Line-like shapes have no fill/outline concept — a single colour + width. */
+export const LINE_SHAPES: ShapeKind[] = ['line', 'arrow', 'doubleArrow']
+
 export interface CanvasElement {
   id: string
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'shape'
   x: number; y: number; width: number; height: number; rotation: number
   zIndex: number
   content?: string; font?: string; colour?: string; fontSize?: number
   /** Text arch: 0 = straight, negative = arch down, positive = arch up. */
   curve?: number
   assetUrl?: string; removeBg?: boolean
+  // shape
+  shapeKind?: ShapeKind
+  fill?: string
+  stroke?: string
+  strokeWidth?: number
+  filled?: boolean
 }
 
 export interface Colourway { name: string; hex: string }
@@ -33,6 +49,7 @@ interface CanvasState {
   addText: (text: string) => void
   /** aspect = naturalWidth / naturalHeight; the element is inserted undistorted. */
   addImage: (assetUrl: string, aspect?: number) => void
+  addShape: (kind: ShapeKind) => void
   updateElement: (id: string, patch: Partial<CanvasElement>) => void
   removeElement: (id: string) => void
   reorder: (id: string, dir: 'up' | 'down') => void
@@ -75,6 +92,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const el: CanvasElement = {
       id: uid(), type: 'image', x: 0.5 - width / 2, y: 0.5 - height / 2, width, height,
       rotation: 0, zIndex: s.faces[s.activeFace].length, assetUrl, removeBg: false,
+    }
+    return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
+  }),
+
+  addShape: kind => set(s => {
+    // Square/circle insert as an equal-sided box; others fit a 0.3×0.3 box.
+    const size = 0.3
+    const isEqual = kind === 'square' || kind === 'circle'
+    const width = size
+    const height = isEqual ? size : kind === 'line' || kind === 'arrow' || kind === 'doubleArrow' ? 0.06 : size
+    const el: CanvasElement = {
+      id: uid(), type: 'shape', shapeKind: kind,
+      x: 0.5 - width / 2, y: 0.5 - height / 2, width, height,
+      rotation: 0, zIndex: s.faces[s.activeFace].length,
+      fill: '#2563eb', stroke: '#111827', strokeWidth: LINE_SHAPES.includes(kind) ? 6 : 0, filled: true,
     }
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
   }),

@@ -22,6 +22,7 @@ export function DesignStudio() {
   const faceImages = useCanvasStore(s => s.faceImages)
   const addText = useCanvasStore(s => s.addText)
   const addImage = useCanvasStore(s => s.addImage)
+  const addShape = useCanvasStore(s => s.addShape)
   const setFaceImages = useCanvasStore(s => s.setFaceImages)
   const toCanvasDesign = useCanvasStore(s => s.toCanvasDesign)
 
@@ -161,7 +162,8 @@ export function DesignStudio() {
 
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} className="sr-only" aria-label="Upload image" />
 
-      <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)} onPick={url => void addGraphic(url)} />
+      <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)}
+        onPickShape={kind => addShape(kind)} onPickImage={url => void addGraphic(url)} />
 
       <Modal open={emailOpen} title="Where should we send it?" onClose={() => setEmailOpen(false)}>
         <div className="flex flex-col gap-3 p-2">

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Stage, Layer, Image as KonvaImage, Rect, Text, TextPath } from 'react-konva'
+import { Stage, Layer, Image as KonvaImage, Rect, Text, TextPath, Group } from 'react-konva'
 import { useCanvasStore, FACES, type Face, type CanvasElement } from '../../store/canvasStore'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { STAGE_W } from './CanvasStage'
-import { curvePath } from './nodes'
+import { curvePath, ShapePrimitive } from './nodes'
 
 const TW = 64
 const TH = 64
@@ -31,6 +31,13 @@ function useThumbImage(url: string | undefined): HTMLImageElement | null {
 /** One placed element, drawn statically (non-interactive) at thumbnail scale. */
 function ElementThumb({ el }: { el: CanvasElement }) {
   const img = useThumbImage(el.type === 'image' ? el.assetUrl : undefined)
+  if (el.type === 'shape') {
+    return (
+      <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
+        <ShapePrimitive el={el} lw={el.width * TW} lh={el.height * TH} listening={false} />
+      </Group>
+    )
+  }
   if (el.type === 'text') {
     const fontSize = (el.fontSize ?? 36) * SCALE
     const common = {

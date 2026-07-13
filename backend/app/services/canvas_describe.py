@@ -18,12 +18,30 @@ FACE_ZONE: dict[str, tuple[str, str | None]] = {
 
 _FACE_LABEL = {"front": "front panel", "back": "back", "left": "left side", "right": "right side"}
 
+# Built-in vector-shape labels (the "Clipart" palette).
+_SHAPE_LABEL = {
+    "rect": "rectangle", "square": "square", "roundedRect": "rounded rectangle",
+    "circle": "circle", "ellipse": "oval", "triangle": "triangle", "diamond": "diamond",
+    "pentagon": "pentagon", "hexagon": "hexagon", "star": "star",
+    "line": "line", "arrow": "arrow", "doubleArrow": "double-headed arrow",
+}
+_LINE_SHAPES = {"line", "arrow", "doubleArrow"}
+
+
+def _shape_phrase(el: dict) -> str:
+    kind = el.get("shapeKind", "rect")
+    label = _SHAPE_LABEL.get(kind, kind)
+    colour = el.get("fill") or "coloured"
+    if kind in _LINE_SHAPES:
+        return f"{colour} {label}"
+    mode = "filled" if el.get("filled", True) else "outlined"
+    return f"{mode} {colour} {label}"
+
 
 def _element(el: dict, face: str) -> dict:
     zone, position = FACE_ZONE[face]
-    is_text = el.get("type") == "text"
+    etype = el.get("type")
     out: dict = {
-        "type": "text" if is_text else "logo",
         "placement_zone": zone,
         "placement_position": position,
         "canvas": {
@@ -33,7 +51,8 @@ def _element(el: dict, face: str) -> dict:
             "rotation": el.get("rotation", 0), "z": el.get("zIndex", 0),
         },
     }
-    if is_text:
+    if etype == "text":
+        out["type"] = "text"
         out["content"] = el.get("content", "")
         if el.get("font"):
             out["font"] = el["font"]
@@ -41,7 +60,15 @@ def _element(el: dict, face: str) -> dict:
             out["colour"] = el["colour"]
         if el.get("fontSize"):
             out["size"] = f'{el["fontSize"]}px'
-    else:
+    elif etype == "shape":
+        # Vector shapes render as a described graphic; the flattened layout PNG
+        # already carries the exact geometry/colour, this is the text hint.
+        out["type"] = "graphic"
+        out["content"] = _shape_phrase(el)
+        if el.get("fill"):
+            out["colour"] = el["fill"]
+    else:  # image / uploaded logo / company graphic
+        out["type"] = "logo"
         out["content"] = "uploaded logo/artwork"
         out["assetUrl"] = el.get("assetUrl")
         out["remove_bg"] = bool(el.get("removeBg"))
@@ -50,13 +77,16 @@ def _element(el: dict, face: str) -> dict:
 
 def _describe(el: dict, face: str) -> str:
     where = f"on the {_FACE_LABEL.get(face, face)}"
-    if el.get("type") == "text":
+    etype = el.get("type")
+    if etype == "text":
         parts = [f'text reading "{el.get("content", "")}"']
         if el.get("colour"):
             parts.append(f'in {el["colour"]}')
         if el.get("font"):
             parts.append(f'{el["font"]} font')
         return f"{', '.join(parts)} {where}"
+    if etype == "shape":
+        return f"a {_shape_phrase(el)} {where}"
     return f"uploaded logo/artwork {where}"
 
 

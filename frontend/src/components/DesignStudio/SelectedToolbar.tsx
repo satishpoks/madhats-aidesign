@@ -1,4 +1,4 @@
-import { useCanvasStore } from '../../store/canvasStore'
+import { useCanvasStore, LINE_SHAPES } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
 
 export function SelectedToolbar() {
@@ -52,6 +52,47 @@ export function SelectedToolbar() {
           Remove background
         </label>
       )}
+      {el.type === 'shape' && (LINE_SHAPES.includes(el.shapeKind ?? 'rect') ? (
+        <>
+          <label className="flex items-center gap-1 text-xs text-textMuted" title="Colour">
+            <span>Colour</span>
+            <input type="color" value={el.fill ?? '#111827'} onChange={e => update(el.id, { fill: e.target.value })}
+              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Shape colour" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-textMuted" title="Thickness">
+            <span>Width</span>
+            <input type="range" min={2} max={30} value={el.strokeWidth ?? 6}
+              onChange={e => update(el.id, { strokeWidth: Number(e.target.value) })} aria-label="Line thickness" />
+          </label>
+        </>
+      ) : (
+        <>
+          <label className="flex items-center gap-1 text-xs text-textMuted" title="Fill colour">
+            <span>Fill</span>
+            <input type="color" value={el.fill ?? '#2563eb'} onChange={e => update(el.id, { fill: e.target.value, filled: true })}
+              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Fill colour" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-textMuted" title="Border colour">
+            <span>Border</span>
+            <input type="color" value={el.stroke ?? '#111827'} onChange={e => update(el.id, { stroke: e.target.value })}
+              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Border colour" />
+          </label>
+          <label className="flex items-center gap-1 text-xs text-textMuted" title="Border width">
+            <span>W</span>
+            <input type="range" min={0} max={24} value={el.strokeWidth ?? 0}
+              onChange={e => update(el.id, { strokeWidth: Number(e.target.value) })} aria-label="Border width" />
+          </label>
+          <button
+            onClick={() => update(el.id, el.filled === false
+              ? { filled: true }
+              : { filled: false, strokeWidth: Math.max(el.strokeWidth ?? 0, 4) })}
+            className="px-2 py-1 text-xs border border-border rounded"
+            title="Toggle filled / outline"
+          >
+            {el.filled === false ? 'Outline' : 'Filled'}
+          </button>
+        </>
+      ))}
       <button onClick={() => reorder(el.id, 'up')} className="px-2 py-1 text-sm border border-border rounded" title="Bring forward">↑</button>
       <button onClick={() => reorder(el.id, 'down')} className="px-2 py-1 text-sm border border-border rounded" title="Send back">↓</button>
       <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded" title="Delete">Delete</button>
