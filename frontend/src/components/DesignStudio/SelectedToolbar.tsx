@@ -7,6 +7,7 @@ export function SelectedToolbar() {
   const selectedId = useCanvasStore(s => s.selectedId)
   const update = useCanvasStore(s => s.updateElement)
   const remove = useCanvasStore(s => s.removeElement)
+  const duplicate = useCanvasStore(s => s.duplicate)
   const reorder = useCanvasStore(s => s.reorder)
 
   const el = faces[activeFace].find(e => e.id === selectedId)
@@ -95,6 +96,7 @@ export function SelectedToolbar() {
       ))}
       <button onClick={() => reorder(el.id, 'up')} className="px-2 py-1 text-sm border border-border rounded" title="Bring forward">↑</button>
       <button onClick={() => reorder(el.id, 'down')} className="px-2 py-1 text-sm border border-border rounded" title="Send back">↓</button>
+      <button onClick={() => duplicate(el.id)} className="px-2 py-1 text-sm border border-border rounded" title="Duplicate">Duplicate</button>
       <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded" title="Delete">Delete</button>
     </div>
   )

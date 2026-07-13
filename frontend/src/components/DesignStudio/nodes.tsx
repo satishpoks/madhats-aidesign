@@ -94,8 +94,13 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
 // Vector shapes (the built-in "Clipart" palette) — recolourable, no images.
 // ---------------------------------------------------------------------------
 
-/** Render a shape at local box [0..lw, 0..lh]. Reused by the canvas + thumbnails. */
-export function ShapePrimitive({ el, lw, lh, listening = true }: { el: CanvasElement; lw: number; lh: number; listening?: boolean }) {
+/**
+ * Render a shape at local box [0..lw, 0..lh]. Reused by the canvas + thumbnails.
+ * `strokeScale` (= thumbnailSize / stageSize) keeps border thickness + arrowheads
+ * PROPORTIONAL when drawn small — strokeWidth is in absolute px, so a thumbnail
+ * must scale it down to match the geometry (which is already scaled via lw/lh).
+ */
+export function ShapePrimitive({ el, lw, lh, listening = true, strokeScale = 1 }: { el: CanvasElement; lw: number; lh: number; listening?: boolean; strokeScale?: number }) {
   const kind = el.shapeKind ?? 'rect'
   const cx = lw / 2, cy = lh / 2
   const r = Math.min(lw, lh) / 2
@@ -103,19 +108,19 @@ export function ShapePrimitive({ el, lw, lh, listening = true }: { el: CanvasEle
   // fill + separate border, and the filled↔outline toggle drops the fill.
   if (LINE_SHAPES.includes(kind)) {
     const colour = el.fill ?? '#111827'
-    const sw = Math.max(el.strokeWidth ?? 6, 3)
+    const sw = Math.max(el.strokeWidth ?? 6, 3) * strokeScale
     if (kind === 'line') {
       return <Line points={[0, cy, lw, cy]} stroke={colour} strokeWidth={sw} lineCap="round" listening={listening} />
     }
     return (
       <Arrow points={[0, cy, lw, cy]} fill={colour} stroke={colour} strokeWidth={sw}
         pointerAtBeginning={kind === 'doubleArrow'}
-        pointerLength={Math.min(lw * 0.3, 24)} pointerWidth={Math.min(Math.max(lh, 12), 22)} listening={listening} />
+        pointerLength={Math.min(lw * 0.3, 24 * strokeScale)} pointerWidth={Math.min(Math.max(lh, 12 * strokeScale), 22 * strokeScale)} listening={listening} />
     )
   }
   const fill = el.filled === false ? undefined : (el.fill ?? '#2563eb')
   const stroke = el.stroke
-  const strokeWidth = el.strokeWidth ?? 0
+  const strokeWidth = (el.strokeWidth ?? 0) * strokeScale
   const common = { fill, stroke, strokeWidth, listening }
   switch (kind) {
     case 'roundedRect':

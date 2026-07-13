@@ -34,7 +34,7 @@ function ElementThumb({ el }: { el: CanvasElement }) {
   if (el.type === 'shape') {
     return (
       <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
-        <ShapePrimitive el={el} lw={el.width * TW} lh={el.height * TH} listening={false} />
+        <ShapePrimitive el={el} lw={el.width * TW} lh={el.height * TH} listening={false} strokeScale={TW / STAGE_W} />
       </Group>
     )
   }

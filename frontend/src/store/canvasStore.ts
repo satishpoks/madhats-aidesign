@@ -51,6 +51,7 @@ interface CanvasState {
   addImage: (assetUrl: string, aspect?: number) => void
   addShape: (kind: ShapeKind) => void
   updateElement: (id: string, patch: Partial<CanvasElement>) => void
+  duplicate: (id: string) => void
   removeElement: (id: string) => void
   reorder: (id: string, dir: 'up' | 'down') => void
   select: (id: string | null) => void
@@ -117,6 +118,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       [s.activeFace]: s.faces[s.activeFace].map(e => (e.id === id ? { ...e, ...patch } : e)),
     },
   })),
+
+  duplicate: id => set(s => {
+    const arr = s.faces[s.activeFace]
+    const src = arr.find(e => e.id === id)
+    if (!src) return s
+    // Clone with a new id, nudged down-right so the copy is visible, stacked on top.
+    const copy: CanvasElement = {
+      ...src,
+      id: uid(),
+      x: Math.min(src.x + 0.04, 0.9),
+      y: Math.min(src.y + 0.04, 0.9),
+      zIndex: arr.length,
+    }
+    return { faces: { ...s.faces, [s.activeFace]: [...arr, copy] }, selectedId: copy.id }
+  }),
 
   removeElement: id => set(s => ({
     faces: { ...s.faces, [s.activeFace]: s.faces[s.activeFace].filter(e => e.id !== id) },

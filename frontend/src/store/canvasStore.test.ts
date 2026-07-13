@@ -65,6 +65,20 @@ describe('canvasStore', () => {
     expect(el.width).toBe(el.height)
   })
 
+  it('duplicate clones an element with a new id, offset + selected', () => {
+    const s = useCanvasStore.getState()
+    s.addText('HI')
+    const src = useCanvasStore.getState().faces.front[0]
+    s.duplicate(src.id)
+    const after = useCanvasStore.getState().faces.front
+    expect(after).toHaveLength(2)
+    const copy = after[1]
+    expect(copy.id).not.toBe(src.id)
+    expect(copy.content).toBe('HI')
+    expect(copy.x).toBeCloseTo(src.x + 0.04, 5)
+    expect(useCanvasStore.getState().selectedId).toBe(copy.id)
+  })
+
   it('updateElement sets a text curve', () => {
     const s = useCanvasStore.getState()
     s.addText('ARCH')
