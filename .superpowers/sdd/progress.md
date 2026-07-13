@@ -186,3 +186,74 @@ FINAL REVIEW (opus, whole-branch eb0a858..27f315d, 6 commits): READY to merge �
 FEATURE COMPLETE (bg removal + draw tool). All 5 BD tasks + final review done. Commits: f4ae7b8 9b36fa5 70a7a02 bd657cb e601c61 27f315d. Ready to finish branch. PENDING: manual browser E2E (needs Docker + imgly installed in container) — not run.
 
 CORRECTION: full frontend vitest run completed — 196 passed / 2 failed (pre-existing adminQuotes) / 202 total. Earlier derived 185 was off a stale 181 baseline; CLAUDE.md corrected to 196.
+
+============================================================
+NEW PLAN: Chat-Gated Canvas Flow (intro Q&A + decoration + notes)
+Plan: docs/superpowers/plans/2026-07-13-chat-gated-canvas-flow.md
+Spec: docs/superpowers/specs/2026-07-13-chat-gated-canvas-flow-design.md
+Branch: feat/canvas-design-studio | BRANCH_BASE (final review): f3de2cb (HEAD before any impl; spec=prior, plan=f3de2cb)
+Tasks: 1 deco-table · 2 deco-service · 3 deco-routes · 4 state-machine · 5 goal-planner · 6 prompts · 7 orchestrator · 8 finalize · 9 fe-api/store · 10 ChatColumn · 11 Surface/ToolRail · 12 admin-view · 13 verify
+Task 1 BASE (HEAD before impl): f3de2cb
+
+Task 1: complete (commit 3efeaf6, controller-verified — verbatim additive migration + seed; db reset ran, 4 rows Embroidery/Print/Patch/Vinyl confirmed). Seed insert placed after store insert.
+
+Task 2 BASE (HEAD before impl): 3efeaf6
+
+Task 2: complete (commit cc0cf05, controller-verified — verbatim service+models, TDD RED/GREEN, 2/2 pass, matches graphics pattern).
+
+Task 3 BASE (HEAD before impl): cc0cf05
+
+Task 3: complete (impl cd4b888 + fix efbcde6, review clean after fix — Spec OK, Quality Approved). Customer GET /decoration-types (active-only, {id,name}) + admin CRUD (require_admin router-dep + require_store per-route = BOTH gates verified). Registered in main.py. 7 passed.
+  Important FIXED (efbcde6): delete_type now store-scoped (was id-only → cross-tenant delete). +inverse-gate test. Minor left: duplicate fn name list_decoration_types across two modules (harmless).
+  TICKET (pre-existing, out of scope): graphics.delete_graphic has the same id-only unscoped delete.
+
+Task 4 BASE (HEAD before impl): efbcde6
+
+Task 4: complete (commit bd711fe, review clean — Spec OK, Quality Approved, no findings). Additive-only: ASK_DECORATION/ASK_NOTES enum, TRANSITIONS, CANVAS_DESIGN wait-branch (before default fallthrough), QUESTION_FIELD→_done flags, canvas _progress_path early-return (7 steps). 26/26 pass, non-canvas untouched (33 insertions, 0 deletions).
+
+Task 5 BASE (HEAD before impl): bd711fe
+
+Task 5: complete (commit b5a7dc2, controller-verified — guard is first stmt in next_goal; _canvas_next_goal order correct; GATE_STATES +CANVAS_DESIGN/ASK_DECORATION/ASK_NOTES; 45 insertions 0 deletions; 28/28 pass).
+
+Task 6 BASE (HEAD before impl): b5a7dc2
+
+Task 6: complete (commit 175848d, controller-verified — 6 keys (canvas_design/ask_decoration/ask_notes in both CANNED_REPLIES + STATE_PROMPTS), single-file additive 27 insertions, import ok).
+
+Task 7 BASE (HEAD before impl): 175848d
+
+Task 7: complete (impl ec4f6b2 + fix af4046b, review clean after fix — Spec OK, Quality Approved). _apply_canvas_outro (decoration multi-select + notes), wired into handle_message elif chain, CONFIRM_BRIEF skip AND-gated to canvas only, _state_public_data branches. Impl regression sweep 100 / full suite 433.
+  2 Important FIXED (af4046b): (1) substring match "Print" in "Screen Print" → now exact comma-token match; (2) chosen[0] catalogue-order → now customer-order (style bucket from true first choice). Minor FIXED: dropped redundant "generate" substring (covered by _DONE_ELEMENTS_RE). +order/exact test. 6 passed.
+
+Task 8 BASE (HEAD before impl): af4046b
+
+Task 8: complete (commit 3214931, review clean — Spec OK, Quality Approved, no blocking). create_canvas_session state greeting; finalize sets canvas_finalized + loads active decoration_options + routes to ask_decoration + returns {reply,state,data:{options,multiselect,selected,progress}}; lead-capture removed; non-canvas routes untouched. Canvas routes 9/9, full suite 434.
+  Reviewer ⚠️ RESOLVED (controller cross-task): email now captured in chat intro at SAVE_PROGRESS_EMAIL (goal planner routes name→email_prompt_shown), so email_captured is set before GENERATING → VERIFY_EMAIL. No orphaned finalize dependency.
+
+Task 9 BASE (HEAD before impl): 3214931
+
+Task 9: complete (commit a6120a1, controller-verified — getDecorationTypes in api.ts; chatStore parseData multiselect+selected, interface, initial+reset defaults; 4/4 test, tsc clean).
+
+Task 10 BASE (HEAD before impl): a6120a1
+
+Task 10: complete (commit 01ea8d7, review clean — Spec OK, Quality Approved, no findings). ChatColumn canvas kickoff (guard sessionId+messagesLen0+!kickoffDone, double-layered vs StrictMode via store guard), decoration multi-select (toggle/Continue/cost-caveat>1, submit join(", ")/none, re-seed from selected), single-select guarded !multiselect; ask_notes chip free via existing row. Replaced old "does NOT kickoff" test → "DOES kickoff". Controller-confirmed canvas tests 12/12. Reviewer note (pre-existing, non-block): seed() does not reset multiselect/selected.
+
+Task 11 BASE (HEAD before impl): 01ea8d7
+
+Task 11: complete (commit e6b03ce, controller-verified + controller-committed — implementer stalled on a bg run and did NOT commit; controller confirmed code by direct read, ran ToolRail 4/4 + tsc clean, committed handoff). Surface: unlocked=chatState===canvas_design, isIntro overlay vs outro overlay in a relative container over the working area, disabled={!unlocked} to ToolRail, doRender guard (!sessionId||rendering). ToolRail: disabled prop + label "Done designing"/"Saving…"/"Design saved ✓".
+
+Task 12 BASE (HEAD before impl): e6b03ce
+
+Task 12: complete (commit 8b2206d, controller-verified — 3 adminApi fns pass storeKey as 3rd arg (X-Store-Key + X-Admin-Secret), AdminDecorationType iface, DecorationTypesView (mirrors GraphicsView), route decoration-types, nav "Decorations"; 179 insertions additive; test 1/1, tsc clean).
+
+ALL 12 CODE TASKS COMPLETE. Task 13 (controller-run): full-suite verify + in-browser smoke + CLAUDE.md.
+
+Task 13: complete (docs commit 3b5b95f). VERIFICATION: backend pytest 434 passed 0 failed. Frontend vitest FULL run 203 passed / 2 failed (pre-existing adminQuotes Router-context — NOT a regression) + 1 tinypool Worker-exit flake (known Windows). Focused canvas suites all green (chatStore 4, ChatColumn 6, CustomiseStudio 2, ToolRail 4, DecorationTypesView 1). CLAUDE.md chat-gated-canvas bullet + counts (434/203).
+  PENDING: in-browser E2E smoke (Steps 3-5 — needs Docker stack + Mailpit + browser): intro lock overlay → email verify send → unlock at canvas_design → Done designing → ask_decoration multi-select+caveat → ask_notes → generate → verify. Not run (chrome-devtools MCP disconnected).
+
+ALL 13 TASKS CODE-COMPLETE. Feature commits: 3efeaf6(deco-table) cc0cf05(deco-svc) cd4b888+efbcde6(deco-routes) bd711fe(state-machine) b5a7dc2(goal-planner) 175848d(prompts) ec4f6b2+af4046b(orchestrator) 3214931(finalize) a6120a1(fe-api/store) 01ea8d7(ChatColumn) e6b03ce(Surface/ToolRail) 8b2206d(admin-view) + CLAUDE.md. Ready for final whole-branch review over f3de2cb..HEAD.
+
+FINAL REVIEW (opus, whole-branch f3de2cb..3b5b95f, 15 commits): Ready to merge = WITH FIXES (now applied). Backend routing/gating/decoration-matching/tenant-scoped-delete/email-gating all correct + well-tested; non-canvas flows provably untouched (flow_mode gates verified; ChatColumn kickoff canvas-scoped via App.tsx). Reviewer traced intro (SAVE_PROGRESS_EMAIL not a gate → planner walks name→email→purpose→qty→canvas_design; email captured 4b) + outro (finalize→ask_decoration→ask_notes→generating→verify) end-to-end.
+  2 Important FIXED (b1f9106): (1) Surface doRender hydrate([],...) wiped the intro thread AND dropped res.reply (decoration question never shown) → new chatStore.applyResponse appends reply + applies state/data without wiping; Surface uses it. (2) empty decoration_options soft-locked ask_decoration (no chips, no Continue) → ChatColumn renders multiselect block whenever multiselect (chips only if options>0, Continue always). +2 tests. 16 passed (3 files), tsc clean.
+  Minor TICKETS (deferred): admin Decorations view has no active-toggle/reorder (create=active, delete only); duplicate-name add throws raw 500 (unique idx) — catch → 409; canvas_design copy overpromises "describe here" (typing at CANVAS_DESIGN rests, only Done designing advances).
+
+FEATURE COMPLETE. All 13 tasks + final-review fix done, reviewed, verified. Commits: 3efeaf6 cc0cf05 cd4b888 efbcde6 bd711fe b5a7dc2 175848d ec4f6b2 af4046b 3214931 a6120a1 01ea8d7 e6b03ce 8b2206d + CLAUDE.md + b1f9106(final-fix). Backend 434, frontend 203+2 fixes. PENDING: manual in-browser E2E (Docker + browser; chrome-devtools MCP disconnected this session).
