@@ -229,20 +229,35 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
   )
 }
 
-export function DrawingNode({ el, stageW, stageH, onSelect, onChange }: NodeProps) {
+export function DrawingNode({ el, stageW, stageH, isSelected, onSelect, onChange }: NodeProps) {
+  const { shapeRef, trRef } = useTransformer(isSelected)
   const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * stageW : p * stageH))
   const sw = (el.strokeWidth ?? 0.01) * stageW
   return (
-    <Group
-      x={el.x * stageW}
-      y={el.y * stageH}
-      draggable
-      onClick={onSelect}
-      onTap={onSelect}
-      onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
-    >
-      <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={sw}
-        lineCap="round" lineJoin="round" tension={0.5} hitStrokeWidth={Math.max(sw, 12)} />
+    <Group>
+      <Group
+        ref={shapeRef as never}
+        x={el.x * stageW}
+        y={el.y * stageH}
+        rotation={el.rotation}
+        draggable
+        onClick={onSelect}
+        onTap={onSelect}
+        onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
+        onTransformEnd={e => {
+          // Rotate-only transformer: Konva rotates around the stroke's bbox
+          // centre by adjusting x/y + rotation together, so persist all three.
+          const node = e.target as Konva.Group
+          onChange({ x: node.x() / stageW, y: node.y() / stageH, rotation: node.rotation() })
+          node.scaleX(1); node.scaleY(1)
+        }}
+      >
+        <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={sw}
+          lineCap="round" lineJoin="round" tension={0.5} hitStrokeWidth={Math.max(sw, 12)} />
+      </Group>
+      {isSelected && (
+        <Transformer ref={trRef as never} rotateEnabled resizeEnabled={false} enabledAnchors={[]} />
+      )}
     </Group>
   )
 }

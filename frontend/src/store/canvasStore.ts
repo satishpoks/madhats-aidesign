@@ -175,7 +175,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       zIndex: s.faces[s.activeFace].length,
       points, stroke: s.drawColour, strokeWidth: s.drawWidth,
     }
-    return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
+    // Exit draw mode on commit so the just-drawn stroke is immediately
+    // selectable/movable — while drawMode is on, CanvasStage disables layer
+    // listening and no element (including this one) can be clicked.
+    return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id, drawMode: false }
   }),
 
   reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,

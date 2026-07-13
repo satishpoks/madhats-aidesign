@@ -41,7 +41,7 @@ function ElementThumb({ el }: { el: CanvasElement }) {
   if (el.type === 'drawing') {
     const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * TW : p * TH))
     return (
-      <Group x={el.x * TW} y={el.y * TH}>
+      <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
         <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={(el.strokeWidth ?? 0.01) * TW}
           lineCap="round" lineJoin="round" tension={0.5} listening={false} />
       </Group>
