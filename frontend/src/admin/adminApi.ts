@@ -435,6 +435,32 @@ export async function uploadHatAngle(
 }
 
 // ---------------------------------------------------------------------------
+// Decoration types: methods offered to customers after they design
+// (embroidery, print, …) — store-scoped
+// ---------------------------------------------------------------------------
+
+export interface AdminDecorationType {
+  id: string
+  name: string
+  active: boolean
+  sort_order: number
+}
+
+export function listDecorationTypes(storeKey: string): Promise<AdminDecorationType[]> {
+  return request<AdminDecorationType[]>('/admin/decoration-types', {}, storeKey)
+}
+
+export function createDecorationType(name: string, storeKey: string): Promise<AdminDecorationType> {
+  return request<AdminDecorationType>('/admin/decoration-types', {
+    method: 'POST', body: JSON.stringify({ name }),
+  }, storeKey)
+}
+
+export function deleteDecorationType(id: string, storeKey: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/decoration-types/${id}`, { method: 'DELETE' }, storeKey)
+}
+
+// ---------------------------------------------------------------------------
 // Graphics library: admin-managed clipart + company graphics (store-scoped)
 // ---------------------------------------------------------------------------
 
