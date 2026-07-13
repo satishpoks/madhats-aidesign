@@ -265,25 +265,30 @@ def _apply_canvas_outro(state: ConversationState, collected: dict, message: str)
 
     if state is S.ASK_DECORATION:
         options = collected.get("decoration_options") or []
-        # Match any offered option named in the (comma-joined) message.
-        chosen = [opt for opt in options if opt.lower() in low]
+        # The message is the customer's chosen chips, comma-joined (or free text).
+        # Match each comma-separated token EXACTLY against an offered option
+        # (case-insensitive), preserving the customer's order so their first choice
+        # drives the render style. Exact-token match avoids a shorter option name
+        # matching inside a longer one (e.g. "Print" inside "Screen Print").
+        by_name = {opt.lower(): opt for opt in options}
+        chosen: list[str] = []
+        for tok in (message or "").split(","):
+            opt = by_name.get(tok.strip().lower())
+            if opt and opt not in chosen:
+                chosen.append(opt)
         collected["decoration_types"] = chosen
         collected["decoration_done"] = True
         if chosen:
             collected.setdefault("brief_notes", []).append(
                 f"Decoration method: {', '.join(chosen)}"
             )
-            # First choice drives the render style modifier (embroidery vs print).
+            # First choice (in the customer's order) drives the render style modifier.
             collected["decoration_type"] = _decoration_style_bucket(chosen[0])
         return
 
     if state is S.ASK_NOTES:
         collected["notes_done"] = True
-        _skip = (
-            is_negative(text)
-            or "generate" in low
-            or bool(_DONE_ELEMENTS_RE.search(low))
-        )
+        _skip = is_negative(text) or bool(_DONE_ELEMENTS_RE.search(low))
         if text and not _skip:
             collected["notes"] = text[:600]
             collected.setdefault("brief_notes", []).append(text[:600])
