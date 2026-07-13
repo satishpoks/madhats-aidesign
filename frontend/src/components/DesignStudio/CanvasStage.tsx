@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, type RefObject } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { Stage, Layer, Image as KonvaImage, Rect, Line } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -39,17 +39,21 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
 
   const els = [...faces[activeFace]].sort((a, b) => a.zIndex - b.zIndex)
 
+  useEffect(() => { setStroke(null) }, [activeFace])
+
   function pointerNorm(stage: Konva.Stage | null): number[] | null {
     const p = stage?.getPointerPosition()
     return p ? [p.x / STAGE_W, p.y / STAGE_H] : null
   }
   function onDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     if (!drawMode) { if (e.target === e.target.getStage()) select(null); return }
+    e.evt.preventDefault()
     const n = pointerNorm(e.target.getStage())
     if (n) setStroke(n)
   }
   function onMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     if (!drawMode || !stroke) return
+    e.evt.preventDefault()
     const n = pointerNorm(e.target.getStage())
     if (n) setStroke(prev => (prev ? [...prev, ...n] : n))
   }
