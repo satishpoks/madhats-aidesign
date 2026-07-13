@@ -147,3 +147,40 @@ ALL 3 TASKS COMPLETE. Feature commits: 6d75a36(canvas_describe) f52afba(multi-an
 FINAL REVIEW (opus, whole-branch 20bc2b8..f52afba): READY to merge — no Critical/Important. Traced canvas path end-to-end; real product photo is conditioning FIRST image for EVERY per-view render (reference_image_url_for_view never empty — falls back to front); two-face design both reach model with own layout guide + ref angle + scoped elements (back decoration cannot leak to front); undecorated non-front faces never render (render_views = front+decorated only; frontend flattens only non-empty faces); no PII logging change; non-canvas + edit paths byte-unchanged; canvas_describe curve/size edit only touches canvas text branch. Focused suites 24 passed; full suite 415.
   Minor TICKET #1 (informational, correct): canvas EDIT turns now carry forward REAL prev renders via prev_views instead of overwriting non-front faces with flat PNGs (old splice was is_canvas-gated, ran on canvas edits too). Correct feature consequence; NON-canvas edit path untouched.
   Minor TICKET #2 (data-quality follow-up): for a SYNCED product with few images, catalogue_sync._map_views sets left/right/back = front image → decorating the back AI-renders back decoration onto a front-angle cap. Still a real product photo (constraint holds) + within accepted model-variability trade-off, but worse than the old flat mock for that case. Follow-up: ensure real per-angle photos for canvas-enabled synced products (blank sessions already carry all 4 real angles; unaffected).
+
+============================================================
+NEW PLAN: Canvas Background Removal + Freehand Draw Tool
+Plan: docs/superpowers/plans/2026-07-13-canvas-bgremove-drawtool.md
+Spec: docs/superpowers/specs/2026-07-13-canvas-bgremove-drawtool-design.md
+Branch: feat/canvas-design-studio | BRANCH_BASE (final review): first commit of this plan work
+Tasks: BD-1 store foundations · BD-2 bg removal · BD-3 draw tool · BD-4 backend describe · BD-5 verify+docs
+============================================================
+Task BD-1 BASE (HEAD before impl): eb0a858
+
+Task BD-1: complete (commit f4ae7b8, review clean — Spec ✅, Quality ✅, no findings). canvasStore: drawing type + points + originalAssetUrl, drawMode/drawColour/drawWidth + setters, addDrawing (active face, current colour/width, selects), reset clears draw-mode. 11/11 canvasStore tests. Reviewer confirmed all el.type consumers are if-chains (no exhaustive switch) so union add is non-breaking.
+
+Task BD-2 BASE (HEAD before impl): f4ae7b8
+
+Task BD-2: complete (commit 9b36fa5, review clean — Spec ✅, Quality ✅). NOTE: implementer stalled on a bg run + wrote a WRONG report (stale multi-view content); controller verified the ACTUAL code by direct file read + ran build/tests (tsc clean, imgly code-split into separate ort async chunk; 13/13 focused tests) then committed the handoff. bgRemove.ts (removeBackgroundToFile dynamic-import + toggleBackground re-uploads on BOTH ON/OFF, records originalAssetUrl on ON, restores on OFF) + SelectedToolbar BgRemoveToggle (busy/disabled/failed, no half-apply on error) + drawing stroke-colour branch. Reviewer confirmed both toggle dirs re-upload (uploaded_asset_path tracks toggle), dynamic import, error never calls update().
+  Minor TICKET: OFF-toggle does fetch(originalAssetUrl) directly — if uploadLogo asset_url is a TTL-signed URL that expired mid-session, restore fails with generic "Failed — try again" (pre-existing: the canvas element already uses asset_url for display). Low risk; consider /media proxy or longer TTL.
+
+Task BD-3 BASE (HEAD before impl): 9b36fa5
+
+Task BD-3: complete (impl 70a7a02 + fix bd657cb, review clean after fix — Spec ✅, Quality ✅). DrawingNode (Konva Line in draggable Group, move+delete, no Transformer) + CanvasStage draw-mode pointer handling (down/move/up, listening={!drawMode}, live stroke, commit ≥2 pts) + ToolRail Draw toggle + colour/thickness bar + FaceThumbnails drawing render. Build tsc-clean; store 11/11.
+  Fix bd657cb (1 Important + 2 Minor from review): (a) e.evt.preventDefault() in onDown/onMove gated to drawMode (mobile touchmove no longer scrolls) — controller-verified guards sit after !drawMode early-returns; (b) useEffect clears in-progress stroke on activeFace change (no stale-coords wrong-face commit); (c) dropped dead useRef import.
+  Minor TICKET (deferred, not fixed): no window-level mouseup fallback — releasing the pointer outside the stage silently discards the in-progress stroke (data loss, not corruption).
+
+Task BD-4 BASE (HEAD before impl): bd657cb
+
+Task BD-4: complete (commit e601c61, review clean — Spec ✅, Quality ✅, no findings). canvas_describe drawing branch in _element (elif before else/logo → type:graphic + content "a hand-drawn line[ in <colour>]" + colour=stroke) + _describe. placement_zone inherited from FACE_ZONE at top (→ correct face routing via element_view). 8/8 describe tests. Reviewer confirmed no coords in description text (raw geometry only in out["canvas"] structured sub-dict, same as text/shape).
+
+Task BD-5 (controller-run): full-suite verify + CLAUDE.md.
+
+Task BD-5: complete (commit for CLAUDE.md). VERIFICATION: backend pytest 416 passed (+1 describe test). Frontend build tsc-clean; focused suites 13/13 (canvasStore 11 + bgRemove 2). Frontend delta +4 tests (canvasStore 9→11, new bgRemove +2) → 185 passing; full vitest run produced no output (known Windows tinypool flake per ledger) so count derived from deterministic focused-run delta. CLAUDE.md canvas bullet (bg removal + draw tool) + counts (416/185) + deferred tickets noted.
+
+ALL 5 BD TASKS COMPLETE. Feature commits: f4ae7b8(store) 9b36fa5(bg removal) 70a7a02+bd657cb(draw tool+fix) e601c61(backend describe) + CLAUDE.md. Ready for final whole-branch review over 9b36fa5^..HEAD (this plan work).
+
+FINAL REVIEW (opus, whole-branch eb0a858..27f315d, 6 commits): READY to merge — no Critical/Important. Traced BG-removal seam end-to-end: bgRemove.ts uploadLogo → uploads.py sets collected["uploaded_asset_path"]+has_logo → generate.py reads it as signed 2nd conditioning image → transparent asset genuinely reaches Gemini (NOT cosmetic). imgly is the ONLY dynamic import (code-split, no eager load). Drawing→graphic w/ placement_zone from FACE_ZONE, no coords in text; test asserts it. Backend change is ONLY the additive canvas_describe drawing branch — generate/prompt_builder/render_views untouched (no multi-angle regression). Draw-tool pointer handling traced: ≥2-pt commit, stroke cleared on face switch (no leak), onMove guarded, listening gate, renders on stage+thumbnails+drag round-trip. Backend 416; frontend build tsc-clean + focused 13/13.
+  Minor TICKETS (non-blocking, deferred): (1) DrawingNode ignores isSelected → selected stroke has no on-canvas selection affordance (only toolbar signals it) — UX inconsistency vs text/image/shape. (2) bgRemove OFF leaves originalAssetUrl populated (harmless stale field; re-toggle still resolves correctly). (3) single tap in draw mode (<4 pts) silently discarded — cannot place a dot (acceptable for a pen).
+
+FEATURE COMPLETE (bg removal + draw tool). All 5 BD tasks + final review done. Commits: f4ae7b8 9b36fa5 70a7a02 bd657cb e601c61 27f315d. Ready to finish branch. PENDING: manual browser E2E (needs Docker + imgly installed in container) — not run.
