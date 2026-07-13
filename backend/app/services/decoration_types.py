@@ -16,5 +16,5 @@ def create_type(store_id: str, name: str) -> dict:
     return get_supabase().table("decoration_types").insert(row).execute().data[0]
 
 
-def delete_type(type_id: str) -> None:
-    get_supabase().table("decoration_types").delete().eq("id", type_id).execute()
+def delete_type(type_id: str, store_id: str) -> None:
+    get_supabase().table("decoration_types").delete().eq("id", type_id).eq("store_id", store_id).execute()

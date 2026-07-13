@@ -47,5 +47,5 @@ async def create_decoration_type(
 async def delete_decoration_type(
     type_id: str, store: dict = Depends(require_store)
 ) -> dict:
-    svc.delete_type(type_id)
+    svc.delete_type(type_id, store["id"])
     return {"deleted": True}

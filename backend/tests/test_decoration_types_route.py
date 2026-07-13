@@ -13,7 +13,7 @@ def client(monkeypatch):
     ])
     monkeypatch.setattr(svc, "create_type", lambda s, name: {
         "id": "d9", "name": name, "active": True, "sort_order": 0})
-    monkeypatch.setattr(svc, "delete_type", lambda i: None)
+    monkeypatch.setattr(svc, "delete_type", lambda i, s: None)
     from app.main import create_app
     return TestClient(create_app())
 
@@ -34,6 +34,13 @@ def test_admin_requires_secret(client):
     # store key present but no admin secret → gated
     r = client.get("/admin/decoration-types", headers={"X-Store-Key": "k"})
     assert r.status_code in (401, 403)
+
+
+def test_admin_requires_store_key(client, monkeypatch):
+    monkeypatch.setattr("app.config.settings.admin_secret", "sekret")
+    # admin secret present, but NO X-Store-Key → store gate rejects
+    assert client.get("/admin/decoration-types",
+                      headers={"X-Admin-Secret": "sekret"}).status_code in (401, 403)
 
 
 def test_admin_crud(client, monkeypatch):
