@@ -88,7 +88,7 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
 }
 
 /** Quadratic-bezier arc path for curved text, sized to the text's rough width. */
-function curvePath(content: string, fontSize: number, curve: number): string {
+export function curvePath(content: string, fontSize: number, curve: number): string {
   const w = Math.max(fontSize, content.length * fontSize * 0.55)
   const bend = (curve / 100) * (w / 2)
   return `M 0 0 Q ${w / 2} ${-bend} ${w} 0`
