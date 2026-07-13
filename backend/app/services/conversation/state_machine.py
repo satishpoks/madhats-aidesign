@@ -35,6 +35,7 @@ class ConversationState(str, Enum):
     ASK_HAT_COLOUR = "ask_hat_colour"
     ASK_COLOUR_DETAIL = "ask_colour_detail"
     COMPOSITE_PREVIEW = "composite_preview"
+    CANVAS_DESIGN = "canvas_design"
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"

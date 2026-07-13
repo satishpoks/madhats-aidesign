@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import secrets
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.api.deps import require_store
 from app.db import get_supabase
-from app.services import prompt_builder
-from app.storage import generate_signed_url, media_url
+from app.services import canvas_describe, prompt_builder
+from app.storage import generate_signed_url, media_url, upload_asset
+from app.models.canvas import CanvasFinalizeRequest, CreateCanvasSessionRequest
 from app.models.session import (
     ChatMessageOut,
     CreateBlankSessionRequest,
@@ -19,6 +21,7 @@ from app.services import hat_types as hat_types_service
 from app.services.conversation.orchestrator import _public_data
 from app.services.conversation.state_machine import ConversationState
 from app.services.products import get_product
+from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 
 router = APIRouter(tags=["sessions"])
 
@@ -116,6 +119,118 @@ async def create_blank_session(
     )
     row = res.data[0]
     return SessionResponse(session_id=row["id"], share_token=share_token, state=row["state"])
+
+
+@router.post("/sessions/canvas", response_model=SessionResponse)
+async def create_canvas_session(
+    body: CreateCanvasSessionRequest, store: dict = Depends(require_store)
+) -> SessionResponse:
+    collected: dict = {"flow_mode": "canvas"}
+    if body.product_id:
+        product = get_product(body.product_id, store_id=store["id"])
+        if not product:
+            raise HTTPException(status_code=404, detail="Unknown product_id for this store")
+        product_ref = {
+            "product_id": product["id"], "style": product["style"], "colour": product["colour"],
+            "name": product["name"], "reference_image_url": product["reference_image_url"],
+            "view_images": product.get("view_images") or {},
+        }
+    elif body.hat_type_id:
+        hat = hat_types_service.get_hat_type(body.hat_type_id, store_id=store["id"])
+        if not hat:
+            raise HTTPException(status_code=404, detail="Unknown hat_type_id for this store")
+        colour = None
+        if body.colour:
+            colour = body.colour if isinstance(body.colour, dict) else {"name": body.colour, "hex": body.colour}
+        blanks = hat.get("blank_view_images") or {}
+        product_ref = {
+            "product_id": hat["id"], "style": hat.get("style", ""),
+            "colour": (colour.get("name") or colour.get("hex")) if colour else "",
+            "name": hat["name"], "reference_image_url": blanks.get("front", ""),
+            "view_images": blanks,
+        }
+        collected["hat_type_id"] = hat["id"]
+        if colour:
+            collected["hat_colour"] = colour
+    else:
+        raise HTTPException(status_code=400, detail="product_id or hat_type_id required")
+
+    share_token = secrets.token_urlsafe(16)
+    sb = get_supabase()
+    res = sb.table("design_sessions").insert({
+        "store_id": store["id"], "share_token": share_token, "state": "canvas_design",
+        "channel": body.channel, "entry_path": body.entry_path, "flow_mode": "canvas",
+        "product_ref": product_ref, "collected": collected, "status": "draft",
+    }).execute()
+    row = res.data[0]
+    return SessionResponse(session_id=row["id"], share_token=share_token, state=row["state"])
+
+
+@router.post("/sessions/{session_id}/canvas-layouts")
+async def upload_canvas_layouts(
+    session_id: str,
+    faces: list[str] = Form(...),
+    files: list[UploadFile] = File(...),
+    store: dict = Depends(require_store),
+) -> dict:
+    sb = get_supabase()
+    sess = sb.table("design_sessions").select("id, collected").eq("id", session_id).limit(1).execute()
+    if not sess.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    layouts: dict[str, str] = {}
+    signed: dict[str, str] = {}
+    for face, upload in zip(faces, files):
+        data = await upload.read()
+        if not data:
+            raise HTTPException(status_code=400, detail=f"Empty file for {face}")
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="File exceeds 10 MB limit")
+        mime = sniff_image_mime(data)
+        if mime is None:
+            raise HTTPException(status_code=415, detail="Unsupported file type")
+        path = upload_asset(data, f"canvas_{face}_{uuid.uuid4().hex}.png", mime)
+        layouts[face] = path
+        signed[face] = generate_signed_url(path)
+    collected = (sess.data[0].get("collected") or {})
+    collected["canvas_layouts"] = {**(collected.get("canvas_layouts") or {}), **layouts}
+    sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
+    return {"views": signed}
+
+
+@router.post("/sessions/{session_id}/canvas-finalize")
+async def finalize_canvas(
+    session_id: str, body: CanvasFinalizeRequest, store: dict = Depends(require_store)
+) -> dict:
+    sb = get_supabase()
+    sess = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not sess.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = sess.data[0]
+    collected = session.get("collected") or {}
+
+    elements, description = canvas_describe.canvas_to_elements(body.canvas_design)
+    collected["elements"] = elements
+    collected["design_description"] = {"summary": description} if description else None
+    collected["flow_mode"] = "canvas"
+    if body.name:
+        collected["name"] = body.name
+
+    # Capture the lead + fire the verification email. Reuse the exact helper the
+    # chat flow uses at save_progress_email:
+    #   leads.capture_lead_and_verify(session: dict, collected: dict, email: str) -> str | None
+    # (name is read from collected["name"]; sending is best-effort). email_captured
+    # must be set so advance_state(GENERATING) routes to verify_email.
+    if body.email:
+        from app.services import leads as leads_service
+        leads_service.capture_lead_and_verify(session, collected, body.email)
+        collected["email_captured"] = True
+
+    sb.table("design_sessions").update(
+        {"canvas_design": body.canvas_design, "collected": collected, "state": "generating"}
+    ).eq("id", session_id).execute()
+
+    return {"reply": "Your design is on its way — generating your preview now.",
+            "state": "generating", "data": {}}
 
 
 def _displayable_product_ref(product_ref: dict | None, base_url: str) -> dict | None:
