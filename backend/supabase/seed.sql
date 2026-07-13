@@ -31,6 +31,14 @@ values (
   'sales@madhats.com.au'
 );
 
+-- Default decoration types for the local dev store.
+insert into decoration_types (store_id, name, sort_order)
+select s.id, v.name, v.ord
+from stores s
+cross join (values ('Embroidery', 0), ('Print', 1), ('Patch', 2), ('Vinyl', 3)) as v(name, ord)
+where s.public_key = 'mh_pk_madhats_local'
+on conflict do nothing;
+
 insert into product_references
   (id, shopify_product_id, style, colour, name, description, store_url,
    reference_image_url, view_images, placement_zones, decoration_types)
