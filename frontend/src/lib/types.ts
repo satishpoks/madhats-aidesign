@@ -54,6 +54,8 @@ export interface SessionDetailResponse {
     style?: string
     colour?: string
     reference_image_url?: string
+    /** Per-angle images (blank-hat sessions carry all four here, proxied). */
+    view_images?: Record<string, string>
   } | null
   collected: Record<string, unknown>
   status: string

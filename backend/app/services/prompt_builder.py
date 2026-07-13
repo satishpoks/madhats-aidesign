@@ -200,6 +200,29 @@ def _brief_context_block(collected: dict) -> str:
     return "\n".join(lines)
 
 
+def _has_discrete_decoration(collected: dict) -> bool:
+    """True if the design captures at least one text/graphic element discretely —
+    in which case the per-element enumeration owns the wording, not the flat brief."""
+    return any(el.get("type") in ("text", "graphic") for el in (collected.get("elements") or []))
+
+
+def _brief_without_owned_decorations(collected: dict) -> dict | None:
+    """Drop the flat brief's decoration-describing fields (``summary`` +
+    ``text_elements``) when discrete text/graphic elements already own the design.
+
+    The legacy ``design_description`` accumulator is not kept in sync with the
+    per-element deep-dive: it can hold a stale/incomplete shadow of an element's
+    text (session VKV2NBdIYqgtQ_23J0uANA captured a back-panel text as
+    "handwritten text (content not specified)" before its content — "Satish" —
+    was known, then leaked that phantom text onto the FRONT hero). The enumerated
+    elements are authoritative for wording; only overall imagery/colours/style
+    survive here as supplementary context."""
+    brief = collected.get("design_description")
+    if not isinstance(brief, dict) or not _has_discrete_decoration(collected):
+        return brief
+    return {k: v for k, v in brief.items() if k not in ("summary", "text_elements")}
+
+
 def _design_block(collected: dict) -> str:
     """Describe ONLY the decoration to add — never the base cap.
 
@@ -317,9 +340,15 @@ def build_view_prompt(
             # Overall brief / uploaded logo belong to the primary view only.
             scoped["design_description"] = None
             scoped["uploaded_asset_path"] = None
+        else:
+            # The per-element enumeration owns the wording; keep only the flat
+            # brief's overall context so a stale text shadow can't leak onto the
+            # hero (regression: session VKV2NBdIYqgtQ_23J0uANA).
+            scoped["design_description"] = _brief_without_owned_decorations(collected)
         design_block = _design_block(scoped)
     else:
-        brief_ctx = _brief_context_block(collected) if view == PRIMARY_VIEW else ""
+        brief = _brief_without_owned_decorations(collected)
+        brief_ctx = _brief_context_block({"design_description": brief}) if view == PRIMARY_VIEW else ""
         design_block = brief_ctx or prompts.NO_DECORATION_DESIGN_BLOCK
 
     design_block = _augment_design_block(design_block, collected)

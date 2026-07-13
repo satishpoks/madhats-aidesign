@@ -20,6 +20,13 @@ interface ProductViewerProps {
   compositeViews?: Record<string, string>
   /** True while an AI render is in flight — shows a "creating your design" overlay. */
   generating?: boolean
+  /**
+   * True when the design is generated but still gated behind email verification.
+   * The viewer hides it behind a blurred BLANK/composite angle (never the
+   * generated design — which is not passed in until released) plus a "verify
+   * your email" prompt, so nothing of the design leaks before verification.
+   */
+  awaitingVerification?: boolean
 }
 
 const VIEW_ORDER = ['front', 'back', 'left', 'right'] as const
@@ -30,7 +37,7 @@ interface Thumb {
   src: string
 }
 
-export function ProductViewer({ productRef, designUrls = [], compositeViews, generating = false }: ProductViewerProps) {
+export function ProductViewer({ productRef, designUrls = [], compositeViews, generating = false, awaitingVerification = false }: ProductViewerProps) {
   const angleThumbs = useMemo<Thumb[]>(() => {
     const imgs = productRef?.view_images ?? {}
     // Front keeps the plain blank photo ONLY once a real design exists (the
@@ -75,6 +82,10 @@ export function ProductViewer({ productRef, designUrls = [], compositeViews, gen
   }
 
   const active = thumbs.find(t => t.key === activeKey) ?? thumbs[0]
+  // The verification lock only applies once no generation is actively running
+  // (the generating spinner takes precedence). The design is never among the
+  // passed thumbs while locked, so the blurred backdrop is always a safe blank.
+  const locked = awaitingVerification && !generating
 
   return (
     <div className="h-full flex flex-col p-4 md:p-6 gap-4 bg-base overflow-y-auto">
@@ -93,8 +104,8 @@ export function ProductViewer({ productRef, designUrls = [], compositeViews, gen
         {active && (
           <img
             src={active.src}
-            alt="main view"
-            className={`max-h-full max-w-full object-contain transition-opacity ${generating ? 'opacity-40' : ''}`}
+            alt={locked ? 'design hidden until email is verified' : 'main view'}
+            className={`max-h-full max-w-full object-contain transition-opacity ${generating ? 'opacity-40' : ''} ${locked ? 'blur-xl scale-105 opacity-60' : ''}`}
             draggable={false}
           />
         )}
@@ -108,10 +119,28 @@ export function ProductViewer({ productRef, designUrls = [], compositeViews, gen
             <p className="text-xs text-textMuted">This usually takes a few moments</p>
           </div>
         )}
+        {locked && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-2xl bg-surface/60 backdrop-blur-md px-6 text-center">
+            <span
+              className="flex items-center justify-center w-12 h-12 rounded-full bg-accent/10 text-accent"
+              aria-hidden="true"
+            >
+              <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2}>
+                <rect x="4" y="11" width="16" height="9" rx="2" />
+                <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+              </svg>
+            </span>
+            <p className="text-sm font-semibold text-textPrimary">Your design is ready</p>
+            <p className="text-xs text-textMuted max-w-[15rem]">
+              Verify your email to reveal it — check your inbox for the confirmation link.
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* Thumbnail strip */}
-      <div className="flex-shrink-0 flex gap-3 overflow-x-auto pb-1">
+      {/* Thumbnail strip — hidden while the design is gated so nothing invites a
+          click that would surface an angle before verification. */}
+      <div className={`flex-shrink-0 flex gap-3 overflow-x-auto pb-1 ${locked ? 'invisible' : ''}`}>
         {thumbs.map(t => (
           <button
             key={t.key}

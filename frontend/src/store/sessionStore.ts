@@ -90,18 +90,23 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // up exactly where they left off.
     const detail = await getSession(token)
 
-    // product_ref persisted on the session omits view_images, so pull the full
-    // product for the left-pane angles (best-effort — fall back to the ref).
     const ref = detail.product_ref ?? {}
+    const isBlank = (detail.collected as { flow_mode?: string })?.flow_mode === 'blank'
+    // The persisted ref now carries the chosen hat's four angles (blank flow) or
+    // its colour — proxied to fetchable URLs by the backend — so start from it.
     let productRef: ProductRef = {
       id: ref.product_id ?? '',
       name: ref.name ?? 'Your cap',
       colour: ref.colour ?? '',
       style: ref.style ?? '',
       reference_image_url: ref.reference_image_url ?? '',
-      view_images: {},
+      view_images: ref.view_images ?? {},
     }
-    if (ref.product_id) {
+    // Customise flow only: the catalogue product holds the full angle set, so
+    // re-fetch it. A blank session's ref.product_id is a hat_type id (not a
+    // catalogue product) and its angles already came through above — never call
+    // /products with it (that 404s and wiped the viewer on resume).
+    if (!isBlank && ref.product_id) {
       try {
         const product = await fetchProduct(ref.product_id)
         productRef = {

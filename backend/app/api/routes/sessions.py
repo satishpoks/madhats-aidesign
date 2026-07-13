@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.deps import require_store
 from app.db import get_supabase
 from app.services import prompt_builder
-from app.storage import generate_signed_url
+from app.storage import generate_signed_url, media_url
 from app.models.session import (
     ChatMessageOut,
     CreateBlankSessionRequest,
@@ -118,8 +118,27 @@ async def create_blank_session(
     return SessionResponse(session_id=row["id"], share_token=share_token, state=row["state"])
 
 
+def _displayable_product_ref(product_ref: dict | None, base_url: str) -> dict | None:
+    """Rewrite a persisted product_ref's image paths to client-fetchable URLs.
+
+    Blank-hat sessions persist their reference/view images as RAW storage paths
+    (``uploads/…``) which a browser can't load directly — so a resumed blank
+    session lost its hat angles and colour overlay. Proxy them through
+    ``/media/{token}`` (external http URLs pass through unchanged) so resume shows
+    the chosen hat's four angles exactly as the live session did."""
+    if not product_ref:
+        return product_ref
+    ref = dict(product_ref)
+    imgs = ref.get("view_images") or {}
+    ref["view_images"] = {v: (media_url(p, base_url) or p) for v, p in imgs.items() if p}
+    reference = ref.get("reference_image_url")
+    if reference:
+        ref["reference_image_url"] = media_url(reference, base_url) or reference
+    return ref
+
+
 @router.get("/sessions/{token}", response_model=SessionDetail)
-async def get_session(token: str) -> SessionDetail:
+async def get_session(token: str, request: Request) -> SessionDetail:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("share_token", token).limit(1).execute()
     if not res.data:
@@ -144,7 +163,7 @@ async def get_session(token: str) -> SessionDetail:
         state=session["state"],
         channel=session["channel"],
         entry_path=session["entry_path"],
-        product_ref=session.get("product_ref"),
+        product_ref=_displayable_product_ref(session.get("product_ref"), str(request.base_url)),
         collected=collected,
         status=session["status"],
         messages=messages,

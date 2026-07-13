@@ -209,6 +209,53 @@ describe('bootstrapFromUrl', () => {
     Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
   })
 
+  it('resumes a BLANK session using the ref angles without hitting /products (regression)', async () => {
+    const { getSession, fetchProduct } = await import('../lib/api')
+    vi.mocked(getSession).mockResolvedValueOnce({
+      session_id: 'blank-resume-1',
+      share_token: 'blank-tok-resume',
+      state: 'ask_more_elements',
+      channel: 'web',
+      entry_path: 'blank',
+      product_ref: {
+        product_id: 'hat-type-uuid', // a hat_type id, NOT a catalogue product
+        name: 'Tucker',
+        style: 'tucker',
+        colour: '',
+        reference_image_url: 'http://api/media/front-tok',
+        view_images: {
+          front: 'http://api/media/front-tok',
+          back: 'http://api/media/back-tok',
+          left: 'http://api/media/left-tok',
+          right: 'http://api/media/right-tok',
+        },
+      },
+      collected: { flow_mode: 'blank', hat_colour: { hex: '#c00202', name: '#c00202' } },
+      status: 'draft',
+      messages: [],
+      data: { tint_ready: true, tint_hex: '#c00202' },
+    } as never)
+    vi.mocked(fetchProduct).mockClear()
+
+    Object.defineProperty(window, 'location', {
+      value: { search: '?session=blank-tok-resume' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+
+    const s = useSessionStore.getState()
+    expect(s.productRef?.view_images.front).toBe('http://api/media/front-tok')
+    expect(s.productRef?.view_images.back).toBe('http://api/media/back-tok')
+    expect(s.productRef?.reference_image_url).toBe('http://api/media/front-tok')
+    // Must NOT call /products with a hat_type id (that 404s and wiped the viewer).
+    expect(vi.mocked(fetchProduct)).not.toHaveBeenCalled()
+    // The tint signal is restored so the colour overlay re-composites on resume.
+    expect(useChatStore.getState().tintReady).toBe(true)
+    expect(useChatStore.getState().tintHex).toBe('#c00202')
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
+  })
+
   it('warns via console.warn when bootstrap fails so broken embed URLs are diagnosable', async () => {
     const { fetchProduct } = await import('../lib/api')
     vi.mocked(fetchProduct).mockRejectedValueOnce(new Error('Backend down'))
