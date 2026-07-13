@@ -2,7 +2,7 @@
 // canvas. Konva needs a real, already-decoded <img> to paint synchronously —
 // without this cache, switching faces creates a fresh Image() per mount and
 // the flatten loop's rAF wait races the async decode, exporting stale/blank
-// pixels. Preloading into this cache (see DesignStudio/index.tsx) lets
+// pixels. Preloading into this cache (see DesignStudio/Surface.tsx) lets
 // CanvasStage/nodes.tsx read back a `.complete` element and render it on the
 // very first paint after a face switch.
 const cache = new Map<string, HTMLImageElement>()

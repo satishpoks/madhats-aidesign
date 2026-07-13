@@ -27,6 +27,7 @@ export function DesignStudioSurface() {
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [rendering, setRendering] = useState(false)
+  const [rendered, setRendered] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -116,6 +117,7 @@ export function DesignStudioSurface() {
       // Chat lives in the right panel of this same screen — hydrate it in place;
       // do NOT navigate away (that was the old full-screen ChatPanel handoff).
       useChatStore.getState().hydrate([], res.state, res.data)
+      setRendered(true); setRendering(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setRendering(false)
@@ -146,7 +148,7 @@ export function DesignStudioSurface() {
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
-            colourways={colourways} onRender={() => void doRender()} rendering={rendering} />
+            colourways={colourways} onRender={() => void doRender()} rendering={rendering} rendered={rendered} />
         </div>
       </div>
 
