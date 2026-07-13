@@ -77,6 +77,10 @@ STATE_PROMPTS: dict[str, str] = {
         "context), then ask if they'd like to add anything else or are ready "
         "for you to place the design and generate it. One or two sentences."
     ),
+    "ask_decoration": (
+        "Ask how they'd like the design decorated, noting they can pick more than one "
+        "and that each extra decoration adds to the cost. One or two warm sentences."
+    ),
     "ask_placement_zone": "Ask where they'd like the design placed: front panel, side, back, "
     "or under the brim.",
     "ask_placement_position": "Ask for the precise position within the {placement_zone} "
@@ -92,6 +96,16 @@ STATE_PROMPTS: dict[str, str] = {
     "keep the whole hat one colour. Keep it to one short, friendly question.",
     "composite_preview": "Tell them here's a quick on-screen mock-up of the design across "
     "all four angles, and ask if it looks right to generate or they'd like to tweak something.",
+    "canvas_design": (
+        "Tell the customer their design tools are unlocked on the left — they can add "
+        "text, upload images, pick colours, and design on any side — and to tap "
+        "'Done designing' when ready, or describe it here instead. One or two sentences."
+    ),
+    "ask_notes": (
+        "Ask if they have any final notes for the team before you generate the design "
+        "(special requests, colour matching, deadlines), making clear they can skip. "
+        "One or two sentences."
+    ),
     "generating": "Tell them you're putting the design together now and it'll be in "
     "their inbox and on-screen the moment it's ready. Do NOT ask for their email.",
     "ask_email": "Politely ask for their email so you can send the finished design.",
@@ -318,6 +332,10 @@ CANNED_REPLIES: dict[str, str] = {
         "Got it — I've added that. Anything else you'd like on there, or shall "
         "I place the design and generate it?"
     ),
+    "ask_decoration": (
+        "Love it! How would you like this decorated? Pick any that apply — "
+        "just remember each extra decoration adds to the cost."
+    ),
     "ask_placement_zone": (
         "Where would you like the design placed? "
         "Front panel, side, back, or under the brim?"
@@ -340,6 +358,15 @@ CANNED_REPLIES: dict[str, str] = {
     "composite_preview": (
         "Here's a quick mock-up of your design across the front, back and sides. "
         "Happy for me to generate it, or would you like to tweak something?"
+    ),
+    "canvas_design": (
+        "You're all set — design your hat on the left. Add text, upload images, "
+        "pick colours and place them on any side. Tap 'Done designing' when you're "
+        "happy, or tell me here if you'd rather describe what you want."
+    ),
+    "ask_notes": (
+        "Almost there! Any final notes for our team before I generate your design — "
+        "special requests, colours to match, deadlines? If not, tap 'No, generate'."
     ),
     "generating": (
         "Putting your design together now — I'll pop it in your inbox and "
