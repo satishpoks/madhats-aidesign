@@ -26,6 +26,10 @@ interface ChatStoreState {
   /** Blank flow: the hat-colour step wants a free colour picker (custom hex). */
   colourPicker: boolean
   progress: { step: number; total: number } | null
+  /** ask_decoration: the option chips are a multi-select set. */
+  multiselect: boolean
+  /** ask_decoration: currently-selected decoration names. */
+  selected: string[]
   sending: boolean
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
@@ -65,7 +69,9 @@ function parseData(data: Record<string, unknown>) {
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress }
+  const multiselect = data.multiselect === true
+  const selected = Array.isArray(data.selected) ? (data.selected as string[]) : []
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected }
 }
 
 function uid(): string {
@@ -85,6 +91,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   colourSwatches: [],
   colourPicker: false,
   progress: null,
+  multiselect: false,
+  selected: [],
   sending: false,
   chatError: null,
   kickoffDone: false,
@@ -240,6 +248,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       colourSwatches: [],
       colourPicker: false,
       progress: null,
+      multiselect: false,
+      selected: [],
       sending: false,
       chatError: null,
       kickoffDone: false,

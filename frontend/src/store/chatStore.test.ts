@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, test, expect, vi, beforeEach } from 'vitest'
 import { useChatStore } from './chatStore'
 import * as api from '../lib/api'
 
@@ -19,6 +19,17 @@ describe('chatStore progress', () => {
     await useChatStore.getState().sendMessage('s1', 'hi')
     expect(useChatStore.getState().progress).toEqual({ step: 3, total: 9 })
   })
+})
+
+test('parses multiselect + selected from data', () => {
+  useChatStore.getState().reset()
+  useChatStore.getState().hydrate([], 'ask_decoration', {
+    options: ['Embroidery', 'Print'], multiselect: true, selected: ['Print'],
+  })
+  const s = useChatStore.getState()
+  expect(s.multiselect).toBe(true)
+  expect(s.selected).toEqual(['Print'])
+  expect(s.options).toEqual(['Embroidery', 'Print'])
 })
 
 describe('chatStore advanceRegeneration', () => {

@@ -209,6 +209,11 @@ export function listGraphics(category?: 'clipart' | 'company'): Promise<import('
   return request<import('./types').Graphic[]>(`/graphics${q}`)
 }
 
+/** List the active decoration types (embroidery/print/…) for the current store. */
+export function getDecorationTypes(): Promise<{ id: string; name: string }[]> {
+  return request<{ id: string; name: string }[]>('/decoration-types')
+}
+
 /** Create a new design session for a blank hat type (no product photo).
  *  Colour is optional — the customer now chooses it in chat (after quantity),
  *  so the landing picker only selects the hat type. */
