@@ -6,6 +6,13 @@
 // CanvasStage/nodes.tsx read back a `.complete` element and render it on the
 // very first paint after a face switch.
 const cache = new Map<string, HTMLImageElement>()
+// In-flight load promises keyed by url. Dedupes concurrent loadImage() calls
+// for the same not-yet-complete url so they all await the SAME Image's
+// onload/onerror instead of each caller overwriting the previous caller's
+// handlers on a shared Image object (which left the earlier caller's promise
+// hanging forever — see CanvasStage's active-face load racing the flatten
+// preload for that same face).
+const inflight = new Map<string, Promise<HTMLImageElement>>()
 
 export function getCachedImage(url: string): HTMLImageElement | undefined {
   return cache.get(url)
@@ -21,12 +28,26 @@ export function loadImage(url: string): Promise<HTMLImageElement> {
     return Promise.resolve(cached)
   }
 
-  return new Promise((resolve, reject) => {
-    const img = cached ?? new window.Image()
+  const existing = inflight.get(url)
+  if (existing) {
+    return existing
+  }
+
+  const promise = new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new window.Image()
     img.crossOrigin = 'anonymous' // avoid tainting the canvas for toDataURL()
-    img.onload = () => { cache.set(url, img); resolve(img) }
-    img.onerror = () => reject(new Error(`Failed to load image: ${url}`))
-    cache.set(url, img)
+    img.onload = () => {
+      cache.set(url, img)
+      inflight.delete(url)
+      resolve(img)
+    }
+    img.onerror = () => {
+      inflight.delete(url)
+      reject(new Error(`Failed to load image: ${url}`))
+    }
     img.src = url
   })
+
+  inflight.set(url, promise)
+  return promise
 }
