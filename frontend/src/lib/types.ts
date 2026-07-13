@@ -88,3 +88,11 @@ export interface GenerationStatus {
 export interface CanvasLayoutsResponse {
   views: Record<string, string>
 }
+
+/** A graphics-library item (clipart / company), served via the /media proxy. */
+export interface Graphic {
+  id: string
+  category: 'clipart' | 'company'
+  name: string
+  url: string
+}

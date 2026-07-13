@@ -203,6 +203,12 @@ export function listHatTypes(): Promise<HatType[]> {
   return request<HatType[]>('/hat-types')
 }
 
+/** List the active graphics library (clipart / company) for the current store. */
+export function listGraphics(category?: 'clipart' | 'company'): Promise<import('./types').Graphic[]> {
+  const q = category ? `?category=${category}` : ''
+  return request<import('./types').Graphic[]>(`/graphics${q}`)
+}
+
 /** Create a new design session for a blank hat type (no product photo).
  *  Colour is optional — the customer now chooses it in chat (after quantity),
  *  so the landing picker only selects the hat type. */

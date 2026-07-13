@@ -7,6 +7,7 @@ import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
+import { GraphicsPicker } from './GraphicsPicker'
 import { Modal } from '../Modal'
 import { flattenStage, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
@@ -28,6 +29,7 @@ export function DesignStudio() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [rendering, setRendering] = useState(false)
   const [emailOpen, setEmailOpen] = useState(false)
+  const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
 
@@ -62,6 +64,17 @@ export function DesignStudio() {
     }
     // Allow re-selecting the same file later (onChange won't fire otherwise).
     e.target.value = ''
+  }
+
+  // Add a library graphic (clipart / company) to the canvas — same image-element
+  // flow as an upload, reading its natural aspect so it inserts undistorted.
+  async function addGraphic(url: string) {
+    let aspect = 1
+    try {
+      const img = await loadImage(url)
+      if (img.naturalWidth && img.naturalHeight) aspect = img.naturalWidth / img.naturalHeight
+    } catch { /* keep square default */ }
+    addImage(url, aspect)
   }
 
   async function doRender() {
@@ -141,11 +154,14 @@ export function DesignStudio() {
         {/* Right rail — tools + render */}
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
+            onGraphicsClick={() => setGraphicsOpen(true)}
             colourways={colourways} onRender={onRenderClick} rendering={rendering} />
         </div>
       </div>
 
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} className="sr-only" aria-label="Upload image" />
+
+      <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)} onPick={url => void addGraphic(url)} />
 
       <Modal open={emailOpen} title="Where should we send it?" onClose={() => setEmailOpen(false)}>
         <div className="flex flex-col gap-3 p-2">
