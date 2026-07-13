@@ -41,5 +41,6 @@ class ImageProvider(ABC):
         uploaded_asset_url: str | None,  # customer logo/artwork, if any
         params: GenerationParams,
         prior_design_url: str | None = None,  # previous render to REFINE (edits only)
+        layout_guide_url: str | None = None,  # flattened canvas — layout guide (canvas flow)
     ) -> GenerationResult:
         ...

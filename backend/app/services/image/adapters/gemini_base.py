@@ -50,6 +50,12 @@ _PRIOR_DESIGN_LABEL = (
     "below; keep every other detail identical. It does NOT change the output "
     "shape or aspect ratio — those come only from the FIRST image."
 )
+_LAYOUT_GUIDE_LABEL = (
+    "LAYOUT GUIDE — the customer's flattened canvas showing where each "
+    "decoration was placed. Use it ONLY to guide placement of the elements onto "
+    "the cap; it is not the product and does NOT change the output shape, size "
+    "or aspect ratio — those come only from the FIRST image."
+)
 
 
 async def _fetch_bytes(url: str) -> tuple[bytes, str]:
@@ -158,6 +164,7 @@ class _GeminiAdapter(ImageProvider):
         uploaded_asset_url: str | None,
         params: GenerationParams,
         prior_design_url: str | None = None,
+        layout_guide_url: str | None = None,
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required — never generate a cap from scratch")
@@ -199,6 +206,18 @@ class _GeminiAdapter(ImageProvider):
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
             except httpx.HTTPError:
                 log.warning("logo_fetch_failed", tier=self.tier)
+
+        # Layout guide (canvas flow): the flattened canvas showing where the
+        # customer placed each decoration. Conditioning is still the real photo
+        # (FIRST image); this only guides placement. Fetch + attach like the
+        # other image inputs above — same helper, same append pattern.
+        if layout_guide_url:
+            try:
+                guide_bytes, guide_mime = await _fetch_bytes(layout_guide_url)
+                contents.append(_LAYOUT_GUIDE_LABEL)
+                contents.append({"mime_type": guide_mime, "data": guide_bytes})
+            except httpx.HTTPError:
+                log.warning("layout_guide_fetch_failed", tier=self.tier)
 
         contents.append(prompt)
 
