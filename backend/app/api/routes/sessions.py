@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.api.deps import require_store
+from app.config import settings
 from app.db import get_supabase
 from app.services import canvas_describe, prompt_builder
 from app.storage import generate_signed_url, media_url, upload_asset
@@ -161,7 +162,7 @@ async def create_canvas_session(
     share_token = secrets.token_urlsafe(16)
     sb = get_supabase()
     res = sb.table("design_sessions").insert({
-        "store_id": store["id"], "share_token": share_token, "state": "canvas_design",
+        "store_id": store["id"], "share_token": share_token, "state": "greeting",
         "channel": body.channel, "entry_path": body.entry_path, "flow_mode": "canvas",
         "product_ref": product_ref, "collected": collected, "status": "draft",
     }).execute()
@@ -226,22 +227,37 @@ async def finalize_canvas(
     if isinstance(colourway, dict) and (colourway.get("name") or colourway.get("hex")):
         collected["hat_colour"] = colourway
 
-    # Capture the lead + fire the verification email. Reuse the exact helper the
-    # chat flow uses at save_progress_email:
-    #   leads.capture_lead_and_verify(session: dict, collected: dict, email: str) -> str | None
-    # (name is read from collected["name"]; sending is best-effort). email_captured
-    # must be set so advance_state(GENERATING) routes to verify_email.
-    if body.email:
-        from app.services import leads as leads_service
-        leads_service.capture_lead_and_verify(session, collected, body.email)
-        collected["email_captured"] = True
+    # The design is done — advance the chat from CANVAS_DESIGN into the outro
+    # (decoration → notes → generate). Name + email were captured in chat during
+    # the intro, so no lead capture here.
+    collected["canvas_finalized"] = True
+
+    from app.services import decoration_types as deco_svc
+    from app.services.conversation import intent_extractor as ie
+    from app.services.conversation.state_machine import ConversationState as S
+    from app.services.conversation.state_machine import progress as sm_progress
+
+    active = deco_svc.list_types(store["id"], active_only=True)
+    collected["decoration_options"] = [t["name"] for t in active]
+
+    new_state = S.ASK_DECORATION
+    persona = store.get("persona_name") or settings.chatbot_persona_name
+    reply = await ie.generate_reply(new_state.value, collected, persona)
 
     sb.table("design_sessions").update(
-        {"canvas_design": body.canvas_design, "collected": collected, "state": "generating"}
+        {"canvas_design": body.canvas_design, "collected": collected, "state": new_state.value}
     ).eq("id", session_id).execute()
 
-    return {"reply": "Your design is on its way — generating your preview now.",
-            "state": "generating", "data": {}}
+    return {
+        "reply": reply,
+        "state": new_state.value,
+        "data": {
+            "options": collected["decoration_options"],
+            "multiselect": True,
+            "selected": [],
+            "progress": sm_progress(new_state, collected),
+        },
+    }
 
 
 def _displayable_product_ref(product_ref: dict | None, base_url: str) -> dict | None:

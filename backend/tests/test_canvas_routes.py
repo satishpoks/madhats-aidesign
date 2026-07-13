@@ -150,7 +150,7 @@ def test_create_canvas_session_sets_state_and_flow_mode(client, seeded_store_hea
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["state"] == "canvas_design"
+    assert body["state"] == "greeting"
     row = client._fake.design_sessions.rows[body["session_id"]]
     assert row["flow_mode"] == "canvas"
     assert row["collected"]["flow_mode"] == "canvas"
@@ -175,7 +175,7 @@ def test_create_canvas_session_from_hat_type(client, seeded_store_headers, monke
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["state"] == "canvas_design"
+    assert body["state"] == "greeting"
     row = client._fake.design_sessions.rows[body["session_id"]]
     assert row["flow_mode"] == "canvas"
     assert row["collected"]["flow_mode"] == "canvas"
@@ -255,25 +255,40 @@ def test_upload_canvas_layouts_rejects_faces_files_mismatch(client, seeded_store
     assert r.status_code == 400
 
 
-def test_finalize_writes_elements_and_moves_to_generating(client, seeded_store_headers, canvas_session_id):
+def test_finalize_routes_to_decoration(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    import app.services.decoration_types as deco_svc
+    import app.services.conversation.intent_extractor as ie
+
+    monkeypatch.setattr(
+        deco_svc, "list_types",
+        lambda s, active_only=False: [{"name": "Embroidery"}, {"name": "Print"}],
+    )
+
+    async def _reply(*a, **k):
+        return "How would you like this decorated?"
+
+    monkeypatch.setattr(ie, "generate_reply", _reply)
+
     design = {"colourway": {"name": "Navy", "hex": "#1e3a8a"},
               "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
                                     "x": 0.5, "y": 0.4, "width": 0.2, "height": 0.1,
                                     "rotation": 0, "zIndex": 0}],
                         "back": [], "left": [], "right": []}}
     r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
-                    json={"canvas_design": design, "email": "a@b.com", "name": "Al"},
+                    json={"canvas_design": design, "name": "Al"},
                     headers=seeded_store_headers)
     assert r.status_code == 200
     body = r.json()
-    assert body["state"] == "generating"
+    assert body["state"] == "ask_decoration"
+    assert body["data"]["multiselect"] is True
+    assert body["data"]["options"] == ["Embroidery", "Print"]
     elements, _ = canvas_to_elements(design)
     assert elements[0]["content"] == "HI"
 
     row = client._fake.design_sessions.rows[canvas_session_id]
-    assert row["state"] == "generating"
+    assert row["state"] == "ask_decoration"
     assert row["collected"]["elements"][0]["content"] == "HI"
-    assert row["collected"]["email_captured"] is True
+    assert row["collected"]["canvas_finalized"] is True
     assert row["canvas_design"] == design
     assert row["collected"]["hat_colour"] == {"name": "Navy", "hex": "#1e3a8a"}
 
