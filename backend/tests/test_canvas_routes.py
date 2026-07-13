@@ -273,3 +273,14 @@ def test_finalize_writes_elements_and_moves_to_generating(client, seeded_store_h
     assert row["collected"]["elements"][0]["content"] == "HI"
     assert row["collected"]["email_captured"] is True
     assert row["canvas_design"] == design
+
+
+def test_canvas_request_entry_path_defaults_non_null():
+    """Regression: design_sessions.entry_path is NOT NULL, so the create request
+    must default entry_path to a non-null marker (the mocked-supabase route tests
+    never hit the real constraint — a live E2E returned 503 when this was None)."""
+    from app.models.canvas import CreateCanvasSessionRequest
+
+    req = CreateCanvasSessionRequest(product_id="p1")
+    assert req.entry_path == "canvas_first"
+    assert req.entry_path is not None

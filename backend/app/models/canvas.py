@@ -8,7 +8,9 @@ class CreateCanvasSessionRequest(BaseModel):
     hat_type_id: str | None = None
     colour: dict | str | None = None
     channel: str = "web"
-    entry_path: str | None = None
+    # design_sessions.entry_path is NOT NULL — default to a non-null marker like
+    # the customise/blank create requests ("pick_first"/"blank_first").
+    entry_path: str = "canvas_first"
 
 
 class CanvasFinalizeRequest(BaseModel):
