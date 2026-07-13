@@ -222,3 +222,22 @@ def test_customise_still_reaches_generating_directly():
          "elements": [{"type": "text", "content": "GO"}],
          "email_prompt_shown": True, "elements_offered": True}
     assert next_goal(c) is S.GENERATING
+
+
+def test_canvas_intro_sequence():
+    assert next_goal({"flow_mode": "canvas"}) is S.ASK_NAME
+    assert next_goal({"flow_mode": "canvas", "name": "Sam"}) is S.SAVE_PROGRESS_EMAIL
+    c = {"flow_mode": "canvas", "name": "Sam", "email_prompt_shown": True}
+    assert next_goal(c) is S.ASK_PURPOSE
+    c = {**c, "purpose_asked": True}
+    assert next_goal(c) is S.ASK_QUANTITY
+    c = {**c, "quantity": 12}
+    assert next_goal(c) is S.CANVAS_DESIGN
+
+
+def test_canvas_outro_sequence():
+    base = {"flow_mode": "canvas", "name": "Sam", "email_prompt_shown": True,
+            "purpose_asked": True, "quantity": 12, "canvas_finalized": True}
+    assert next_goal(base) is S.ASK_DECORATION
+    assert next_goal({**base, "decoration_done": True}) is S.ASK_NOTES
+    assert next_goal({**base, "decoration_done": True, "notes_done": True}) is S.GENERATING
