@@ -155,6 +155,7 @@ def test_create_canvas_session_sets_state_and_flow_mode(client, seeded_store_hea
     assert row["flow_mode"] == "canvas"
     assert row["collected"]["flow_mode"] == "canvas"
     assert row["product_ref"]["product_id"] == _PRODUCT_ID
+    assert "canvas_blank" not in row["collected"]
 
 
 def test_create_canvas_session_from_hat_type(client, seeded_store_headers, monkeypatch):
@@ -180,6 +181,7 @@ def test_create_canvas_session_from_hat_type(client, seeded_store_headers, monke
     assert row["collected"]["flow_mode"] == "canvas"
     assert row["collected"]["hat_type_id"] == "h1"
     assert row["collected"]["hat_colour"]["hex"] == "#1a2b5c"
+    assert row["collected"]["canvas_blank"] is True
     assert row["product_ref"]["reference_image_url"] == "b/front.png"
 
 
@@ -273,6 +275,7 @@ def test_finalize_writes_elements_and_moves_to_generating(client, seeded_store_h
     assert row["collected"]["elements"][0]["content"] == "HI"
     assert row["collected"]["email_captured"] is True
     assert row["canvas_design"] == design
+    assert row["collected"]["hat_colour"] == {"name": "Navy", "hex": "#1e3a8a"}
 
 
 def test_canvas_request_entry_path_defaults_non_null():

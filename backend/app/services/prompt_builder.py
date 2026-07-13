@@ -294,7 +294,7 @@ def _render_template(
     ]
     pin_block = ("\n" + "\n".join(pin_lines)) if pin_lines else ""
 
-    is_blank = collected.get("flow_mode") == "blank"
+    is_blank = collected.get("flow_mode") == "blank" or bool(collected.get("canvas_blank"))
     template = prompts.IMAGE_GEN_PROMPT_BLANK if is_blank else prompts.IMAGE_GEN_PROMPT
 
     fmt = dict(

@@ -152,6 +152,7 @@ async def create_canvas_session(
             "view_images": blanks,
         }
         collected["hat_type_id"] = hat["id"]
+        collected["canvas_blank"] = True
         if colour:
             collected["hat_colour"] = colour
     else:
@@ -220,6 +221,10 @@ async def finalize_canvas(
     collected["flow_mode"] = "canvas"
     if body.name:
         collected["name"] = body.name
+
+    colourway = (body.canvas_design or {}).get("colourway")
+    if isinstance(colourway, dict) and (colourway.get("name") or colourway.get("hex")):
+        collected["hat_colour"] = colourway
 
     # Capture the lead + fire the verification email. Reuse the exact helper the
     # chat flow uses at save_progress_email:
