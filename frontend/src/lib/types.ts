@@ -84,3 +84,7 @@ export interface GenerationStatus {
    */
   view_images?: Record<string, string>
 }
+
+export interface CanvasLayoutsResponse {
+  views: Record<string, string>
+}

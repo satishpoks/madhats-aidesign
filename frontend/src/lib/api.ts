@@ -226,3 +226,40 @@ export function postComposite(
     method: 'POST',
   })
 }
+
+// ---------------------------------------------------------------------------
+// Canvas flow: session creation, layout uploads, finalization
+// ---------------------------------------------------------------------------
+
+export function createCanvasSession(
+  opts: { productId?: string; hatTypeId?: string; colour?: HatColour },
+): Promise<CreateSessionResponse> {
+  const body: Record<string, unknown> = {}
+  if (opts.productId) body.product_id = opts.productId
+  if (opts.hatTypeId) body.hat_type_id = opts.hatTypeId
+  if (opts.colour) body.colour = opts.colour
+  return request<CreateSessionResponse>('/sessions/canvas', {
+    method: 'POST', body: JSON.stringify(body),
+  })
+}
+
+export function uploadCanvasLayouts(
+  sessionId: string, layouts: { face: string; file: File }[],
+): Promise<{ views: Record<string, string> }> {
+  const fd = new FormData()
+  for (const { face, file } of layouts) {
+    fd.append('faces', face)
+    fd.append('files', file)
+  }
+  return request<{ views: Record<string, string> }>(`/sessions/${sessionId}/canvas-layouts`, {
+    method: 'POST', body: fd,
+  })
+}
+
+export function finalizeCanvas(
+  sessionId: string, body: { canvas_design: unknown; email?: string; name?: string },
+): Promise<ChatResponse> {
+  return request<ChatResponse>(`/sessions/${sessionId}/canvas-finalize`, {
+    method: 'POST', body: JSON.stringify(body),
+  })
+}
