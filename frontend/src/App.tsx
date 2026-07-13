@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useSessionStore } from './store/sessionStore'
 import { ApiProductPicker } from './components/ApiProductPicker'
 import { BlankHatPicker } from './components/BlankHatPicker'
-import { DesignStudio } from './components/DesignStudio'
+import { CustomiseStudio } from './components/CustomiseStudio'
 import { useStudioStore } from './store/studioStore'
 import { StudioCanvas } from './components/StudioCanvas'
 import { RefineScreen } from './components/RefineScreen'
@@ -25,7 +25,7 @@ export default function App() {
   }, [bootstrapFromUrl])
 
   if (sessionView === 'canvas') {
-    return <DesignStudio />
+    return <CustomiseStudio />
   }
 
   // Session flow (new chatbot path) takes priority
