@@ -25,6 +25,8 @@ from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 
 router = APIRouter(tags=["sessions"])
 
+_VALID_FACES = {"front", "back", "left", "right"}
+
 
 @router.post("/sessions", response_model=SessionResponse)
 async def create_session(
@@ -177,9 +179,13 @@ async def upload_canvas_layouts(
     sess = sb.table("design_sessions").select("id, collected").eq("id", session_id).limit(1).execute()
     if not sess.data:
         raise HTTPException(status_code=404, detail="Session not found")
+    if len(faces) != len(files):
+        raise HTTPException(status_code=400, detail="faces/files count mismatch")
     layouts: dict[str, str] = {}
     signed: dict[str, str] = {}
     for face, upload in zip(faces, files):
+        if face not in _VALID_FACES:
+            raise HTTPException(status_code=400, detail=f"invalid face: {face}")
         data = await upload.read()
         if not data:
             raise HTTPException(status_code=400, detail=f"Empty file for {face}")

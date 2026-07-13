@@ -157,6 +157,41 @@ def test_create_canvas_session_sets_state_and_flow_mode(client, seeded_store_hea
     assert row["product_ref"]["product_id"] == _PRODUCT_ID
 
 
+def test_create_canvas_session_from_hat_type(client, seeded_store_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.sessions.hat_types_service.get_hat_type",
+        lambda hid, store_id=None: {
+            "id": hid, "slug": "5p", "name": "5-Panel", "style": "flat",
+            "blank_view_images": {"front": "b/front.png", "back": "b/back.png",
+                                  "left": "b/left.png", "right": "b/right.png"},
+            "placement_zones": ["front_panel", "back"], "decoration_types": ["print"],
+        },
+    )
+    r = client.post(
+        "/sessions/canvas",
+        json={"hat_type_id": "h1", "colour": {"name": "Navy", "hex": "#1a2b5c"}},
+        headers=seeded_store_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "canvas_design"
+    row = client._fake.design_sessions.rows[body["session_id"]]
+    assert row["flow_mode"] == "canvas"
+    assert row["collected"]["flow_mode"] == "canvas"
+    assert row["collected"]["hat_type_id"] == "h1"
+    assert row["collected"]["hat_colour"]["hex"] == "#1a2b5c"
+    assert row["product_ref"]["reference_image_url"] == "b/front.png"
+
+
+def test_create_canvas_session_requires_product_or_hat_type(client, seeded_store_headers):
+    r = client.post(
+        "/sessions/canvas",
+        json={},
+        headers=seeded_store_headers,
+    )
+    assert r.status_code == 400
+
+
 def test_upload_canvas_layouts_stores_signed_urls(client, seeded_store_headers, canvas_session_id, monkeypatch):
     monkeypatch.setattr("app.api.routes.sessions.upload_asset", lambda data, filename, content_type: f"uploads/{filename}")
     monkeypatch.setattr("app.api.routes.sessions.generate_signed_url", lambda path: f"signed://{path}")
@@ -173,6 +208,49 @@ def test_upload_canvas_layouts_stores_signed_urls(client, seeded_store_headers, 
     assert body["views"]["front"].startswith("signed://uploads/")
     row = client._fake.design_sessions.rows[canvas_session_id]
     assert row["collected"]["canvas_layouts"]["front"].startswith("uploads/")
+
+
+def test_upload_canvas_layouts_rejects_oversized_file(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    monkeypatch.setattr("app.api.routes.sessions.upload_asset", lambda data, filename, content_type: f"uploads/{filename}")
+    monkeypatch.setattr("app.api.routes.sessions.generate_signed_url", lambda path: f"signed://{path}")
+
+    from app.services.upload_validation import MAX_UPLOAD_BYTES
+
+    oversized = b"\x89PNG\r\n\x1a\n" + b"0" * MAX_UPLOAD_BYTES
+    r = client.post(
+        f"/sessions/{canvas_session_id}/canvas-layouts",
+        data={"faces": ["front"]},
+        files={"files": ("front.png", io.BytesIO(oversized), "image/png")},
+        headers=seeded_store_headers,
+    )
+    assert r.status_code == 413
+
+
+def test_upload_canvas_layouts_rejects_unsupported_mime(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    monkeypatch.setattr("app.api.routes.sessions.upload_asset", lambda data, filename, content_type: f"uploads/{filename}")
+    monkeypatch.setattr("app.api.routes.sessions.generate_signed_url", lambda path: f"signed://{path}")
+
+    r = client.post(
+        f"/sessions/{canvas_session_id}/canvas-layouts",
+        data={"faces": ["front"]},
+        files={"files": ("front.txt", io.BytesIO(b"not an image"), "text/plain")},
+        headers=seeded_store_headers,
+    )
+    assert r.status_code == 415
+
+
+def test_upload_canvas_layouts_rejects_faces_files_mismatch(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    monkeypatch.setattr("app.api.routes.sessions.upload_asset", lambda data, filename, content_type: f"uploads/{filename}")
+    monkeypatch.setattr("app.api.routes.sessions.generate_signed_url", lambda path: f"signed://{path}")
+
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+    r = client.post(
+        f"/sessions/{canvas_session_id}/canvas-layouts",
+        data={"faces": ["front", "back"]},
+        files={"files": ("front.png", io.BytesIO(png_bytes), "image/png")},
+        headers=seeded_store_headers,
+    )
+    assert r.status_code == 400
 
 
 def test_finalize_writes_elements_and_moves_to_generating(client, seeded_store_headers, canvas_session_id):
