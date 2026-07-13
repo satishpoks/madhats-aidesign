@@ -323,15 +323,24 @@ async def _run_generation(
                     prev_clean = (prev_views.get(view) or {}).get("image_url")
                     if prev_clean:
                         prior = prev_clean if prev_clean.startswith("http") else generate_signed_url(prev_clean)
-                key = generation_cache.cache_key(
-                    product_ref.get("product_id", ""), product_ref.get("colour", ""),
-                    prompt_builder.prompt_hash(view_prompt), asset_hash if uploaded else "none",
-                )
                 layout_guide = None
                 if is_canvas:
                     lg = canvas_layouts.get(view)
                     if lg:
                         layout_guide = lg if lg.startswith("http") else generate_signed_url(lg)
+                prompt_for_key = view_prompt
+                if is_canvas and canvas_layouts.get(view):
+                    # Canvas descriptions are placement-agnostic; without this,
+                    # two designs with identical elements but different pixel
+                    # layouts collide and one serves the other's render,
+                    # discarding the layout guide. The flattened-layout path is
+                    # unique per upload, so folding it in makes the key
+                    # layout-sensitive.
+                    prompt_for_key = f"{view_prompt}\n[layout:{canvas_layouts[view]}]"
+                key = generation_cache.cache_key(
+                    product_ref.get("product_id", ""), product_ref.get("colour", ""),
+                    prompt_builder.prompt_hash(prompt_for_key), asset_hash if uploaded else "none",
+                )
                 return await _render_view(
                     view=view, provider=provider, job_id=job_id, generation_id=generation_id,
                     session_id=session_id, tier=tier, prompt=view_prompt, ref_url=ref,
