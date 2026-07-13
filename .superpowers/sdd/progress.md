@@ -184,3 +184,5 @@ FINAL REVIEW (opus, whole-branch eb0a858..27f315d, 6 commits): READY to merge �
   Minor TICKETS (non-blocking, deferred): (1) DrawingNode ignores isSelected → selected stroke has no on-canvas selection affordance (only toolbar signals it) — UX inconsistency vs text/image/shape. (2) bgRemove OFF leaves originalAssetUrl populated (harmless stale field; re-toggle still resolves correctly). (3) single tap in draw mode (<4 pts) silently discarded — cannot place a dot (acceptable for a pen).
 
 FEATURE COMPLETE (bg removal + draw tool). All 5 BD tasks + final review done. Commits: f4ae7b8 9b36fa5 70a7a02 bd657cb e601c61 27f315d. Ready to finish branch. PENDING: manual browser E2E (needs Docker + imgly installed in container) — not run.
+
+CORRECTION: full frontend vitest run completed — 196 passed / 2 failed (pre-existing adminQuotes) / 202 total. Earlier derived 185 was off a stale 181 baseline; CLAUDE.md corrected to 196.
