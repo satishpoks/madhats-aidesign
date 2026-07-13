@@ -433,3 +433,64 @@ export async function uploadHatAngle(
   }
   return res.json() as Promise<{ blank_view_images: Record<string, string>; view_images: Record<string, string> }>
 }
+
+// ---------------------------------------------------------------------------
+// Graphics library: admin-managed clipart + company graphics (store-scoped)
+// ---------------------------------------------------------------------------
+
+export type GraphicCategory = 'clipart' | 'company'
+
+export interface AdminGraphic {
+  id: string
+  category: GraphicCategory
+  name: string
+  active: boolean
+  sort_order: number
+  url: string
+}
+
+export function listGraphics(storeKey: string, category?: GraphicCategory): Promise<AdminGraphic[]> {
+  const q = category ? `?category=${category}` : ''
+  return request<AdminGraphic[]>(`/admin/graphics${q}`, {}, storeKey)
+}
+
+export function deleteGraphic(id: string, storeKey: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/graphics/${id}`, { method: 'DELETE' }, storeKey)
+}
+
+/** Upload a graphic (multipart) — like uploadHatAngle, the browser sets the boundary. */
+export async function uploadGraphic(
+  category: GraphicCategory,
+  name: string,
+  file: File,
+  storeKey: string,
+): Promise<AdminGraphic> {
+  const secret = getSecret()
+  if (secret === null) {
+    logout()
+    throw new ApiError(401, 'Not authenticated')
+  }
+  const form = new FormData()
+  form.append('category', category)
+  form.append('name', name)
+  form.append('file', file)
+  const res = await fetch(`${BASE_URL}/admin/graphics`, {
+    method: 'POST',
+    headers: { 'X-Admin-Secret': secret, 'X-Store-Key': storeKey },
+    body: form,
+  })
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      logout()
+    }
+    let detail = res.statusText
+    try {
+      const json = (await res.json()) as { detail?: string; message?: string }
+      detail = json.detail ?? json.message ?? detail
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<AdminGraphic>
+}
