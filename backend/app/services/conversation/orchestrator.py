@@ -236,6 +236,60 @@ async def _apply_brief_confirm(collected: dict, message: str) -> None:
     collected.setdefault("brief_notes", []).append(text[:300])
 
 
+# Map a decoration name to the prompt style modifier bucket. Anything not
+# recognised falls back to print (the safe default the prompt builder uses).
+_DECORATION_STYLE_MAP = (
+    ("embroider", "embroidery"),
+    ("stitch", "embroidery"),
+    ("patch", "embroidery"),   # patches render like stitched appliqué
+    ("print", "print"),
+    ("vinyl", "print"),
+    ("transfer", "print"),
+    ("screen", "print"),
+)
+
+
+def _decoration_style_bucket(name: str) -> str:
+    low = (name or "").lower()
+    for kw, bucket in _DECORATION_STYLE_MAP:
+        if kw in low:
+            return bucket
+    return "print"
+
+
+def _apply_canvas_outro(state: ConversationState, collected: dict, message: str) -> None:
+    """Capture the canvas outro answers (decoration multi-select, then notes)."""
+    S = ConversationState
+    text = (message or "").strip()
+    low = text.lower()
+
+    if state is S.ASK_DECORATION:
+        options = collected.get("decoration_options") or []
+        # Match any offered option named in the (comma-joined) message.
+        chosen = [opt for opt in options if opt.lower() in low]
+        collected["decoration_types"] = chosen
+        collected["decoration_done"] = True
+        if chosen:
+            collected.setdefault("brief_notes", []).append(
+                f"Decoration method: {', '.join(chosen)}"
+            )
+            # First choice drives the render style modifier (embroidery vs print).
+            collected["decoration_type"] = _decoration_style_bucket(chosen[0])
+        return
+
+    if state is S.ASK_NOTES:
+        collected["notes_done"] = True
+        _skip = (
+            is_negative(text)
+            or "generate" in low
+            or bool(_DONE_ELEMENTS_RE.search(low))
+        )
+        if text and not _skip:
+            collected["notes"] = text[:600]
+            collected.setdefault("brief_notes", []).append(text[:600])
+        return
+
+
 class SessionNotFound(Exception):
     pass
 
@@ -318,6 +372,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             await _apply_refine(current, collected, message)
         elif current is ConversationState.CONFIRM_BRIEF:
             await _apply_brief_confirm(collected, message)
+        elif current in (ConversationState.ASK_DECORATION, ConversationState.ASK_NOTES):
+            _apply_canvas_outro(current, collected, message)
         await _maybe_gather_element(current, interp.get("fields") or {}, collected, message)
         await _advance_elements(current, collected, message)
 
@@ -391,7 +447,11 @@ async def handle_message(session_id: str, message: str) -> dict:
         # extracted brief and let the customer confirm / adjust / add notes.
         # AI designs are limited, so we make sure everything's captured first.
         # Intercept EVERY path into GENERATING at this one point.
-        if new_state is ConversationState.GENERATING and not collected.get("brief_confirmed"):
+        if (
+            new_state is ConversationState.GENERATING
+            and not collected.get("brief_confirmed")
+            and collected.get("flow_mode") != "canvas"
+        ):
             new_state = ConversationState.CONFIRM_BRIEF
             collected["brief_prompt_shown"] = True
 
@@ -1046,4 +1106,14 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Whole hat — one colour"]}
     if state is S.COMPOSITE_PREVIEW:
         return {"options": ["Looks right — generate", "Tweak something"], "composite_preview": True}
+    if state is S.ASK_DECORATION:
+        return {
+            "options": collected.get("decoration_options") or [],
+            "multiselect": True,
+            "selected": collected.get("decoration_types") or [],
+        }
+    if state is S.ASK_NOTES:
+        return {"options": ["No, generate"]}
+    if state is S.CANVAS_DESIGN:
+        return {}
     return {}
