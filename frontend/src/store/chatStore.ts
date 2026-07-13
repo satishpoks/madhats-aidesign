@@ -43,6 +43,9 @@ interface ChatStoreState {
     state: string,
     data: Record<string, unknown>,
   ) => void
+  /** Append an assistant reply + apply state/data without wiping history
+   *  (used by the canvas "Done designing" handoff into the outro). */
+  applyResponse: (reply: string, state: string, data: Record<string, unknown>) => void
   /** Poll for out-of-band email verification; advances the thread once verified. */
   pollVerification: (sessionId: string) => Promise<void>
   /** One-shot advance from regenerating -> offer_refine, called after regeneration settles. */
@@ -170,6 +173,17 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       // The thread already exists — never fire the greeting kickoff on resume.
       kickoffDone: true,
     })
+  },
+
+  applyResponse: (reply, state, data) => {
+    const parsed = parseData(data)
+    set(s => ({
+      messages: [...s.messages, { id: uid(), role: 'assistant', text: reply }],
+      chatState: state,
+      ...parsed,
+      sending: false,
+      chatError: null,
+    }))
   },
 
   pollVerification: async (sessionId: string) => {

@@ -96,4 +96,12 @@ describe('ChatColumn', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Print' }))
     expect(screen.getByText(/adds to the cost/i)).toBeInTheDocument()
   })
+
+  it('ask_decoration with no configured options still shows Continue and submits "none"', async () => {
+    useChatStore.getState().hydrate([], 'ask_decoration', { options: [], multiselect: true, selected: [] })
+    render(<ChatColumn />)
+    const cont = await screen.findByRole('button', { name: 'Continue' })
+    fireEvent.click(cont)
+    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none'))
+  })
 })

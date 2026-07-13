@@ -565,29 +565,34 @@ export function ChatColumn() {
           </div>
         )}
 
-        {/* Decoration multi-select (ask_decoration) */}
-        {multiselect && options.length > 0 && (
+        {/* Decoration multi-select (ask_decoration). Renders whenever the step
+            is a multi-select, even with zero configured options, so Continue
+            (which sends 'none') is always reachable — otherwise a store with
+            no decoration types soft-locks the flow. */}
+        {multiselect && (
           <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap gap-2">
-              {options.map(opt => {
-                const on = decoSel.includes(opt)
-                return (
-                  <button
-                    key={opt}
-                    onClick={() => toggleDeco(opt)}
-                    disabled={sending}
-                    aria-pressed={on}
-                    className={`px-4 py-2 rounded-full text-sm transition-colors disabled:opacity-50 ${
-                      on
-                        ? 'bg-accent text-white border border-accent'
-                        : 'bg-surface border border-border text-textPrimary hover:border-accent'
-                    }`}
-                  >
-                    {on ? '✓ ' : ''}{opt}
-                  </button>
-                )
-              })}
-            </div>
+            {options.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {options.map(opt => {
+                  const on = decoSel.includes(opt)
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => toggleDeco(opt)}
+                      disabled={sending}
+                      aria-pressed={on}
+                      className={`px-4 py-2 rounded-full text-sm transition-colors disabled:opacity-50 ${
+                        on
+                          ? 'bg-accent text-white border border-accent'
+                          : 'bg-surface border border-border text-textPrimary hover:border-accent'
+                      }`}
+                    >
+                      {on ? '✓ ' : ''}{opt}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
             {decoSel.length > 1 && (
               <p className="text-xs text-amber-600">
                 Heads up — each extra decoration adds to the cost, so pick only what you need.

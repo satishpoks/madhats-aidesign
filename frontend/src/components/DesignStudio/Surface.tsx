@@ -121,9 +121,10 @@ export function DesignStudioSurface() {
       }
       if (layouts.length) await uploadCanvasLayouts(sessionId, layouts)
       const res = await finalizeCanvas(sessionId, { canvas_design: design })
-      // Chat lives in the right panel of this same screen — hydrate it in place;
-      // do NOT navigate away (that was the old full-screen ChatPanel handoff).
-      useChatStore.getState().hydrate([], res.state, res.data)
+      // Chat lives in the right panel of this same screen — append the reply
+      // in place; do NOT navigate away (that was the old full-screen ChatPanel
+      // handoff) and do NOT wipe the intro Q&A thread (hydrate([]) would).
+      useChatStore.getState().applyResponse(res.reply, res.state, res.data)
       setRendered(true); setRendering(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
