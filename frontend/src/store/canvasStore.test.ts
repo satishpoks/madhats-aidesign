@@ -40,4 +40,36 @@ describe('canvasStore', () => {
     expect(d.faces.front[0].content).toBe('HI')
     expect(Object.keys(d.faces)).toEqual(['front', 'back', 'left', 'right'])
   })
+
+  it('addImage inserts a wide image undistorted (aspect preserved)', () => {
+    const s = useCanvasStore.getState()
+    s.addImage('u.png', 2) // 2:1 wide
+    const el = useCanvasStore.getState().faces.front[0]
+    expect(el.type).toBe('image')
+    expect(el.width).toBeGreaterThan(el.height)
+    expect(el.width / el.height).toBeCloseTo(2, 5)
+  })
+
+  it('addImage inserts a tall image undistorted (aspect preserved)', () => {
+    const s = useCanvasStore.getState()
+    s.addImage('u.png', 0.5) // 1:2 tall
+    const el = useCanvasStore.getState().faces.front[0]
+    expect(el.height).toBeGreaterThan(el.width)
+    expect(el.width / el.height).toBeCloseTo(0.5, 5)
+  })
+
+  it('addImage falls back to square for a bad aspect', () => {
+    const s = useCanvasStore.getState()
+    s.addImage('u.png', 0)
+    const el = useCanvasStore.getState().faces.front[0]
+    expect(el.width).toBe(el.height)
+  })
+
+  it('updateElement sets a text curve', () => {
+    const s = useCanvasStore.getState()
+    s.addText('ARCH')
+    const id = useCanvasStore.getState().faces.front[0].id
+    s.updateElement(id, { curve: 60 })
+    expect(useCanvasStore.getState().faces.front[0].curve).toBe(60)
+  })
 })

@@ -15,7 +15,7 @@ export function ToolRail({ onAddText, onUploadClick, colourways, onRender, rende
   return (
     <div className="flex flex-col gap-3 p-4 w-full md:w-64">
       <button onClick={onAddText} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors">+ Add text</button>
-      <button onClick={onUploadClick} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors">↑ Upload logo</button>
+      <button onClick={onUploadClick} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors">↑ Upload image</button>
       <button disabled className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textMuted opacity-60 cursor-not-allowed" title="Coming soon">◈ Clipart (soon)</button>
 
       {colourways.length > 0 && (

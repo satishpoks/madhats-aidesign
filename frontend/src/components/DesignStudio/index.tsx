@@ -6,6 +6,7 @@ import { useChatStore } from '../../store/chatStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
+import { FaceThumbnails } from './FaceThumbnails'
 import { Modal } from '../Modal'
 import { flattenStage, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
@@ -16,9 +17,7 @@ export function DesignStudio() {
   const productRef = useSessionStore(s => s.productRef)
   const setView = useSessionStore.setState
 
-  const activeFace = useCanvasStore(s => s.activeFace)
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
-  const faces = useCanvasStore(s => s.faces)
   const faceImages = useCanvasStore(s => s.faceImages)
   const addText = useCanvasStore(s => s.addText)
   const addImage = useCanvasStore(s => s.addImage)
@@ -50,10 +49,19 @@ export function DesignStudio() {
     if (!file || !sessionId) return
     try {
       const { asset_url } = await uploadLogo(sessionId, file)
-      addImage(asset_url)
+      // Read the image's natural aspect so it inserts undistorted (preserved
+      // until the user resizes it themselves). Fall back to square if it can't load.
+      let aspect = 1
+      try {
+        const img = await loadImage(asset_url)
+        if (img.naturalWidth && img.naturalHeight) aspect = img.naturalWidth / img.naturalHeight
+      } catch { /* keep square default */ }
+      addImage(asset_url, aspect)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     }
+    // Allow re-selecting the same file later (onChange won't fire otherwise).
+    e.target.value = ''
   }
 
   async function doRender() {
@@ -79,6 +87,9 @@ export function DesignStudio() {
         }
       }
       await Promise.all([...urls].map(loadImage))
+      // Ensure any Google/web fonts used are loaded before we rasterise, so the
+      // flattened PNG shows the real typeface, not a fallback.
+      try { await document.fonts?.ready } catch { /* best-effort */ }
 
       const layouts: { face: string; file: File }[] = []
       for (const face of FACES as Face[]) {
@@ -116,26 +127,25 @@ export function DesignStudio() {
       {error && <div role="alert" className="mx-6 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
+        {/* Left rail — face-thumbnail navigator */}
+        <div className="md:border-r border-border overflow-y-auto flex-shrink-0">
+          <FaceThumbnails />
+        </div>
+
+        {/* Centre — canvas + contextual toolbar */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto">
-          <div className="flex gap-2">
-            {(FACES as Face[]).map(f => (
-              <button key={f} onClick={() => setActiveFace(f)}
-                className={`px-3 py-1 rounded-full text-xs capitalize ${activeFace === f ? 'bg-accent text-white' : 'bg-surface border border-border text-textMuted'} ${faces[f].length ? 'font-semibold' : ''}`}>
-                {f}{faces[f].length ? ` (${faces[f].length})` : ''}
-              </button>
-            ))}
-          </div>
           <CanvasStage stageRef={stageRef} />
           <SelectedToolbar />
         </div>
 
-        <div className="md:border-l border-border">
+        {/* Right rail — tools + render */}
+        <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             colourways={colourways} onRender={onRenderClick} rendering={rendering} />
         </div>
       </div>
 
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} className="sr-only" aria-label="Upload logo" />
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} className="sr-only" aria-label="Upload image" />
 
       <Modal open={emailOpen} title="Where should we send it?" onClose={() => setEmailOpen(false)}>
         <div className="flex flex-col gap-3 p-2">

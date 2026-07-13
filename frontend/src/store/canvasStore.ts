@@ -9,6 +9,8 @@ export interface CanvasElement {
   x: number; y: number; width: number; height: number; rotation: number
   zIndex: number
   content?: string; font?: string; colour?: string; fontSize?: number
+  /** Text arch: 0 = straight, negative = arch down, positive = arch up. */
+  curve?: number
   assetUrl?: string; removeBg?: boolean
 }
 
@@ -29,7 +31,8 @@ interface CanvasState {
   setFaceImages: (imgs: Partial<Record<Face, string>>) => void
   setActiveFace: (f: Face) => void
   addText: (text: string) => void
-  addImage: (assetUrl: string) => void
+  /** aspect = naturalWidth / naturalHeight; the element is inserted undistorted. */
+  addImage: (assetUrl: string, aspect?: number) => void
   updateElement: (id: string, patch: Partial<CanvasElement>) => void
   removeElement: (id: string) => void
   reorder: (id: string, dir: 'up' | 'down') => void
@@ -61,9 +64,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
   }),
 
-  addImage: assetUrl => set(s => {
+  addImage: (assetUrl, aspect = 1) => set(s => {
+    // Fit inside a 0.4×0.4 (normalised) box while preserving the image's aspect
+    // ratio, so it inserts undistorted; the stage is square so normalised w/h
+    // map directly to the visual ratio. The user can freely resize afterwards.
+    const a = aspect && isFinite(aspect) && aspect > 0 ? aspect : 1
+    const maxN = 0.4
+    const width = a >= 1 ? maxN : maxN * a
+    const height = a >= 1 ? maxN / a : maxN
     const el: CanvasElement = {
-      id: uid(), type: 'image', x: 0.5, y: 0.5, width: 0.35, height: 0.35,
+      id: uid(), type: 'image', x: 0.5 - width / 2, y: 0.5 - height / 2, width, height,
       rotation: 0, zIndex: s.faces[s.activeFace].length, assetUrl, removeBg: false,
     }
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
