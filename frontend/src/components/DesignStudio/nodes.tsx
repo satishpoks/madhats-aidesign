@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { Text, Image as KonvaImage, Transformer, Group } from 'react-konva'
 import type Konva from 'konva'
 import type { CanvasElement } from '../../store/canvasStore'
+import { getCachedImage, loadImage } from '../../lib/imageCache'
 
 interface NodeProps {
   el: CanvasElement
@@ -60,11 +61,16 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
   const imgRef = useRef<HTMLImageElement | null>(null)
   const forceRef = useRef(0)
   if (!imgRef.current && el.assetUrl) {
-    const img = new window.Image()
-    img.crossOrigin = 'anonymous' // required so stage.toDataURL() isn't tainted
-    img.src = el.assetUrl
-    img.onload = () => { forceRef.current++; shapeRef.current?.getLayer()?.batchDraw() }
-    imgRef.current = img
+    const cached = getCachedImage(el.assetUrl)
+    if (cached && cached.complete) {
+      imgRef.current = cached
+    } else {
+      loadImage(el.assetUrl).then(img => {
+        imgRef.current = img
+        forceRef.current++
+        shapeRef.current?.getLayer()?.batchDraw()
+      }).catch(() => { /* leave imgRef unset; nothing to paint */ })
+    }
   }
   return (
     <Group>

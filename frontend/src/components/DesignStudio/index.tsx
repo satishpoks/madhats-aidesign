@@ -9,6 +9,7 @@ import { SelectedToolbar } from './SelectedToolbar'
 import { Modal } from '../Modal'
 import { flattenStage, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
+import { loadImage } from '../../lib/imageCache'
 
 export function DesignStudio() {
   const sessionId = useSessionStore(s => s.sessionId)
@@ -18,6 +19,7 @@ export function DesignStudio() {
   const activeFace = useCanvasStore(s => s.activeFace)
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faces = useCanvasStore(s => s.faces)
+  const faceImages = useCanvasStore(s => s.faceImages)
   const addText = useCanvasStore(s => s.addText)
   const addImage = useCanvasStore(s => s.addImage)
   const setFaceImages = useCanvasStore(s => s.setFaceImages)
@@ -62,6 +64,22 @@ export function DesignStudio() {
       // renders one stage; switch faces, let it paint, flatten. Simplest: flatten
       // the active face now; for other decorated faces, re-render via activeFace.
       const design = toCanvasDesign()
+
+      // Preload every background + element image the decorated faces need
+      // into the shared cache BEFORE switching faces. CanvasStage/ImageNode
+      // both read the cache synchronously, so once an image is cached
+      // `.complete`, switching activeFace paints it immediately — no async
+      // gap for the rAF wait below to race against.
+      const urls = new Set<string>()
+      for (const face of FACES as Face[]) {
+        if (design.faces[face].length === 0) continue
+        if (faceImages[face]) urls.add(faceImages[face])
+        for (const el of design.faces[face]) {
+          if (el.type === 'image' && el.assetUrl) urls.add(el.assetUrl)
+        }
+      }
+      await Promise.all([...urls].map(loadImage))
+
       const layouts: { face: string; file: File }[] = []
       for (const face of FACES as Face[]) {
         if (design.faces[face].length === 0) continue

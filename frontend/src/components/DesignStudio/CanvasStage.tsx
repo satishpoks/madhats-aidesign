@@ -3,6 +3,7 @@ import { Stage, Layer, Image as KonvaImage } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
 import { TextNode, ImageNode } from './nodes'
+import { getCachedImage, loadImage } from '../../lib/imageCache'
 
 export const STAGE_W = 480
 export const STAGE_H = 480
@@ -15,14 +16,18 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
   const select = useCanvasStore(s => s.select)
   const updateElement = useCanvasStore(s => s.updateElement)
 
-  const [bg, setBg] = useState<HTMLImageElement | null>(null)
   const bgUrl = faceImages[activeFace]
+  const [bg, setBg] = useState<HTMLImageElement | null>(() => {
+    const cached = getCachedImage(bgUrl)
+    return cached && cached.complete ? cached : null
+  })
   useEffect(() => {
     if (!bgUrl) { setBg(null); return }
-    const img = new window.Image()
-    img.crossOrigin = 'anonymous' // avoid tainting the canvas for toDataURL()
-    img.src = bgUrl
-    img.onload = () => setBg(img)
+    const cached = getCachedImage(bgUrl)
+    if (cached && cached.complete) { setBg(cached); return }
+    let cancelled = false
+    loadImage(bgUrl).then(img => { if (!cancelled) setBg(img) })
+    return () => { cancelled = true }
   }, [bgUrl])
 
   const els = [...faces[activeFace]].sort((a, b) => a.zIndex - b.zIndex)
