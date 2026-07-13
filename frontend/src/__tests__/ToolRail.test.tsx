@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, test, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ToolRail } from '../components/DesignStudio/ToolRail'
 
@@ -17,21 +17,32 @@ function renderRail(props: Partial<{ rendering: boolean; rendered: boolean }> = 
 }
 
 describe('ToolRail render button', () => {
-  it('is enabled with label "See it rendered" by default', () => {
+  it('is enabled with label "Done designing" by default', () => {
     renderRail({ rendering: false, rendered: false })
-    const btn = screen.getByRole('button', { name: 'See it rendered' })
+    const btn = screen.getByRole('button', { name: 'Done designing' })
     expect(btn).not.toBeDisabled()
   })
 
-  it('is disabled with label "Rendering…" while rendering', () => {
+  it('is disabled with label "Saving…" while rendering', () => {
     renderRail({ rendering: true, rendered: false })
-    const btn = screen.getByRole('button', { name: 'Rendering…' })
+    const btn = screen.getByRole('button', { name: 'Saving…' })
     expect(btn).toBeDisabled()
   })
 
-  it('is disabled with label "Rendered ✓" after a successful render', () => {
+  it('is disabled with label "Design saved ✓" after a successful render', () => {
     renderRail({ rendering: false, rendered: true })
-    const btn = screen.getByRole('button', { name: 'Rendered ✓' })
+    const btn = screen.getByRole('button', { name: 'Design saved ✓' })
     expect(btn).toBeDisabled()
   })
+})
+
+test('render button reads "Done designing" and disables when disabled', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[]} onRender={() => {}} rendering={false} rendered={false} disabled
+    />,
+  )
+  const btn = screen.getByRole('button', { name: /done designing/i })
+  expect(btn).toBeDisabled()
 })

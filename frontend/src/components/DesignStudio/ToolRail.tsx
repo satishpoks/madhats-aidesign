@@ -9,9 +9,10 @@ interface ToolRailProps {
   onRender: () => void
   rendering: boolean
   rendered: boolean
+  disabled?: boolean
 }
 
-export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered }: ToolRailProps) {
+export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, disabled }: ToolRailProps) {
   const colourway = useCanvasStore(s => s.colourway)
   const setColourway = useCanvasStore(s => s.setColourway)
   const drawMode = useCanvasStore(s => s.drawMode)
@@ -59,9 +60,9 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
         </div>
       )}
 
-      <button onClick={onRender} disabled={rendering || rendered}
+      <button onClick={onRender} disabled={disabled || rendering || rendered}
         className="mt-auto px-4 py-3 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors">
-        {rendered ? 'Rendered ✓' : rendering ? 'Rendering…' : 'See it rendered'}
+        {rendered ? 'Design saved ✓' : rendering ? 'Saving…' : 'Done designing'}
       </button>
     </div>
   )

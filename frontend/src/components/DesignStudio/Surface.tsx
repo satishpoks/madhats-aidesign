@@ -16,6 +16,13 @@ export function DesignStudioSurface() {
   const sessionId = useSessionStore(s => s.sessionId)
   const productRef = useSessionStore(s => s.productRef)
 
+  const chatState = useChatStore(s => s.chatState)
+  const unlocked = chatState === 'canvas_design'
+  // Intro states (pre-design) vs outro/other (post-design). Empty string is the
+  // pre-kickoff instant → treat as intro.
+  const introStates = ['', 'greeting', 'ask_name', 'save_progress_email', 'ask_purpose', 'ask_quantity']
+  const isIntro = introStates.includes(chatState)
+
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
   const addText = useCanvasStore(s => s.addText)
@@ -76,7 +83,7 @@ export function DesignStudioSurface() {
   }
 
   async function doRender() {
-    if (!sessionId) return
+    if (!sessionId || rendering) return
     setRendering(true); setError(null)
     try {
       // Flatten the CURRENT active face, then each other decorated face. Konva
@@ -132,7 +139,16 @@ export function DesignStudioSurface() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+      <div className="relative flex-1 flex flex-col md:flex-row min-h-0">
+        {!unlocked && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-base/70 backdrop-blur-[1px]">
+            <p className="max-w-xs text-center text-sm text-textMuted px-6">
+              {isIntro
+                ? 'Answer a couple of quick questions on the right, then your design tools unlock here →'
+                : 'Design locked in — finishing up in the chat. ✓'}
+            </p>
+          </div>
+        )}
         {/* Left rail — face-thumbnail navigator */}
         <div className="md:border-r border-border overflow-y-auto flex-shrink-0">
           <FaceThumbnails />
@@ -148,7 +164,8 @@ export function DesignStudioSurface() {
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
-            colourways={colourways} onRender={() => void doRender()} rendering={rendering} rendered={rendered} />
+            colourways={colourways} onRender={() => void doRender()} rendering={rendering} rendered={rendered}
+            disabled={!unlocked} />
         </div>
       </div>
 
