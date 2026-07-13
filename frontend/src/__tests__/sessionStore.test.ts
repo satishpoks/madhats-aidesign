@@ -74,6 +74,7 @@ beforeEach(() => {
     productRef: null,
     entryContext: null,
     view: 'picker',
+    blankColourways: [],
   })
 })
 
@@ -147,6 +148,26 @@ describe('startBlankSession', () => {
     expect(productRef?.reference_image_url).toBe('https://example.com/blank-front.png')
     expect(productRef?.view_images.back).toBe('https://example.com/blank-back.png')
     expect(productRef?.colour).toBe('')
+  })
+})
+
+describe('startCanvasBlankSession', () => {
+  const mockHatType = {
+    id: 'hat-1',
+    slug: 'five-panel',
+    name: '5-Panel',
+    style: 'flat',
+    view_images: { front: 'https://example.com/blank-front.png', back: 'https://example.com/blank-back.png' },
+    colours: [{ name: 'Black', hex: '#000000' }, { name: 'Red', hex: '#c00202' }],
+    placement_zones: ['front_panel'],
+    decoration_types: ['print'],
+  }
+
+  it('populates blankColourways from the hat type colours (swatch row for blank canvas sessions)', async () => {
+    await useSessionStore.getState().startCanvasBlankSession(mockHatType)
+    const { blankColourways, view } = useSessionStore.getState()
+    expect(view).toBe('canvas')
+    expect(blankColourways).toEqual([{ name: 'Black', hex: '#000000' }, { name: 'Red', hex: '#c00202' }])
   })
 })
 

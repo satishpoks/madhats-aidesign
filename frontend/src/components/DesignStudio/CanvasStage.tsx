@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, type RefObject } from 'react'
-import { Stage, Layer, Image as KonvaImage } from 'react-konva'
+import { Stage, Layer, Image as KonvaImage, Rect } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
 import { TextNode, ImageNode } from './nodes'
@@ -15,6 +15,7 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
   const selectedId = useCanvasStore(s => s.selectedId)
   const select = useCanvasStore(s => s.select)
   const updateElement = useCanvasStore(s => s.updateElement)
+  const colourway = useCanvasStore(s => s.colourway)
 
   const bgUrl = faceImages[activeFace]
   const [bg, setBg] = useState<HTMLImageElement | null>(() => {
@@ -43,6 +44,10 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
     >
       <Layer>
         {bg && <KonvaImage image={bg} width={STAGE_W} height={STAGE_H} listening={false} />}
+        {colourway && (
+          <Rect width={STAGE_W} height={STAGE_H} fill={colourway.hex}
+                globalCompositeOperation="multiply" listening={false} />
+        )}
         {els.map(el =>
           el.type === 'text' ? (
             <TextNode key={el.id} el={el} stageW={STAGE_W} stageH={STAGE_H}

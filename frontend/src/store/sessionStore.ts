@@ -31,6 +31,8 @@ interface SessionState {
   /** Captures variant_id, colour, source from the Shopify embed URL at bootstrap time. */
   entryContext: EntryContext | null
   view: SessionView
+  /** Colourway swatches for the current blank-hat canvas session (empty for customise). */
+  blankColourways: { name: string; hex: string }[]
 
   startSession: (product: Product) => Promise<void>
   startBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
@@ -47,6 +49,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   productRef: null,
   entryContext: null,
   view: 'picker',
+  blankColourways: [],
 
   startSession: async (product: Product) => {
     const response = await createSession(product.id)
@@ -118,6 +121,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         reference_image_url: hatType.view_images.front ?? '',
         view_images: hatType.view_images,
       },
+      blankColourways: hatType.colours ?? [],
       view: 'canvas',
     })
   },

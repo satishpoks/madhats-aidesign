@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type Konva from 'konva'
 import { useSessionStore } from '../../store/sessionStore'
-import { useCanvasStore, FACES, type Face, type Colourway } from '../../store/canvasStore'
+import { useCanvasStore, FACES, type Face } from '../../store/canvasStore'
 import { useChatStore } from '../../store/chatStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
@@ -43,7 +43,7 @@ export function DesignStudio() {
     }
   }, [productRef, setFaceImages])
 
-  const colourways: Colourway[] = [] // Phase 1: seeded from hat type when available (blank flow)
+  const colourways = useSessionStore(s => s.blankColourways)
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
