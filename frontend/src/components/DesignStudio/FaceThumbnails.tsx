@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Stage, Layer, Image as KonvaImage, Rect, Text, TextPath, Group } from 'react-konva'
+import { Stage, Layer, Image as KonvaImage, Rect, Text, TextPath, Group, Line } from 'react-konva'
 import { useCanvasStore, FACES, type Face, type CanvasElement } from '../../store/canvasStore'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { STAGE_W } from './CanvasStage'
@@ -35,6 +35,15 @@ function ElementThumb({ el }: { el: CanvasElement }) {
     return (
       <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
         <ShapePrimitive el={el} lw={el.width * TW} lh={el.height * TH} listening={false} strokeScale={TW / STAGE_W} />
+      </Group>
+    )
+  }
+  if (el.type === 'drawing') {
+    const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * TW : p * TH))
+    return (
+      <Group x={el.x * TW} y={el.y * TH}>
+        <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={(el.strokeWidth ?? 0.01) * TW}
+          lineCap="round" lineJoin="round" tension={0.5} listening={false} />
       </Group>
     )
   }

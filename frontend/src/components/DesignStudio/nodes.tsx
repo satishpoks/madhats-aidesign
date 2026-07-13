@@ -228,3 +228,21 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
     </Group>
   )
 }
+
+export function DrawingNode({ el, stageW, stageH, onSelect, onChange }: NodeProps) {
+  const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * stageW : p * stageH))
+  const sw = (el.strokeWidth ?? 0.01) * stageW
+  return (
+    <Group
+      x={el.x * stageW}
+      y={el.y * stageH}
+      draggable
+      onClick={onSelect}
+      onTap={onSelect}
+      onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
+    >
+      <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={sw}
+        lineCap="round" lineJoin="round" tension={0.5} hitStrokeWidth={Math.max(sw, 12)} />
+    </Group>
+  )
+}
