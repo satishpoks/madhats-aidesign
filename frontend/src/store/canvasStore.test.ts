@@ -86,4 +86,24 @@ describe('canvasStore', () => {
     s.updateElement(id, { curve: 60 })
     expect(useCanvasStore.getState().faces.front[0].curve).toBe(60)
   })
+
+  it('addDrawing appends a drawing element with the current colour + width, selected', () => {
+    const s = useCanvasStore.getState()
+    s.setDrawColour('#ff0000'); s.setDrawWidth(0.02)
+    s.addDrawing([0.1, 0.1, 0.2, 0.2])
+    const el = useCanvasStore.getState().faces.front[0]
+    expect(el.type).toBe('drawing')
+    expect(el.points).toEqual([0.1, 0.1, 0.2, 0.2])
+    expect(el.stroke).toBe('#ff0000')
+    expect(el.strokeWidth).toBe(0.02)
+    expect(useCanvasStore.getState().selectedId).toBe(el.id)
+  })
+
+  it('setDrawMode toggles draw mode and reset clears it', () => {
+    const s = useCanvasStore.getState()
+    s.setDrawMode(true)
+    expect(useCanvasStore.getState().drawMode).toBe(true)
+    useCanvasStore.getState().reset()
+    expect(useCanvasStore.getState().drawMode).toBe(false)
+  })
 })

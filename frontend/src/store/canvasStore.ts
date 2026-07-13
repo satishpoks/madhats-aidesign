@@ -15,13 +15,17 @@ export const LINE_SHAPES: ShapeKind[] = ['line', 'arrow', 'doubleArrow']
 
 export interface CanvasElement {
   id: string
-  type: 'text' | 'image' | 'shape'
+  type: 'text' | 'image' | 'shape' | 'drawing'
   x: number; y: number; width: number; height: number; rotation: number
   zIndex: number
   content?: string; font?: string; colour?: string; fontSize?: number
   /** Text arch: 0 = straight, negative = arch down, positive = arch up. */
   curve?: number
   assetUrl?: string; removeBg?: boolean
+  /** Original (pre-background-removal) asset URL, so the toggle is reversible. */
+  originalAssetUrl?: string
+  /** Freehand drawing: flat list of normalised x,y pairs [x0,y0,x1,y1,…]. */
+  points?: number[]
   // shape
   shapeKind?: ShapeKind
   fill?: string
@@ -43,6 +47,9 @@ interface CanvasState {
   selectedId: string | null
   colourway: Colourway | null
   faceImages: Record<Face, string>
+  drawMode: boolean
+  drawColour: string
+  drawWidth: number
 
   setFaceImages: (imgs: Partial<Record<Face, string>>) => void
   setActiveFace: (f: Face) => void
@@ -56,6 +63,10 @@ interface CanvasState {
   reorder: (id: string, dir: 'up' | 'down') => void
   select: (id: string | null) => void
   setColourway: (c: Colourway | null) => void
+  setDrawMode: (v: boolean) => void
+  setDrawColour: (c: string) => void
+  setDrawWidth: (w: number) => void
+  addDrawing: (points: number[]) => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
 }
@@ -69,6 +80,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   selectedId: null,
   colourway: null,
   faceImages: { front: '', back: '', left: '', right: '' },
+  drawMode: false,
+  drawColour: '#111827',
+  drawWidth: 0.01,
 
   setFaceImages: imgs => set(s => ({ faceImages: { ...s.faceImages, ...imgs } })),
   setActiveFace: f => set({ activeFace: f, selectedId: null }),
@@ -151,8 +165,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   select: id => set({ selectedId: id }),
   setColourway: c => set({ colourway: c }),
+  setDrawMode: v => set({ drawMode: v, selectedId: null }),
+  setDrawColour: c => set({ drawColour: c }),
+  setDrawWidth: w => set({ drawWidth: w }),
+
+  addDrawing: points => set(s => {
+    const el: CanvasElement = {
+      id: uid(), type: 'drawing', x: 0, y: 0, width: 0, height: 0, rotation: 0,
+      zIndex: s.faces[s.activeFace].length,
+      points, stroke: s.drawColour, strokeWidth: s.drawWidth,
+    }
+    return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
+  }),
+
   reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,
-    faceImages: { front: '', back: '', left: '', right: '' } }),
+    faceImages: { front: '', back: '', left: '', right: '' },
+    drawMode: false, drawColour: '#111827', drawWidth: 0.01 }),
 
   toCanvasDesign: () => {
     const { faces, colourway } = get()
