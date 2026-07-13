@@ -267,11 +267,14 @@ async def _run_generation(
 
     Multi-view: the design AI-renders the front hero PLUS any back/side view
     that carries decoration (prompt_builder.render_views), each as its own model
-    call, fired CONCURRENTLY. Delivery is all-or-nothing — if any view fails all
-    its retries, the whole row is marked failed and ops is alerted so a human can
-    regenerate the set; the customer is never shown a failure. On full success
-    the hero lands in image_url/watermarked_url (backward-compatible) and every
-    view is recorded in view_images, then the gated delivery primitive fires.
+    call, fired CONCURRENTLY — including canvas sessions, where each decorated
+    face renders with its real product-angle photo (conditioning) plus its
+    flattened canvas PNG as a layout guide. Delivery is all-or-nothing — if any
+    view fails all its retries, the whole row is marked failed and ops is
+    alerted so a human can regenerate the set; the customer is never shown a
+    failure. On full success the hero lands in image_url/watermarked_url
+    (backward-compatible) and every view is recorded in view_images, then the
+    gated delivery primitive fires.
 
     ``prompt`` (the pre-assembled full-design prompt) is used only for moderation
     upstream in _start_generation; the per-view prompts are built here.
@@ -288,16 +291,20 @@ async def _run_generation(
     # An edit re-renders ONLY the affected views and REFINES from the previous
     # design; a fresh design renders every decorated view. Carry forward the
     # previous render's unaffected views so the delivered set stays complete.
-    # A canvas session AI-renders ONLY the front hero (with its flattened PNG as
-    # a layout guide) — every other decorated face reuses its uploaded flattened
-    # PNG directly (see the splice below), never going through the model.
+    # A canvas session AI-renders EVERY decorated face (front hero + any
+    # decorated back/side), each with its real product-angle photo as the
+    # conditioning image and its flattened canvas PNG as the layout guide.
     is_edit = tier == "edit"
     if is_edit:
         views = prompt_builder.affected_render_views(collected)
         prev_gen = _latest_complete_generation(session_id)
         prev_views = _prev_view_map(prev_gen)
     elif is_canvas:
-        views = [prompt_builder.PRIMARY_VIEW]  # only the front hero is AI-rendered
+        # Every decorated face is AI-rendered: the front hero PLUS any back/side
+        # face carrying decoration (prompt_builder.render_views). Each face's
+        # _one() attaches its own reference angle, its flattened canvas PNG as the
+        # layout guide, and its per-view scoped description.
+        views = prompt_builder.render_views(collected)
         prev_views = {}
     else:
         views = prompt_builder.render_views(collected)
@@ -368,13 +375,6 @@ async def _run_generation(
             r["view"]: {"image_url": r["clean_path"], "watermarked_url": r["watermarked_path"]}
             for r in results
         }
-        if is_canvas:
-            # Non-front decorated faces reuse the customer's flattened canvas PNG
-            # directly (it IS their composite) — no extra model call.
-            for face, path in canvas_layouts.items():
-                if face == prompt_builder.PRIMARY_VIEW:
-                    continue
-                new_views[face] = {"image_url": path, "watermarked_url": _make_watermarked(path)}
         # Carry forward previously-rendered unaffected views (edit only), then
         # overwrite the ones we just re-rendered.
         view_images = {**prev_views, **new_views}
