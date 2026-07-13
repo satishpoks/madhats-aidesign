@@ -8,15 +8,13 @@ import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
-import { Modal } from '../Modal'
 import { flattenStage, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
 
-export function DesignStudio() {
+export function DesignStudioSurface() {
   const sessionId = useSessionStore(s => s.sessionId)
   const productRef = useSessionStore(s => s.productRef)
-  const setView = useSessionStore.setState
 
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -29,9 +27,7 @@ export function DesignStudio() {
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const [rendering, setRendering] = useState(false)
-  const [emailOpen, setEmailOpen] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
-  const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   // Seed the four face backgrounds from the product reference.
@@ -116,29 +112,23 @@ export function DesignStudio() {
         layouts.push({ face, file: dataUrlToFile(url, `${face}.png`) })
       }
       if (layouts.length) await uploadCanvasLayouts(sessionId, layouts)
-      const res = await finalizeCanvas(sessionId, { canvas_design: design, email: email || undefined })
-      // Hand off to the existing ChatPanel for verify -> deliver -> refine.
+      const res = await finalizeCanvas(sessionId, { canvas_design: design })
+      // Chat lives in the right panel of this same screen — hydrate it in place;
+      // do NOT navigate away (that was the old full-screen ChatPanel handoff).
       useChatStore.getState().hydrate([], res.state, res.data)
-      setView({ view: 'session' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setRendering(false)
     }
   }
 
-  function onRenderClick() {
-    if (email) void doRender()
-    else setEmailOpen(true)
-  }
-
   return (
-    <div className="h-screen bg-base flex flex-col">
-      <header className="bg-surface border-b border-border px-6 py-3.5 flex items-center gap-3">
-        <span className="text-accent font-extrabold text-lg tracking-wide">MAD HATS</span>
-        {productRef && <span className="text-sm text-textMuted truncate">{productRef.name} › Design</span>}
-      </header>
-
-      {error && <div role="alert" className="mx-6 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div>}
+    <div className="flex-1 flex flex-col min-h-0">
+      {error && (
+        <div role="alert" className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col md:flex-row min-h-0">
         {/* Left rail — face-thumbnail navigator */}
@@ -147,7 +137,7 @@ export function DesignStudio() {
         </div>
 
         {/* Centre — canvas + contextual toolbar */}
-        <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto">
+        <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           <CanvasStage stageRef={stageRef} />
           <SelectedToolbar />
         </div>
@@ -156,7 +146,7 @@ export function DesignStudio() {
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
-            colourways={colourways} onRender={onRenderClick} rendering={rendering} />
+            colourways={colourways} onRender={() => void doRender()} rendering={rendering} />
         </div>
       </div>
 
@@ -164,18 +154,6 @@ export function DesignStudio() {
 
       <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)}
         onPickShape={kind => addShape(kind)} onPickImage={url => void addGraphic(url)} />
-
-      <Modal open={emailOpen} title="Where should we send it?" onClose={() => setEmailOpen(false)}>
-        <div className="flex flex-col gap-3 p-2">
-          <p className="text-sm text-textSub">Pop in your email — it saves your progress and we'll send your rendered design there.</p>
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com"
-            className="bg-base border border-border rounded-xl px-3 py-2 text-sm" />
-          <button onClick={() => { setEmailOpen(false); void doRender() }} disabled={!email.includes('@')}
-            className="px-4 py-2 bg-accent text-white rounded-full text-sm font-semibold disabled:opacity-50">
-            See it rendered
-          </button>
-        </div>
-      </Modal>
     </div>
   )
 }
