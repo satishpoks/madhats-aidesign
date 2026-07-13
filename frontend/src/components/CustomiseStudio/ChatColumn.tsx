@@ -175,6 +175,11 @@ export function ChatColumn() {
   const advanceGeneration = useChatStore(s => s.advanceGeneration)
   const dismissError = useChatStore(s => s.dismissError)
   const setError = useChatStore(s => s.setError)
+  const kickoff = useChatStore(s => s.kickoff)
+  const multiselect = useChatStore(s => s.multiselect)
+  const selected = useChatStore(s => s.selected)
+  const messagesLen = useChatStore(s => s.messages.length)
+  const kickoffDone = useChatStore(s => s.kickoffDone)
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
@@ -253,14 +258,33 @@ export function ChatColumn() {
   const inputRef = useRef<HTMLInputElement>(null)
   const wasSendingRef = useRef(false)
 
+  // Decoration multi-select (ask_decoration): locally tracked toggle state,
+  // re-seeded from the backend's `selected` whenever it changes (e.g. resuming
+  // a session already at ask_decoration).
+  const [decoSel, setDecoSel] = useState<string[]>([])
+  useEffect(() => { setDecoSel(selected) }, [selected])
+
+  function toggleDeco(name: string) {
+    setDecoSel(prev => prev.includes(name) ? prev.filter(n => n !== name) : [...prev, name])
+  }
+
+  function submitDeco() {
+    if (!sessionId || sending) return
+    void sendMessage(sessionId, decoSel.length ? decoSel.join(', ') : 'none')
+  }
+
   // Reset the logo-modal dismissal each time the flow leaves the upload step.
   useEffect(() => {
     if (chatState !== 'upload_logo') setLogoModalDismissed(false)
   }, [chatState])
 
-  // NOTE: no kickoff effect here (intentional divergence from ChatPanel). The
-  // canvas flow seeds the conversation via finalizeCanvas -> chatStore.hydrate(),
-  // which sets kickoffDone: true — ChatColumn must not auto-kickoff.
+  // Canvas sessions run the intro Q&A in this column, so kick off the greeting
+  // on mount. Resumed sessions hydrate with kickoffDone=true and are skipped.
+  useEffect(() => {
+    if (sessionId && messagesLen === 0 && !kickoffDone) {
+      void kickoff(sessionId)
+    }
+  }, [sessionId, messagesLen, kickoffDone, kickoff])
 
   // Trigger async generation when the flow reaches the generating state, then
   // advance the chat once it settles (success or failure) so the customer is
@@ -541,8 +565,46 @@ export function ChatColumn() {
           </div>
         )}
 
+        {/* Decoration multi-select (ask_decoration) */}
+        {multiselect && options.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
+              {options.map(opt => {
+                const on = decoSel.includes(opt)
+                return (
+                  <button
+                    key={opt}
+                    onClick={() => toggleDeco(opt)}
+                    disabled={sending}
+                    aria-pressed={on}
+                    className={`px-4 py-2 rounded-full text-sm transition-colors disabled:opacity-50 ${
+                      on
+                        ? 'bg-accent text-white border border-accent'
+                        : 'bg-surface border border-border text-textPrimary hover:border-accent'
+                    }`}
+                  >
+                    {on ? '✓ ' : ''}{opt}
+                  </button>
+                )
+              })}
+            </div>
+            {decoSel.length > 1 && (
+              <p className="text-xs text-amber-600">
+                Heads up — each extra decoration adds to the cost, so pick only what you need.
+              </p>
+            )}
+            <button
+              onClick={submitDeco}
+              disabled={sending}
+              className="self-start px-5 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors"
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
         {/* Option chip rows */}
-        {options.length > 0 && colourSwatches.length === 0 && (
+        {options.length > 0 && colourSwatches.length === 0 && !multiselect && (
           <div className="flex flex-wrap gap-2">
             {options.map(opt => (
               <button

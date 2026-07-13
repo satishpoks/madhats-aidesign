@@ -45,14 +45,15 @@ function seed() {
 beforeEach(() => { vi.clearAllMocks(); seed() })
 
 describe('ChatColumn', () => {
-  it('does NOT auto-kickoff on mount (canvas activates chat via finalize/hydrate)', async () => {
+  it('auto-kicks off the intro on mount for a fresh canvas session', async () => {
     render(<ChatColumn />)
-    // give effects a tick
-    await new Promise(r => setTimeout(r, 0))
-    expect(vi.mocked(sendChat)).not.toHaveBeenCalled()
+    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', ''))
   })
 
   it('renders an empty-state hint when there are no messages', () => {
+    // Bypass kickoff (simulates a resumed session with an empty thread) so this
+    // test isolates the empty-state UI rather than racing the kickoff effect.
+    useChatStore.setState({ kickoffDone: true })
     render(<ChatColumn />)
     expect(screen.getByText(/design.*chat|chat.*here|render/i)).toBeInTheDocument()
   })
@@ -82,5 +83,17 @@ describe('ChatColumn', () => {
     fireEvent.change(screen.getByPlaceholderText(/type your message/i), { target: { value: 'hello' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
     await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello'))
+  })
+
+  it('ask_decoration shows a multi-select with cost caveat once 2+ chosen', async () => {
+    useChatStore.getState().hydrate([], 'ask_decoration', {
+      options: ['Embroidery', 'Print'], multiselect: true, selected: [],
+    })
+    useSessionStore.setState({ sessionId: 's1' } as never)
+    render(<ChatColumn />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Embroidery' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Print' }))
+    expect(screen.getByText(/adds to the cost/i)).toBeInTheDocument()
   })
 })
