@@ -36,6 +36,8 @@ class ConversationState(str, Enum):
     ASK_COLOUR_DETAIL = "ask_colour_detail"
     COMPOSITE_PREVIEW = "composite_preview"
     CANVAS_DESIGN = "canvas_design"
+    ASK_DECORATION = "ask_decoration"
+    ASK_NOTES = "ask_notes"
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
@@ -84,6 +86,9 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.ASK_HAT_COLOUR: [S.ASK_MORE_ELEMENTS, S.GENERATING],
     S.COMPOSITE_PREVIEW: [S.GENERATING, S.ASK_MORE_ELEMENTS],
+    S.CANVAS_DESIGN: [S.ASK_DECORATION],
+    S.ASK_DECORATION: [S.ASK_NOTES],
+    S.ASK_NOTES: [S.GENERATING],
     # Pre-generation confirmation of the extracted brief (limited generations).
     S.CONFIRM_BRIEF: [S.GENERATING, S.ELEMENT_DEEPDIVE],
     # Email is captured earlier, at SAVE_PROGRESS_EMAIL (right after the design
@@ -266,6 +271,10 @@ def advance_state(
             return S.ELEMENT_DEEPDIVE
         return S.GENERATING if collected.get("brief_confirmed") else S.CONFIRM_BRIEF
 
+    # --- Canvas: rest at CANVAS_DESIGN until the canvas is finalized ---
+    if current is S.CANVAS_DESIGN:
+        return S.ASK_DECORATION if collected.get("canvas_finalized") else S.CANVAS_DESIGN
+
     # --- Default: first declared successor ---
     nexts = TRANSITIONS.get(current, [])
     return nexts[0] if nexts else S.SESSION_END
@@ -295,6 +304,8 @@ QUESTION_FIELD: dict[ConversationState, str] = {
     ConversationState.ASK_REMOVE_BG: "remove_bg",
     ConversationState.ASK_PLACEMENT_ZONE: "placement_zone",
     ConversationState.ASK_PLACEMENT_POSITION: "placement_position",
+    ConversationState.ASK_DECORATION: "decoration_done",
+    ConversationState.ASK_NOTES: "notes_done",
 }
 
 
@@ -334,6 +345,11 @@ def advance_and_skip(
 # represents the single decoration-choice question (whichever variant is shown).
 def _progress_path(collected: dict) -> list[ConversationState]:
     S = ConversationState
+    if collected.get("flow_mode") == "canvas":
+        return [
+            S.ASK_NAME, S.SAVE_PROGRESS_EMAIL, S.ASK_PURPOSE, S.ASK_QUANTITY,
+            S.CANVAS_DESIGN, S.ASK_DECORATION, S.ASK_NOTES,
+        ]
     # Decoration now comes AFTER the design source (has_logo -> upload/describe),
     # so the counter reflects: name, purpose, quantity, has_logo, design source,
     # decoration, email.
