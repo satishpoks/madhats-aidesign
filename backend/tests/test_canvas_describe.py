@@ -87,3 +87,39 @@ def test_outlined_and_line_shapes_described():
     assert "outlined" in elements[0]["content"]  # filled=False
     assert "double-headed arrow" in elements[1]["content"]  # no filled/outlined prefix for lines
     assert "filled" not in elements[1]["content"] and "outlined" not in elements[1]["content"]
+
+
+def test_curved_text_gets_style_hint():
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [{
+                "id": "e1", "type": "text", "x": 0.4, "y": 0.3,
+                "width": 0.2, "height": 0.1, "rotation": 0, "zIndex": 0,
+                "content": "SURF CO", "font": "Impact", "colour": "#ffffff",
+                "fontSize": 42, "curve": 60,
+            }],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, _ = canvas_to_elements(design)
+    assert elements[0]["style"] == "curved"
+
+
+def test_text_description_carries_no_pixel_dimensions():
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [{
+                "id": "e1", "type": "text", "x": 0.4, "y": 0.3,
+                "width": 0.2, "height": 0.1, "rotation": 0, "zIndex": 0,
+                "content": "SURF CO", "font": "Impact", "colour": "#ffffff", "fontSize": 42,
+            }],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, description = canvas_to_elements(design)
+    # Raw pixel size must not leak into the element (layout guide owns size).
+    assert "size" not in elements[0]
+    assert "px" not in description
+    assert "42" not in description

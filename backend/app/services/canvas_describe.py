@@ -58,8 +58,11 @@ def _element(el: dict, face: str) -> dict:
             out["font"] = el["font"]
         if el.get("colour"):
             out["colour"] = el["colour"]
-        if el.get("fontSize"):
-            out["size"] = f'{el["fontSize"]}px'
+        # Curved text: surface a coarse style hint. Exact size/placement is
+        # owned by the flattened layout-guide image, so raw pixel font sizes
+        # are intentionally NOT emitted into the text description.
+        if el.get("curve"):
+            out["style"] = "curved"
     elif etype == "shape":
         # Vector shapes render as a described graphic; the flattened layout PNG
         # already carries the exact geometry/colour, this is the text hint.
