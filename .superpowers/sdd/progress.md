@@ -121,3 +121,29 @@ SS-4 MANUAL E2E (live docker stack, browser, customise flow product 1111...): PA
   - Chat came alive in right panel: "Generating your design..." -> advanced to inline ASK_EMAIL ("Just need your email address...") confirming no-email finalize + ASK_EMAIL fallback (spec §4.1).
   - Console: no errors/exceptions.
 FEATURE COMPLETE: SS-1..3 code + final-review fix (297bbc7) + SS-4 E2E all done, reviewed, verified. Commits: de84c73 4164690 03e5454 297bbc7. Ready to finish branch.
+
+============================================================
+NEW PLAN: Canvas Photorealistic Multi-Angle Rendering
+Plan: docs/superpowers/plans/2026-07-13-canvas-photoreal-multiangle.md
+Spec: docs/superpowers/specs/2026-07-13-canvas-photoreal-multiangle-design.md
+Branch: feat/canvas-design-studio | BRANCH_BASE (final review): 20bc2b8 (first commit of this plan's work; spec/plan commits 20bc2b8..eb03d36)
+Tasks: PM-1 canvas_describe enrichment · PM-2 render every decorated face · PM-3 full-suite verify
+Task PM-1 BASE (HEAD before impl): eb03d36
+============================================================
+
+Task PM-1: complete (commit 6d75a36, review clean — Spec ✅, Quality ✅, no findings). canvas_describe text branch: curve→style:"curved", dropped fontSize px emission. 7/7 test_canvas_describe pass. Reviewer confirmed prompt_builder._element_line degrades gracefully on missing size key + renders "curved style".
+
+Task PM-2 BASE (HEAD before impl): 6d75a36
+
+Task PM-2: complete (commit f52afba, review clean — Spec ✅, Quality ✅, no findings; reviewer independently re-ran suites 55 passed inc. both cache-key regressions). Canvas branch → render_views(collected); flat-PNG reuse splice deleted; canvas_layouts kept (still read by _one for layout guide); docstring/comment refreshed. is_edit/else branches byte-unchanged. Rewritten test asserts both faces reach provider, no view_images entry is a raw uploads/*.png path, each render got its signed layout guide + correct ref angle. Full suite 415.
+  Non-blocking obs (reviewer): elif is_canvas / else now have identical body (kept separate for the canvas comment) — intentional per plan, no change.
+
+Task PM-3 (controller-run): full-suite regression.
+
+Task PM-3: complete (controller-run). Full backend suite: 415 passed, 0 failed (40.4s). Optional Step 2 (live prompt-preview) skipped — needs a live session/Docker.
+
+ALL 3 TASKS COMPLETE. Feature commits: 6d75a36(canvas_describe) f52afba(multi-angle render). Plan/spec: 20bc2b8(spec) eb03d36(plan). Ready for final whole-branch review over 20bc2b8..f52afba.
+
+FINAL REVIEW (opus, whole-branch 20bc2b8..f52afba): READY to merge — no Critical/Important. Traced canvas path end-to-end; real product photo is conditioning FIRST image for EVERY per-view render (reference_image_url_for_view never empty — falls back to front); two-face design both reach model with own layout guide + ref angle + scoped elements (back decoration cannot leak to front); undecorated non-front faces never render (render_views = front+decorated only; frontend flattens only non-empty faces); no PII logging change; non-canvas + edit paths byte-unchanged; canvas_describe curve/size edit only touches canvas text branch. Focused suites 24 passed; full suite 415.
+  Minor TICKET #1 (informational, correct): canvas EDIT turns now carry forward REAL prev renders via prev_views instead of overwriting non-front faces with flat PNGs (old splice was is_canvas-gated, ran on canvas edits too). Correct feature consequence; NON-canvas edit path untouched.
+  Minor TICKET #2 (data-quality follow-up): for a SYNCED product with few images, catalogue_sync._map_views sets left/right/back = front image → decorating the back AI-renders back decoration onto a front-angle cap. Still a real product photo (constraint holds) + within accepted model-variability trade-off, but worse than the old flat mock for that case. Follow-up: ensure real per-angle photos for canvas-enabled synced products (blank sessions already carry all 4 real angles; unaffected).
