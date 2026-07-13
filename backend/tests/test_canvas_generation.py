@@ -1,5 +1,8 @@
+import asyncio
 import inspect
+from unittest.mock import patch
 
+from app.api.routes import generate as gen
 from app.services.image.image_provider import ImageProvider
 
 
@@ -7,3 +10,60 @@ def test_generate_accepts_layout_guide_url():
     sig = inspect.signature(ImageProvider.generate)
     assert "layout_guide_url" in sig.parameters
     assert sig.parameters["layout_guide_url"].default is None
+
+
+def test_canvas_run_renders_front_and_reuses_flattened_for_back(monkeypatch):
+    """Canvas: front is AI-rendered; a decorated back reuses its flattened PNG
+    (no provider call for back)."""
+    calls = {"views": []}
+
+    async def fake_render_view(**kw):
+        calls["views"].append(kw["view"])
+        return {"ok": True, "view": kw["view"], "clean_path": "gen/front.png",
+                "watermarked_path": "gen/front_wm.png", "model": "stub",
+                "cost_usd": 0, "latency_ms": 1, "key": "k", "attempts": 1, "from_cache": False}
+
+    captured = {}
+
+    class FakeTable:
+        def update(self, d): captured.update(d); return self
+        def eq(self, *a, **k): return self
+        def execute(self): return type("R", (), {"data": [{}]})()
+        def insert(self, d): return self
+        def select(self, *a, **k): return self
+        def order(self, *a, **k): return self
+        def limit(self, *a, **k): return self
+    class FakeSB:
+        def table(self, *_): return FakeTable()
+
+    monkeypatch.setattr(gen, "get_supabase", lambda: FakeSB())
+    monkeypatch.setattr(gen, "_render_view", fake_render_view)
+    monkeypatch.setattr(gen, "_make_watermarked", lambda p: p + "_wm")
+    monkeypatch.setattr(gen, "_safe_maybe_send_preview", lambda s: None)
+    monkeypatch.setattr(gen, "get_provider", lambda t: object())
+    # Avoid a real Supabase Storage call when _run_generation signs the front
+    # layout-guide path — matches the mocking pattern already used for this
+    # helper in tests/test_multiview.py.
+    monkeypatch.setattr(gen, "generate_signed_url", lambda p: f"signed:{p}")
+
+    collected = {
+        "flow_mode": "canvas",
+        "canvas_layouts": {"front": "uploads/front.png", "back": "uploads/back.png"},
+        "elements": [
+            {"type": "text", "content": "HI", "placement_zone": "front_panel"},
+            {"type": "text", "content": "BACK", "placement_zone": "back"},
+        ],
+    }
+    product_ref = {"product_id": "p1", "colour": "navy",
+                   "reference_image_url": "http://x/front.png",
+                   "view_images": {"front": "http://x/front.png", "back": "http://x/back.png"}}
+    params = gen.prompt_builder.build_params(collected, "preview")
+
+    asyncio.run(gen._run_generation(
+        job_id="j1", session_id="s1", store_id=None, tier="preview",
+        prompt="p", product_ref=product_ref, collected=collected, params=params))
+
+    assert calls["views"] == ["front"]  # only the front went to the model
+    assert captured["status"] == "complete"
+    assert set(captured["view_images"]) == {"front", "back"}
+    assert captured["view_images"]["back"]["image_url"] == "uploads/back.png"

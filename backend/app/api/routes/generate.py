@@ -184,6 +184,7 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 async def _render_view(
     *, view, provider, job_id, generation_id, session_id, tier,
     prompt, ref_url, uploaded_url, params, params_dict, key, prior_design_url=None,
+    layout_guide_url=None,
 ) -> dict:
     """Render ONE view: cache-check → provider (with retry) → watermark.
 
@@ -224,6 +225,7 @@ async def _render_view(
                 prompt=prompt, reference_image_url=ref_url,
                 uploaded_asset_url=uploaded_url, params=params,
                 prior_design_url=prior_design_url,
+                layout_guide_url=layout_guide_url,
             )
             last_exc = None
             generation_logger.log_response(
@@ -280,15 +282,23 @@ async def _run_generation(
     uploaded_path = collected.get("uploaded_asset_path")
     uploaded_url_full = generate_signed_url(uploaded_path) if uploaded_path else None
     params_dict = asdict(params)
+    is_canvas = collected.get("flow_mode") == "canvas"
+    canvas_layouts = collected.get("canvas_layouts") or {}
 
     # An edit re-renders ONLY the affected views and REFINES from the previous
     # design; a fresh design renders every decorated view. Carry forward the
     # previous render's unaffected views so the delivered set stays complete.
+    # A canvas session AI-renders ONLY the front hero (with its flattened PNG as
+    # a layout guide) — every other decorated face reuses its uploaded flattened
+    # PNG directly (see the splice below), never going through the model.
     is_edit = tier == "edit"
     if is_edit:
         views = prompt_builder.affected_render_views(collected)
         prev_gen = _latest_complete_generation(session_id)
         prev_views = _prev_view_map(prev_gen)
+    elif is_canvas:
+        views = [prompt_builder.PRIMARY_VIEW]  # only the front hero is AI-rendered
+        prev_views = {}
     else:
         views = prompt_builder.render_views(collected)
         prev_views = {}
@@ -317,11 +327,16 @@ async def _run_generation(
                     product_ref.get("product_id", ""), product_ref.get("colour", ""),
                     prompt_builder.prompt_hash(view_prompt), asset_hash if uploaded else "none",
                 )
+                layout_guide = None
+                if is_canvas:
+                    lg = canvas_layouts.get(view)
+                    if lg:
+                        layout_guide = lg if lg.startswith("http") else generate_signed_url(lg)
                 return await _render_view(
                     view=view, provider=provider, job_id=job_id, generation_id=generation_id,
                     session_id=session_id, tier=tier, prompt=view_prompt, ref_url=ref,
                     uploaded_url=uploaded, params=params, params_dict={**params_dict, "view": view},
-                    key=key, prior_design_url=prior,
+                    key=key, prior_design_url=prior, layout_guide_url=layout_guide,
                 )
             except Exception as exc:  # noqa: BLE001 — never let a build error escape gather
                 return {"ok": False, "view": view, "error": str(exc), "attempts": 0}
@@ -344,6 +359,13 @@ async def _run_generation(
             r["view"]: {"image_url": r["clean_path"], "watermarked_url": r["watermarked_path"]}
             for r in results
         }
+        if is_canvas:
+            # Non-front decorated faces reuse the customer's flattened canvas PNG
+            # directly (it IS their composite) — no extra model call.
+            for face, path in canvas_layouts.items():
+                if face == prompt_builder.PRIMARY_VIEW:
+                    continue
+                new_views[face] = {"image_url": path, "watermarked_url": _make_watermarked(path)}
         # Carry forward previously-rendered unaffected views (edit only), then
         # overwrite the ones we just re-rendered.
         view_images = {**prev_views, **new_views}
