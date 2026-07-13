@@ -70,6 +70,14 @@ def _element(el: dict, face: str) -> dict:
         out["content"] = _shape_phrase(el)
         if el.get("fill"):
             out["colour"] = el["fill"]
+    elif etype == "drawing":
+        # A freehand pen stroke. Describe it as a graphic; the flattened layout PNG
+        # carries the exact geometry, this is just the text hint.
+        out["type"] = "graphic"
+        colour = el.get("stroke")
+        out["content"] = f"a hand-drawn line in {colour}" if colour else "a hand-drawn line"
+        if colour:
+            out["colour"] = colour
     else:  # image / uploaded logo / company graphic
         out["type"] = "logo"
         out["content"] = "uploaded logo/artwork"
@@ -88,6 +96,10 @@ def _describe(el: dict, face: str) -> str:
         if el.get("font"):
             parts.append(f'{el["font"]} font')
         return f"{', '.join(parts)} {where}"
+    if etype == "drawing":
+        colour = el.get("stroke")
+        phrase = f"a hand-drawn line in {colour}" if colour else "a hand-drawn line"
+        return f"{phrase} {where}"
     if etype == "shape":
         return f"a {_shape_phrase(el)} {where}"
     return f"uploaded logo/artwork {where}"

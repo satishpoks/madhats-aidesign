@@ -123,3 +123,25 @@ def test_text_description_carries_no_pixel_dimensions():
     assert "size" not in elements[0]
     assert "px" not in description
     assert "42" not in description
+
+
+def test_drawing_maps_to_graphic_with_stroke_colour():
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [{
+                "id": "d1", "type": "drawing", "x": 0, "y": 0, "width": 0, "height": 0,
+                "rotation": 0, "zIndex": 0, "points": [0.1, 0.1, 0.5, 0.5],
+                "stroke": "#ff0000", "strokeWidth": 0.01,
+            }],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, description = canvas_to_elements(design)
+    el = elements[0]
+    assert el["type"] == "graphic"
+    assert "hand-drawn line" in el["content"]
+    assert el["colour"] == "#ff0000"
+    assert el["placement_zone"] == "front_panel"
+    assert "hand-drawn line" in description
+    assert "0.1" not in description  # no pixel/normalised coords leak into the text
