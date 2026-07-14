@@ -44,3 +44,13 @@ export function flattenStage(stage: Konva.Stage, pixelRatio = 2): string {
     stage.draw()
   }
 }
+
+/**
+ * Flatten the FULL canvas exactly as seen on screen — product photo + colour
+ * tint + placed decorations (nothing hidden). This is the WYSIWYG "your design"
+ * export emailed to the customer as their own layout (distinct from the
+ * decorations-only layout guide the image model consumes).
+ */
+export function flattenFull(stage: Konva.Stage, pixelRatio = 2): string {
+  return stage.toDataURL({ pixelRatio, mimeType: 'image/png' })
+}

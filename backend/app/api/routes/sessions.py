@@ -175,8 +175,13 @@ async def upload_canvas_layouts(
     session_id: str,
     faces: list[str] = Form(...),
     files: list[UploadFile] = File(...),
+    kind: str = Form("layout"),
     store: dict = Depends(require_store),
 ) -> dict:
+    # "layout" = decorations-only guide the image model consumes (canvas_layouts);
+    # "preview" = full WYSIWYG canvas export emailed to the customer as their own
+    # design (canvas_previews). Same validation + storage, different collected slot.
+    slot = "canvas_previews" if kind == "preview" else "canvas_layouts"
     sb = get_supabase()
     sess = sb.table("design_sessions").select("id, collected").eq("id", session_id).limit(1).execute()
     if not sess.data:
@@ -200,7 +205,7 @@ async def upload_canvas_layouts(
         layouts[face] = path
         signed[face] = generate_signed_url(path)
     collected = (sess.data[0].get("collected") or {})
-    collected["canvas_layouts"] = {**(collected.get("canvas_layouts") or {}), **layouts}
+    collected[slot] = {**(collected.get(slot) or {}), **layouts}
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
     return {"views": signed}
 

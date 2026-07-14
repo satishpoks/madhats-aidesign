@@ -8,7 +8,7 @@ import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
-import { flattenStage, dataUrlToFile } from '../../lib/canvasFlatten'
+import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
 
@@ -110,16 +110,21 @@ export function DesignStudioSurface() {
       try { await document.fonts?.ready } catch { /* best-effort */ }
 
       const layouts: { face: string; file: File }[] = []
+      // Full WYSIWYG exports (cap + colour + decorations) — the customer's own
+      // "your design" images, emailed alongside the photorealistic render.
+      const previews: { face: string; file: File }[] = []
       for (const face of FACES as Face[]) {
         if (design.faces[face].length === 0) continue
         setActiveFace(face)
         await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
         const stage = stageRef.current
         if (!stage) continue
-        const url = flattenStage(stage)
-        layouts.push({ face, file: dataUrlToFile(url, `${face}.png`) })
+        // Full export FIRST (nothing hidden), then the decorations-only guide.
+        previews.push({ face, file: dataUrlToFile(flattenFull(stage), `${face}-preview.png`) })
+        layouts.push({ face, file: dataUrlToFile(flattenStage(stage), `${face}.png`) })
       }
-      if (layouts.length) await uploadCanvasLayouts(sessionId, layouts)
+      if (layouts.length) await uploadCanvasLayouts(sessionId, layouts, 'layout')
+      if (previews.length) await uploadCanvasLayouts(sessionId, previews, 'preview')
       const res = await finalizeCanvas(sessionId, { canvas_design: design })
       // Chat lives in the right panel of this same screen — append the reply
       // in place; do NOT navigate away (that was the old full-screen ChatPanel

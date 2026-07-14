@@ -619,6 +619,13 @@ PREVIEW_EMAIL_IMAGE_BLOCK = """\
           </table>
         </td></tr>"""
 
+# Section heading between the two image groups ("Your design" / "On the real
+# hat"). {title} is HTML-escaped by the caller.
+PREVIEW_EMAIL_SECTION_HEADER = """\
+        <tr><td style="padding:28px 32px 0 32px;">
+          <div style="font-size:15px;font-weight:700;color:#1a1a2e;letter-spacing:0.2px;">{title}</div>
+        </td></tr>"""
+
 FINAL_DESIGN_EMAIL_SUBJECT = "Your updated MadHats design 🎉"
 
 # One-line brief echoed back to the customer in the preview email.

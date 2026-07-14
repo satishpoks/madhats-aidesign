@@ -44,6 +44,34 @@ def _to_signed(path: str | None) -> str:
     return generate_signed_url(path)
 
 
+def _canvas_design_images(collected: dict) -> list[dict]:
+    """Build the "Your design" image group — the full WYSIWYG canvas exports the
+    customer placed (``collected['canvas_previews']``), watermarked at send time
+    with the configured watermark text. Returns [] for non-canvas / legacy
+    sessions so the caller falls back to the single flat image list."""
+    previews = collected.get("canvas_previews") or {}
+    if not previews:
+        return []
+    from app.services import settings_service  # noqa: PLC0415
+    from app.services.watermark import apply_watermark  # noqa: PLC0415
+
+    text = settings_service.get_settings().watermark_text
+    out: list[dict] = []
+    for view in _VIEW_ORDER:
+        path = previews.get(view)
+        if not path:
+            continue
+        url = _to_signed(path)
+        raw = _fetch_image_bytes(url)
+        if raw:
+            try:
+                raw = apply_watermark(raw, text=text)
+            except Exception:  # noqa: BLE001 — keep the clean bytes if watermark fails
+                pass
+        out.append({"url": url, "bytes": raw, "label": _VIEW_LABELS.get(view, view)})
+    return out
+
+
 def _fetch_image_bytes(url: str) -> bytes | None:
     """Download the image so it can be inlined into the email (CID attachment).
 
@@ -179,6 +207,18 @@ def maybe_send_preview(session_id: str) -> bool:
             {"url": customer_image_url, "bytes": _fetch_image_bytes(customer_image_url), "label": ""}
         ]
 
+    # Segregate the email into "Your design" (the customer's own WYSIWYG canvas
+    # export) and "On the real hat" (the photorealistic AI render). Both groups
+    # are watermarked. Sessions with no canvas previews (legacy / non-canvas)
+    # fall back to the single flat image list.
+    design_images = _canvas_design_images(collected)
+    image_groups = None
+    if design_images:
+        image_groups = [
+            {"title": "Your design", "images": design_images},
+            {"title": "How it looks on the real hat", "images": preview_images},
+        ]
+
     preview_sent = email_service.send_preview_email(
         lead["email"],
         lead["name"],
@@ -189,6 +229,7 @@ def maybe_send_preview(session_id: str) -> bool:
         talk_url=mailto,
         image_bytes=preview_images[0]["bytes"],
         images=preview_images,
+        image_groups=image_groups,
     )
 
     if not lead.get("quote_request_sent"):

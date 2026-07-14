@@ -256,12 +256,14 @@ export function createCanvasSession(
 
 export function uploadCanvasLayouts(
   sessionId: string, layouts: { face: string; file: File }[],
+  kind: 'layout' | 'preview' = 'layout',
 ): Promise<{ views: Record<string, string> }> {
   const fd = new FormData()
   for (const { face, file } of layouts) {
     fd.append('faces', face)
     fd.append('files', file)
   }
+  fd.append('kind', kind)
   return request<{ views: Record<string, string> }>(`/sessions/${sessionId}/canvas-layouts`, {
     method: 'POST', body: fd,
   })
