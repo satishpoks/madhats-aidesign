@@ -335,6 +335,7 @@ async def get_session(token: str, request: Request) -> SessionDetail:
         messages=messages,
         data=data,
         designs=_released_designs(sb, session["id"], collected),
+        canvas_design=session.get("canvas_design"),
     )
 
 

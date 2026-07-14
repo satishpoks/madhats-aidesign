@@ -55,7 +55,7 @@ function ElementThumb({ el }: { el: CanvasElement }) {
     }
     const curve = el.curve ?? 0
     return curve !== 0
-      ? <TextPath {...common} text={el.content ?? ''} data={curvePath(el.content ?? '', fontSize, curve)} />
+      ? <TextPath {...common} align="center" text={el.content ?? ''} data={curvePath(el.content ?? '', fontSize, curve)} />
       : <Text {...common} text={el.content ?? ''} />
   }
   if (!img) return null

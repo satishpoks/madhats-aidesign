@@ -53,6 +53,7 @@ vi.mock('../lib/api', () => ({
 
 import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
+import { useCanvasStore } from '../store/canvasStore'
 
 const mockProduct: Product = {
   id: 'prod-1',
@@ -278,6 +279,53 @@ describe('bootstrapFromUrl', () => {
     // The tint signal is restored so the colour overlay re-composites on resume.
     expect(useChatStore.getState().tintReady).toBe(true)
     expect(useChatStore.getState().tintHex).toBe('#c00202')
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
+  })
+
+  it('resumes a CANVAS session into the new studio and reloads the placed elements (edit CTA)', async () => {
+    const { getSession } = await import('../lib/api')
+    useCanvasStore.getState().reset()
+    vi.mocked(getSession).mockResolvedValueOnce({
+      session_id: 'canvas-resume-1',
+      share_token: 'canvas-tok-resume',
+      state: 'offer_refine',
+      channel: 'web',
+      entry_path: 'shopify',
+      product_ref: {
+        product_id: 'prod-1',
+        name: 'Classic Snapback',
+        style: 'snapback',
+        colour: 'Black',
+        reference_image_url: 'https://example.com/cap.jpg',
+        view_images: { front: 'https://example.com/front.jpg' },
+      },
+      collected: { flow_mode: 'canvas', name: 'Al' },
+      status: 'draft',
+      messages: [],
+      data: {},
+      canvas_design: {
+        colourway: { name: 'Navy', hex: '#1e3a8a' },
+        faces: {
+          front: [{ id: 'e1', type: 'text', content: 'RESUME ME', x: 0.5, y: 0.4,
+                    width: 0.3, height: 0.12, rotation: 0, zIndex: 0 }],
+          back: [], left: [], right: [],
+        },
+      },
+    } as never)
+
+    Object.defineProperty(window, 'location', {
+      value: { search: '?session=canvas-tok-resume' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+
+    // Lands in the NEW split-screen canvas studio, not the old ChatPanel.
+    expect(useSessionStore.getState().view).toBe('canvas')
+    // The customer's actual layout is reloaded so they can re-edit it.
+    const canvas = useCanvasStore.getState()
+    expect(canvas.faces.front[0]?.content).toBe('RESUME ME')
+    expect(canvas.colourway?.name).toBe('Navy')
 
     Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
   })

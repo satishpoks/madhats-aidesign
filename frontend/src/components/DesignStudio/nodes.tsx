@@ -74,8 +74,11 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
       {curve !== 0 ? (
         // Text along a quadratic-bezier arc. The path spans the approximate text
         // width; a positive curve lifts the mid control point (arch up), negative
-        // drops it (arch down).
-        <TextPath {...common} text={content} data={curvePath(content, fontSize, curve)} />
+        // drops it (arch down). `align="center"` makes Konva centre the glyphs on
+        // the path using their real measured width, so the text sits symmetrically
+        // over the arc's peak instead of skewing to the left when our width
+        // estimate overshoots.
+        <TextPath {...common} align="center" text={content} data={curvePath(content, fontSize, curve)} />
       ) : (
         <Text {...common} text={content} />
       )}

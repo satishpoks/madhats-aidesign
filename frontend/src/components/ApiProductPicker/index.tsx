@@ -18,7 +18,8 @@ function ProductSkeleton() {
 }
 
 export function ApiProductPicker() {
-  const startSession = useSessionStore(s => s.startSession)
+  // Landing-page product click → new canvas Design Studio (not the old chat Q&A).
+  const startCanvasSession = useSessionStore(s => s.startCanvasSession)
 
   const [products, setProducts] = useState<Product[]>([])
   const [total, setTotal] = useState(0)
@@ -61,7 +62,7 @@ export function ApiProductPicker() {
   async function handleSelect(product: Product) {
     setSelectError(null)
     try {
-      await startSession(product)
+      await startCanvasSession(product)
     } catch (err) {
       setSelectError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
     }

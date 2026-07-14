@@ -99,6 +99,35 @@ describe('canvasStore', () => {
     expect(useCanvasStore.getState().selectedId).toBe(el.id)
   })
 
+  it('fromCanvasDesign rehydrates faces + colourway (inverse of toCanvasDesign)', () => {
+    const s = useCanvasStore.getState()
+    s.setColourway({ name: 'Navy', hex: '#1e3a8a' })
+    s.setActiveFace('back')
+    s.addText('RESUME')
+    const saved = useCanvasStore.getState().toCanvasDesign()
+
+    // Simulate a fresh page load (email "edit" link) then rehydrate.
+    useCanvasStore.getState().reset()
+    expect(useCanvasStore.getState().faces.back).toHaveLength(0)
+    useCanvasStore.getState().fromCanvasDesign(saved)
+
+    const st = useCanvasStore.getState()
+    expect(st.colourway?.name).toBe('Navy')
+    expect(st.faces.back[0].content).toBe('RESUME')
+    expect(st.activeFace).toBe('front')
+    expect(st.selectedId).toBeNull()
+  })
+
+  it('fromCanvasDesign tolerates a null/partial design', () => {
+    const s = useCanvasStore.getState()
+    s.addText('X')
+    s.fromCanvasDesign(null)
+    // Nulls out to an empty, valid design rather than throwing.
+    const st = useCanvasStore.getState()
+    expect(st.faces.front).toHaveLength(0)
+    expect(st.colourway).toBeNull()
+  })
+
   it('setDrawMode toggles draw mode and reset clears it', () => {
     const s = useCanvasStore.getState()
     s.setDrawMode(true)

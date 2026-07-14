@@ -69,8 +69,11 @@ def apply_watermark(image_bytes: bytes, text: str | None = None) -> bytes:
     )
     tw, th = right - left, bottom - top
     tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
+    # Mid-grey (not pure white) so the watermark stays lightly visible on light
+    # artwork too — pure white vanished on white backgrounds. Grey reads on both
+    # dark and light: it lightens over dark art and darkens over white.
     ImageDraw.Draw(tile).text(
-        (-left, -top), text, font=font, fill=(255, 255, 255, 85),
+        (-left, -top), text, font=font, fill=(128, 128, 128, 95),
     )
 
     # Rotate to run bottom-left → top-right (PIL rotates counter-clockwise).

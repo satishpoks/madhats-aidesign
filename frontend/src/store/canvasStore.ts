@@ -69,6 +69,8 @@ interface CanvasState {
   addDrawing: (points: number[]) => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
+  /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
+  fromCanvasDesign: (design: CanvasDesign | null | undefined) => void
 }
 
 const emptyFaces = (): Record<Face, CanvasElement[]> => ({ front: [], back: [], left: [], right: [] })
@@ -189,4 +191,16 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const { faces, colourway } = get()
     return { colourway, faces }
   },
+
+  fromCanvasDesign: design => set(() => {
+    // Merge onto a full empty-faces base so a partial/legacy blob (missing a
+    // face key) still yields a valid Record<Face, …> and never throws downstream.
+    const faces = { ...emptyFaces(), ...(design?.faces ?? {}) }
+    return {
+      faces,
+      colourway: design?.colourway ?? null,
+      activeFace: 'front' as Face,
+      selectedId: null,
+    }
+  }),
 }))

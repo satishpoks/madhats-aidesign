@@ -38,7 +38,7 @@ it('shows a loading state before hats resolve, then an empty state if none come 
   await waitFor(() => expect(screen.getByText('No blank hats available yet.')).toBeInTheDocument())
 })
 
-it('starts a blank session with the selected hat (colour is chosen later in chat)', async () => {
+it('starts a blank session with the selected hat and chosen colour', async () => {
   vi.spyOn(api, 'listHatTypes').mockResolvedValue([
     { id: 'h1', slug: '5p', name: '5-Panel', style: '', view_images: { front: 'u' },
       colours: [{ name: 'Black', hex: '#000000' }, { name: 'Navy', hex: '#001f3f' }],
@@ -53,16 +53,42 @@ it('starts a blank session with the selected hat (colour is chosen later in chat
   await waitFor(() => expect(screen.getByText('5-Panel')).toBeInTheDocument())
   await user.click(screen.getByText('5-Panel'))
 
-  // The entry screen no longer has a colour picker — colour is asked in chat.
-  expect(screen.queryByTitle('Navy')).not.toBeInTheDocument()
+  // Selecting a hat surfaces its colourway swatches; the first is pre-selected.
+  const navy = await screen.findByTitle('Navy')
+  expect(screen.getByTitle('Black')).toBeInTheDocument()
+  await user.click(navy)
 
   await user.click(screen.getByText('Start designing'))
 
-  // Passes just the hat type (no colour); the store populates the left-pane
-  // productRef from its blank angle images + name.
+  // Passes the hat type AND the chosen colour so the canvas tints to it up front.
   await waitFor(() =>
     expect(startCanvasBlankSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'h1', name: '5-Panel', view_images: { front: 'u' } }),
+      { name: 'Navy', hex: '#001f3f' },
+    ),
+  )
+})
+
+it('defaults to the first colourway when none is explicitly chosen', async () => {
+  vi.spyOn(api, 'listHatTypes').mockResolvedValue([
+    { id: 'h1', slug: '5p', name: '5-Panel', style: '', view_images: { front: 'u' },
+      colours: [{ name: 'Black', hex: '#000000' }, { name: 'Navy', hex: '#001f3f' }],
+      placement_zones: [], decoration_types: [] },
+  ])
+  const startCanvasBlankSession = vi.fn().mockResolvedValue(undefined)
+  useSessionStore.setState({ startCanvasBlankSession })
+
+  const user = userEvent.setup()
+  render(<BlankHatPicker />)
+
+  await waitFor(() => expect(screen.getByText('5-Panel')).toBeInTheDocument())
+  await user.click(screen.getByText('5-Panel'))
+  await user.click(screen.getByText('Start designing'))
+
+  await waitFor(() =>
+    expect(startCanvasBlankSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'h1' }),
+      { name: 'Black', hex: '#000000' },
     ),
   )
 })

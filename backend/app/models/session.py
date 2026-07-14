@@ -52,3 +52,7 @@ class SessionDetail(BaseModel):
     # design immediately. Only populated once the email is verified (same gate as
     # the on-screen reveal); empty otherwise.
     designs: list[str] = Field(default_factory=list)
+    # The persisted canvas design (placed text/logos/shapes per face + colourway)
+    # so a resumed canvas session can rehydrate the interactive studio and let the
+    # customer re-edit their actual layout. None for non-canvas / legacy sessions.
+    canvas_design: dict | None = None

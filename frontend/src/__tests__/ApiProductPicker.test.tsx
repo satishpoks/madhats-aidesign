@@ -22,16 +22,17 @@ vi.mock('../lib/api', () => ({
     limit: 24,
     offset: 0,
   }),
-  createSession: vi.fn().mockResolvedValue({
+  // Landing-page product click now starts a CANVAS session (not the old chat).
+  createCanvasSession: vi.fn().mockResolvedValue({
     session_id: 'sess-1',
     share_token: 'tok-1',
-    state: 'collecting_brief',
+    state: 'canvas_design',
   }),
   fetchProduct: vi.fn(),
 }))
 
 // Static imports come after vi.mock — Vitest ensures the mock is in place first.
-import { createSession, fetchProducts } from '../lib/api'
+import { createCanvasSession, fetchProducts } from '../lib/api'
 import { useSessionStore } from '../store/sessionStore'
 import { ApiProductPicker } from '../components/ApiProductPicker'
 
@@ -54,10 +55,10 @@ beforeEach(() => {
     limit: 24,
     offset: 0,
   })
-  vi.mocked(createSession).mockResolvedValue({
+  vi.mocked(createCanvasSession).mockResolvedValue({
     session_id: 'sess-1',
     share_token: 'tok-1',
-    state: 'collecting_brief',
+    state: 'canvas_design',
   })
   // Reset Zustand store to initial state
   useSessionStore.setState({
@@ -72,7 +73,7 @@ beforeEach(() => {
 
 describe('ApiProductPicker handleSelect error handling', () => {
   it('shows an inline error when session creation fails', async () => {
-    vi.mocked(createSession).mockRejectedValueOnce(new Error('Network error'))
+    vi.mocked(createCanvasSession).mockRejectedValueOnce(new Error('Network error'))
 
     render(<ApiProductPicker />)
 
@@ -88,7 +89,7 @@ describe('ApiProductPicker handleSelect error handling', () => {
   })
 
   it('the inline error is dismissible', async () => {
-    vi.mocked(createSession).mockRejectedValueOnce(new Error('Network error'))
+    vi.mocked(createCanvasSession).mockRejectedValueOnce(new Error('Network error'))
 
     render(<ApiProductPicker />)
     const productButton = await screen.findByText('Classic Snapback')
@@ -104,7 +105,7 @@ describe('ApiProductPicker handleSelect error handling', () => {
   })
 
   it('clears a previous error immediately when a new product is clicked', async () => {
-    vi.mocked(createSession).mockRejectedValueOnce(new Error('First error'))
+    vi.mocked(createCanvasSession).mockRejectedValueOnce(new Error('First error'))
 
     render(<ApiProductPicker />)
     const productButton = await screen.findByText('Classic Snapback')
@@ -116,17 +117,17 @@ describe('ApiProductPicker handleSelect error handling', () => {
     })
 
     // Second click: setSelectError(null) fires first, so error clears immediately
-    vi.mocked(createSession).mockResolvedValueOnce({
+    vi.mocked(createCanvasSession).mockResolvedValueOnce({
       session_id: 'sess-1',
       share_token: 'tok-1',
-      state: 'collecting_brief',
+      state: 'canvas_design',
     })
     fireEvent.click(productButton)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('does not show an error banner on a successful selection', async () => {
-    // createSession succeeds (default mock)
+    // createCanvasSession succeeds (default mock)
     render(<ApiProductPicker />)
     const productButton = await screen.findByText('Classic Snapback')
     fireEvent.click(productButton)

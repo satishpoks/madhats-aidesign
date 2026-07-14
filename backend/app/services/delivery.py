@@ -177,10 +177,12 @@ def maybe_send_preview(session_id: str) -> bool:
         quantity=collected.get("quantity") or "?",
     )
     # CTA links (Figma E1). "Quote" links to the server-rendered /quote/{token}
-    # Request-a-Quote page; "edit" reopens the chatbot and resumes this session
-    # (keyed by its share token); "talk" is a best-effort mailto fallback to the
-    # Studio address (no dedicated customer endpoint for it yet). The sales
-    # team is also notified automatically below.
+    # Request-a-Quote page; "edit" resumes this session by its share token — the
+    # frontend routes a canvas-flow session back into the interactive Design
+    # Studio (with the saved layout reloaded) and a chat-flow session into the
+    # chatbot; "talk" is a best-effort mailto fallback to the Studio address (no
+    # dedicated customer endpoint for it yet). The sales team is also notified
+    # automatically below.
     edit_url = f"{settings.studio_base_url}/?session={session.get('share_token', '')}"
     mailto = f"mailto:{settings.resend_from_address}"
     quote_token = leads_service.make_quote_token(lead)

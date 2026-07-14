@@ -3,6 +3,7 @@ import type { Product } from '../lib/types'
 import { createSession, createBlankSession, createCanvasSession, fetchProduct, getSession, type HatType } from '../lib/api'
 import { useChatStore } from './chatStore'
 import { useGenerationStore } from './generationStore'
+import { useCanvasStore } from './canvasStore'
 
 export type SessionView = 'picker' | 'session' | 'blank' | 'canvas'
 
@@ -142,7 +143,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     const detail = await getSession(token)
 
     const ref = detail.product_ref ?? {}
-    const isBlank = (detail.collected as { flow_mode?: string })?.flow_mode === 'blank'
+    const flowMode = (detail.collected as { flow_mode?: string })?.flow_mode
+    const isBlank = flowMode === 'blank'
+    const isCanvas = flowMode === 'canvas'
     // The persisted ref now carries the chosen hat's four angles (blank flow) or
     // its colour — proxied to fetchable URLs by the backend — so start from it.
     let productRef: ProductRef = {
@@ -178,9 +181,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       shareToken: detail.share_token,
       state: detail.state,
       productRef,
-      view: 'session',
+      // Canvas sessions resume into the new split-screen Design Studio (the email
+      // "edit" CTA); customise/blank chat sessions keep the full-screen ChatPanel.
+      view: isCanvas ? 'canvas' : 'session',
     })
     useChatStore.getState().hydrate(detail.messages, detail.state, detail.data)
+    // Reload the customer's actual canvas layout so they can re-edit it, not start
+    // from a blank studio. (Non-canvas sessions have no canvas_design.)
+    if (isCanvas) {
+      useCanvasStore.getState().fromCanvasDesign(detail.canvas_design)
+    }
     // Rehydrate the already-generated design (front→back→…) so a resumed session
     // shows it immediately instead of an empty viewer.
     if (detail.designs?.length) {

@@ -1,4 +1,5 @@
 // Backend DTO mirrors — keep in sync with FastAPI schemas
+import type { CanvasDesign } from '../store/canvasStore'
 
 export interface Product {
   id: string
@@ -64,6 +65,9 @@ export interface SessionDetailResponse {
   /** Signed design URLs (front→back→…) for a resumed, already-generated session.
    *  Empty until the email is verified. */
   designs?: string[]
+  /** Persisted canvas design (placed elements per face + colourway) so a resumed
+   *  canvas session can reload the interactive studio. Null for non-canvas. */
+  canvas_design?: CanvasDesign | null
 }
 
 /** Verification poll (GET /chat/{id}/verification). reply is null until verified. */
