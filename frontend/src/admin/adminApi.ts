@@ -85,6 +85,31 @@ export interface PromptPreview {
 
 export type BackfillResult = Record<string, unknown>
 
+export interface GenerationJob {
+  job_id: string
+  session_id: string
+  tier: string
+  status: string
+  model: string | null
+  error: string | null
+  attempts: number
+  created_at: string
+  age_seconds: number
+  stalled: boolean
+}
+
+export interface GenerationJobs {
+  summary: { pending: number; stalled: number; failed: number; complete: number }
+  stuck_minutes: number
+  items: GenerationJob[]
+}
+
+export interface ReapResult {
+  reaped: number
+  retried: number
+  gave_up: number
+}
+
 /**
  * Authenticated request: attaches the stored X-Admin-Secret; logs out on 401/403.
  * `storeKey`, when passed, is sent as X-Store-Key — used only by the hat-type
@@ -167,6 +192,17 @@ export function backfillDeliveries(limit: number, maxAgeHours: number): Promise<
     `/admin/deliveries/backfill?limit=${limit}&max_age_hours=${maxAgeHours}`,
     { method: 'POST' },
   )
+}
+
+export function listGenerations(status?: string, limit = 50): Promise<GenerationJobs> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (status) params.set('status', status)
+  return request<GenerationJobs>(`/admin/generations?${params.toString()}`)
+}
+
+export function reapStuck(stuckMinutes?: number): Promise<ReapResult> {
+  const q = stuckMinutes != null ? `?stuck_minutes=${stuckMinutes}` : ''
+  return request<ReapResult>(`/admin/generations/reap-stuck${q}`, { method: 'POST' })
 }
 
 // ---------------------------------------------------------------------------
