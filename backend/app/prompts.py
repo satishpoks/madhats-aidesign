@@ -107,14 +107,14 @@ STATE_PROMPTS: dict[str, str] = {
         "One or two sentences."
     ),
     "generating": "Tell them you're putting the design together now and it'll be in "
-    "their inbox and on-screen the moment it's ready. Do NOT ask for their email.",
+    "their inbox the moment it's ready. Do NOT ask for their email.",
     "ask_email": "Politely ask for their email so you can send the finished design.",
     "verify_email": "Let them know you've sent a quick verification email and ask them to click "
     "the link to confirm. Mention to check spam.",
     "email_verified": "Warmly confirm their email is now verified and let them know their "
     "design is on its way to their inbox for review.",
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
-    "show_design": "Tell them their design is ready and shown on screen (watermarked preview).",
+    "show_design": "Tell them their design is ready (watermarked preview) and on its way to their inbox.",
     "offer_refine": "Ask if they'd like to tweak anything about the design, or if they're happy with it.",
     "describe_changes": (
         "Tell the customer you'll refine the design in ONE pass, so they should "
@@ -369,8 +369,8 @@ CANNED_REPLIES: dict[str, str] = {
         "special requests, colours to match, deadlines? If not, tap 'No, generate'."
     ),
     "generating": (
-        "Putting your design together now — I'll pop it in your inbox and "
-        "on-screen the moment it's ready."
+        "Putting your design together now — I'll email it to your inbox the "
+        "moment it's ready."
     ),
     "ask_email": "What's the best email address to send your design to?",
     "verify_email": (

@@ -566,7 +566,7 @@ async def check_verification(session_id: str) -> dict:
     while new_state in AUTO_ADVANCE_STATES:
         new_state = advance_state(new_state, collected)
 
-    ack = "Your email's verified — your design's in your inbox and on-screen now."
+    ack = "Your email's verified — your design is on its way to your inbox."
     reply = await ie.generate_reply(new_state.value, collected, persona, aside=ack)
 
     sb.table("design_sessions").update(
@@ -687,7 +687,7 @@ async def advance_after_generation(session_id: str) -> dict:
         new_state = advance_state(new_state, collected)  # EMAIL_VERIFIED
         while new_state in AUTO_ADVANCE_STATES:
             new_state = advance_state(new_state, collected)
-        aside = "Your email's verified — your design's in your inbox and on-screen now."
+        aside = "Your email's verified — your design is on its way to your inbox."
 
     reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside)
 
