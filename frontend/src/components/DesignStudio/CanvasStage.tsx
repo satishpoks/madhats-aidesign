@@ -8,7 +8,7 @@ import { getCachedImage, loadImage } from '../../lib/imageCache'
 export const STAGE_W = 480
 export const STAGE_H = 480
 
-export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) {
+export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<Konva.Stage>; locked?: boolean }) {
   const activeFace = useCanvasStore(s => s.activeFace)
   const faces = useCanvasStore(s => s.faces)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -46,13 +46,14 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
     return p ? [p.x / STAGE_W, p.y / STAGE_H] : null
   }
   function onDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if (locked) return  // read-only: no select, no draw
     if (!drawMode) { if (e.target === e.target.getStage()) select(null); return }
     e.evt.preventDefault()
     const n = pointerNorm(e.target.getStage())
     if (n) setStroke(n)
   }
   function onMove(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
-    if (!drawMode || !stroke) return
+    if (locked || !drawMode || !stroke) return
     e.evt.preventDefault()
     const n = pointerNorm(e.target.getStage())
     if (n) setStroke(prev => (prev ? [...prev, ...n] : n))
@@ -76,12 +77,13 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
       onTouchStart={onDown}
       onTouchMove={onMove}
       onTouchEnd={onUp}
-      style={{ cursor: drawMode ? 'crosshair' : 'default' }}
+      style={{ cursor: drawMode && !locked ? 'crosshair' : 'default' }}
       className="rounded-2xl bg-surface"
     >
       {/* Elements stop listening while drawing so every pointer event reaches the
-          stage handlers above (start/extend/commit a stroke anywhere on the cap). */}
-      <Layer listening={!drawMode}>
+          stage handlers above (start/extend/commit a stroke anywhere on the cap).
+          When locked (view-only) they also stop listening — no drag/select/resize. */}
+      <Layer listening={!drawMode && !locked}>
         {/* name="flatten-hide" so the layout-guide export (canvasFlatten) drops the
             product photo + colour tint — the guide must carry ONLY the placed
             decorations on a transparent background, or the image model echoes the

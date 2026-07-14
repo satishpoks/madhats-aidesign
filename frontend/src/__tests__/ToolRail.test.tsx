@@ -36,13 +36,38 @@ describe('ToolRail render button', () => {
   })
 })
 
-test('render button reads "Done designing" and disables when disabled', () => {
+test('render button reads "Done designing" and disables when locked', () => {
   render(
     <ToolRail
       onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
-      colourways={[]} onRender={() => {}} rendering={false} rendered={false} disabled
+      colourways={[]} onRender={() => {}} rendering={false} rendered={false} locked
     />,
   )
   const btn = screen.getByRole('button', { name: /done designing/i })
   expect(btn).toBeDisabled()
+})
+
+test('locked disables every tool so no modification can be made', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked
+    />,
+  )
+  expect(screen.getByRole('button', { name: /add text/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /upload image/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /graphics/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: /draw/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Red' })).toBeDisabled()
+})
+
+test('unlocked leaves the tools enabled', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[]} onRender={() => {}} rendering={false} rendered={false}
+    />,
+  )
+  expect(screen.getByRole('button', { name: /add text/i })).not.toBeDisabled()
 })

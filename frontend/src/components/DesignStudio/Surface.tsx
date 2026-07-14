@@ -140,16 +140,18 @@ export function DesignStudioSurface() {
         </div>
       )}
 
+      {/* Slim, non-blocking status strip — replaces the old full-panel blur.
+          The canvas stays fully visible; when locked the tools are simply
+          disabled (ToolRail/CanvasStage `locked`) so nothing can be modified. */}
+      {!unlocked && (
+        <div className="mx-4 mt-3 rounded-lg border border-border bg-surfaceAlt/60 px-4 py-2 text-center text-xs text-textMuted">
+          {isIntro
+            ? 'Answer the questions on the right to unlock your design tools →'
+            : 'Design locked in — finishing up in the chat ✓'}
+        </div>
+      )}
+
       <div className="relative flex-1 flex flex-col md:flex-row min-h-0">
-        {!unlocked && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-base/70 backdrop-blur-[1px]">
-            <p className="max-w-xs text-center text-sm text-textMuted px-6">
-              {isIntro
-                ? 'Answer a couple of quick questions on the right, then your design tools unlock here →'
-                : 'Design locked in — finishing up in the chat. ✓'}
-            </p>
-          </div>
-        )}
         {/* Left rail — face-thumbnail navigator */}
         <div className="md:border-r border-border overflow-y-auto flex-shrink-0">
           <FaceThumbnails />
@@ -157,8 +159,8 @@ export function DesignStudioSurface() {
 
         {/* Centre — canvas + contextual toolbar */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          <CanvasStage stageRef={stageRef} />
-          <SelectedToolbar />
+          <CanvasStage stageRef={stageRef} locked={!unlocked} />
+          {unlocked && <SelectedToolbar />}
         </div>
 
         {/* Right rail — tools + render */}
@@ -166,7 +168,7 @@ export function DesignStudioSurface() {
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
             colourways={colourways} onRender={() => void doRender()} rendering={rendering} rendered={rendered}
-            disabled={!unlocked} />
+            locked={!unlocked} />
         </div>
       </div>
 
