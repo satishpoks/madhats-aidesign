@@ -115,7 +115,8 @@ def client(monkeypatch):
     monkeypatch.setattr("app.api.routes.sessions.get_supabase", lambda: fake_sb)
     monkeypatch.setattr("app.api.routes.sessions.get_product", _fake_get_product)
     monkeypatch.setattr(
-        "app.services.leads.capture_lead_and_verify", lambda session, collected, email: "lead-1"
+        "app.services.leads.capture_lead_and_verify",
+        lambda session, collected, email: ("lead-1", True),
     )
 
     app = create_app()

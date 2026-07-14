@@ -389,6 +389,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         # customer's name, so the moment a usable email arrives we create the
         # lead and send a verification email — no second form. The preview
         # itself is released when the customer clicks that link.
+        email_retry = False  # set when a provider rejected the address → re-ask
         if current in (
             ConversationState.GENERATING,
             ConversationState.ASK_EMAIL,
@@ -396,10 +397,18 @@ async def handle_message(session_id: str, message: str) -> dict:
         ) and not collected.get("email_captured"):
             email = leads_service.extract_email(message)
             if email:
-                lead_id = leads_service.capture_lead_and_verify(session, collected, email)
-                collected["email_captured"] = True
+                lead_id, delivery_ok = leads_service.capture_lead_and_verify(
+                    session, collected, email
+                )
                 if lead_id:
                     collected["lead_id"] = lead_id
+                if delivery_ok:
+                    collected["email_captured"] = True
+                else:
+                    # The address couldn't be reached (e.g. a typo the provider
+                    # rejected). Don't mark it captured — re-ask with a friendly
+                    # retype prompt instead of silently continuing.
+                    email_retry = True
 
         intent = interp["intent"]
         # A tapped option chip (or a message exactly matching one) is a
@@ -448,6 +457,17 @@ async def handle_message(session_id: str, message: str) -> dict:
         while new_state in AUTO_ADVANCE_STATES:
             new_state = advance_state(new_state, collected, upsell_count=upsell_count)
 
+        # Undeliverable email → re-ask on the SAME email step (so the intro's
+        # non-blocking SAVE_PROGRESS_EMAIL stays non-blocking once corrected),
+        # overriding whatever forward state routing chose. The GENERATING
+        # fallback re-asks on the dedicated ASK_EMAIL step.
+        if email_retry:
+            new_state = (
+                current
+                if current in (ConversationState.SAVE_PROGRESS_EMAIL, ConversationState.ASK_EMAIL)
+                else ConversationState.ASK_EMAIL
+            )
+
         # One-shot flags: mark soft/optional goals as offered so they are never
         # nagged on a later turn.
         if new_state is ConversationState.ASK_PURPOSE:
@@ -493,7 +513,11 @@ async def handle_message(session_id: str, message: str) -> dict:
             if idx < len(queue):
                 ask_text = queue[idx]
 
-        if new_state is ConversationState.CONFIRM_BRIEF:
+        if email_retry:
+            # The address the customer gave couldn't be reached — ask them to
+            # recheck and retype it (deterministic, never paraphrased).
+            reply = prompts.EMAIL_SEND_FAILED_RETRY
+        elif new_state is ConversationState.CONFIRM_BRIEF:
             # Deterministic summary (never paraphrased by the LLM, so no captured
             # detail is dropped before the customer confirms).
             summary = design_summary.customer_brief(collected, session.get("product_ref") or {})

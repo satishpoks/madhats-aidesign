@@ -945,7 +945,7 @@ async def test_save_progress_email_captures_and_continues(monkeypatch):
     captured = {}
     def _cap(session, collected, email):
         captured["email"] = email
-        return "lead-123"
+        return "lead-123", True  # (lead_id, delivery_ok)
     monkeypatch.setattr(orch.leads_service, "capture_lead_and_verify", _cap)
 
     res = await orch.handle_message("s1", "al@example.com")
@@ -955,6 +955,35 @@ async def test_save_progress_email_captures_and_continues(monkeypatch):
     assert c["lead_id"] == "lead-123"
     # non-blocking: continues into the deep-dive (pending element still building)
     assert res["state"] == S.ELEMENT_DEEPDIVE.value
+
+
+@pytest.mark.asyncio
+async def test_email_send_failure_reasks_with_retype_message(monkeypatch):
+    # If the verification email can't be delivered (e.g. a mistyped address the
+    # provider rejects), don't silently continue — re-ask the email with a
+    # friendly retype prompt and do NOT mark it captured.
+    from app import prompts
+    store = {"session": {"id": "s1", "state": S.SAVE_PROGRESS_EMAIL.value,
+                         "collected": {"name": "Al", "purpose": "p", "quantity": 24,
+                                       "decoration_type": "embroidery", "has_logo": False,
+                                       "email_prompt_shown": True},
+                         "store_id": None, "upsell_count": 0}}
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "interpret_turn", _fixed_interpret({"intent": "answer", "fields": {}}))
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("great, saved!"))
+    monkeypatch.setattr(orch.leads_service, "extract_email", lambda m: "typo@bademail")
+    monkeypatch.setattr(
+        orch.leads_service, "capture_lead_and_verify",
+        lambda session, collected, email: ("lead-x", False),  # delivery FAILED
+    )
+
+    res = await orch.handle_message("s1", "typo@bademail")
+    c = store["session"]["collected"]
+    assert not c.get("email_captured")               # not treated as captured
+    # Re-ask on the same (non-blocking) email step, not a forced blocking jump.
+    assert res["state"] == S.SAVE_PROGRESS_EMAIL.value
+    assert res["reply"] == prompts.EMAIL_SEND_FAILED_RETRY
 
 
 @pytest.mark.asyncio

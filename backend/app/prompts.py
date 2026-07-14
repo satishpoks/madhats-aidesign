@@ -187,6 +187,13 @@ Extract structured design context. Respond with ONLY a JSON object:
 Use empty arrays/strings for anything not mentioned.
 """
 
+# Shown when a verification email bounces at the provider (e.g. a mistyped
+# address) — ask the customer to recheck and retype it.
+EMAIL_SEND_FAILED_RETRY = (
+    "Hmm, it seems we couldn't reach that email address — could you double-check "
+    "the spelling and pop it in again for me?"
+)
+
 # Canvas refine → quote handoff (deterministic, not LLM-worded).
 CANVAS_QUOTE_ASK = (
     "Love it! Would you like to request a quote for this design so our team can "
