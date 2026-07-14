@@ -10,6 +10,7 @@ import { HatTypesView } from './views/HatTypesView'
 import { HatTypeWizard } from './views/HatTypeWizard'
 import { HatTypeEditView } from './views/HatTypeEditView'
 import { GraphicsView } from './views/GraphicsView'
+import { BrandingView } from './views/BrandingView'
 import { DecorationTypesView } from './views/DecorationTypesView'
 import { OpsView } from './views/OpsView'
 import { LeadsView } from './views/LeadsView'
@@ -38,6 +39,7 @@ export default function AdminApp() {
           <Route path="leads/:id" element={<LeadDetailView />} />
           <Route path="diagnostics" element={<DiagnosticsView />} />
           <Route path="stores" element={<StoresView />} />
+          <Route path="branding" element={<BrandingView />} />
           <Route path="hat-types/new" element={<HatTypeWizard />} />
           <Route path="hat-types" element={<HatTypesView />} />
           <Route path="hat-types/:id" element={<HatTypeEditView />} />

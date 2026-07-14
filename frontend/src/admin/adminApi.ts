@@ -1,4 +1,5 @@
 import { getSecret, logout } from './adminStore'
+import type { Brand } from '../lib/types'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
 
@@ -566,4 +567,53 @@ export async function uploadGraphic(
     throw new ApiError(res.status, detail)
   }
   return res.json() as Promise<AdminGraphic>
+}
+
+// ---------------------------------------------------------------------------
+// Store branding: logo, colours, main menu (X-Admin-Secret, store id in path)
+// ---------------------------------------------------------------------------
+
+export interface FullStore {
+  id: string
+  slug: string
+  name: string
+  brand: Brand
+}
+
+export function getStore(id: string): Promise<FullStore> {
+  return request<FullStore>(`/admin/stores/${id}`)
+}
+
+export function updateStoreBrand(id: string, brand: Brand): Promise<FullStore> {
+  return request<FullStore>(`/admin/stores/${id}`, { method: 'PATCH', body: JSON.stringify({ brand }) })
+}
+
+/** Upload a store logo (multipart) — like uploadHatAngle/uploadGraphic, the browser sets the boundary. */
+export async function uploadStoreLogo(id: string, file: File): Promise<{ logo_url: string }> {
+  const secret = getSecret()
+  if (secret === null) {
+    logout()
+    throw new ApiError(401, 'Not authenticated')
+  }
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE_URL}/admin/stores/${id}/logo`, {
+    method: 'POST',
+    headers: { 'X-Admin-Secret': secret },
+    body: form,
+  })
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      logout()
+    }
+    let detail = res.statusText
+    try {
+      const json = (await res.json()) as { detail?: string }
+      detail = json.detail ?? detail
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<{ logo_url: string }>
 }
