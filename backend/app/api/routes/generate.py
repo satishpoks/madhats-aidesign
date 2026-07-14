@@ -36,6 +36,16 @@ MAX_GENERATION_ATTEMPTS = 3
 # Backoff between attempts: ~2s after attempt 1, ~8s after attempt 2 (capped).
 _BACKOFF_SECONDS = (2, 8)
 
+# Per-attempt cap on the provider (Gemini/FLUX) call. The upstream SDK has no
+# timeout of its own, so a hung connection would otherwise await forever and pin
+# the generation row at 'pending' until the watchdog reaps it (STUCK_MINUTES_DEFAULT
+# below) — the customer meanwhile stares at a spinner. A bounded call turns a hang
+# into a fast, transient timeout that RETRIES immediately. Sized well above a normal
+# render (~20-30s; a rare legit render neared ~290s) yet so the worst case
+# (MAX_GENERATION_ATTEMPTS × this + backoff ≈ 370s) still finishes comfortably under
+# the watchdog cutoff, so the two never race to reap the same job.
+GENERATION_CALL_TIMEOUT_SECONDS = 120
+
 # Watchdog: a generation still 'pending' this long has stalled (a normal render
 # is seconds; the provider call has no timeout, so a hung upstream connection can
 # otherwise pin a job at 'pending' forever). Set comfortably above the slowest
@@ -57,6 +67,11 @@ def _is_transient(exc: Exception) -> bool:
     as permanent and is NOT retried.
     """
     if isinstance(exc, httpx.TimeoutException):
+        return True
+    # Our own per-call timeout (asyncio.wait_for) — a hung upstream connection.
+    # Retry it; a fresh connection usually responds. (asyncio.TimeoutError is the
+    # builtin TimeoutError on 3.11+, but check both for older runtimes.)
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
         return True
     if ResourceExhausted is not None and isinstance(exc, ResourceExhausted):
         return True
@@ -233,11 +248,17 @@ async def _render_view(
             uploaded_asset_url=uploaded_url, full_prompt=prompt, params=params_dict,
         )
         try:
-            result = await provider.generate(
-                prompt=prompt, reference_image_url=ref_url,
-                uploaded_asset_url=uploaded_url, params=params,
-                prior_design_url=prior_design_url,
-                layout_guide_url=layout_guide_url,
+            # Bound the call so a hung upstream connection can't pin the job at
+            # 'pending' forever (see GENERATION_CALL_TIMEOUT_SECONDS). A timeout
+            # is transient (_is_transient) → retried like any other flaky call.
+            result = await asyncio.wait_for(
+                provider.generate(
+                    prompt=prompt, reference_image_url=ref_url,
+                    uploaded_asset_url=uploaded_url, params=params,
+                    prior_design_url=prior_design_url,
+                    layout_guide_url=layout_guide_url,
+                ),
+                timeout=GENERATION_CALL_TIMEOUT_SECONDS,
             )
             last_exc = None
             generation_logger.log_response(

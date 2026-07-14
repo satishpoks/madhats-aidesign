@@ -384,6 +384,45 @@ def test_delivery_error_on_success_does_not_flip_to_failed(monkeypatch):
     assert row["attempts"] == 1
 
 
+class _HangingProvider:
+    """generate() never returns on its own — simulates a hung upstream (Gemini)
+    connection. Each call awaits a long sleep that the per-call timeout must
+    cancel."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def generate(self, **kwargs):
+        self.calls += 1
+        # Block until cancelled. (Not asyncio.sleep — the suite monkeypatches
+        # asyncio.sleep to a no-op to skip backoff, which would also neuter a
+        # sleep-based hang. A never-set Event genuinely blocks.)
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable — should be cancelled by timeout")
+
+
+def test_hung_provider_call_times_out_and_is_retried(monkeypatch):
+    """A provider call that never returns must not pin the job at 'pending'
+    forever. Each attempt is bounded by GENERATION_CALL_TIMEOUT_SECONDS; the
+    resulting timeout is transient, so it retries up to the max and then marks
+    the row failed + alerts ops — instead of hanging until the watchdog reaps it."""
+    monkeypatch.setattr(generate_routes, "GENERATION_CALL_TIMEOUT_SECONDS", 0.05)
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _HangingProvider()
+    sleeps: list = []
+    alerts: list = []
+    previews: list = []
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=sleeps, alerts=alerts, previews=previews)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    assert row["status"] == "failed"
+    assert provider.calls == generate_routes.MAX_GENERATION_ATTEMPTS  # retried, not hung
+    assert previews == []
+    assert len(alerts) == 1
+
+
 def test_is_transient_classification():
     assert generate_routes._is_transient(httpx.TimeoutException("t")) is True
     assert generate_routes._is_transient(ValueError("bad input")) is False
