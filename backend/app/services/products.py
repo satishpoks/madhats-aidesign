@@ -54,8 +54,19 @@ def list_products(
 
 
 def get_product(product_id: str, store_id: str | None = None) -> dict | None:
+    """Resolve a product by internal UUID or by Shopify product id.
+
+    The internal ``id`` is a ``gen_random_uuid()`` that is regenerated on every
+    catalogue re-sync (sync does delete+insert), so it is unstable. A Shopify
+    storefront button only knows ``{{ product.id }}`` — the numeric Shopify
+    product id — which we persist as the stable ``shopify_product_id``. So a
+    purely numeric id is looked up against ``shopify_product_id``; anything else
+    (a UUID) is looked up against ``id`` as before. Querying the ``uuid`` column
+    with a numeric string would otherwise raise a Postgres type error.
+    """
+    column = "shopify_product_id" if product_id.isdigit() else "id"
     sb = get_supabase()
-    query = sb.table("product_references").select(_COLUMNS).eq("id", product_id)
+    query = sb.table("product_references").select(_COLUMNS).eq(column, product_id)
     if store_id:
         query = query.eq("store_id", store_id)
     res = query.limit(1).execute()

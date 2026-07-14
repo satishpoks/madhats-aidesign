@@ -196,6 +196,67 @@ def test_list_products_clamps_limit_to_db_range():
 
 
 # ---------------------------------------------------------------------------
+# get_product() resolver tests — UUID vs Shopify product id
+# ---------------------------------------------------------------------------
+
+
+def _make_getproduct_mock(rows: list[dict]):
+    """Mock supabase client that records the column used in the .eq() lookup."""
+    captured: dict = {}
+
+    class _Resp:
+        data = rows
+
+    class _Query:
+        def eq(self, column, value):
+            # First eq() is the id/shopify lookup; record it.
+            captured.setdefault("column", column)
+            captured.setdefault("value", value)
+            return self
+
+        def limit(self, *a, **kw):
+            return self
+
+        def execute(self):
+            return _Resp()
+
+    class _Table:
+        def select(self, *a, **kw):
+            return _Query()
+
+    class _Client:
+        def table(self, name):
+            return _Table()
+
+    return _Client(), captured
+
+
+def test_get_product_numeric_id_resolves_by_shopify_product_id():
+    """A numeric id (a Shopify {{ product.id }}) is looked up on shopify_product_id."""
+    from app.services import products as svc
+
+    row = {"id": "uuid-abc", "name": "Cap"}
+    mock_sb, captured = _make_getproduct_mock([row])
+    with patch("app.services.products.get_supabase", return_value=mock_sb):
+        result = svc.get_product("8123456789", store_id="s")
+    assert result == row
+    assert captured["column"] == "shopify_product_id"
+    assert captured["value"] == "8123456789"
+
+
+def test_get_product_uuid_resolves_by_id():
+    """A UUID id keeps resolving against the internal id column (unchanged)."""
+    from app.services import products as svc
+
+    row = {"id": "3f2504e0-4f89-11d3-9a0c-0305e82c3301", "name": "Cap"}
+    mock_sb, captured = _make_getproduct_mock([row])
+    with patch("app.services.products.get_supabase", return_value=mock_sb):
+        result = svc.get_product("3f2504e0-4f89-11d3-9a0c-0305e82c3301", store_id="s")
+    assert result == row
+    assert captured["column"] == "id"
+
+
+# ---------------------------------------------------------------------------
 # Route tests (via TestClient)
 # ---------------------------------------------------------------------------
 
