@@ -61,7 +61,7 @@ The system serves **multiple Shopify stores** (10+) from one backend + one Supab
 - **Per-store config (in `stores` row):** persona name/avatar/greeting, brand (logo/colours/watermark), `allowed_origins`, `sales_notification_email`, `shopify_domain`.
 - **Shared (env vars):** all provider API keys (Gemini/Anthropic/Resend) — never per-store, never in the DB.
 - **Onboarding a store:** `POST /admin/stores` (auto-generates `public_key`) → `POST /admin/stores/{id}/sync` pulls that store's `products.json` into `product_references` (`app/services/catalogue_sync.py`).
-- **Known gaps:** CORS middleware is still global (`ALLOWED_ORIGINS` env); `/products` returns PostgREST's default 1000-row cap (large catalogues need pagination).
+- **Known gaps:** CORS is global and currently **open to all origins** — `ALLOWED_ORIGINS` defaults to `*`, which `main.py:build_cors_kwargs` serves via `allow_origin_regex=".*"` (reflects the request Origin, since a literal `*` is illegal with `allow_credentials=True`); set a comma-separated list to lock it down (per-store CORS still not implemented). `/products` returns PostgREST's default 1000-row cap (large catalogues need pagination).
 
 ---
 

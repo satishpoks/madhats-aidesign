@@ -63,6 +63,26 @@ def _rate_limit_handler(request, exc):  # noqa: ANN001
     return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
 
 
+def build_cors_kwargs(cfg) -> dict:  # noqa: ANN001
+    """CORSMiddleware kwargs for the given settings.
+
+    When ALLOWED_ORIGINS contains "*" (the current default) we reflect any
+    request origin via a catch-all regex rather than emitting a literal "*",
+    because browsers reject Access-Control-Allow-Origin: * together with
+    allow_credentials=True. Otherwise CORS is locked to the configured list.
+    """
+    kwargs: dict = {
+        "allow_credentials": True,
+        "allow_methods": ["*"],
+        "allow_headers": ["*"],
+    }
+    if cfg.allow_all_origins:
+        kwargs["allow_origin_regex"] = ".*"
+    else:
+        kwargs["allow_origins"] = cfg.allowed_origins_list
+    return kwargs
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = structlog.get_logger()
@@ -89,14 +109,8 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
     app.add_middleware(SlowAPIMiddleware)
 
-    # CORS — locked to configured origins
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.allowed_origins_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS — see build_cors_kwargs (open to all origins while ALLOWED_ORIGINS="*").
+    app.add_middleware(CORSMiddleware, **build_cors_kwargs(settings))
 
     for router in (
         health.router,

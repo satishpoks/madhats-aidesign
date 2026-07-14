@@ -56,7 +56,9 @@ class Settings(BaseSettings):
     # --- AI usage caps (initial defaults; the app_settings DB row overrides) ---
     regen_edits_per_session: int = 3
     designs_per_customer_per_day: int = 2
-    allowed_origins: str = "http://localhost:5173"
+    # CORS. "*" (the default) allows any origin — kept open/flexible for now.
+    # Set a comma-separated origin list to lock it down later.
+    allowed_origins: str = "*"
     verification_token_ttl_seconds: int = 900  # 15 min
     quote_token_ttl_seconds: int = 2592000  # 30 days — quote link stays valid a while
 
@@ -72,6 +74,11 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
+
+    @property
+    def allow_all_origins(self) -> bool:
+        """True when CORS should accept any origin (ALLOWED_ORIGINS contains '*')."""
+        return "*" in self.allowed_origins_list
 
     @property
     def rate_limit_str(self) -> str:
