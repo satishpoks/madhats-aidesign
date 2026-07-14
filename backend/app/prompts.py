@@ -369,7 +369,7 @@ CANNED_REPLIES: dict[str, str] = {
         "special requests, colours to match, deadlines? If not, tap 'No, generate'."
     ),
     "generating": (
-        "Putting your design together now — I'll email it to your inbox the "
+        "Putting your design together now — I'll send it to your inbox the "
         "moment it's ready."
     ),
     "ask_email": "What's the best email address to send your design to?",

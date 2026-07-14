@@ -4,7 +4,7 @@ from app.services import limits, settings_service
 def _settings(monkeypatch, *, edits=3, per_day=2):
     monkeypatch.setattr(
         settings_service, "get_settings",
-        lambda: settings_service.StudioSettings(edits, per_day, ""),
+        lambda: settings_service.StudioSettings(edits, per_day, "", "MADHATS PREVIEW"),
     )
 
 

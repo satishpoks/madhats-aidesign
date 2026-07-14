@@ -532,7 +532,8 @@ def _make_watermarked(clean_path: str) -> str | None:
             resp = httpx.get(signed, timeout=30, follow_redirects=True)
             resp.raise_for_status()
             image_bytes = resp.content
-        stamped = apply_watermark(image_bytes)
+        from app.services import settings_service  # noqa: PLC0415
+        stamped = apply_watermark(image_bytes, text=settings_service.get_settings().watermark_text)
         return write_watermarked(stamped)
     except Exception as exc:  # noqa: BLE001
         log.warning("watermark_failed", error=str(exc))

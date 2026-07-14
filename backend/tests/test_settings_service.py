@@ -24,6 +24,17 @@ def test_db_row_overrides_env(monkeypatch):
     assert s.faq_knowledge == "hi"
 
 
+def test_watermark_text_defaults_and_overrides(monkeypatch):
+    # Missing/blank -> default; a value overrides.
+    monkeypatch.setattr(settings_service, "_read_row", lambda: {})
+    settings_service.invalidate_cache()
+    assert settings_service.get_settings().watermark_text == "MADHATS PREVIEW"
+
+    monkeypatch.setattr(settings_service, "_read_row", lambda: {"watermark_text": "ACME CO"})
+    settings_service.invalidate_cache()
+    assert settings_service.get_settings().watermark_text == "ACME CO"
+
+
 def test_cache_is_used_until_invalidated(monkeypatch):
     calls = {"n": 0}
 

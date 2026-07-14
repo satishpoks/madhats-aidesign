@@ -13,6 +13,7 @@ describe('SettingsView', () => {
       regen_edits_per_session: 3,
       designs_per_customer_per_day: 2,
       faq_knowledge: 'Turnaround is 2 weeks.',
+      watermark_text: 'MADHATS PREVIEW',
     })
     render(<SettingsView />)
     await waitFor(() =>
@@ -20,5 +21,6 @@ describe('SettingsView', () => {
     )
     expect(screen.getByLabelText(/designs per customer per day/i)).toHaveValue(2)
     expect(screen.getByLabelText(/faq/i)).toHaveValue('Turnaround is 2 weeks.')
+    expect(screen.getByLabelText(/watermark text/i)).toHaveValue('MADHATS PREVIEW')
   })
 })

@@ -18,11 +18,15 @@ _TTL_SECONDS = 30.0
 _cache: dict = {"value": None, "ts": 0.0}
 
 
+_DEFAULT_WATERMARK_TEXT = "MADHATS PREVIEW"
+
+
 @dataclass
 class StudioSettings:
     regen_edits_per_session: int
     designs_per_customer_per_day: int
     faq_knowledge: str
+    watermark_text: str
 
 
 def _read_row() -> dict:
@@ -40,6 +44,7 @@ def _from_row(row: dict) -> StudioSettings:
             row.get("designs_per_customer_per_day", settings.designs_per_customer_per_day)
         ),
         faq_knowledge=row.get("faq_knowledge") or "",
+        watermark_text=(row.get("watermark_text") or "").strip() or _DEFAULT_WATERMARK_TEXT,
     )
 
 
@@ -63,6 +68,7 @@ def update_settings(
     regen_edits_per_session: int | None = None,
     designs_per_customer_per_day: int | None = None,
     faq_knowledge: str | None = None,
+    watermark_text: str | None = None,
 ) -> StudioSettings:
     """Patch the single row with the provided fields, then invalidate the cache."""
     patch: dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
@@ -72,6 +78,8 @@ def update_settings(
         patch["designs_per_customer_per_day"] = int(designs_per_customer_per_day)
     if faq_knowledge is not None:
         patch["faq_knowledge"] = faq_knowledge
+    if watermark_text is not None:
+        patch["watermark_text"] = watermark_text.strip()
     get_supabase().table("app_settings").update(patch).eq("id", 1).execute()
     invalidate_cache()
     return get_settings()

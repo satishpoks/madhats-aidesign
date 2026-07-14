@@ -374,6 +374,7 @@ export interface StudioSettings {
   regen_edits_per_session: number
   designs_per_customer_per_day: number
   faq_knowledge: string
+  watermark_text: string
 }
 
 export function getSettings(): Promise<StudioSettings> {
