@@ -47,3 +47,26 @@ services:
       - "5173:5173"                    # static server (serve -s) listens on 5173
     depends_on:
       - backend
+
+  # Periodically triggers the generation watchdog (reap stalled renders) and the
+  # delivery backfill (retry undelivered previews) — both are admin self-heal
+  # endpoints that need an external scheduler. A tiny curl-loop container reaches
+  # the backend over the compose network. $${ADMIN_SECRET} is a literal `$` +
+  # ${ADMIN_SECRET} so the SHELL expands it at runtime from .env (not compose).
+  watchdog:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - backend
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        while true; do
+        curl -fsS -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/generations/reap-stuck > /dev/null 2>&1 || true;
+        curl -fsS -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/deliveries/backfill > /dev/null 2>&1 || true;
+        sleep 180;
+        done

@@ -64,6 +64,17 @@ export function SettingsView() {
           />
         </label>
         <label className="block">
+          <span className="text-[13px] font-medium">Watermark text (diagonal line on preview images)</span>
+          <input
+            type="text"
+            maxLength={60}
+            aria-label="Watermark text"
+            value={form.watermark_text}
+            onChange={(e) => setForm({ ...form, watermark_text: e.target.value })}
+            className="mt-1 w-full rounded border border-[#e0e1ea] px-3 py-2 text-sm"
+          />
+        </label>
+        <label className="block">
           <span className="text-[13px] font-medium">FAQ / knowledge (used to answer customer questions)</span>
           <textarea
             rows={6}

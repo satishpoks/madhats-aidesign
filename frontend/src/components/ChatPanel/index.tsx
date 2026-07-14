@@ -373,6 +373,12 @@ export function ChatPanel() {
   ]
   const designReleased = RELEASED_STATES.includes(chatState)
 
+  // Design generated but not yet released (email unverified): the viewer must
+  // reveal nothing of it. Covers the just-generated turn (genStatus 'done') and
+  // a session resumed while still parked at the verification step.
+  const awaitingVerification =
+    !designReleased && (genStatus === 'done' || chatState === 'verify_email')
+
   // The backend only sets data.composite_preview: true for the
   // composite_preview state (see orchestrator.py _state_data_extra), so the
   // chat state name is an equivalent, already-exposed signal — no need to
@@ -566,6 +572,7 @@ export function ChatPanel() {
               designUrls={designReleased ? designs : []}
               compositeViews={composite ?? undefined}
               generating={genStatus === 'generating'}
+              awaitingVerification={awaitingVerification}
             />
           )}
         </div>

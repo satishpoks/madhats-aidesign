@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, test, expect, vi, beforeEach } from 'vitest'
 import { useChatStore } from './chatStore'
 import * as api from '../lib/api'
 
@@ -19,6 +19,30 @@ describe('chatStore progress', () => {
     await useChatStore.getState().sendMessage('s1', 'hi')
     expect(useChatStore.getState().progress).toEqual({ step: 3, total: 9 })
   })
+})
+
+test('parses multiselect + selected from data', () => {
+  useChatStore.getState().reset()
+  useChatStore.getState().hydrate([], 'ask_decoration', {
+    options: ['Embroidery', 'Print'], multiselect: true, selected: ['Print'],
+  })
+  const s = useChatStore.getState()
+  expect(s.multiselect).toBe(true)
+  expect(s.selected).toEqual(['Print'])
+  expect(s.options).toEqual(['Embroidery', 'Print'])
+})
+
+test('applyResponse appends the reply without wiping history', () => {
+  useChatStore.getState().reset()
+  useChatStore.setState({ messages: [{ id: 'a', role: 'user', text: 'Sam' }] } as never)
+  useChatStore.getState().applyResponse('How would you like this decorated?', 'ask_decoration', {
+    options: ['Embroidery'], multiselect: true, selected: [],
+  })
+  const s = useChatStore.getState()
+  expect(s.messages).toHaveLength(2)
+  expect(s.messages[1]).toMatchObject({ role: 'assistant', text: 'How would you like this decorated?' })
+  expect(s.chatState).toBe('ask_decoration')
+  expect(s.multiselect).toBe(true)
 })
 
 describe('chatStore advanceRegeneration', () => {

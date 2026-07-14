@@ -179,3 +179,20 @@ def test_composite_preview_confirm_goes_to_generating():
 
 def test_composite_preview_tweak_goes_back_to_more_elements():
     assert advance_state(S.COMPOSITE_PREVIEW, {"composite_confirmed": False}) is S.ASK_MORE_ELEMENTS
+
+
+def test_canvas_design_waits_until_finalized():
+    assert advance_state(S.CANVAS_DESIGN, {}) is S.CANVAS_DESIGN
+    assert advance_state(S.CANVAS_DESIGN, {"canvas_finalized": True}) is S.ASK_DECORATION
+
+
+def test_decoration_then_notes_then_generating():
+    assert advance_state(S.ASK_DECORATION, {}) is S.ASK_NOTES
+    assert advance_state(S.ASK_NOTES, {}) is S.GENERATING
+
+
+def test_canvas_progress_path():
+    collected = {"flow_mode": "canvas"}
+    p = progress(S.ASK_DECORATION, collected)
+    assert p["total"] == 7          # name,email,purpose,quantity,design,decoration,notes
+    assert 1 <= p["step"] <= p["total"]

@@ -1,10 +1,19 @@
 import { create } from 'zustand'
 import type { Product } from '../lib/types'
-import { createSession, createBlankSession, fetchProduct, getSession, type HatType } from '../lib/api'
+import { createSession, createBlankSession, createCanvasSession, fetchProduct, getSession, type HatType } from '../lib/api'
 import { useChatStore } from './chatStore'
 import { useGenerationStore } from './generationStore'
 
-export type SessionView = 'picker' | 'session' | 'blank'
+export type SessionView = 'picker' | 'session' | 'blank' | 'canvas'
+
+// Synchronous re-entrancy latch for bootstrapFromUrl. React StrictMode fires the
+// bootstrap effect twice on mount (dev), and the two async calls otherwise race
+// through startCanvasSession, creating TWO sessions — the active sessionId lands
+// on the un-kicked-off one, so the user's first message hits its GREETING
+// kickoff and the name is asked a second time. Set before the first await so the
+// concurrent second call bails; cleared in a finally so a later navigation can
+// still bootstrap afresh.
+let bootstrapping = false
 
 export interface ProductRef {
   id: string
@@ -31,9 +40,13 @@ interface SessionState {
   /** Captures variant_id, colour, source from the Shopify embed URL at bootstrap time. */
   entryContext: EntryContext | null
   view: SessionView
+  /** Colourway swatches for the current blank-hat canvas session (empty for customise). */
+  blankColourways: { name: string; hex: string }[]
 
   startSession: (product: Product) => Promise<void>
   startBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
+  startCanvasSession: (product: Product) => Promise<void>
+  startCanvasBlankSession: (hatType: HatType, colour?: { name: string; hex: string }) => Promise<void>
   resumeSession: (token: string) => Promise<void>
   bootstrapFromUrl: () => Promise<void>
 }
@@ -45,6 +58,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   productRef: null,
   entryContext: null,
   view: 'picker',
+  blankColourways: [],
 
   startSession: async (product: Product) => {
     const response = await createSession(product.id)
@@ -84,24 +98,66 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     })
   },
 
+  startCanvasSession: async (product: Product) => {
+    const response = await createCanvasSession({ productId: product.id })
+    set({
+      sessionId: response.session_id,
+      shareToken: response.share_token,
+      state: response.state,
+      productRef: {
+        id: product.id,
+        name: product.name,
+        colour: product.colour,
+        style: product.style,
+        reference_image_url: product.reference_image_url,
+        view_images: product.view_images,
+      },
+      view: 'canvas',
+    })
+  },
+
+  startCanvasBlankSession: async (hatType: HatType, colour?: { name: string; hex: string }) => {
+    const response = await createCanvasSession({ hatTypeId: hatType.id, colour })
+    set({
+      sessionId: response.session_id,
+      shareToken: response.share_token,
+      state: response.state,
+      productRef: {
+        id: hatType.id,
+        name: hatType.name,
+        colour: colour?.name ?? '',
+        style: hatType.style,
+        reference_image_url: hatType.view_images.front ?? '',
+        view_images: hatType.view_images,
+      },
+      blankColourways: hatType.colours ?? [],
+      view: 'canvas',
+    })
+  },
+
   resumeSession: async (token: string) => {
     // Reopen an existing session (e.g. from the "make some edits" email link):
     // rehydrate the full chat thread, state and product so the customer picks
     // up exactly where they left off.
     const detail = await getSession(token)
 
-    // product_ref persisted on the session omits view_images, so pull the full
-    // product for the left-pane angles (best-effort — fall back to the ref).
     const ref = detail.product_ref ?? {}
+    const isBlank = (detail.collected as { flow_mode?: string })?.flow_mode === 'blank'
+    // The persisted ref now carries the chosen hat's four angles (blank flow) or
+    // its colour — proxied to fetchable URLs by the backend — so start from it.
     let productRef: ProductRef = {
       id: ref.product_id ?? '',
       name: ref.name ?? 'Your cap',
       colour: ref.colour ?? '',
       style: ref.style ?? '',
       reference_image_url: ref.reference_image_url ?? '',
-      view_images: {},
+      view_images: ref.view_images ?? {},
     }
-    if (ref.product_id) {
+    // Customise flow only: the catalogue product holds the full angle set, so
+    // re-fetch it. A blank session's ref.product_id is a hat_type id (not a
+    // catalogue product) and its angles already came through above — never call
+    // /products with it (that 404s and wiped the viewer on resume).
+    if (!isBlank && ref.product_id) {
       try {
         const product = await fetchProduct(ref.product_id)
         productRef = {
@@ -133,39 +189,47 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   bootstrapFromUrl: async () => {
-    const params = new URLSearchParams(window.location.search)
-
-    // Resume link (from the preview email's "make some edits" CTA) wins.
-    const resumeToken = params.get('session')
-    if (resumeToken) {
-      try {
-        await get().resumeSession(resumeToken)
-        return
-      } catch (err) {
-        console.warn('[MadHats] resumeSession failed — falling back', err)
-      }
-    }
-
-    if (params.get('mode') === 'blank') {
-      set({ view: 'blank' })
-      return
-    }
-
-    const productId = params.get('product_id')
-    if (!productId) return
-
-    const variantId = params.get('variant_id')
-    const colour = params.get('colour')
-    const source = params.get('source')
-
+    // Guard against StrictMode's double-mount (and any concurrent re-entry):
+    // only one bootstrap may create/resume a session per page load.
+    if (bootstrapping) return
+    bootstrapping = true
     try {
-      const product = await fetchProduct(productId)
-      await get().startSession(product)
-      set({ entryContext: { variantId, colour, source } })
-    } catch (err) {
-      // If bootstrap fails (product not found, backend down, etc.) stay at picker.
-      // Warn so a broken Shopify embed URL is diagnosable in the browser console.
-      console.warn('[MadHats] bootstrapFromUrl failed — staying at picker', err)
+      const params = new URLSearchParams(window.location.search)
+
+      // Resume link (from the preview email's "make some edits" CTA) wins.
+      const resumeToken = params.get('session')
+      if (resumeToken) {
+        try {
+          await get().resumeSession(resumeToken)
+          return
+        } catch (err) {
+          console.warn('[MadHats] resumeSession failed — falling back', err)
+        }
+      }
+
+      if (params.get('mode') === 'blank') {
+        set({ view: 'blank' })
+        return
+      }
+
+      const productId = params.get('product_id')
+      if (!productId) return
+
+      const variantId = params.get('variant_id')
+      const colour = params.get('colour')
+      const source = params.get('source')
+
+      try {
+        const product = await fetchProduct(productId)
+        await get().startCanvasSession(product)
+        set({ entryContext: { variantId, colour, source } })
+      } catch (err) {
+        // If bootstrap fails (product not found, backend down, etc.) stay at picker.
+        // Warn so a broken Shopify embed URL is diagnosable in the browser console.
+        console.warn('[MadHats] bootstrapFromUrl failed — staying at picker', err)
+      }
+    } finally {
+      bootstrapping = false
     }
   },
 }))

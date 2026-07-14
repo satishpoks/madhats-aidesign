@@ -53,6 +53,36 @@ def test_view_prompt_scopes_elements_to_the_view():
     assert "BACKTEXT" in back and "FRONTTEXT" not in back
 
 
+def test_front_view_does_not_leak_stale_brief_text_owned_by_another_view():
+    """Regression: a text element captured discretely (with exact content) on the
+    BACK panel must not also leak onto the FRONT hero via the legacy flat
+    ``design_description``. In session VKV2NBdIYqgtQ_23J0uANA the front logo render
+    was polluted with 'handwritten text (content not specified)' — a stale shadow
+    of the back 'Satish' text that design_description captured before its content
+    was known and never re-synced. The per-element enumeration owns the text."""
+    product_ref = {"reference_image_url": "http://x/f.png", "view_images": {"front": "http://x/f.png", "back": "http://x/b.png"}}
+    collected = {
+        "elements": [
+            {"type": "logo", "asset_path": "u/l.png", "placement_zone": "front_panel"},
+            {"type": "text", "content": "Satish", "placement_zone": "back"},
+        ],
+        "uploaded_asset_path": "u/l.png",
+        "design_description": {
+            "style": "handwritten",
+            "summary": "Handwritten-style text printed on cap",
+            "text_elements": ["handwritten text (content not specified)"],
+        },
+    }
+    params = prompt_builder.build_params(collected, "preview")
+    front = prompt_builder.build_view_prompt(collected, product_ref, params, "front")
+    # The stale/incomplete text must not reach the front hero prompt at all.
+    assert "content not specified" not in front
+    assert "Satish" not in front  # back-panel text belongs to the back render only
+    # The back render still owns the real text.
+    back = prompt_builder.build_view_prompt(collected, product_ref, params, "back")
+    assert "Satish" in back
+
+
 def test_view_with_no_elements_renders_clean():
     product_ref = {"reference_image_url": "http://x/f.png", "view_images": {"front": "http://x/f.png", "back": "http://x/b.png"}}
     # Only the back is decorated; the front hero carries no element and no brief.

@@ -89,6 +89,7 @@ def send_preview_email(
     image_bytes: bytes | None = None,
     subject: str | None = None,
     images: list[dict] | None = None,
+    image_groups: list[dict] | None = None,
 ) -> bool:
     """Send the branded design preview (Figma E1 template).
 
@@ -113,26 +114,36 @@ def send_preview_email(
     if images is None:
         images = [{"url": image_url, "bytes": image_bytes, "label": ""}]
 
+    # Grouped mode: two labelled sections ("Your design" + "On the real hat").
+    # Flat mode (image_groups=None): one untitled group, backward-compatible.
+    groups = image_groups if image_groups else [{"title": "", "images": images}]
+
     attachments: list[dict] = []
     blocks: list[str] = []
-    for i, im in enumerate(images):
-        raw = im.get("bytes")
-        if raw:
-            cid = f"{_PREVIEW_CID}-{i}"  # literal + index, safe — no user input
-            attachments.append(
-                {
-                    "filename": f"madhats-preview-{i}.png",
-                    "content": base64.b64encode(raw).decode("ascii"),
-                    "content_type": "image/png",
-                    "content_id": cid,
-                }
-            )
-            src = f"cid:{cid}"
-        else:
-            src = html_lib.escape(im.get("url") or "", quote=True)
-        label = (im.get("label") or "").strip()
-        caption = html_lib.escape(f"{label} — watermarked preview") if label else "Watermarked preview"
-        blocks.append(prompts.PREVIEW_EMAIL_IMAGE_BLOCK.format(src=src, caption=caption))
+    idx = 0  # global attachment index so CIDs stay unique across sections
+    for group in groups:
+        title = (group.get("title") or "").strip()
+        if title:
+            blocks.append(prompts.PREVIEW_EMAIL_SECTION_HEADER.format(title=html_lib.escape(title)))
+        for im in group.get("images") or []:
+            raw = im.get("bytes")
+            if raw:
+                cid = f"{_PREVIEW_CID}-{idx}"  # literal + index, safe — no user input
+                attachments.append(
+                    {
+                        "filename": f"madhats-preview-{idx}.png",
+                        "content": base64.b64encode(raw).decode("ascii"),
+                        "content_type": "image/png",
+                        "content_id": cid,
+                    }
+                )
+                src = f"cid:{cid}"
+            else:
+                src = html_lib.escape(im.get("url") or "", quote=True)
+            label = (im.get("label") or "").strip()
+            caption = html_lib.escape(f"{label} — watermarked preview") if label else "Watermarked preview"
+            blocks.append(prompts.PREVIEW_EMAIL_IMAGE_BLOCK.format(src=src, caption=caption))
+            idx += 1
 
     html = Template(prompts.PREVIEW_EMAIL_HTML).substitute(
         name=html_lib.escape(name or "there"),

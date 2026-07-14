@@ -35,6 +35,10 @@ class ConversationState(str, Enum):
     ASK_HAT_COLOUR = "ask_hat_colour"
     ASK_COLOUR_DETAIL = "ask_colour_detail"
     COMPOSITE_PREVIEW = "composite_preview"
+    CANVAS_DESIGN = "canvas_design"
+    ASK_DECORATION = "ask_decoration"
+    ASK_NOTES = "ask_notes"
+    ASK_CHANGE_METHOD = "ask_change_method"
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
@@ -83,6 +87,9 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.PIN_ANNOTATE_MODE: [S.PIN_ANNOTATE_MODE, S.GENERATING],
     S.ASK_HAT_COLOUR: [S.ASK_MORE_ELEMENTS, S.GENERATING],
     S.COMPOSITE_PREVIEW: [S.GENERATING, S.ASK_MORE_ELEMENTS],
+    S.CANVAS_DESIGN: [S.ASK_DECORATION],
+    S.ASK_DECORATION: [S.ASK_NOTES],
+    S.ASK_NOTES: [S.GENERATING],
     # Pre-generation confirmation of the extracted brief (limited generations).
     S.CONFIRM_BRIEF: [S.GENERATING, S.ELEMENT_DEEPDIVE],
     # Email is captured earlier, at SAVE_PROGRESS_EMAIL (right after the design
@@ -97,7 +104,8 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.EMAIL_VERIFIED: [S.SEND_PREVIEW_EMAIL],
     S.SEND_PREVIEW_EMAIL: [S.SHOW_DESIGN],
     S.SHOW_DESIGN: [S.OFFER_REFINE],
-    S.OFFER_REFINE: [S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
+    S.OFFER_REFINE: [S.ASK_CHANGE_METHOD, S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
+    S.ASK_CHANGE_METHOD: [S.CANVAS_DESIGN, S.DESCRIBE_CHANGES],
     S.DESCRIBE_CHANGES: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_FOLLOWUP: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_CONFIRM: [S.REGENERATING],
@@ -229,7 +237,17 @@ def advance_state(
 
     # --- Refine loop branch ---
     if current is S.OFFER_REFINE:
-        return S.DESCRIBE_CHANGES if collected.get("wants_changes") else S.QUOTE_REQUESTED
+        if not collected.get("wants_changes"):
+            return S.QUOTE_REQUESTED
+        # Canvas sessions first ask HOW to change (rework on the canvas vs
+        # describe here); the legacy chat flow goes straight to describe.
+        if collected.get("flow_mode") == "canvas":
+            return S.ASK_CHANGE_METHOD
+        return S.DESCRIBE_CHANGES
+
+    # --- Change-method branch (canvas): rework on the canvas or describe here ---
+    if current is S.ASK_CHANGE_METHOD:
+        return S.CANVAS_DESIGN if collected.get("rework_on_canvas") else S.DESCRIBE_CHANGES
 
     # --- Refine sub-flow: describe -> (deep-dive a new element | follow-ups) ->
     #     confirm -> regen. Adding a text/graphic/logo seeds a pending_element,
@@ -249,6 +267,12 @@ def advance_state(
         # before we regenerate; otherwise go straight to regeneration.
         return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.REGENERATING
 
+    # --- Quote ask (canvas): the design loop ends here. Whether or not they
+    #     want a quote, the chat closes (the quote link opens in a new tab). The
+    #     legacy chat flow keeps its upsell path (default successor). ---
+    if current is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        return S.SESSION_END
+
     # --- Upsell branch ---
     if current is S.UPSELL_PROMPT:
         if collected.get("wants_upsell") and upsell_count < MAX_UPSELL_ZONES:
@@ -264,6 +288,10 @@ def advance_state(
         if collected.get("pending_element"):
             return S.ELEMENT_DEEPDIVE
         return S.GENERATING if collected.get("brief_confirmed") else S.CONFIRM_BRIEF
+
+    # --- Canvas: rest at CANVAS_DESIGN until the canvas is finalized ---
+    if current is S.CANVAS_DESIGN:
+        return S.ASK_DECORATION if collected.get("canvas_finalized") else S.CANVAS_DESIGN
 
     # --- Default: first declared successor ---
     nexts = TRANSITIONS.get(current, [])
@@ -294,6 +322,8 @@ QUESTION_FIELD: dict[ConversationState, str] = {
     ConversationState.ASK_REMOVE_BG: "remove_bg",
     ConversationState.ASK_PLACEMENT_ZONE: "placement_zone",
     ConversationState.ASK_PLACEMENT_POSITION: "placement_position",
+    ConversationState.ASK_DECORATION: "decoration_done",
+    ConversationState.ASK_NOTES: "notes_done",
 }
 
 
@@ -333,6 +363,11 @@ def advance_and_skip(
 # represents the single decoration-choice question (whichever variant is shown).
 def _progress_path(collected: dict) -> list[ConversationState]:
     S = ConversationState
+    if collected.get("flow_mode") == "canvas":
+        return [
+            S.ASK_NAME, S.SAVE_PROGRESS_EMAIL, S.ASK_PURPOSE, S.ASK_QUANTITY,
+            S.CANVAS_DESIGN, S.ASK_DECORATION, S.ASK_NOTES,
+        ]
     # Decoration now comes AFTER the design source (has_logo -> upload/describe),
     # so the counter reflects: name, purpose, quantity, has_logo, design source,
     # decoration, email.

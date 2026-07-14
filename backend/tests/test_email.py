@@ -95,6 +95,38 @@ def test_preview_email_without_bytes_falls_back_to_url_src(monkeypatch):
     assert "https://cdn.example.com/x.png" in params["html"]
 
 
+def test_preview_email_renders_two_segregated_sections(monkeypatch):
+    """image_groups renders two labelled sections ('Your design' + the
+    photorealistic render), each image inlined as its own CID attachment."""
+    captured = _capture_send(monkeypatch)
+    design = b"\x89PNG\r\n\x1a\n-canvas"
+    render = b"\x89PNG\r\n\x1a\n-photoreal"
+
+    ok = email_service.send_preview_email(
+        "dest@example.com", "Sam", "http://127.0.0.1/x.png",
+        image_groups=[
+            {"title": "Your design", "images": [{"url": "u1", "bytes": design, "label": "Front"}]},
+            {"title": "How it looks on the real hat", "images": [{"url": "u2", "bytes": render, "label": "Front"}]},
+        ],
+    )
+
+    assert ok is True
+    html = captured["params"]["html"]
+    assert "Your design" in html
+    assert "How it looks on the real hat" in html
+    # Both groups' images ride along as distinct CID attachments.
+    atts = captured["params"]["attachments"]
+    assert len(atts) == 2
+    assert {base64_decode(a["content"]) for a in atts} == {design, render}
+    # Section headers appear before their images (order preserved).
+    assert html.index("Your design") < html.index("How it looks on the real hat")
+
+
+def base64_decode(s: str) -> bytes:
+    import base64
+    return base64.b64decode(s)
+
+
 def test_quote_confirmation_to_sales_includes_confirmed_details(monkeypatch):
     """The 'customer confirmed' sales email must carry the confirmed quantity,
     phone, phone-notify consent, and any customer note so the rep can follow up."""

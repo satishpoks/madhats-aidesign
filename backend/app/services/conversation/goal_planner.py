@@ -23,6 +23,9 @@ GATE_STATES: frozenset[S] = frozenset(
         S.ELEMENT_DEEPDIVE,
         S.COMPOSITE_PREVIEW,
         S.CONFIRM_BRIEF,
+        S.CANVAS_DESIGN,
+        S.ASK_DECORATION,
+        S.ASK_NOTES,
         S.GENERATING,
         S.ASK_EMAIL,
         S.VERIFY_EMAIL,
@@ -51,6 +54,26 @@ def _decoration_state(collected: dict) -> S:
     return S.RECOMMEND_EMBROIDERY
 
 
+def _canvas_next_goal(collected: dict) -> S:
+    """Linear intro/outro for canvas sessions: name → email → purpose →
+    quantity → design (rest) → decoration → notes → generate."""
+    if not collected.get("name"):
+        return S.ASK_NAME
+    if not collected.get("email_prompt_shown"):
+        return S.SAVE_PROGRESS_EMAIL
+    if not collected.get("purpose") and not collected.get("purpose_asked"):
+        return S.ASK_PURPOSE
+    if "quantity" not in collected:
+        return S.ASK_QUANTITY
+    if not collected.get("canvas_finalized"):
+        return S.CANVAS_DESIGN
+    if not collected.get("decoration_done"):
+        return S.ASK_DECORATION
+    if not collected.get("notes_done"):
+        return S.ASK_NOTES
+    return S.GENERATING
+
+
 def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     """Return the state for the first unmet forward-questionnaire goal.
 
@@ -58,6 +81,9 @@ def next_goal(collected: dict, *, upsell_count: int = 0) -> S:
     SAVE_PROGRESS_EMAIL (right after the design source); when every goal is
     met, returns GENERATING, the final step, which only fallback-captures it.
     """
+    if collected.get("flow_mode") == "canvas":
+        return _canvas_next_goal(collected)
+
     # 1. name (required)
     if not collected.get("name"):
         return S.ASK_NAME

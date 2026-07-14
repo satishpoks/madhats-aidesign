@@ -26,6 +26,12 @@ interface ChatStoreState {
   /** Blank flow: the hat-colour step wants a free colour picker (custom hex). */
   colourPicker: boolean
   progress: { step: number; total: number } | null
+  /** ask_decoration: the option chips are a multi-select set. */
+  multiselect: boolean
+  /** ask_decoration: currently-selected decoration names. */
+  selected: string[]
+  /** session_end: the /quote link to open (customer asked to request a quote). */
+  quoteUrl: string
   sending: boolean
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
@@ -39,6 +45,9 @@ interface ChatStoreState {
     state: string,
     data: Record<string, unknown>,
   ) => void
+  /** Append an assistant reply + apply state/data without wiping history
+   *  (used by the canvas "Done designing" handoff into the outro). */
+  applyResponse: (reply: string, state: string, data: Record<string, unknown>) => void
   /** Poll for out-of-band email verification; advances the thread once verified. */
   pollVerification: (sessionId: string) => Promise<void>
   /** One-shot advance from regenerating -> offer_refine, called after regeneration settles. */
@@ -65,7 +74,10 @@ function parseData(data: Record<string, unknown>) {
   const progress = (data.progress && typeof data.progress === 'object')
     ? (data.progress as { step: number; total: number })
     : null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress }
+  const multiselect = data.multiselect === true
+  const selected = Array.isArray(data.selected) ? (data.selected as string[]) : []
+  const quoteUrl = typeof data.quote_url === 'string' ? data.quote_url : ''
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl }
 }
 
 function uid(): string {
@@ -85,6 +97,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   colourSwatches: [],
   colourPicker: false,
   progress: null,
+  multiselect: false,
+  selected: [],
+  quoteUrl: '',
   sending: false,
   chatError: null,
   kickoffDone: false,
@@ -164,6 +179,17 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     })
   },
 
+  applyResponse: (reply, state, data) => {
+    const parsed = parseData(data)
+    set(s => ({
+      messages: [...s.messages, { id: uid(), role: 'assistant', text: reply }],
+      chatState: state,
+      ...parsed,
+      sending: false,
+      chatError: null,
+    }))
+  },
+
   pollVerification: async (sessionId: string) => {
     // Skip while a normal send is mid-flight to avoid interleaving replies.
     if (get().sending) return
@@ -240,6 +266,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       colourSwatches: [],
       colourPicker: false,
       progress: null,
+      multiselect: false,
+      selected: [],
+      quoteUrl: '',
       sending: false,
       chatError: null,
       kickoffDone: false,

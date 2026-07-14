@@ -236,6 +236,65 @@ async def _apply_brief_confirm(collected: dict, message: str) -> None:
     collected.setdefault("brief_notes", []).append(text[:300])
 
 
+# Map a decoration name to the prompt style modifier bucket. Anything not
+# recognised falls back to print (the safe default the prompt builder uses).
+_DECORATION_STYLE_MAP = (
+    ("embroider", "embroidery"),
+    ("stitch", "embroidery"),
+    ("patch", "embroidery"),   # patches render like stitched appliqué
+    ("print", "print"),
+    ("vinyl", "print"),
+    ("transfer", "print"),
+    ("screen", "print"),
+)
+
+
+def _decoration_style_bucket(name: str) -> str:
+    low = (name or "").lower()
+    for kw, bucket in _DECORATION_STYLE_MAP:
+        if kw in low:
+            return bucket
+    return "print"
+
+
+def _apply_canvas_outro(state: ConversationState, collected: dict, message: str) -> None:
+    """Capture the canvas outro answers (decoration multi-select, then notes)."""
+    S = ConversationState
+    text = (message or "").strip()
+    low = text.lower()
+
+    if state is S.ASK_DECORATION:
+        options = collected.get("decoration_options") or []
+        # The message is the customer's chosen chips, comma-joined (or free text).
+        # Match each comma-separated token EXACTLY against an offered option
+        # (case-insensitive), preserving the customer's order so their first choice
+        # drives the render style. Exact-token match avoids a shorter option name
+        # matching inside a longer one (e.g. "Print" inside "Screen Print").
+        by_name = {opt.lower(): opt for opt in options}
+        chosen: list[str] = []
+        for tok in (message or "").split(","):
+            opt = by_name.get(tok.strip().lower())
+            if opt and opt not in chosen:
+                chosen.append(opt)
+        collected["decoration_types"] = chosen
+        collected["decoration_done"] = True
+        if chosen:
+            collected.setdefault("brief_notes", []).append(
+                f"Decoration method: {', '.join(chosen)}"
+            )
+            # First choice (in the customer's order) drives the render style modifier.
+            collected["decoration_type"] = _decoration_style_bucket(chosen[0])
+        return
+
+    if state is S.ASK_NOTES:
+        collected["notes_done"] = True
+        _skip = is_negative(text) or bool(_DONE_ELEMENTS_RE.search(low))
+        if text and not _skip:
+            collected["notes"] = text[:600]
+            collected.setdefault("brief_notes", []).append(text[:600])
+        return
+
+
 class SessionNotFound(Exception):
     pass
 
@@ -318,6 +377,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             await _apply_refine(current, collected, message)
         elif current is ConversationState.CONFIRM_BRIEF:
             await _apply_brief_confirm(collected, message)
+        elif current in (ConversationState.ASK_DECORATION, ConversationState.ASK_NOTES):
+            _apply_canvas_outro(current, collected, message)
         await _maybe_gather_element(current, interp.get("fields") or {}, collected, message)
         await _advance_elements(current, collected, message)
 
@@ -328,6 +389,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         # customer's name, so the moment a usable email arrives we create the
         # lead and send a verification email — no second form. The preview
         # itself is released when the customer clicks that link.
+        email_retry = False  # set when a provider rejected the address → re-ask
         if current in (
             ConversationState.GENERATING,
             ConversationState.ASK_EMAIL,
@@ -335,10 +397,18 @@ async def handle_message(session_id: str, message: str) -> dict:
         ) and not collected.get("email_captured"):
             email = leads_service.extract_email(message)
             if email:
-                lead_id = leads_service.capture_lead_and_verify(session, collected, email)
-                collected["email_captured"] = True
+                lead_id, delivery_ok = leads_service.capture_lead_and_verify(
+                    session, collected, email
+                )
                 if lead_id:
                     collected["lead_id"] = lead_id
+                if delivery_ok:
+                    collected["email_captured"] = True
+                else:
+                    # The address couldn't be reached (e.g. a typo the provider
+                    # rejected). Don't mark it captured — re-ask with a friendly
+                    # retype prompt instead of silently continuing.
+                    email_retry = True
 
         intent = interp["intent"]
         # A tapped option chip (or a message exactly matching one) is a
@@ -361,18 +431,42 @@ async def handle_message(session_id: str, message: str) -> dict:
                 log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
         elif current is ConversationState.OFFER_REFINE and collected.get("wants_changes"):
             if _can_edit(session_id):
-                new_state = ConversationState.DESCRIBE_CHANGES
+                # Canvas sessions choose HOW to change first (rework on the
+                # canvas vs describe here); the legacy flow describes directly.
+                new_state = (
+                    ConversationState.ASK_CHANGE_METHOD
+                    if collected.get("flow_mode") == "canvas"
+                    else ConversationState.DESCRIBE_CHANGES
+                )
             else:
                 collected["edit_cap_reached"] = True
                 new_state = ConversationState.QUOTE_REQUESTED
         else:
             new_state = _route(current, collected, upsell_count)
 
+        # "Rework on the canvas" reopens the canvas for editing: clear the
+        # finalized flag (so the overlay unlocks) and mark the rework so
+        # canvas-finalize re-renders instead of re-running the outro questions.
+        if new_state is ConversationState.CANVAS_DESIGN and current is ConversationState.ASK_CHANGE_METHOD:
+            collected["canvas_finalized"] = False
+            collected["reworking"] = True
+
         if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
             upsell_count += 1
         # auto-advance through any routing-only states advance_state may return
         while new_state in AUTO_ADVANCE_STATES:
             new_state = advance_state(new_state, collected, upsell_count=upsell_count)
+
+        # Undeliverable email → re-ask on the SAME email step (so the intro's
+        # non-blocking SAVE_PROGRESS_EMAIL stays non-blocking once corrected),
+        # overriding whatever forward state routing chose. The GENERATING
+        # fallback re-asks on the dedicated ASK_EMAIL step.
+        if email_retry:
+            new_state = (
+                current
+                if current in (ConversationState.SAVE_PROGRESS_EMAIL, ConversationState.ASK_EMAIL)
+                else ConversationState.ASK_EMAIL
+            )
 
         # One-shot flags: mark soft/optional goals as offered so they are never
         # nagged on a later turn.
@@ -391,7 +485,11 @@ async def handle_message(session_id: str, message: str) -> dict:
         # extracted brief and let the customer confirm / adjust / add notes.
         # AI designs are limited, so we make sure everything's captured first.
         # Intercept EVERY path into GENERATING at this one point.
-        if new_state is ConversationState.GENERATING and not collected.get("brief_confirmed"):
+        if (
+            new_state is ConversationState.GENERATING
+            and not collected.get("brief_confirmed")
+            and collected.get("flow_mode") != "canvas"
+        ):
             new_state = ConversationState.CONFIRM_BRIEF
             collected["brief_prompt_shown"] = True
 
@@ -415,7 +513,11 @@ async def handle_message(session_id: str, message: str) -> dict:
             if idx < len(queue):
                 ask_text = queue[idx]
 
-        if new_state is ConversationState.CONFIRM_BRIEF:
+        if email_retry:
+            # The address the customer gave couldn't be reached — ask them to
+            # recheck and retype it (deterministic, never paraphrased).
+            reply = prompts.EMAIL_SEND_FAILED_RETRY
+        elif new_state is ConversationState.CONFIRM_BRIEF:
             # Deterministic summary (never paraphrased by the LLM, so no captured
             # detail is dropped before the customer confirms).
             summary = design_summary.customer_brief(collected, session.get("product_ref") or {})
@@ -427,6 +529,21 @@ async def handle_message(session_id: str, message: str) -> dict:
                 new_state.value, collected, persona, aside=aside, ask_for=ask_for, ask_text=ask_text,
                 element=collected.get("pending_element"),
             )
+
+        # Canvas quote handoff: on entry to the quote ask, pose the yes/no
+        # question; on the closing turn surface the quote link (if they said
+        # yes) so the frontend can open the /quote page in a new tab.
+        if collected.get("flow_mode") == "canvas":
+            if new_state is ConversationState.QUOTE_REQUESTED:
+                reply = prompts.CANVAS_QUOTE_ASK
+            elif new_state is ConversationState.SESSION_END and current is ConversationState.QUOTE_REQUESTED:
+                if collected.get("wants_quote"):
+                    quote_url = _session_quote_url(session_id)
+                    if quote_url:
+                        collected["quote_url"] = quote_url
+                    reply = prompts.CANVAS_QUOTE_YES
+                else:
+                    reply = prompts.CANVAS_QUOTE_NO
 
     if new_state is ConversationState.QUOTE_REQUESTED:
         try:
@@ -501,7 +618,7 @@ async def check_verification(session_id: str) -> dict:
     while new_state in AUTO_ADVANCE_STATES:
         new_state = advance_state(new_state, collected)
 
-    ack = "Your email's verified — your design's in your inbox and on-screen now."
+    ack = "Your email's verified — your design is on its way to your inbox."
     reply = await ie.generate_reply(new_state.value, collected, persona, aside=ack)
 
     sb.table("design_sessions").update(
@@ -622,7 +739,7 @@ async def advance_after_generation(session_id: str) -> dict:
         new_state = advance_state(new_state, collected)  # EMAIL_VERIFIED
         while new_state in AUTO_ADVANCE_STATES:
             new_state = advance_state(new_state, collected)
-        aside = "Your email's verified — your design's in your inbox and on-screen now."
+        aside = "Your email's verified — your design is on its way to your inbox."
 
     reply = await ie.generate_reply(new_state.value, collected, persona, aside=aside)
 
@@ -838,6 +955,17 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
     if state is S.DESCRIBE_CHANGES:
         collected["last_change"] = message.strip()[:400]
 
+    # Change-method choice (canvas refine): rework on the canvas vs describe here.
+    if state is S.ASK_CHANGE_METHOD:
+        collected["rework_on_canvas"] = (
+            ("rework" in low or "canvas" in low or "redesign" in low or "myself" in low)
+            and "describe" not in low and "here" not in low
+        )
+
+    # Quote ask (canvas): does the customer want to request a quote?
+    if state is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        collected["wants_quote"] = is_affirmative(message) and not is_negative(message)
+
     if state is S.COMPOSITE_PREVIEW:
         collected["composite_confirmed"] = is_affirmative(message) and not is_negative(message)
     if state is S.ASK_HAT_COLOUR:
@@ -1023,6 +1151,10 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["No, that's everything"]}
     if state is S.REGENERATING:
         return {"trigger_regeneration": True}
+    # Canvas quote ask is a yes/no question (handled below), NOT a tap-through
+    # statement — so it must not fall into the statement-only block.
+    if state is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        return {"options": ["Yes, request a quote", "No, I'm all set"]}
     # Statement-only states the user taps through (no typed answer expected).
     if state in (
         S.YOUTH_REFERRAL,
@@ -1046,4 +1178,39 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["Whole hat — one colour"]}
     if state is S.COMPOSITE_PREVIEW:
         return {"options": ["Looks right — generate", "Tweak something"], "composite_preview": True}
+    if state is S.ASK_DECORATION:
+        return {
+            "options": collected.get("decoration_options") or [],
+            "multiselect": True,
+            "selected": collected.get("decoration_types") or [],
+        }
+    if state is S.ASK_NOTES:
+        return {"options": ["No, generate"]}
+    if state is S.ASK_CHANGE_METHOD:
+        return {"options": ["Rework on the canvas", "Describe the change here"]}
+    if state is S.SESSION_END and collected.get("quote_url"):
+        # The customer asked to request a quote — hand them the /quote link so
+        # the frontend can show an "Open quote form" button (opens a new tab).
+        return {"quote_url": collected["quote_url"]}
+    if state is S.CANVAS_DESIGN:
+        return {}
     return {}
+
+
+def _session_quote_url(session_id: str) -> str | None:
+    """Build the signed /quote/{token} link for this session's lead (the same
+    link referenced in the preview email), for the in-chat quote handoff."""
+    res = (
+        get_supabase()
+        .table("leads")
+        .select("*")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    lead = res.data[0] if res.data else None
+    if not lead:
+        return None
+    token = leads_service.make_quote_token(lead)
+    return f"{settings.email_verify_base_url}/quote/{token}"

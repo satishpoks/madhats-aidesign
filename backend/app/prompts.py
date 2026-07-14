@@ -77,6 +77,10 @@ STATE_PROMPTS: dict[str, str] = {
         "context), then ask if they'd like to add anything else or are ready "
         "for you to place the design and generate it. One or two sentences."
     ),
+    "ask_decoration": (
+        "Ask how they'd like the design decorated, noting they can pick more than one "
+        "and that each extra decoration adds to the cost. One or two warm sentences."
+    ),
     "ask_placement_zone": "Ask where they'd like the design placed: front panel, side, back, "
     "or under the brim.",
     "ask_placement_position": "Ask for the precise position within the {placement_zone} "
@@ -92,16 +96,31 @@ STATE_PROMPTS: dict[str, str] = {
     "keep the whole hat one colour. Keep it to one short, friendly question.",
     "composite_preview": "Tell them here's a quick on-screen mock-up of the design across "
     "all four angles, and ask if it looks right to generate or they'd like to tweak something.",
+    "canvas_design": (
+        "Tell the customer their design tools are unlocked on the left — they can add "
+        "text, upload images, pick colours, and design on any side — and to tap "
+        "'Done designing' when ready, or describe it here instead. One or two sentences."
+    ),
+    "ask_notes": (
+        "Ask if they have any final notes for the team before you generate the design "
+        "(special requests, colour matching, deadlines), making clear they can skip. "
+        "One or two sentences."
+    ),
     "generating": "Tell them you're putting the design together now and it'll be in "
-    "their inbox and on-screen the moment it's ready. Do NOT ask for their email.",
+    "their inbox the moment it's ready. Do NOT ask for their email.",
     "ask_email": "Politely ask for their email so you can send the finished design.",
     "verify_email": "Let them know you've sent a quick verification email and ask them to click "
     "the link to confirm. Mention to check spam.",
     "email_verified": "Warmly confirm their email is now verified and let them know their "
     "design is on its way to their inbox for review.",
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
-    "show_design": "Tell them their design is ready and shown on screen (watermarked preview).",
+    "show_design": "Tell them their design is ready (watermarked preview) and on its way to their inbox.",
     "offer_refine": "Ask if they'd like to tweak anything about the design, or if they're happy with it.",
+    "ask_change_method": (
+        "Ask HOW they'd like to make their change: either reopen the canvas to edit "
+        "the design themselves, or describe the change here for the team. Offer both, "
+        "warm, one sentence."
+    ),
     "describe_changes": (
         "Tell the customer you'll refine the design in ONE pass, so they should "
         "describe EVERYTHING they'd like changed — colours, text, size, placement, "
@@ -167,6 +186,28 @@ Extract structured design context. Respond with ONLY a JSON object:
 }}
 Use empty arrays/strings for anything not mentioned.
 """
+
+# Shown when a verification email bounces at the provider (e.g. a mistyped
+# address) — ask the customer to recheck and retype it.
+EMAIL_SEND_FAILED_RETRY = (
+    "Hmm, it seems we couldn't reach that email address — could you double-check "
+    "the spelling and pop it in again for me?"
+)
+
+# Canvas refine → quote handoff (deterministic, not LLM-worded).
+CANVAS_QUOTE_ASK = (
+    "Love it! Would you like to request a quote for this design so our team can "
+    "finalise pricing and next steps?"
+)
+CANVAS_QUOTE_YES = (
+    "Perfect — I've opened your quote form below. Pop in the last details and our "
+    "team will take it from here. Thanks for designing with MadHats! 🎉"
+)
+CANVAS_QUOTE_NO = (
+    "No worries at all — your design's saved and in your inbox. We're here whenever "
+    "you're ready to take it further. Thanks for designing with MadHats! 🎉"
+)
+
 
 TURN_INTERPRETER_PROMPT = """You interpret one customer message in a guided cap-design chat.
 You do NOT decide what happens next — you only classify the message and extract data.
@@ -318,6 +359,10 @@ CANNED_REPLIES: dict[str, str] = {
         "Got it — I've added that. Anything else you'd like on there, or shall "
         "I place the design and generate it?"
     ),
+    "ask_decoration": (
+        "Love it! How would you like this decorated? Pick any that apply — "
+        "just remember each extra decoration adds to the cost."
+    ),
     "ask_placement_zone": (
         "Where would you like the design placed? "
         "Front panel, side, back, or under the brim?"
@@ -341,9 +386,22 @@ CANNED_REPLIES: dict[str, str] = {
         "Here's a quick mock-up of your design across the front, back and sides. "
         "Happy for me to generate it, or would you like to tweak something?"
     ),
+    "canvas_design": (
+        "You're all set — design your hat on the left. Add text, upload images, "
+        "pick colours and place them on any side. Tap 'Done designing' when you're "
+        "happy, or tell me here if you'd rather describe what you want."
+    ),
+    "ask_change_method": (
+        "Sure! Would you like to reopen the canvas and tweak it yourself, or just "
+        "describe the change here and I'll pass it to the team?"
+    ),
+    "ask_notes": (
+        "Almost there! Any final notes for our team before I generate your design — "
+        "special requests, colours to match, deadlines? If not, tap 'No, generate'."
+    ),
     "generating": (
-        "Putting your design together now — I'll pop it in your inbox and "
-        "on-screen the moment it's ready."
+        "Putting your design together now — I'll send it to your inbox the "
+        "moment it's ready."
     ),
     "ask_email": "What's the best email address to send your design to?",
     "verify_email": (
@@ -590,6 +648,13 @@ PREVIEW_EMAIL_IMAGE_BLOCK = """\
               <div style="margin-top:10px;font-size:10px;color:#9e9eab;">{caption}</div>
             </td></tr>
           </table>
+        </td></tr>"""
+
+# Section heading between the two image groups ("Your design" / "On the real
+# hat"). {title} is HTML-escaped by the caller.
+PREVIEW_EMAIL_SECTION_HEADER = """\
+        <tr><td style="padding:28px 32px 0 32px;">
+          <div style="font-size:15px;font-weight:700;color:#1a1a2e;letter-spacing:0.2px;">{title}</div>
         </td></tr>"""
 
 FINAL_DESIGN_EMAIL_SUBJECT = "Your updated MadHats design 🎉"

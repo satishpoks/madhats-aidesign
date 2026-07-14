@@ -1,4 +1,10 @@
-"""Watermarking — stamps a 'MADHATS PREVIEW ONLY' overlay onto generated images.
+"""Watermarking — stamps a single diagonal text line onto generated images.
+
+One line of configurable text runs bottom-left → top-right across the image,
+semi-transparent with a subtle contrasting outline so it stays readable on both
+light and dark artwork. Cleaner and more legible than a tiled repeat. The text
+is configurable from the admin panel (``watermark_text`` app setting); callers
+pass it in.
 
 The clean (unwatermarked) image is kept internally; only the watermarked version
 is ever shown to or emailed to the customer.
@@ -6,10 +12,11 @@ is ever shown to or emailed to the customer.
 from __future__ import annotations
 
 import io
+import math
 
 from PIL import Image, ImageDraw, ImageFont
 
-_TEXT = "MADHATS PREVIEW ONLY"
+_DEFAULT_TEXT = "MADHATS PREVIEW"
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -21,36 +28,51 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def apply_watermark(image_bytes: bytes) -> bytes:
-    """Return PNG bytes of the image with a diagonal tiled watermark."""
+def _text_width(text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, stroke: int) -> int:
+    probe = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+    left, _t, right, _b = probe.textbbox((0, 0), text, font=font, stroke_width=stroke)
+    return max(1, right - left)
+
+
+def apply_watermark(image_bytes: bytes, text: str | None = None) -> bytes:
+    """Return PNG bytes of the image with a single diagonal text watermark.
+
+    ``text`` is the configurable watermark string (falls back to a default when
+    empty/None). The line runs bottom-left → top-right and is sized to span most
+    of the image's diagonal.
+    """
+    text = (text or "").strip() or _DEFAULT_TEXT
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     w, h = base.size
+    diagonal = math.hypot(w, h)
+
+    # Size the font so the text spans ~88% of the diagonal: measure at a probe
+    # size, then scale. Cap the height so a short string doesn't become huge.
+    probe_size = 100
+    probe_stroke = max(1, probe_size // 24)
+    probe_w = _text_width(text, _load_font(probe_size), probe_stroke)
+    size = int(probe_size * (diagonal * 0.88) / probe_w)
+    size = max(14, min(size, int(min(w, h) * 0.6)))
+    font = _load_font(size)
+    stroke = max(1, size // 22)
+
+    # Render the text once onto its own tightly-cropped tile.
+    left, top, right, bottom = ImageDraw.Draw(Image.new("RGBA", (10, 10))).textbbox(
+        (0, 0), text, font=font, stroke_width=stroke
+    )
+    tw, th = right - left, bottom - top
+    tile = Image.new("RGBA", (tw + 2 * stroke, th + 2 * stroke), (0, 0, 0, 0))
+    ImageDraw.Draw(tile).text(
+        (stroke - left, stroke - top), text, font=font,
+        fill=(255, 255, 255, 125), stroke_width=stroke, stroke_fill=(0, 0, 0, 95),
+    )
+
+    # Rotate to run bottom-left → top-right (PIL rotates counter-clockwise).
+    angle = math.degrees(math.atan2(h, w))
+    rotated = tile.rotate(angle, expand=True, resample=Image.BICUBIC)
 
     overlay = Image.new("RGBA", base.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-
-    font_size = max(18, w // 18)
-    font = _load_font(font_size)
-
-    # tile the text across a larger canvas, then rotate it diagonally
-    tile = Image.new("RGBA", (w * 2, h * 2), (0, 0, 0, 0))
-    tdraw = ImageDraw.Draw(tile)
-    step_x = font_size * 12
-    step_y = font_size * 4
-    for y in range(0, h * 2, step_y):
-        for x in range(0, w * 2, step_x):
-            tdraw.text((x, y), _TEXT, font=font, fill=(255, 255, 255, 70))
-
-    tile = tile.rotate(30, expand=False)
-    # centre-crop the rotated tile back to the base size
-    left = (tile.width - w) // 2
-    top = (tile.height - h) // 2
-    tile = tile.crop((left, top, left + w, top + h))
-    overlay = Image.alpha_composite(overlay, tile)
-
-    # corner badge for an unmistakable single mark
-    badge_font = _load_font(max(14, w // 28))
-    draw.text((12, h - max(14, w // 28) - 14), _TEXT, font=badge_font, fill=(255, 255, 255, 180))
+    overlay.alpha_composite(rotated, ((w - rotated.width) // 2, (h - rotated.height) // 2))
 
     result = Image.alpha_composite(base, overlay).convert("RGB")
     out = io.BytesIO()

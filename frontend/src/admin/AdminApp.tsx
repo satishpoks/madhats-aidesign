@@ -9,6 +9,8 @@ import { StoresView } from './views/StoresView'
 import { HatTypesView } from './views/HatTypesView'
 import { HatTypeWizard } from './views/HatTypeWizard'
 import { HatTypeEditView } from './views/HatTypeEditView'
+import { GraphicsView } from './views/GraphicsView'
+import { DecorationTypesView } from './views/DecorationTypesView'
 import { OpsView } from './views/OpsView'
 import { LeadsView } from './views/LeadsView'
 import { LeadDetailView } from './views/LeadDetailView'
@@ -39,6 +41,8 @@ export default function AdminApp() {
           <Route path="hat-types/new" element={<HatTypeWizard />} />
           <Route path="hat-types" element={<HatTypesView />} />
           <Route path="hat-types/:id" element={<HatTypeEditView />} />
+          <Route path="graphics" element={<GraphicsView />} />
+          <Route path="decoration-types" element={<DecorationTypesView />} />
           <Route path="ops" element={<OpsView />} />
           <Route path="settings" element={<SettingsView />} />
         </Route>

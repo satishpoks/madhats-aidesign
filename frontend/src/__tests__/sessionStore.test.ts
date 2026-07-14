@@ -23,6 +23,11 @@ vi.mock('../lib/api', () => ({
     placement_zones: ['front'],
     decoration_types: ['embroidery'],
   } satisfies Product),
+  createCanvasSession: vi.fn().mockResolvedValue({
+    session_id: 'canvas-sess-1',
+    share_token: 'canvas-tok-1',
+    state: 'canvas_design',
+  }),
   getSession: vi.fn().mockResolvedValue({
     session_id: 'sess-resume-1',
     share_token: 'tok-resume-1',
@@ -69,6 +74,7 @@ beforeEach(() => {
     productRef: null,
     entryContext: null,
     view: 'picker',
+    blankColourways: [],
   })
 })
 
@@ -145,6 +151,26 @@ describe('startBlankSession', () => {
   })
 })
 
+describe('startCanvasBlankSession', () => {
+  const mockHatType = {
+    id: 'hat-1',
+    slug: 'five-panel',
+    name: '5-Panel',
+    style: 'flat',
+    view_images: { front: 'https://example.com/blank-front.png', back: 'https://example.com/blank-back.png' },
+    colours: [{ name: 'Black', hex: '#000000' }, { name: 'Red', hex: '#c00202' }],
+    placement_zones: ['front_panel'],
+    decoration_types: ['print'],
+  }
+
+  it('populates blankColourways from the hat type colours (swatch row for blank canvas sessions)', async () => {
+    await useSessionStore.getState().startCanvasBlankSession(mockHatType)
+    const { blankColourways, view } = useSessionStore.getState()
+    expect(view).toBe('canvas')
+    expect(blankColourways).toEqual([{ name: 'Black', hex: '#000000' }, { name: 'Red', hex: '#c00202' }])
+  })
+})
+
 describe('bootstrapFromUrl', () => {
   it('does nothing when product_id is absent from URL', async () => {
     // jsdom URL defaults to about:blank — no query params
@@ -153,13 +179,13 @@ describe('bootstrapFromUrl', () => {
     expect(useSessionStore.getState().sessionId).toBeNull()
   })
 
-  it('starts a session when product_id is present in URL', async () => {
+  it('starts a canvas session when product_id is present in URL', async () => {
     Object.defineProperty(window, 'location', {
       value: { search: '?product_id=prod-1&source=shopify' },
       writable: true,
     })
     await useSessionStore.getState().bootstrapFromUrl()
-    expect(useSessionStore.getState().view).toBe('session')
+    expect(useSessionStore.getState().view).toBe('canvas')
     // Restore
     Object.defineProperty(window, 'location', {
       value: { search: '' },
@@ -209,6 +235,53 @@ describe('bootstrapFromUrl', () => {
     Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
   })
 
+  it('resumes a BLANK session using the ref angles without hitting /products (regression)', async () => {
+    const { getSession, fetchProduct } = await import('../lib/api')
+    vi.mocked(getSession).mockResolvedValueOnce({
+      session_id: 'blank-resume-1',
+      share_token: 'blank-tok-resume',
+      state: 'ask_more_elements',
+      channel: 'web',
+      entry_path: 'blank',
+      product_ref: {
+        product_id: 'hat-type-uuid', // a hat_type id, NOT a catalogue product
+        name: 'Tucker',
+        style: 'tucker',
+        colour: '',
+        reference_image_url: 'http://api/media/front-tok',
+        view_images: {
+          front: 'http://api/media/front-tok',
+          back: 'http://api/media/back-tok',
+          left: 'http://api/media/left-tok',
+          right: 'http://api/media/right-tok',
+        },
+      },
+      collected: { flow_mode: 'blank', hat_colour: { hex: '#c00202', name: '#c00202' } },
+      status: 'draft',
+      messages: [],
+      data: { tint_ready: true, tint_hex: '#c00202' },
+    } as never)
+    vi.mocked(fetchProduct).mockClear()
+
+    Object.defineProperty(window, 'location', {
+      value: { search: '?session=blank-tok-resume' },
+      writable: true,
+    })
+    await useSessionStore.getState().bootstrapFromUrl()
+
+    const s = useSessionStore.getState()
+    expect(s.productRef?.view_images.front).toBe('http://api/media/front-tok')
+    expect(s.productRef?.view_images.back).toBe('http://api/media/back-tok')
+    expect(s.productRef?.reference_image_url).toBe('http://api/media/front-tok')
+    // Must NOT call /products with a hat_type id (that 404s and wiped the viewer).
+    expect(vi.mocked(fetchProduct)).not.toHaveBeenCalled()
+    // The tint signal is restored so the colour overlay re-composites on resume.
+    expect(useChatStore.getState().tintReady).toBe(true)
+    expect(useChatStore.getState().tintHex).toBe('#c00202')
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
+  })
+
   it('warns via console.warn when bootstrap fails so broken embed URLs are diagnosable', async () => {
     const { fetchProduct } = await import('../lib/api')
     vi.mocked(fetchProduct).mockRejectedValueOnce(new Error('Backend down'))
@@ -226,6 +299,51 @@ describe('bootstrapFromUrl', () => {
     expect(useSessionStore.getState().view).toBe('picker')
 
     warnSpy.mockRestore()
+    Object.defineProperty(window, 'location', {
+      value: { search: '' },
+      writable: true,
+    })
+  })
+
+  it('creates only ONE canvas session when called twice concurrently (StrictMode double-effect)', async () => {
+    // Regression: React StrictMode fires the bootstrap effect twice on mount.
+    // Both calls raced through startCanvasSession, creating TWO sessions; the
+    // active sessionId ended up on the un-kicked-off one, so the user's first
+    // message hit its GREETING kickoff and the name was asked a second time.
+    const { createCanvasSession } = await import('../lib/api')
+    vi.mocked(createCanvasSession).mockClear()
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=prod-1' },
+      writable: true,
+    })
+
+    const store = useSessionStore.getState()
+    // Fire both without awaiting the first — mirrors the concurrent double-effect.
+    await Promise.all([store.bootstrapFromUrl(), store.bootstrapFromUrl()])
+
+    expect(vi.mocked(createCanvasSession)).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
+  })
+
+  it('bootstrapFromUrl with ?product_id starts a canvas session', async () => {
+    const api = await import('../lib/api')
+    vi.spyOn(api, 'fetchProduct').mockResolvedValue({
+      id: 'p1', style: 's', colour: 'navy', name: 'Cap', reference_image_url: 'http://x/f.png',
+      view_images: { front: 'http://x/f.png' }, placement_zones: [], decoration_types: [],
+    } as never)
+    vi.spyOn(api, 'createCanvasSession').mockResolvedValue({ session_id: 's1', share_token: 't', state: 'canvas_design' } as never)
+    // NOTE: this file's other tests shadow window.location with a plain object via
+    // Object.defineProperty, which breaks history.pushState's link to window.location —
+    // follow the same convention here rather than pushState (matches brief intent: the
+    // store reads window.location.search).
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=p1' },
+      writable: true,
+    })
+    const { useSessionStore } = await import('../store/sessionStore')
+    await useSessionStore.getState().bootstrapFromUrl()
+    expect(useSessionStore.getState().view).toBe('canvas')
     Object.defineProperty(window, 'location', {
       value: { search: '' },
       writable: true,

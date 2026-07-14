@@ -294,3 +294,34 @@ def test_customise_mode_prompt_unchanged():
     prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
     # customise mode still forbids recolour (fidelity-locked base prompt)
     assert "Do NOT recolour" in prompt
+
+
+# --- canvas-blank recolour variant (flow_mode == "canvas" + canvas_blank) ---
+
+def test_canvas_blank_session_uses_blank_template_and_colour():
+    """A canvas session created from a HAT TYPE (collected['canvas_blank'] is
+    True) must use the same recolour-capable IMAGE_GEN_PROMPT_BLANK template as
+    the chat blank flow — not the colour-locked customise template."""
+    collected = {
+        "flow_mode": "canvas",
+        "canvas_blank": True,
+        "hat_colour": {"name": "Navy", "hex": "#1e3a8a"},
+        "elements": [{"type": "text", "content": "GO"}],
+    }
+    ref = {"reference_image_url": "b/front.png", "colour": ""}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    assert "KEEP THE CAP SHAPE EXACTLY, RECOLOUR THE BODY" in prompt
+    assert "Navy" in prompt
+
+
+def test_canvas_customise_session_keeps_colour_locked_template():
+    """A canvas session created from a PRODUCT (no canvas_blank marker) must
+    stay on the colour-locked customise template, unchanged."""
+    collected = {
+        "flow_mode": "canvas",
+        "elements": [{"type": "text", "content": "GO"}],
+    }
+    ref = {"reference_image_url": "p/front.png", "colour": "Black"}
+    prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
+    assert "KEEP THE CAP SHAPE EXACTLY, RECOLOUR THE BODY" not in prompt
+    assert "Do NOT recolour" in prompt

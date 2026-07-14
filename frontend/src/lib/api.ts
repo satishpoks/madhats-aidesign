@@ -203,6 +203,17 @@ export function listHatTypes(): Promise<HatType[]> {
   return request<HatType[]>('/hat-types')
 }
 
+/** List the active graphics library (clipart / company) for the current store. */
+export function listGraphics(category?: 'clipart' | 'company'): Promise<import('./types').Graphic[]> {
+  const q = category ? `?category=${category}` : ''
+  return request<import('./types').Graphic[]>(`/graphics${q}`)
+}
+
+/** List the active decoration types (embroidery/print/…) for the current store. */
+export function getDecorationTypes(): Promise<{ id: string; name: string }[]> {
+  return request<{ id: string; name: string }[]>('/decoration-types')
+}
+
 /** Create a new design session for a blank hat type (no product photo).
  *  Colour is optional — the customer now chooses it in chat (after quantity),
  *  so the landing picker only selects the hat type. */
@@ -224,5 +235,44 @@ export function postComposite(
 ): Promise<{ views: Record<string, string>; error?: string }> {
   return request<{ views: Record<string, string>; error?: string }>(`/composite/${sessionId}`, {
     method: 'POST',
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Canvas flow: session creation, layout uploads, finalization
+// ---------------------------------------------------------------------------
+
+export function createCanvasSession(
+  opts: { productId?: string; hatTypeId?: string; colour?: HatColour },
+): Promise<CreateSessionResponse> {
+  const body: Record<string, unknown> = {}
+  if (opts.productId) body.product_id = opts.productId
+  if (opts.hatTypeId) body.hat_type_id = opts.hatTypeId
+  if (opts.colour) body.colour = opts.colour
+  return request<CreateSessionResponse>('/sessions/canvas', {
+    method: 'POST', body: JSON.stringify(body),
+  })
+}
+
+export function uploadCanvasLayouts(
+  sessionId: string, layouts: { face: string; file: File }[],
+  kind: 'layout' | 'preview' = 'layout',
+): Promise<{ views: Record<string, string> }> {
+  const fd = new FormData()
+  for (const { face, file } of layouts) {
+    fd.append('faces', face)
+    fd.append('files', file)
+  }
+  fd.append('kind', kind)
+  return request<{ views: Record<string, string> }>(`/sessions/${sessionId}/canvas-layouts`, {
+    method: 'POST', body: fd,
+  })
+}
+
+export function finalizeCanvas(
+  sessionId: string, body: { canvas_design: unknown; email?: string; name?: string },
+): Promise<ChatResponse> {
+  return request<ChatResponse>(`/sessions/${sessionId}/canvas-finalize`, {
+    method: 'POST', body: JSON.stringify(body),
   })
 }

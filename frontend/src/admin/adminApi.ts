@@ -85,6 +85,31 @@ export interface PromptPreview {
 
 export type BackfillResult = Record<string, unknown>
 
+export interface GenerationJob {
+  job_id: string
+  session_id: string
+  tier: string
+  status: string
+  model: string | null
+  error: string | null
+  attempts: number
+  created_at: string
+  age_seconds: number
+  stalled: boolean
+}
+
+export interface GenerationJobs {
+  summary: { pending: number; stalled: number; failed: number; complete: number }
+  stuck_minutes: number
+  items: GenerationJob[]
+}
+
+export interface ReapResult {
+  reaped: number
+  retried: number
+  gave_up: number
+}
+
 /**
  * Authenticated request: attaches the stored X-Admin-Secret; logs out on 401/403.
  * `storeKey`, when passed, is sent as X-Store-Key — used only by the hat-type
@@ -167,6 +192,17 @@ export function backfillDeliveries(limit: number, maxAgeHours: number): Promise<
     `/admin/deliveries/backfill?limit=${limit}&max_age_hours=${maxAgeHours}`,
     { method: 'POST' },
   )
+}
+
+export function listGenerations(status?: string, limit = 50): Promise<GenerationJobs> {
+  const params = new URLSearchParams({ limit: String(limit) })
+  if (status) params.set('status', status)
+  return request<GenerationJobs>(`/admin/generations?${params.toString()}`)
+}
+
+export function reapStuck(stuckMinutes?: number): Promise<ReapResult> {
+  const q = stuckMinutes != null ? `?stuck_minutes=${stuckMinutes}` : ''
+  return request<ReapResult>(`/admin/generations/reap-stuck${q}`, { method: 'POST' })
 }
 
 // ---------------------------------------------------------------------------
@@ -338,6 +374,7 @@ export interface StudioSettings {
   regen_edits_per_session: number
   designs_per_customer_per_day: number
   faq_knowledge: string
+  watermark_text: string
 }
 
 export function getSettings(): Promise<StudioSettings> {
@@ -432,4 +469,91 @@ export async function uploadHatAngle(
     throw new ApiError(res.status, detail)
   }
   return res.json() as Promise<{ blank_view_images: Record<string, string>; view_images: Record<string, string> }>
+}
+
+// ---------------------------------------------------------------------------
+// Decoration types: methods offered to customers after they design
+// (embroidery, print, …) — store-scoped
+// ---------------------------------------------------------------------------
+
+export interface AdminDecorationType {
+  id: string
+  name: string
+  active: boolean
+  sort_order: number
+}
+
+export function listDecorationTypes(storeKey: string): Promise<AdminDecorationType[]> {
+  return request<AdminDecorationType[]>('/admin/decoration-types', {}, storeKey)
+}
+
+export function createDecorationType(name: string, storeKey: string): Promise<AdminDecorationType> {
+  return request<AdminDecorationType>('/admin/decoration-types', {
+    method: 'POST', body: JSON.stringify({ name }),
+  }, storeKey)
+}
+
+export function deleteDecorationType(id: string, storeKey: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/decoration-types/${id}`, { method: 'DELETE' }, storeKey)
+}
+
+// ---------------------------------------------------------------------------
+// Graphics library: admin-managed clipart + company graphics (store-scoped)
+// ---------------------------------------------------------------------------
+
+export type GraphicCategory = 'clipart' | 'company'
+
+export interface AdminGraphic {
+  id: string
+  category: GraphicCategory
+  name: string
+  active: boolean
+  sort_order: number
+  url: string
+}
+
+export function listGraphics(storeKey: string, category?: GraphicCategory): Promise<AdminGraphic[]> {
+  const q = category ? `?category=${category}` : ''
+  return request<AdminGraphic[]>(`/admin/graphics${q}`, {}, storeKey)
+}
+
+export function deleteGraphic(id: string, storeKey: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/graphics/${id}`, { method: 'DELETE' }, storeKey)
+}
+
+/** Upload a graphic (multipart) — like uploadHatAngle, the browser sets the boundary. */
+export async function uploadGraphic(
+  category: GraphicCategory,
+  name: string,
+  file: File,
+  storeKey: string,
+): Promise<AdminGraphic> {
+  const secret = getSecret()
+  if (secret === null) {
+    logout()
+    throw new ApiError(401, 'Not authenticated')
+  }
+  const form = new FormData()
+  form.append('category', category)
+  form.append('name', name)
+  form.append('file', file)
+  const res = await fetch(`${BASE_URL}/admin/graphics`, {
+    method: 'POST',
+    headers: { 'X-Admin-Secret': secret, 'X-Store-Key': storeKey },
+    body: form,
+  })
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      logout()
+    }
+    let detail = res.statusText
+    try {
+      const json = (await res.json()) as { detail?: string; message?: string }
+      detail = json.detail ?? json.message ?? detail
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<AdminGraphic>
 }

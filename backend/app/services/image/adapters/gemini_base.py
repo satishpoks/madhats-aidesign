@@ -50,6 +50,19 @@ _PRIOR_DESIGN_LABEL = (
     "below; keep every other detail identical. It does NOT change the output "
     "shape or aspect ratio — those come only from the FIRST image."
 )
+_LAYOUT_GUIDE_LABEL = (
+    "LAYOUT GUIDE — a flat placement card on a plain NEUTRAL-GREY background "
+    "showing ONLY the customer's decorations at the exact position, size, colour "
+    "and rotation they placed them (light AND dark decorations alike — a white "
+    "decoration on the grey card is a real white decoration you MUST render). It "
+    "is a 2D placement reference, NOT the product, NOT a background, and NOT the "
+    "output. Use it SOLELY to position, scale and colour each decoration on the "
+    "cap; ignore the grey card itself. Do NOT copy its flat appearance and never "
+    "return it. Re-render every decoration PHOTOREALISTICALLY onto the FIRST "
+    "image, following the cap fabric's curvature, perspective, lighting and "
+    "texture so it looks physically applied. The output's product, shape, angle, "
+    "framing, background and aspect ratio come ONLY from the FIRST image."
+)
 
 
 async def _fetch_bytes(url: str) -> tuple[bytes, str]:
@@ -108,6 +121,32 @@ def _to_square_logo(image_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
+# Neutral mid-grey the layout guide is flattened onto before it's sent to the
+# model. The guide is a decorations-only PNG with a transparent background; if we
+# sent it transparent, the model (which flattens alpha onto white) would lose any
+# WHITE or light decoration — a white text element vanished entirely
+# (session 3zftLzunVKZQCPvS5eNUNw). Compositing onto mid-grey keeps both light and
+# dark decorations visible for placement without looking like a product photo.
+_GUIDE_BG = (128, 128, 128)
+
+
+def _flatten_guide_on_grey(image_bytes: bytes) -> bytes:
+    """Composite a (possibly transparent) layout-guide PNG onto neutral grey.
+
+    Guarantees light/white decorations stay visible when the model flattens the
+    image, so their placement isn't silently dropped. Returns the input unchanged
+    if it can't be decoded (never break generation on this)."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    except Exception:  # noqa: BLE001
+        return image_bytes
+    canvas = Image.new("RGBA", img.size, (*_GUIDE_BG, 255))
+    canvas.alpha_composite(img)
+    out = io.BytesIO()
+    canvas.convert("RGB").save(out, format="PNG")
+    return out.getvalue()
+
+
 def _normalise_output(image_bytes: bytes) -> bytes:
     """Force the generated image to an exact ``_OUTPUT_SIZE`` square PNG on white.
 
@@ -158,6 +197,7 @@ class _GeminiAdapter(ImageProvider):
         uploaded_asset_url: str | None,
         params: GenerationParams,
         prior_design_url: str | None = None,
+        layout_guide_url: str | None = None,
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required — never generate a cap from scratch")
@@ -199,6 +239,21 @@ class _GeminiAdapter(ImageProvider):
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
             except httpx.HTTPError:
                 log.warning("logo_fetch_failed", tier=self.tier)
+
+        # Layout guide (canvas flow): the flattened canvas showing where the
+        # customer placed each decoration. Conditioning is still the real photo
+        # (FIRST image); this only guides placement. Fetch + attach like the
+        # other image inputs above — same helper, same append pattern.
+        if layout_guide_url:
+            try:
+                guide_bytes, _ = await _fetch_bytes(layout_guide_url)
+                # Flatten onto neutral grey so light/white decorations stay
+                # visible (a transparent guide loses them when alpha is dropped).
+                guide_bytes = _flatten_guide_on_grey(guide_bytes)
+                contents.append(_LAYOUT_GUIDE_LABEL)
+                contents.append({"mime_type": "image/png", "data": guide_bytes})
+            except httpx.HTTPError:
+                log.warning("layout_guide_fetch_failed", tier=self.tier)
 
         contents.append(prompt)
 
