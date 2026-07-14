@@ -14,6 +14,10 @@ class CreateStoreRequest(BaseModel):
     brand: dict = Field(default_factory=dict)
 
 
+class UpdateStoreRequest(BaseModel):
+    brand: dict | None = None
+
+
 class StoreResponse(BaseModel):
     id: str
     slug: str

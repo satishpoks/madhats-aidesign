@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_admin
 from app.db import get_supabase
-from app.models.store import CreateStoreRequest, StoreResponse, SyncResponse
+from app.models.store import CreateStoreRequest, StoreResponse, SyncResponse, UpdateStoreRequest
+from app.services.branding import validate_brand
 from app.services.catalogue_sync import sync_store_catalogue
 
 router = APIRouter(tags=["admin-stores"], dependencies=[Depends(require_admin)])
@@ -70,3 +71,30 @@ async def sync_store(store_id: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         log.error("catalogue_sync_failed", store_id=store_id, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Catalogue sync failed: {exc}") from exc
+
+
+@router.get("/admin/stores/{store_id}")
+async def get_store_admin(store_id: str) -> dict:
+    sb = get_supabase()
+    res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Store not found")
+    return res.data[0]
+
+
+@router.patch("/admin/stores/{store_id}")
+async def update_store(store_id: str, body: UpdateStoreRequest) -> dict:
+    sb = get_supabase()
+    patch: dict = {}
+    if body.brand is not None:
+        try:
+            patch["brand"] = validate_brand(body.brand)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not patch:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    res = sb.table("stores").update(patch).eq("id", store_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Store not found")
+    log.info("store_branding_updated", store_id=store_id)  # no PII
+    return res.data[0]
