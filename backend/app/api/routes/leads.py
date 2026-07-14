@@ -49,7 +49,26 @@ async def send_verification(body: VerifySendRequest) -> dict:
     res = sb.table("leads").select("*").eq("id", body.lead_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
-    leads_service.send_verification(res.data[0])
+    lead = res.data[0]
+
+    # Derive the store from the lead's session so a resent verification email
+    # is themed the same as the initial one (capture_lead_and_verify already
+    # does this). Falls back to None (MadHats defaults) if the session or its
+    # store_id is missing — never crash the resend over branding.
+    store = None
+    sess = (
+        sb.table("design_sessions")
+        .select("store_id")
+        .eq("id", lead["session_id"])
+        .limit(1)
+        .execute()
+    )
+    if sess.data and sess.data[0].get("store_id"):
+        from app.services.stores import get_store
+
+        store = get_store(sess.data[0]["store_id"])
+
+    leads_service.send_verification(lead, store)
     return {"sent": True}
 
 
