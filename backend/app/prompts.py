@@ -683,9 +683,8 @@ PREVIEW_EMAIL_HTML = """\
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-        <tr><td style="background:#ff5c00;padding:14px 24px;">
-          <div style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
-          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        <tr><td style="background:$primary_colour;padding:14px 24px;">
+          $header_html
         </td></tr>
         <tr><td style="padding:28px 32px 0 32px;">
           <div style="font-size:20px;font-weight:bold;color:#1a1a2e;">Hi $name,</div>
@@ -700,17 +699,17 @@ $images_block
           <p style="font-size:13px;color:#6b6b80;margin:8px 0 0 0;">Choose an option below — our team is ready to help.</p>
         </td></tr>
         <tr><td style="padding:20px 32px 0 32px;">
-          <a href="$quote_url" style="display:block;background:#ff5c00;color:#ffffff;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:16px;border-radius:10px;box-shadow:0 4px 12px rgba(255,92,0,0.35);">&#10003;&nbsp;&nbsp;Yes, I love it — request a quote</a>
+          <a href="$quote_url" style="display:block;background:$primary_colour;color:#ffffff;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:16px;border-radius:10px;box-shadow:0 4px 12px rgba(255,92,0,0.35);">&#10003;&nbsp;&nbsp;Yes, I love it — request a quote</a>
         </td></tr>
         <tr><td style="padding:12px 32px 0 32px;">
-          <a href="$edit_url" style="display:block;background:#ffffff;border:1.5px solid #ff5c00;color:#bf2e00;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:14px;border-radius:10px;">&#9998;&nbsp;&nbsp;I'd like to make some edits</a>
+          <a href="$edit_url" style="display:block;background:#ffffff;border:1.5px solid $primary_colour;color:#bf2e00;text-decoration:none;text-align:center;font-weight:bold;font-size:15px;padding:14px;border-radius:10px;">&#9998;&nbsp;&nbsp;I'd like to make some edits</a>
         </td></tr>
         <tr><td style="padding:12px 32px 0 32px;">
           <a href="$talk_url" style="display:block;background:#f3f4f6;border:1px solid #e0e1ea;color:#6b6b80;text-decoration:none;text-align:center;font-size:13px;padding:14px;border-radius:10px;">&#128172;&nbsp;&nbsp;Talk to our team for more customisation options</a>
         </td></tr>
         <tr><td style="padding:24px 32px 28px 32px;">
           <hr style="border:none;border-top:1px solid #e0e1ea;margin:0 0 16px 0;" />
-          <div style="font-size:12px;color:#9e9eab;">— Ricardo, MadHats AI Design Studio</div>
+          <div style="font-size:12px;color:#9e9eab;">— Ricardo, $store_name AI Design Studio</div>
         </td></tr>
       </table>
     </td></tr>
