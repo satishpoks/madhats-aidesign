@@ -25,7 +25,7 @@ describe('BrandingView', () => {
   it('loads and shows the store primary colour', async () => {
     renderView()
     await waitFor(() => expect(api.getStore).toHaveBeenCalledWith('s1'))
-    expect(await screen.findByDisplayValue('#123456')).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'primary_colour' })).toHaveValue('#123456')
   })
 
   it('blocks a 6th menu item', async () => {

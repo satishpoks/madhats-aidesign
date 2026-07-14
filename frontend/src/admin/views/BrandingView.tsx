@@ -7,6 +7,7 @@ import { useStores } from './hatTypes/shared'
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const MAX_MENU = 5
+const MAX_LABEL_LEN = 40
 
 function validate(brand: Brand): string | null {
   for (const [k, v] of Object.entries(brand)) {
@@ -16,6 +17,7 @@ function validate(brand: Brand): string | null {
   }
   for (const m of brand.menu_items ?? []) {
     if (!m.label.trim()) return 'Every menu item needs a label'
+    if (m.label.trim().length > MAX_LABEL_LEN) return 'Menu labels must be 40 characters or fewer'
     if (!/^https?:\/\//i.test(m.url)) return 'Menu links must be full http(s) URLs'
   }
   return null
@@ -121,11 +123,10 @@ export function BrandingView() {
           <label key={k} className="flex flex-col gap-1 text-[12px] text-[#6b6b80]">
             {k.replace('_', ' ')}
             <span className="flex items-center gap-2">
-              <span
-                aria-hidden="true"
-                className="h-8 w-10 rounded border border-[#e0e1ea]"
-                style={{ background: HEX.test((brand[k] as string) || '') ? (brand[k] as string) : '#ffffff' }}
-              />
+              <input type="color" value={HEX.test((brand[k] as string) || '') ? (brand[k] as string) : '#ffffff'}
+                     onChange={e => setField(k, e.target.value)}
+                     aria-label={`${k} picker`}
+                     className="h-8 w-10 rounded border border-[#e0e1ea]" />
               <input type="text" value={(brand[k] as string) || ''} onChange={e => setField(k, e.target.value)}
                      aria-label={k}
                      placeholder="#RRGGBB" className="w-24 rounded border border-[#e0e1ea] px-2 py-1 text-[12px]" />
