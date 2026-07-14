@@ -6,6 +6,7 @@ import type {
   GenerationStatus,
   SessionDetailResponse,
   VerificationPollResponse,
+  Storefront,
 } from './types'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
@@ -48,6 +49,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 
   return res.json() as Promise<T>
+}
+
+/** Fetch the current store's branding + persona (GET /storefront). */
+export function getStorefront(): Promise<Storefront> {
+  return request<Storefront>('/storefront')
 }
 
 export function fetchProducts(limit = 24, offset = 0): Promise<ProductPage> {

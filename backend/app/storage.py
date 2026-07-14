@@ -69,6 +69,17 @@ def write_composite(image_bytes: bytes, content_type: str = "image/png") -> str:
     return path
 
 
+def download_asset(path: str) -> bytes | None:
+    """Download raw bytes of a stored object, or None on any failure."""
+    if not path or path.startswith("http"):
+        return None
+    try:
+        return _bucket().download(path)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("asset_download_failed", error=str(exc))
+        return None
+
+
 def generate_signed_url(path: str, ttl: int | None = None) -> str:
     """Return a signed, TTL-limited URL for a stored object."""
     if not path:

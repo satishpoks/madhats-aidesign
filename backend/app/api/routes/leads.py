@@ -49,7 +49,26 @@ async def send_verification(body: VerifySendRequest) -> dict:
     res = sb.table("leads").select("*").eq("id", body.lead_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
-    leads_service.send_verification(res.data[0])
+    lead = res.data[0]
+
+    # Derive the store from the lead's session so a resent verification email
+    # is themed the same as the initial one (capture_lead_and_verify already
+    # does this). Falls back to None (MadHats defaults) if the session or its
+    # store_id is missing — never crash the resend over branding.
+    store = None
+    sess = (
+        sb.table("design_sessions")
+        .select("store_id")
+        .eq("id", lead["session_id"])
+        .limit(1)
+        .execute()
+    )
+    if sess.data and sess.data[0].get("store_id"):
+        from app.services.stores import get_store
+
+        store = get_store(sess.data[0]["store_id"])
+
+    leads_service.send_verification(lead, store)
     return {"sent": True}
 
 
@@ -154,7 +173,7 @@ def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
     """
     row = (
         sb.table("design_sessions")
-        .select("collected, share_token")
+        .select("collected, share_token, store_id")
         .eq("id", session_id)
         .limit(1)
         .execute()
@@ -166,7 +185,26 @@ def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
         return
     share_token = row.data[0].get("share_token") or ""
     resume_url = f"{settings.studio_base_url}/?session={share_token}"
-    email_service.send_resume_email(lead["email"], lead.get("name") or "there", resume_url)
+
+    # Resolve the session's store so the resume email is themed the same as
+    # the initial verification/preview emails. Falls back to MadHats defaults
+    # if the session has no store_id or the lookup fails to resolve.
+    store = None
+    store_id = row.data[0].get("store_id")
+    if store_id:
+        from app.services.stores import get_store
+
+        store = get_store(store_id)
+    store_name = (store or {}).get("name") or "MadHats"
+    primary_colour = ((store or {}).get("brand") or {}).get("primary_colour") or "#ff5c00"
+
+    email_service.send_resume_email(
+        lead["email"],
+        lead.get("name") or "there",
+        resume_url,
+        store_name=store_name,
+        primary_colour=primary_colour,
+    )
     collected["resume_email_sent"] = True
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
     log.info("resume_email_sent", session_id=session_id)  # no PII

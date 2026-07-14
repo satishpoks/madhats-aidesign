@@ -425,6 +425,94 @@ def test_verify_early_sends_resume_email(monkeypatch):
     assert len(resume_calls) == 0
 
 
+def test_resume_email_uses_store_branding(monkeypatch):
+    """A themed store's resume email must carry that store's name + primary
+    colour, not the MadHats defaults — resolved from the session's store_id."""
+    from app.api.routes import leads as leads_routes
+
+    token = jwt.encode({"lead_id": "lead-1"}, settings.admin_secret, algorithm="HS256")
+    token_hash = leads_routes.leads_service.hash_token(token)
+
+    lead = _lead_row(email_verified=False, preview_email_sent=False)
+    verification = {"id": "ver-1", "token_hash": token_hash, "used_at": None}
+    session = _session_row(collected={"quantity": 24}, store_id="store-1")
+    tables = {
+        "leads": [lead],
+        "email_verifications": [verification],
+        "generations": [],  # nothing complete yet -> preview gate fails, resume fires
+        "design_sessions": [session],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    resume_calls: list = []
+
+    monkeypatch.setattr(leads_routes, "get_supabase", lambda: fake)
+    _patch_common(monkeypatch, fake, sent)
+
+    import app.services.stores as stores_mod
+
+    monkeypatch.setattr(
+        stores_mod,
+        "get_store",
+        lambda sid: {"name": "Acme Hats", "brand": {"primary_colour": "#123456"}}
+        if sid == "store-1"
+        else None,
+    )
+    monkeypatch.setattr(
+        leads_routes.email_service,
+        "send_resume_email",
+        lambda *a, **k: resume_calls.append((a, k)) or True,
+    )
+
+    import asyncio
+
+    asyncio.run(leads_routes.confirm_verification(token))
+
+    assert len(resume_calls) == 1
+    _, kwargs = resume_calls[0]
+    assert kwargs.get("store_name") == "Acme Hats"
+    assert kwargs.get("primary_colour") == "#123456"
+
+
+def test_resume_email_falls_back_to_defaults_without_store(monkeypatch):
+    """A session with no store_id (or an unresolvable store) must still send
+    the resume email, themed with MadHats defaults, never crash."""
+    from app.api.routes import leads as leads_routes
+
+    token = jwt.encode({"lead_id": "lead-1"}, settings.admin_secret, algorithm="HS256")
+    token_hash = leads_routes.leads_service.hash_token(token)
+
+    lead = _lead_row(email_verified=False, preview_email_sent=False)
+    verification = {"id": "ver-1", "token_hash": token_hash, "used_at": None}
+    session = _session_row(collected={"quantity": 24})  # store_id=None by default
+    tables = {
+        "leads": [lead],
+        "email_verifications": [verification],
+        "generations": [],
+        "design_sessions": [session],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    resume_calls: list = []
+
+    monkeypatch.setattr(leads_routes, "get_supabase", lambda: fake)
+    _patch_common(monkeypatch, fake, sent)
+    monkeypatch.setattr(
+        leads_routes.email_service,
+        "send_resume_email",
+        lambda *a, **k: resume_calls.append((a, k)) or True,
+    )
+
+    import asyncio
+
+    asyncio.run(leads_routes.confirm_verification(token))
+
+    assert len(resume_calls) == 1
+    _, kwargs = resume_calls[0]
+    assert kwargs.get("store_name") == "MadHats"
+    assert kwargs.get("primary_colour") == "#ff5c00"
+
+
 def test_preview_email_quote_url_is_quote_page(monkeypatch):
     """The preview email's 'request a quote' CTA must link to the real quote
     page (/quote/<token>), not a mailto: placeholder, and the token must decode

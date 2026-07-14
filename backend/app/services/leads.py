@@ -38,8 +38,12 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def send_verification(lead: dict) -> bool:
+def send_verification(lead: dict, store: dict | None = None) -> bool:
     """Generate a verification token, store its hash, and email the link.
+
+    ``store`` (a row from app.services.stores.get_store), when provided, brands
+    the email with the store's name and primary colour; when omitted the email
+    falls back to MadHats defaults.
 
     Returns True iff the verification email was actually dispatched to the
     provider (so a caller can re-ask a mistyped/undeliverable address)."""
@@ -59,7 +63,14 @@ def send_verification(lead: dict) -> bool:
         }
     ).execute()
     verify_url = f"{settings.email_verify_base_url}/leads/verify/{token}"
-    sent = email_service.send_verification_email(lead["email"], lead["name"], verify_url)
+    brand = (store or {}).get("brand") or {}
+    sent = email_service.send_verification_email(
+        lead["email"],
+        lead["name"],
+        verify_url,
+        store_name=(store or {}).get("name") or "MadHats",
+        primary_colour=brand.get("primary_colour") or "#ff5c00",
+    )
     log.info("verification_email_dispatched", lead_id=lead["id"], sent=bool(sent))  # no PII
     return bool(sent)
 
@@ -99,10 +110,14 @@ def capture_lead_and_verify(session: dict, collected: dict, email: str) -> tuple
     lead = res.data[0]
     log.info("lead_created", session_id=session_id)  # no PII
 
+    from app.services.stores import get_store
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+
     provider_configured = bool(settings.resend_api_key)
     sent = False
     try:
-        sent = send_verification(lead)
+        sent = send_verification(lead, store)
     except Exception as exc:  # noqa: BLE001
         log.error("verification_send_failed", session_id=session_id, error=str(exc))
 

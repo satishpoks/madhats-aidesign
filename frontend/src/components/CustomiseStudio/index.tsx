@@ -1,5 +1,6 @@
 import { useSessionStore } from '../../store/sessionStore'
 import { DesignStudioSurface } from '../DesignStudio/Surface'
+import { StoreHeader } from '../StoreHeader'
 import { ChatColumn } from './ChatColumn'
 
 /**
@@ -14,12 +15,7 @@ export function CustomiseStudio() {
 
   return (
     <div className="h-screen bg-base flex flex-col">
-      <header className="bg-surface border-b border-border px-6 py-3.5 flex items-center gap-3 flex-shrink-0">
-        <span className="text-accent font-extrabold text-lg tracking-wide">MAD HATS</span>
-        {productRef && (
-          <span className="text-sm text-textMuted truncate">{productRef.name} › Design</span>
-        )}
-      </header>
+      <StoreHeader subtitle={productRef ? `${productRef.name} › Design` : undefined} />
 
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0">

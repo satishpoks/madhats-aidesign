@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import structlog
 
-from app import prompts
+from app import prompts, storage
 from app.config import settings
 from app.db import get_supabase
 from app.services import design_summary
@@ -221,6 +221,13 @@ def maybe_send_preview(session_id: str) -> bool:
             {"title": "How it looks on the real hat", "images": preview_images},
         ]
 
+    from app.services.stores import get_store
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    brand = (store or {}).get("brand") or {}
+    store_name = (store or {}).get("name") or "MadHats"
+    logo_bytes = storage.download_asset(brand.get("logo_url")) if brand.get("logo_url") else None
+
     preview_sent = email_service.send_preview_email(
         lead["email"],
         lead["name"],
@@ -232,12 +239,12 @@ def maybe_send_preview(session_id: str) -> bool:
         image_bytes=preview_images[0]["bytes"],
         images=preview_images,
         image_groups=image_groups,
+        brand=brand,
+        store_name=store_name,
+        logo_bytes=logo_bytes,
     )
 
     if not lead.get("quote_request_sent"):
-        from app.services.stores import get_store
-
-        store = get_store(session.get("store_id")) if session.get("store_id") else None
         recipient = (store or {}).get("sales_notification_email")
         customer = {"name": lead["name"], "email": lead["email"], "phone": lead.get("phone")}
         email_service.send_quote_to_sales(customer, product, collected, clean_url, recipient=recipient)
@@ -296,8 +303,23 @@ def _mark_final_sent(lead_id: str) -> None:
 
 
 def _deliver_final(lead: dict, image_path: str) -> bool:
+    from app.services.stores import get_store
+
     url = _to_signed(image_path)
     image_bytes = _fetch_image_bytes(url)
+
+    store = None
+    session_id = lead.get("session_id")
+    if session_id:
+        session_res = (
+            get_supabase().table("design_sessions").select("store_id").eq("id", session_id).limit(1).execute()
+        )
+        store_id = session_res.data[0].get("store_id") if session_res.data else None
+        store = get_store(store_id) if store_id else None
+    brand = (store or {}).get("brand") or {}
+    store_name = (store or {}).get("name") or "MadHats"
+    logo_bytes = storage.download_asset(brand.get("logo_url")) if brand.get("logo_url") else None
+
     return email_service.send_preview_email(
         lead["email"],
         lead["name"],
@@ -308,6 +330,9 @@ def _deliver_final(lead: dict, image_path: str) -> bool:
         talk_url=f"mailto:{settings.resend_from_address}",
         image_bytes=image_bytes,
         subject=prompts.FINAL_DESIGN_EMAIL_SUBJECT,
+        brand=brand,
+        store_name=store_name,
+        logo_bytes=logo_bytes,
     )
 
 

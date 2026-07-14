@@ -63,15 +63,50 @@ def _send(to: str, subject: str, body: str) -> bool:
     return _dispatch(to, subject, html)
 
 
-def send_verification_email(to: str, name: str, verify_url: str) -> bool:
-    body = prompts.VERIFICATION_EMAIL_BODY.format(name=name, verify_url=verify_url)
-    return _send(to, prompts.VERIFICATION_EMAIL_SUBJECT, body)
+def _branded(store_name: str, primary_colour: str, body_html: str) -> str:
+    """Wrap pre-rendered safe body HTML in the store-branded transactional shell."""
+    return Template(prompts.BRANDED_EMAIL_HTML).substitute(
+        store_name=html_lib.escape(store_name or "MadHats"),
+        primary_colour=primary_colour or "#ff5c00",
+        body_html=body_html,
+    )
 
 
-def send_resume_email(to: str, name: str, resume_url: str) -> bool:
+def send_verification_email(
+    to: str,
+    name: str,
+    verify_url: str,
+    store_name: str = "MadHats",
+    primary_colour: str = "#ff5c00",
+) -> bool:
+    text = prompts.VERIFICATION_EMAIL_BODY.format(name=name, verify_url=verify_url)
+    esc = html_lib.escape(text).replace(html_lib.escape(verify_url), "")
+    body = (
+        f"<p style='white-space:pre-wrap'>{esc}</p>"
+        f"<p><a href='{html_lib.escape(verify_url, quote=True)}' "
+        f"style='display:inline-block;background:{primary_colour or '#ff5c00'};color:#fff;"
+        f"text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px;'>Verify my email</a></p>"
+    )
+    return _dispatch(to, prompts.VERIFICATION_EMAIL_SUBJECT, _branded(store_name, primary_colour, body))
+
+
+def send_resume_email(
+    to: str,
+    name: str,
+    resume_url: str,
+    store_name: str = "MadHats",
+    primary_colour: str = "#ff5c00",
+) -> bool:
     """Email a link back into the chat when the design isn't ready yet."""
-    body = prompts.RESUME_EMAIL_BODY.format(name=name, resume_url=resume_url)
-    return _send(to, prompts.RESUME_EMAIL_SUBJECT, body)
+    text = prompts.RESUME_EMAIL_BODY.format(name=name, resume_url=resume_url)
+    esc = html_lib.escape(text).replace(html_lib.escape(resume_url), "")
+    body = (
+        f"<p style='white-space:pre-wrap'>{esc}</p>"
+        f"<p><a href='{html_lib.escape(resume_url, quote=True)}' "
+        f"style='display:inline-block;background:{primary_colour or '#ff5c00'};color:#fff;"
+        f"text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px;'>Pick up where I left off</a></p>"
+    )
+    return _dispatch(to, prompts.RESUME_EMAIL_SUBJECT, _branded(store_name, primary_colour, body))
 
 
 # Content-ID for the inline preview image (referenced as cid:<this> in the HTML).
@@ -90,6 +125,9 @@ def send_preview_email(
     subject: str | None = None,
     images: list[dict] | None = None,
     image_groups: list[dict] | None = None,
+    brand: dict | None = None,
+    store_name: str = "MadHats",
+    logo_bytes: bytes | None = None,
 ) -> bool:
     """Send the branded design preview (Figma E1 template).
 
@@ -145,6 +183,35 @@ def send_preview_email(
             blocks.append(prompts.PREVIEW_EMAIL_IMAGE_BLOCK.format(src=src, caption=caption))
             idx += 1
 
+    b = brand or {}
+    primary = b.get("primary_colour") or "#ff5c00"
+    if logo_bytes:
+        logo_cid = f"{_PREVIEW_CID}-logo"
+        attachments.append(
+            {
+                "filename": "logo.png",
+                "content": base64.b64encode(logo_bytes).decode("ascii"),
+                "content_type": "image/png",
+                "content_id": logo_cid,
+            }
+        )
+        header_html = (
+            f'<img src="cid:{logo_cid}" alt="{html_lib.escape(store_name)}" '
+            'style="max-height:36px;display:block;" />'
+        )
+    else:
+        # Preserve today's exact header text ("MAD HATS", with a space) for the
+        # unbranded default rather than deriving it from store_name.upper()
+        # ("MadHats".upper() == "MADHATS", no space) — that would silently
+        # change bytes for every session with no store brand configured.
+        # Any real (non-default) store_name is upper-cased as designed.
+        display_name = "MAD HATS" if store_name == "MadHats" else store_name.upper()
+        header_html = (
+            f'<div style="font-size:22px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">'
+            f'{html_lib.escape(display_name)}</div>\n'
+            '          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>'
+        )
+
     html = Template(prompts.PREVIEW_EMAIL_HTML).substitute(
         name=html_lib.escape(name or "there"),
         brief=html_lib.escape(brief),
@@ -152,6 +219,9 @@ def send_preview_email(
         quote_url=html_lib.escape(quote_url or "#", quote=True),
         edit_url=html_lib.escape(edit_url or "#", quote=True),
         talk_url=html_lib.escape(talk_url or "#", quote=True),
+        primary_colour=primary,
+        header_html=header_html,
+        store_name=html_lib.escape(store_name),
     )
     return _dispatch(to, subject or prompts.PREVIEW_EMAIL_SUBJECT, html, attachments=attachments or None)
 

@@ -100,3 +100,26 @@ export interface Graphic {
   name: string
   url: string
 }
+
+/** A single storefront navigation/menu link. */
+export interface MenuItem {
+  label: string
+  url: string
+}
+
+/** Per-store brand config (GET /storefront). All fields optional — unset fields
+ *  keep the current MadHats Tailwind fallbacks. */
+export interface Brand {
+  logo_url?: string
+  primary_colour?: string
+  header_bg?: string
+  header_text?: string
+  menu_items?: MenuItem[]
+}
+
+/** Response shape for GET /storefront — store name, persona name, and brand config. */
+export interface Storefront {
+  name: string
+  persona_name: string
+  brand: Brand
+}
