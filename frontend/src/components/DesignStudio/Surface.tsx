@@ -51,6 +51,13 @@ export function DesignStudioSurface() {
 
   const colourways = useSessionStore(s => s.blankColourways)
 
+  // When the canvas (re)unlocks — the intro finishing, or a "Rework on the
+  // canvas" refine — clear the local rendered flag so "Done designing" is
+  // active again for another pass.
+  useEffect(() => {
+    if (unlocked) setRendered(false)
+  }, [unlocked])
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !sessionId) return

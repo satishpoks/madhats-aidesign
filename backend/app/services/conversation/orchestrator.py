@@ -422,12 +422,25 @@ async def handle_message(session_id: str, message: str) -> dict:
                 log.info("backtrack", session_id=session_id, frm=state_before, to=new_state.value)
         elif current is ConversationState.OFFER_REFINE and collected.get("wants_changes"):
             if _can_edit(session_id):
-                new_state = ConversationState.DESCRIBE_CHANGES
+                # Canvas sessions choose HOW to change first (rework on the
+                # canvas vs describe here); the legacy flow describes directly.
+                new_state = (
+                    ConversationState.ASK_CHANGE_METHOD
+                    if collected.get("flow_mode") == "canvas"
+                    else ConversationState.DESCRIBE_CHANGES
+                )
             else:
                 collected["edit_cap_reached"] = True
                 new_state = ConversationState.QUOTE_REQUESTED
         else:
             new_state = _route(current, collected, upsell_count)
+
+        # "Rework on the canvas" reopens the canvas for editing: clear the
+        # finalized flag (so the overlay unlocks) and mark the rework so
+        # canvas-finalize re-renders instead of re-running the outro questions.
+        if new_state is ConversationState.CANVAS_DESIGN and current is ConversationState.ASK_CHANGE_METHOD:
+            collected["canvas_finalized"] = False
+            collected["reworking"] = True
 
         if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
             upsell_count += 1
@@ -492,6 +505,21 @@ async def handle_message(session_id: str, message: str) -> dict:
                 new_state.value, collected, persona, aside=aside, ask_for=ask_for, ask_text=ask_text,
                 element=collected.get("pending_element"),
             )
+
+        # Canvas quote handoff: on entry to the quote ask, pose the yes/no
+        # question; on the closing turn surface the quote link (if they said
+        # yes) so the frontend can open the /quote page in a new tab.
+        if collected.get("flow_mode") == "canvas":
+            if new_state is ConversationState.QUOTE_REQUESTED:
+                reply = prompts.CANVAS_QUOTE_ASK
+            elif new_state is ConversationState.SESSION_END and current is ConversationState.QUOTE_REQUESTED:
+                if collected.get("wants_quote"):
+                    quote_url = _session_quote_url(session_id)
+                    if quote_url:
+                        collected["quote_url"] = quote_url
+                    reply = prompts.CANVAS_QUOTE_YES
+                else:
+                    reply = prompts.CANVAS_QUOTE_NO
 
     if new_state is ConversationState.QUOTE_REQUESTED:
         try:
@@ -903,6 +931,17 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
     if state is S.DESCRIBE_CHANGES:
         collected["last_change"] = message.strip()[:400]
 
+    # Change-method choice (canvas refine): rework on the canvas vs describe here.
+    if state is S.ASK_CHANGE_METHOD:
+        collected["rework_on_canvas"] = (
+            ("rework" in low or "canvas" in low or "redesign" in low or "myself" in low)
+            and "describe" not in low and "here" not in low
+        )
+
+    # Quote ask (canvas): does the customer want to request a quote?
+    if state is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        collected["wants_quote"] = is_affirmative(message) and not is_negative(message)
+
     if state is S.COMPOSITE_PREVIEW:
         collected["composite_confirmed"] = is_affirmative(message) and not is_negative(message)
     if state is S.ASK_HAT_COLOUR:
@@ -1088,6 +1127,10 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["No, that's everything"]}
     if state is S.REGENERATING:
         return {"trigger_regeneration": True}
+    # Canvas quote ask is a yes/no question (handled below), NOT a tap-through
+    # statement — so it must not fall into the statement-only block.
+    if state is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        return {"options": ["Yes, request a quote", "No, I'm all set"]}
     # Statement-only states the user taps through (no typed answer expected).
     if state in (
         S.YOUTH_REFERRAL,
@@ -1119,6 +1162,31 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         }
     if state is S.ASK_NOTES:
         return {"options": ["No, generate"]}
+    if state is S.ASK_CHANGE_METHOD:
+        return {"options": ["Rework on the canvas", "Describe the change here"]}
+    if state is S.SESSION_END and collected.get("quote_url"):
+        # The customer asked to request a quote — hand them the /quote link so
+        # the frontend can show an "Open quote form" button (opens a new tab).
+        return {"quote_url": collected["quote_url"]}
     if state is S.CANVAS_DESIGN:
         return {}
     return {}
+
+
+def _session_quote_url(session_id: str) -> str | None:
+    """Build the signed /quote/{token} link for this session's lead (the same
+    link referenced in the preview email), for the in-chat quote handoff."""
+    res = (
+        get_supabase()
+        .table("leads")
+        .select("*")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    lead = res.data[0] if res.data else None
+    if not lead:
+        return None
+    token = leads_service.make_quote_token(lead)
+    return f"{settings.email_verify_base_url}/quote/{token}"

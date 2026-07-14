@@ -30,6 +30,8 @@ interface ChatStoreState {
   multiselect: boolean
   /** ask_decoration: currently-selected decoration names. */
   selected: string[]
+  /** session_end: the /quote link to open (customer asked to request a quote). */
+  quoteUrl: string
   sending: boolean
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
@@ -74,7 +76,8 @@ function parseData(data: Record<string, unknown>) {
     : null
   const multiselect = data.multiselect === true
   const selected = Array.isArray(data.selected) ? (data.selected as string[]) : []
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected }
+  const quoteUrl = typeof data.quote_url === 'string' ? data.quote_url : ''
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl }
 }
 
 function uid(): string {
@@ -96,6 +99,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   progress: null,
   multiselect: false,
   selected: [],
+  quoteUrl: '',
   sending: false,
   chatError: null,
   kickoffDone: false,
@@ -264,6 +268,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       progress: null,
       multiselect: false,
       selected: [],
+      quoteUrl: '',
       sending: false,
       chatError: null,
       kickoffDone: false,

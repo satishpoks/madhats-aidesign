@@ -178,6 +178,7 @@ export function ChatColumn() {
   const kickoff = useChatStore(s => s.kickoff)
   const multiselect = useChatStore(s => s.multiselect)
   const selected = useChatStore(s => s.selected)
+  const quoteUrl = useChatStore(s => s.quoteUrl)
   const messagesLen = useChatStore(s => s.messages.length)
   const kickoffDone = useChatStore(s => s.kickoffDone)
 
@@ -606,6 +607,20 @@ export function ChatColumn() {
               Continue
             </button>
           </div>
+        )}
+
+        {/* Quote handoff: the customer asked to request a quote — open the
+            /quote page (same link as the email) in a new tab. A button (not an
+            auto-popup) so browsers don't block it. */}
+        {quoteUrl && (
+          <a
+            href={quoteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="self-start px-5 py-2.5 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold transition-colors"
+          >
+            Open quote form →
+          </a>
         )}
 
         {/* Option chip rows */}

@@ -116,6 +116,11 @@ STATE_PROMPTS: dict[str, str] = {
     "send_preview_email": "Let them know their design is ready and on its way to their inbox.",
     "show_design": "Tell them their design is ready (watermarked preview) and on its way to their inbox.",
     "offer_refine": "Ask if they'd like to tweak anything about the design, or if they're happy with it.",
+    "ask_change_method": (
+        "Ask HOW they'd like to make their change: either reopen the canvas to edit "
+        "the design themselves, or describe the change here for the team. Offer both, "
+        "warm, one sentence."
+    ),
     "describe_changes": (
         "Tell the customer you'll refine the design in ONE pass, so they should "
         "describe EVERYTHING they'd like changed — colours, text, size, placement, "
@@ -181,6 +186,21 @@ Extract structured design context. Respond with ONLY a JSON object:
 }}
 Use empty arrays/strings for anything not mentioned.
 """
+
+# Canvas refine → quote handoff (deterministic, not LLM-worded).
+CANVAS_QUOTE_ASK = (
+    "Love it! Would you like to request a quote for this design so our team can "
+    "finalise pricing and next steps?"
+)
+CANVAS_QUOTE_YES = (
+    "Perfect — I've opened your quote form below. Pop in the last details and our "
+    "team will take it from here. Thanks for designing with MadHats! 🎉"
+)
+CANVAS_QUOTE_NO = (
+    "No worries at all — your design's saved and in your inbox. We're here whenever "
+    "you're ready to take it further. Thanks for designing with MadHats! 🎉"
+)
+
 
 TURN_INTERPRETER_PROMPT = """You interpret one customer message in a guided cap-design chat.
 You do NOT decide what happens next — you only classify the message and extract data.
@@ -363,6 +383,10 @@ CANNED_REPLIES: dict[str, str] = {
         "You're all set — design your hat on the left. Add text, upload images, "
         "pick colours and place them on any side. Tap 'Done designing' when you're "
         "happy, or tell me here if you'd rather describe what you want."
+    ),
+    "ask_change_method": (
+        "Sure! Would you like to reopen the canvas and tweak it yourself, or just "
+        "describe the change here and I'll pass it to the team?"
     ),
     "ask_notes": (
         "Almost there! Any final notes for our team before I generate your design — "

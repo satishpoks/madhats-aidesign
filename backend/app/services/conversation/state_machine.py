@@ -38,6 +38,7 @@ class ConversationState(str, Enum):
     CANVAS_DESIGN = "canvas_design"
     ASK_DECORATION = "ask_decoration"
     ASK_NOTES = "ask_notes"
+    ASK_CHANGE_METHOD = "ask_change_method"
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
@@ -103,7 +104,8 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.EMAIL_VERIFIED: [S.SEND_PREVIEW_EMAIL],
     S.SEND_PREVIEW_EMAIL: [S.SHOW_DESIGN],
     S.SHOW_DESIGN: [S.OFFER_REFINE],
-    S.OFFER_REFINE: [S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
+    S.OFFER_REFINE: [S.ASK_CHANGE_METHOD, S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
+    S.ASK_CHANGE_METHOD: [S.CANVAS_DESIGN, S.DESCRIBE_CHANGES],
     S.DESCRIBE_CHANGES: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_FOLLOWUP: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_CONFIRM: [S.REGENERATING],
@@ -235,7 +237,17 @@ def advance_state(
 
     # --- Refine loop branch ---
     if current is S.OFFER_REFINE:
-        return S.DESCRIBE_CHANGES if collected.get("wants_changes") else S.QUOTE_REQUESTED
+        if not collected.get("wants_changes"):
+            return S.QUOTE_REQUESTED
+        # Canvas sessions first ask HOW to change (rework on the canvas vs
+        # describe here); the legacy chat flow goes straight to describe.
+        if collected.get("flow_mode") == "canvas":
+            return S.ASK_CHANGE_METHOD
+        return S.DESCRIBE_CHANGES
+
+    # --- Change-method branch (canvas): rework on the canvas or describe here ---
+    if current is S.ASK_CHANGE_METHOD:
+        return S.CANVAS_DESIGN if collected.get("rework_on_canvas") else S.DESCRIBE_CHANGES
 
     # --- Refine sub-flow: describe -> (deep-dive a new element | follow-ups) ->
     #     confirm -> regen. Adding a text/graphic/logo seeds a pending_element,
@@ -254,6 +266,12 @@ def advance_state(
         # A newly-added element (typed at the "anything else" prompt) deep-dives
         # before we regenerate; otherwise go straight to regeneration.
         return S.ELEMENT_DEEPDIVE if collected.get("pending_element") else S.REGENERATING
+
+    # --- Quote ask (canvas): the design loop ends here. Whether or not they
+    #     want a quote, the chat closes (the quote link opens in a new tab). The
+    #     legacy chat flow keeps its upsell path (default successor). ---
+    if current is S.QUOTE_REQUESTED and collected.get("flow_mode") == "canvas":
+        return S.SESSION_END
 
     # --- Upsell branch ---
     if current is S.UPSELL_PROMPT:

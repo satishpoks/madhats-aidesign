@@ -242,11 +242,30 @@ async def finalize_canvas(
     from app.services.conversation.state_machine import ConversationState as S
     from app.services.conversation.state_machine import progress as sm_progress
 
+    persona = store.get("persona_name") or settings.chatbot_persona_name
+
+    # A REWORK ("Rework on the canvas" from the refine step) skips the outro
+    # questions (decoration/notes already answered) and re-renders straight away
+    # via the regeneration (edit) pipeline. refine_views is cleared so every
+    # decorated face re-renders from the updated canvas.
+    if collected.get("reworking"):
+        collected.pop("reworking", None)
+        collected["refine_views"] = []
+        new_state = S.REGENERATING
+        reply = await ie.generate_reply(new_state.value, collected, persona)
+        sb.table("design_sessions").update(
+            {"canvas_design": body.canvas_design, "collected": collected, "state": new_state.value}
+        ).eq("id", session_id).execute()
+        return {
+            "reply": reply,
+            "state": new_state.value,
+            "data": {"trigger_regeneration": True, "progress": sm_progress(new_state, collected)},
+        }
+
     active = deco_svc.list_types(store["id"], active_only=True)
     collected["decoration_options"] = [t["name"] for t in active]
 
     new_state = S.ASK_DECORATION
-    persona = store.get("persona_name") or settings.chatbot_persona_name
     reply = await ie.generate_reply(new_state.value, collected, persona)
 
     sb.table("design_sessions").update(
