@@ -52,3 +52,59 @@ def test_patch_rejects_invalid_brand(client):
         headers={"X-Admin-Secret": "z"},
     )
     assert r.status_code == 400
+
+
+def test_patch_preserves_logo_url_when_omitted(monkeypatch):
+    """A PATCH that sends only a colour must not wipe brand.logo_url — the
+    frontend BrandingView intentionally omits logo_url from the PATCH body
+    and relies on the backend to merge, not replace, the brand column."""
+    app.dependency_overrides[require_admin] = lambda: None
+    row = {
+        "id": "s1",
+        "slug": "acme",
+        "name": "Acme",
+        "brand": {"logo_url": "uploads/x.png", "primary_colour": "#111"},
+    }
+    fake = _FakeTable(row)
+    monkeypatch.setattr(
+        "app.api.routes.admin_stores.get_supabase",
+        lambda: type("SB", (), {"table": lambda self, name: fake})(),
+    )
+    client = TestClient(app)
+    try:
+        r = client.patch(
+            "/admin/stores/s1",
+            json={"brand": {"primary_colour": "#00FF00"}},
+            headers={"X-Admin-Secret": "z"},
+        )
+        assert r.status_code == 200
+        brand = r.json()["brand"]
+        assert brand["primary_colour"] == "#00FF00"
+        assert brand["logo_url"] == "uploads/x.png"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_store_admin_returns_proxied_logo_url(monkeypatch):
+    """GET /admin/stores/{id} must return a displayable /media proxy URL for
+    brand.logo_url, not the raw storage path (which breaks <img src> on reload)."""
+    app.dependency_overrides[require_admin] = lambda: None
+    row = {"id": "s1", "slug": "acme", "name": "Acme", "brand": {"logo_url": "uploads/x.png"}}
+    fake = _FakeTable(row)
+    monkeypatch.setattr(
+        "app.api.routes.admin_stores.get_supabase",
+        lambda: type("SB", (), {"table": lambda self, name: fake})(),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.admin_stores.media_url",
+        lambda path, base: f"{base}media/{path}",
+    )
+    client = TestClient(app)
+    try:
+        r = client.get("/admin/stores/s1", headers={"X-Admin-Secret": "z"})
+        assert r.status_code == 200
+        assert r.json()["brand"]["logo_url"].endswith("media/uploads/x.png")
+        # the underlying row must be untouched (display-only conversion)
+        assert row["brand"]["logo_url"] == "uploads/x.png"
+    finally:
+        app.dependency_overrides.clear()

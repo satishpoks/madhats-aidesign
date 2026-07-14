@@ -76,23 +76,42 @@ async def sync_store(store_id: str) -> dict:
 
 
 @router.get("/admin/stores/{store_id}")
-async def get_store_admin(store_id: str) -> dict:
+async def get_store_admin(store_id: str, request: Request) -> dict:
     sb = get_supabase()
     res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Store not found")
-    return res.data[0]
+    row = res.data[0]
+    brand = row.get("brand") or {}
+    logo_path = brand.get("logo_url")
+    if logo_path:
+        # Display-only: convert the raw storage path to a signed /media proxy
+        # URL. Never mutate the DB row or what PATCH later receives — the
+        # frontend strips logo_url before PATCHing, so this is safe.
+        row = {**row, "brand": {**brand, "logo_url": media_url(logo_path, str(request.base_url))}}
+    return row
 
 
 @router.patch("/admin/stores/{store_id}")
 async def update_store(store_id: str, body: UpdateStoreRequest) -> dict:
     sb = get_supabase()
+    existing_res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
+    if not existing_res.data:
+        raise HTTPException(status_code=404, detail="Store not found")
+    existing = existing_res.data[0]
+
     patch: dict = {}
     if body.brand is not None:
         try:
-            patch["brand"] = validate_brand(body.brand)
+            validated = validate_brand(body.brand)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        existing_brand = dict(existing.get("brand") or {})
+        # Merge, don't replace: keys the client omits (esp. logo_url, and the
+        # internal watermark_asset_url) must survive the save. The frontend
+        # BrandingView intentionally strips logo_url from the PATCH body and
+        # relies on the backend to preserve it.
+        patch["brand"] = {**existing_brand, **validated}
     if not patch:
         raise HTTPException(status_code=400, detail="Nothing to update")
     res = sb.table("stores").update(patch).eq("id", store_id).execute()
