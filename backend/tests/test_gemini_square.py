@@ -7,7 +7,9 @@ import io
 from PIL import Image
 
 from app.services.image.adapters.gemini_base import (
+    _GUIDE_BG,
     _OUTPUT_SIZE,
+    _flatten_guide_on_grey,
     _normalise_output,
     _to_square,
     _to_square_logo,
@@ -69,3 +71,35 @@ def test_output_normalised_to_1000_square():
     img = Image.open(io.BytesIO(out))
     assert img.size == (1000, 1000)
     assert img.mode == "RGB"
+
+
+# --- layout guide: flatten onto grey so white/light decorations stay visible ---
+
+def _transparent_white_text_png(size: int = 40) -> bytes:
+    """A transparent PNG with a small block of opaque WHITE pixels (stand-in for
+    white text) — invisible on white, must survive on the grey card."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    for x in range(10, 30):
+        for y in range(10, 30):
+            img.putpixel((x, y), (255, 255, 255, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_guide_transparent_bg_becomes_grey():
+    out = _flatten_guide_on_grey(_transparent_white_text_png())
+    img = Image.open(io.BytesIO(out)).convert("RGB")
+    assert img.mode == "RGB"
+    assert img.getpixel((0, 0)) == _GUIDE_BG  # formerly-transparent corner is grey
+
+
+def test_guide_white_decoration_survives():
+    # The white pixels stay white (visible against grey) instead of vanishing.
+    out = _flatten_guide_on_grey(_transparent_white_text_png())
+    img = Image.open(io.BytesIO(out)).convert("RGB")
+    assert img.getpixel((20, 20)) == (255, 255, 255)
+
+
+def test_guide_undecodable_bytes_returned_unchanged():
+    assert _flatten_guide_on_grey(b"not an image") == b"not an image"

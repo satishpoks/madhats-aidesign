@@ -19,7 +19,7 @@ def test_text_on_front_maps_to_front_panel_element():
     assert el["type"] == "text"
     assert el["content"] == "SURF CO"
     assert el["placement_zone"] == "front_panel"
-    assert el["colour"] == "#ffffff"
+    assert el["colour"] == "white"  # #ffffff mapped to a plain name for the model
     assert el["font"] == "Impact"
     assert el["canvas"]["face"] == "front"
     assert "SURF CO" in description and "front panel" in description
@@ -123,6 +123,26 @@ def test_text_description_carries_no_pixel_dimensions():
     assert "size" not in elements[0]
     assert "px" not in description
     assert "42" not in description
+
+
+def test_text_without_colour_defaults_to_white():
+    # The canvas renders an unset text colour as white; it must be captured so it
+    # reaches the image model (an unset colour was previously dropped and the white
+    # text vanished from the render — session 3zftLzunVKZQCPvS5eNUNw).
+    design = {
+        "colourway": None,
+        "faces": {
+            "front": [{
+                "id": "e1", "type": "text", "x": 0.4, "y": 0.3,
+                "width": 0.2, "height": 0.1, "rotation": 0, "zIndex": 0,
+                "content": "Satish", "font": "Arial",
+            }],
+            "back": [], "left": [], "right": [],
+        },
+    }
+    elements, description = canvas_to_elements(design)
+    assert elements[0]["colour"] == "white"
+    assert "in white" in description
 
 
 def test_drawing_maps_to_graphic_with_stroke_colour():

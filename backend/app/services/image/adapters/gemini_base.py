@@ -51,10 +51,17 @@ _PRIOR_DESIGN_LABEL = (
     "shape or aspect ratio — those come only from the FIRST image."
 )
 _LAYOUT_GUIDE_LABEL = (
-    "LAYOUT GUIDE — the customer's flattened canvas showing where each "
-    "decoration was placed. Use it ONLY to guide placement of the elements onto "
-    "the cap; it is not the product and does NOT change the output shape, size "
-    "or aspect ratio — those come only from the FIRST image."
+    "LAYOUT GUIDE — a flat placement card on a plain NEUTRAL-GREY background "
+    "showing ONLY the customer's decorations at the exact position, size, colour "
+    "and rotation they placed them (light AND dark decorations alike — a white "
+    "decoration on the grey card is a real white decoration you MUST render). It "
+    "is a 2D placement reference, NOT the product, NOT a background, and NOT the "
+    "output. Use it SOLELY to position, scale and colour each decoration on the "
+    "cap; ignore the grey card itself. Do NOT copy its flat appearance and never "
+    "return it. Re-render every decoration PHOTOREALISTICALLY onto the FIRST "
+    "image, following the cap fabric's curvature, perspective, lighting and "
+    "texture so it looks physically applied. The output's product, shape, angle, "
+    "framing, background and aspect ratio come ONLY from the FIRST image."
 )
 
 
@@ -111,6 +118,32 @@ def _to_square_logo(image_bytes: bytes) -> bytes:
     canvas.alpha_composite(img, ((side - w) // 2, (side - h) // 2))
     out = io.BytesIO()
     canvas.save(out, format="PNG")
+    return out.getvalue()
+
+
+# Neutral mid-grey the layout guide is flattened onto before it's sent to the
+# model. The guide is a decorations-only PNG with a transparent background; if we
+# sent it transparent, the model (which flattens alpha onto white) would lose any
+# WHITE or light decoration — a white text element vanished entirely
+# (session 3zftLzunVKZQCPvS5eNUNw). Compositing onto mid-grey keeps both light and
+# dark decorations visible for placement without looking like a product photo.
+_GUIDE_BG = (128, 128, 128)
+
+
+def _flatten_guide_on_grey(image_bytes: bytes) -> bytes:
+    """Composite a (possibly transparent) layout-guide PNG onto neutral grey.
+
+    Guarantees light/white decorations stay visible when the model flattens the
+    image, so their placement isn't silently dropped. Returns the input unchanged
+    if it can't be decoded (never break generation on this)."""
+    try:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    except Exception:  # noqa: BLE001
+        return image_bytes
+    canvas = Image.new("RGBA", img.size, (*_GUIDE_BG, 255))
+    canvas.alpha_composite(img)
+    out = io.BytesIO()
+    canvas.convert("RGB").save(out, format="PNG")
     return out.getvalue()
 
 
@@ -213,9 +246,12 @@ class _GeminiAdapter(ImageProvider):
         # other image inputs above — same helper, same append pattern.
         if layout_guide_url:
             try:
-                guide_bytes, guide_mime = await _fetch_bytes(layout_guide_url)
+                guide_bytes, _ = await _fetch_bytes(layout_guide_url)
+                # Flatten onto neutral grey so light/white decorations stay
+                # visible (a transparent guide loses them when alpha is dropped).
+                guide_bytes = _flatten_guide_on_grey(guide_bytes)
                 contents.append(_LAYOUT_GUIDE_LABEL)
-                contents.append({"mime_type": guide_mime, "data": guide_bytes})
+                contents.append({"mime_type": "image/png", "data": guide_bytes})
             except httpx.HTTPError:
                 log.warning("layout_guide_fetch_failed", tier=self.tier)
 

@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import structlog
@@ -34,6 +35,17 @@ except ImportError:  # pragma: no cover - google-api-core not installed
 MAX_GENERATION_ATTEMPTS = 3
 # Backoff between attempts: ~2s after attempt 1, ~8s after attempt 2 (capped).
 _BACKOFF_SECONDS = (2, 8)
+
+# Watchdog: a generation still 'pending' this long has stalled (a normal render
+# is seconds; the provider call has no timeout, so a hung upstream connection can
+# otherwise pin a job at 'pending' forever). Set comfortably above the slowest
+# real render so a merely-slow job isn't reaped (reaping is non-destructive — the
+# original can still complete and delivery dedupes — but a false reap wastes a
+# render). Reaped jobs are re-enqueued up to MAX_STALL_RETRIES times per session,
+# then ops is alerted. Configurable per-call via the ?stuck_minutes= query param.
+STUCK_MINUTES_DEFAULT = 8
+MAX_STALL_RETRIES = 2
+_STALL_ERROR_PREFIX = "stalled:"
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -504,6 +516,128 @@ def _make_watermarked(clean_path: str) -> str | None:
     except Exception as exc:  # noqa: BLE001
         log.warning("watermark_failed", error=str(exc))
         return None
+
+
+# --- Watchdog: reap stalled generations ------------------------------------
+
+def _count_stalled(session_id: str) -> int:
+    """How many times this session's generations have been reaped as stalled."""
+    res = (
+        get_supabase()
+        .table("generations")
+        .select("job_id, status, error")
+        .eq("session_id", session_id)
+        .eq("status", "failed")
+        .execute()
+    )
+    return sum(
+        1 for r in (res.data or []) if str(r.get("error") or "").startswith(_STALL_ERROR_PREFIX)
+    )
+
+
+def _enqueue_generation(background: BackgroundTasks, session: dict, tier: str) -> None:
+    """Insert a fresh 'pending' row for a session and launch the worker.
+
+    A lean re-enqueue used by the watchdog only: it deliberately skips the
+    per-customer caps and moderation `_start_generation` runs — this is a
+    system-initiated retry of an already-validated design, not a new request.
+    """
+    sb = get_supabase()
+    product_ref = session.get("product_ref") or {}
+    collected = session.get("collected") or {}
+    params = prompt_builder.build_params(collected, tier)
+    prompt = prompt_builder.build_prompt(collected, product_ref, params)
+    job = (
+        sb.table("generations")
+        .insert({"session_id": session["id"], "tier": tier, "model": "pending", "status": "pending"})
+        .execute()
+    )
+    job_id = job.data[0]["job_id"]
+    generation_id = job.data[0].get("id")
+    provider_tier = "preview" if tier == "edit" else tier
+    background.add_task(
+        _run_generation,
+        job_id=job_id,
+        generation_id=generation_id,
+        session_id=session["id"],
+        store_id=session.get("store_id"),
+        tier=tier,
+        provider_tier=provider_tier,
+        prompt=prompt,
+        product_ref=product_ref,
+        collected=collected,
+        params=params,
+    )
+
+
+async def reap_stuck_generations(
+    *, background: BackgroundTasks, stuck_minutes: int = STUCK_MINUTES_DEFAULT, limit: int = 50
+) -> dict:
+    """Find generations stuck at 'pending' past ``stuck_minutes`` and unblock them.
+
+    Generation is decoupled and non-blocking (the request returns a job_id
+    immediately; the worker renders in the background and the finished design is
+    emailed via gated delivery). But the provider call has no timeout, so a hung
+    upstream connection can leave a job pinned at 'pending' forever — the design
+    is never produced, so it's never delivered and no notification ever fires.
+
+    This watchdog closes that gap. Each stalled job is marked failed; a fresh
+    generation is re-enqueued so the design still gets produced and delivered, up
+    to ``MAX_STALL_RETRIES`` times per session, after which ops is alerted
+    instead (so a persistently-hung provider can't loop). Matches the
+    delivery-backfill pattern: an admin endpoint an external cron hits
+    periodically; safe to run repeatedly.
+
+    Returns ``{"reaped": int, "retried": int, "gave_up": int}``.
+    """
+    sb = get_supabase()
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=stuck_minutes)).isoformat()
+    stuck = (
+        sb.table("generations")
+        .select("*")
+        .eq("status", "pending")
+        .lt("created_at", cutoff)
+        .order("created_at")
+        .limit(limit)
+        .execute()
+    )
+    tally = {"reaped": 0, "retried": 0, "gave_up": 0}
+    for row in stuck.data or []:
+        job_id = row.get("job_id")
+        session_id = row.get("session_id")
+        sb.table("generations").update(
+            {"status": "failed", "error": f"{_STALL_ERROR_PREFIX} no response within {stuck_minutes} min"}
+        ).eq("job_id", job_id).execute()
+        tally["reaped"] += 1
+
+        # Count stalls (incl. the one just reaped) so a persistently-hung
+        # provider gives up rather than re-enqueueing forever.
+        session = None
+        try:
+            sess = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+            session = sess.data[0] if sess.data else None
+        except Exception:  # noqa: BLE001
+            session = None
+
+        if session is None or _count_stalled(session_id) > MAX_STALL_RETRIES:
+            if session is not None:
+                _send_ops_alert(
+                    session_id, session.get("store_id"),
+                    session.get("product_ref") or {}, session.get("collected") or {},
+                    "generation stalled repeatedly — watchdog gave up after retries",
+                )
+            tally["gave_up"] += 1
+            continue
+
+        try:
+            _enqueue_generation(background, session, tier=row.get("tier") or "preview")
+            tally["retried"] += 1
+        except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
+            log.warning("watchdog_retry_enqueue_failed", session_id=session_id)
+            tally["gave_up"] += 1
+
+    log.info("generation_watchdog_complete", **tally)
+    return tally
 
 
 @router.get("/generate/status/{job_id}", response_model=GenerationStatus)

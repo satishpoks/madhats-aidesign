@@ -27,6 +27,24 @@ _SHAPE_LABEL = {
 }
 _LINE_SHAPES = {"line", "arrow", "doubleArrow"}
 
+# Text has no explicit colour until the customer picks one; the canvas renders an
+# unset colour as WHITE (nodes.tsx: `el.colour ?? '#ffffff'`). Default to white
+# here so the colour is always described AND flows to the image model — otherwise
+# a white text element carried no colour at all and was dropped (the model can't
+# see white on the flattened guide). Common hexes map to plain names for the model.
+_TEXT_COLOUR_NAMES = {
+    "#ffffff": "white", "#fff": "white", "white": "white",
+    "#000000": "black", "#000": "black", "black": "black",
+    "#ff0000": "red", "#00ff00": "green", "#0000ff": "blue",
+    "#ffff00": "yellow", "#ffa500": "orange",
+}
+
+
+def _text_colour(value: str | None) -> str:
+    """The text element's colour, defaulting to white, with common hexes named."""
+    raw = value or "#ffffff"
+    return _TEXT_COLOUR_NAMES.get(str(raw).strip().lower(), raw)
+
 
 def _shape_phrase(el: dict) -> str:
     kind = el.get("shapeKind", "rect")
@@ -56,8 +74,8 @@ def _element(el: dict, face: str) -> dict:
         out["content"] = el.get("content", "")
         if el.get("font"):
             out["font"] = el["font"]
-        if el.get("colour"):
-            out["colour"] = el["colour"]
+        # Always set a colour (default white) so it's never dropped downstream.
+        out["colour"] = _text_colour(el.get("colour"))
         # Curved text: surface a coarse style hint. Exact size/placement is
         # owned by the flattened layout-guide image, so raw pixel font sizes
         # are intentionally NOT emitted into the text description.
@@ -91,8 +109,7 @@ def _describe(el: dict, face: str) -> str:
     etype = el.get("type")
     if etype == "text":
         parts = [f'text reading "{el.get("content", "")}"']
-        if el.get("colour"):
-            parts.append(f'in {el["colour"]}')
+        parts.append(f'in {_text_colour(el.get("colour"))}')
         if el.get("font"):
             parts.append(f'{el["font"]} font')
         return f"{', '.join(parts)} {where}"

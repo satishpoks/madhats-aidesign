@@ -82,9 +82,13 @@ export function CanvasStage({ stageRef }: { stageRef: RefObject<Konva.Stage> }) 
       {/* Elements stop listening while drawing so every pointer event reaches the
           stage handlers above (start/extend/commit a stroke anywhere on the cap). */}
       <Layer listening={!drawMode}>
-        {bg && <KonvaImage image={bg} width={STAGE_W} height={STAGE_H} listening={false} />}
+        {/* name="flatten-hide" so the layout-guide export (canvasFlatten) drops the
+            product photo + colour tint — the guide must carry ONLY the placed
+            decorations on a transparent background, or the image model echoes the
+            finished-looking mock back instead of re-rendering photorealistically. */}
+        {bg && <KonvaImage name="flatten-hide" image={bg} width={STAGE_W} height={STAGE_H} listening={false} />}
         {colourway && (
-          <Rect width={STAGE_W} height={STAGE_H} fill={colourway.hex}
+          <Rect name="flatten-hide" width={STAGE_W} height={STAGE_H} fill={colourway.hex}
                 globalCompositeOperation="multiply" listening={false} />
         )}
         {els.map(el => {
