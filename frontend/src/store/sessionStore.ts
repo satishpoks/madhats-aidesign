@@ -6,6 +6,15 @@ import { useGenerationStore } from './generationStore'
 
 export type SessionView = 'picker' | 'session' | 'blank' | 'canvas'
 
+// Synchronous re-entrancy latch for bootstrapFromUrl. React StrictMode fires the
+// bootstrap effect twice on mount (dev), and the two async calls otherwise race
+// through startCanvasSession, creating TWO sessions — the active sessionId lands
+// on the un-kicked-off one, so the user's first message hits its GREETING
+// kickoff and the name is asked a second time. Set before the first await so the
+// concurrent second call bails; cleared in a finally so a later navigation can
+// still bootstrap afresh.
+let bootstrapping = false
+
 export interface ProductRef {
   id: string
   name: string
@@ -180,39 +189,47 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   bootstrapFromUrl: async () => {
-    const params = new URLSearchParams(window.location.search)
-
-    // Resume link (from the preview email's "make some edits" CTA) wins.
-    const resumeToken = params.get('session')
-    if (resumeToken) {
-      try {
-        await get().resumeSession(resumeToken)
-        return
-      } catch (err) {
-        console.warn('[MadHats] resumeSession failed — falling back', err)
-      }
-    }
-
-    if (params.get('mode') === 'blank') {
-      set({ view: 'blank' })
-      return
-    }
-
-    const productId = params.get('product_id')
-    if (!productId) return
-
-    const variantId = params.get('variant_id')
-    const colour = params.get('colour')
-    const source = params.get('source')
-
+    // Guard against StrictMode's double-mount (and any concurrent re-entry):
+    // only one bootstrap may create/resume a session per page load.
+    if (bootstrapping) return
+    bootstrapping = true
     try {
-      const product = await fetchProduct(productId)
-      await get().startCanvasSession(product)
-      set({ entryContext: { variantId, colour, source } })
-    } catch (err) {
-      // If bootstrap fails (product not found, backend down, etc.) stay at picker.
-      // Warn so a broken Shopify embed URL is diagnosable in the browser console.
-      console.warn('[MadHats] bootstrapFromUrl failed — staying at picker', err)
+      const params = new URLSearchParams(window.location.search)
+
+      // Resume link (from the preview email's "make some edits" CTA) wins.
+      const resumeToken = params.get('session')
+      if (resumeToken) {
+        try {
+          await get().resumeSession(resumeToken)
+          return
+        } catch (err) {
+          console.warn('[MadHats] resumeSession failed — falling back', err)
+        }
+      }
+
+      if (params.get('mode') === 'blank') {
+        set({ view: 'blank' })
+        return
+      }
+
+      const productId = params.get('product_id')
+      if (!productId) return
+
+      const variantId = params.get('variant_id')
+      const colour = params.get('colour')
+      const source = params.get('source')
+
+      try {
+        const product = await fetchProduct(productId)
+        await get().startCanvasSession(product)
+        set({ entryContext: { variantId, colour, source } })
+      } catch (err) {
+        // If bootstrap fails (product not found, backend down, etc.) stay at picker.
+        // Warn so a broken Shopify embed URL is diagnosable in the browser console.
+        console.warn('[MadHats] bootstrapFromUrl failed — staying at picker', err)
+      }
+    } finally {
+      bootstrapping = false
     }
   },
 }))

@@ -305,6 +305,27 @@ describe('bootstrapFromUrl', () => {
     })
   })
 
+  it('creates only ONE canvas session when called twice concurrently (StrictMode double-effect)', async () => {
+    // Regression: React StrictMode fires the bootstrap effect twice on mount.
+    // Both calls raced through startCanvasSession, creating TWO sessions; the
+    // active sessionId ended up on the un-kicked-off one, so the user's first
+    // message hit its GREETING kickoff and the name was asked a second time.
+    const { createCanvasSession } = await import('../lib/api')
+    vi.mocked(createCanvasSession).mockClear()
+    Object.defineProperty(window, 'location', {
+      value: { search: '?product_id=prod-1' },
+      writable: true,
+    })
+
+    const store = useSessionStore.getState()
+    // Fire both without awaiting the first — mirrors the concurrent double-effect.
+    await Promise.all([store.bootstrapFromUrl(), store.bootstrapFromUrl()])
+
+    expect(vi.mocked(createCanvasSession)).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(window, 'location', { value: { search: '' }, writable: true })
+  })
+
   it('bootstrapFromUrl with ?product_id starts a canvas session', async () => {
     const api = await import('../lib/api')
     vi.spyOn(api, 'fetchProduct').mockResolvedValue({
