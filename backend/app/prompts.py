@@ -601,6 +601,29 @@ PIN_ANNOTATION_TEMPLATE = """Customer placement note on the {view} view at appro
 # Email body templates
 # ---------------------------------------------------------------------------
 
+# Branded shell for short transactional emails (verification / resume). Inline
+# styles only. $store_name and $primary_colour are HTML-escaped by the caller;
+# $body_html is pre-rendered safe HTML.
+BRANDED_EMAIL_HTML = """\
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" /></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;">
+        <tr><td style="background:$primary_colour;padding:14px 24px;">
+          <div style="font-size:20px;font-weight:bold;color:#ffffff;">$store_name</div>
+        </td></tr>
+        <tr><td style="padding:24px 28px;color:#1a1a2e;font-size:14px;line-height:22px;">
+          $body_html
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+
 VERIFICATION_EMAIL_SUBJECT = "Confirm your email to see your MadHats design"
 
 VERIFICATION_EMAIL_BODY = """Hi {name},
