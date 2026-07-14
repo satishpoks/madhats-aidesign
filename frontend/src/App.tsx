@@ -9,6 +9,7 @@ import { RefineScreen } from './components/RefineScreen'
 import { WornScreen } from './components/WornScreen'
 import { ConceptModal } from './components/ConceptModal'
 import { ChatPanel } from './components/ChatPanel'
+import { useBrandStore } from './store/brandStore'
 import AdminApp from './admin/AdminApp'
 
 export default function App() {
@@ -19,10 +20,15 @@ export default function App() {
   const sessionView = useSessionStore(s => s.view)
   const bootstrapFromUrl = useSessionStore(s => s.bootstrapFromUrl)
   const studioView = useStudioStore(s => s.view)
+  const initBrand = useBrandStore(s => s.init)
 
   useEffect(() => {
     void bootstrapFromUrl()
   }, [bootstrapFromUrl])
+
+  useEffect(() => {
+    void initBrand()
+  }, [initBrand])
 
   if (sessionView === 'canvas') {
     return <CustomiseStudio />
