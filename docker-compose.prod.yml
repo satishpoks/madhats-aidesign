@@ -17,8 +17,14 @@
 #   VITE_API_BASE_URL   public backend URL the BROWSER calls, e.g.
 #                       http://madhats.getaiconsult.com.au:8000   (baked at build)
 #   VITE_STORE_KEY      e.g. mh_pk_madhats_local
-#   ALLOWED_ORIGINS     backend CORS — MUST include the frontend origin, e.g.
+#   ALLOWED_ORIGINS     backend CORS. Defaults to "*" (any origin, reflected —
+#                       kept open for now). Set a comma-separated list to lock
+#                       down; it MUST then include the frontend origin, e.g.
 #                       http://madhats.getaiconsult.com.au:5173
+#
+# NOTE: the backend here runs the BUILT image (no source bind-mount), so a CORS
+# *code* change needs a rebuild, not just recreate:
+#   docker compose -f docker-compose.prod.yml up -d --build backend
 #   SUPABASE_URL / keys / ADMIN_SECRET / provider keys …  (as usual)
 
 services:
