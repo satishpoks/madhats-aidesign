@@ -53,6 +53,30 @@ def test_cap_lock_directive_always_present():
     assert "colour" in prompt.lower()
 
 
+def test_customer_content_excludes_system_scaffolding():
+    """Moderation runs over customer_content(), NOT the full prompt.
+
+    Regression: the LLM moderator flagged the assembled fidelity-lock prompt
+    ("PRIMARY DIRECTIVE / MUST / Do NOT alter …") as a jailbreak ~83% of the
+    time, returning 422 and stranding legitimate designs at generation. The
+    moderated string must contain the customer's own words but none of the
+    imperative system scaffolding.
+    """
+    collected = {
+        "elements": [{"type": "text", "content": "Sharks FC 2026", "deferred": []}],
+        "brief_notes": ["please make the text gold"],
+    }
+    content = prompt_builder.customer_content(collected)
+
+    # Customer's own words are present…
+    assert "Sharks FC 2026" in content
+    assert "gold" in content
+    # …but the jailbreak-triggering system scaffolding is not.
+    assert "PRIMARY DIRECTIVE" not in content
+    assert "REPRODUCE THE CAP EXACTLY" not in content
+    assert "Do NOT" not in content
+
+
 def test_missing_reference_image_raises():
     with pytest.raises(PromptBuildError):
         prompt_builder.build_prompt(

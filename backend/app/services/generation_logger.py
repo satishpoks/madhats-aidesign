@@ -1,10 +1,10 @@
 """Per-call audit trail for image generation.
 
 Writes one row to `generation_logs` per actual provider call: the inputs
-(reference image, uploaded logo, full prompt, params) are recorded BEFORE the
-call, the outcome (model response metadata, full raw response, output image) is
-recorded AFTER. Retries produce one row each; cache hits produce a single
-`cache_hit` row.
+(reference image, uploaded logo, full prompt) are recorded BEFORE the call, the
+outcome (the exact final request_payload sent to the image model, response
+metadata, full raw response, output image) is recorded AFTER. Retries produce
+one row each; cache hits produce a single `cache_hit` row.
 
 Best-effort by design: a logging failure must NEVER break generation, so every
 write is wrapped and only warns. No customer PII is stored — prompt/params are
@@ -31,7 +31,6 @@ def log_request(
     reference_image_url: str | None,
     uploaded_asset_url: str | None,
     full_prompt: str,
-    params: dict | None,
 ) -> str | None:
     """Insert the inputs row (status='requested') before a provider call.
 
@@ -51,7 +50,6 @@ def log_request(
                     "reference_image_url": reference_image_url,
                     "uploaded_asset_url": uploaded_asset_url,
                     "full_prompt": full_prompt,
-                    "params": params,
                     "status": "requested",
                 }
             )
@@ -69,12 +67,18 @@ def log_response(
     status: str,
     model: str | None = None,
     output_image_url: str | None = None,
+    request_payload: dict | None = None,
     response_meta: dict | None = None,
     raw_response: dict | None = None,
     error: str | None = None,
     latency_ms: int | None = None,
 ) -> None:
-    """Update the request row with the provider outcome. No-op if log_id is None."""
+    """Update the request row with the provider outcome. No-op if log_id is None.
+
+    ``request_payload`` is the exact final payload the adapter sent to the image
+    model (model + ordered content parts); it's only known after the call, so
+    it's patched in here alongside the response.
+    """
     if not log_id:
         return
     try:
@@ -86,6 +90,7 @@ def log_response(
                     "status": status,
                     "model": model,
                     "output_image_url": output_image_url,
+                    "request_payload": request_payload,
                     "response_meta": response_meta,
                     "raw_response": raw_response,
                     "error": error,
@@ -109,7 +114,6 @@ def log_cache_hit(
     reference_image_url: str | None,
     uploaded_asset_url: str | None,
     full_prompt: str,
-    params: dict | None,
     model: str | None,
     output_image_url: str | None,
 ) -> None:
@@ -128,7 +132,6 @@ def log_cache_hit(
                     "reference_image_url": reference_image_url,
                     "uploaded_asset_url": uploaded_asset_url,
                     "full_prompt": full_prompt,
-                    "params": params,
                     "status": "cache_hit",
                     "model": model,
                     "output_image_url": output_image_url,

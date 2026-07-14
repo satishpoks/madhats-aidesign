@@ -516,7 +516,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         if email_retry:
             # The address the customer gave couldn't be reached — ask them to
             # recheck and retype it (deterministic, never paraphrased).
-            reply = prompts.EMAIL_SEND_FAILED_RETRY
+            reply = ie.repair_mojibake(prompts.EMAIL_SEND_FAILED_RETRY)
         elif new_state is ConversationState.CONFIRM_BRIEF:
             # Deterministic summary (never paraphrased by the LLM, so no captured
             # detail is dropped before the customer confirms).
@@ -898,7 +898,7 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
     # obvious non-answers (questions).
     if state is S.ASK_NAME and not collected.get("name"):
         candidate = message.strip().split("\n")[0][:60]
-        if candidate and "?" not in candidate:
+        if candidate and "?" not in candidate and not ie._is_greeting_only(candidate):
             collected["name"] = candidate
 
     for key in (
@@ -906,6 +906,9 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
         "placement_zone", "placement_position", "remove_bg", "has_logo", "youth_flag",
     ):
         if key in fields and fields[key] is not None:
+            # A bare greeting ("hi", "hey there") is never a name.
+            if key == "name" and ie._is_greeting_only(str(fields[key])):
+                continue
             collected[key] = fields[key]
 
     # Merged placement: a zone is enough. Default the position to centre so we

@@ -25,7 +25,14 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
             return ImageFont.truetype(name, size)
         except OSError:
             continue
-    return ImageFont.load_default()
+    # No system TrueType font (e.g. the slim prod container has none installed).
+    # Pillow's bundled default IS scalable when given a size (>=10.1) — pass the
+    # size so the watermark still scales to the full diagonal instead of being
+    # stuck at the fixed ~10px bitmap fallback.
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:  # very old Pillow — no size arg; returns fixed bitmap font
+        return ImageFont.load_default()
 
 
 def _text_width(text: str, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, stroke: int) -> int:
@@ -38,33 +45,32 @@ def apply_watermark(image_bytes: bytes, text: str | None = None) -> bytes:
     """Return PNG bytes of the image with a single diagonal text watermark.
 
     ``text`` is the configurable watermark string (falls back to a default when
-    empty/None). The line runs bottom-left → top-right and is sized to span most
-    of the image's diagonal.
+    empty/None). The line runs bottom-left → top-right corner-to-corner (spanning
+    the full diagonal) as plain semi-transparent text — no outline/background.
     """
     text = (text or "").strip() or _DEFAULT_TEXT
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     w, h = base.size
     diagonal = math.hypot(w, h)
 
-    # Size the font so the text spans ~88% of the diagonal: measure at a probe
-    # size, then scale. Cap the height so a short string doesn't become huge.
+    # Size the font so the text spans the full diagonal (~98%, corner to corner):
+    # measure at a probe size, then scale. Cap the height so a short string
+    # doesn't become huge. Plain text, no stroke.
     probe_size = 100
-    probe_stroke = max(1, probe_size // 24)
-    probe_w = _text_width(text, _load_font(probe_size), probe_stroke)
-    size = int(probe_size * (diagonal * 0.88) / probe_w)
+    probe_w = _text_width(text, _load_font(probe_size), 0)
+    size = int(probe_size * (diagonal * 0.98) / probe_w)
     size = max(14, min(size, int(min(w, h) * 0.6)))
     font = _load_font(size)
-    stroke = max(1, size // 22)
 
-    # Render the text once onto its own tightly-cropped tile.
+    # Render the text once onto its own tightly-cropped tile — text only, fully
+    # transparent background, no stroke/outline.
     left, top, right, bottom = ImageDraw.Draw(Image.new("RGBA", (10, 10))).textbbox(
-        (0, 0), text, font=font, stroke_width=stroke
+        (0, 0), text, font=font, stroke_width=0
     )
     tw, th = right - left, bottom - top
-    tile = Image.new("RGBA", (tw + 2 * stroke, th + 2 * stroke), (0, 0, 0, 0))
+    tile = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
     ImageDraw.Draw(tile).text(
-        (stroke - left, stroke - top), text, font=font,
-        fill=(255, 255, 255, 125), stroke_width=stroke, stroke_fill=(0, 0, 0, 95),
+        (-left, -top), text, font=font, fill=(255, 255, 255, 85),
     )
 
     # Rotate to run bottom-left → top-right (PIL rotates counter-clockwise).

@@ -77,7 +77,6 @@ def test_log_request_inserts_and_returns_id(monkeypatch):
         reference_image_url="https://cdn/ref.png",
         uploaded_asset_url="uploads/logo.png",
         full_prompt="REPRODUCE THE CAP EXACTLY ...",
-        params={"placement_zone": "front_panel"},
     )
 
     assert log_id == "log-1"
@@ -99,6 +98,7 @@ def test_log_response_updates_matching_row(monkeypatch):
         status="complete",
         model="gemini-2.5-flash-image",
         output_image_url="generated/preview/x.png",
+        request_payload={"model": "gemini-2.5-flash-image", "contents": [{"type": "text", "text": "hi"}]},
         response_meta={"image_returned": True},
         raw_response={"candidates": []},
         latency_ms=1234,
@@ -110,6 +110,7 @@ def test_log_response_updates_matching_row(monkeypatch):
     assert payload["status"] == "complete"
     assert payload["model"] == "gemini-2.5-flash-image"
     assert payload["output_image_url"] == "generated/preview/x.png"
+    assert payload["request_payload"]["contents"][0]["text"] == "hi"
     assert payload["response_meta"] == {"image_returned": True}
     assert payload["raw_response"] == {"candidates": []}
     assert payload["latency_ms"] == 1234
@@ -135,7 +136,6 @@ def test_log_request_swallows_db_error(monkeypatch):
         reference_image_url="r",
         uploaded_asset_url=None,
         full_prompt="p",
-        params={},
     ) is None
 
 
@@ -157,7 +157,6 @@ def test_log_cache_hit_writes_row(monkeypatch):
         reference_image_url="https://cdn/ref.png",
         uploaded_asset_url=None,
         full_prompt="prompt",
-        params={},
         model="stub",
         output_image_url="generated/preview/cached.png",
     )

@@ -36,9 +36,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     image_provider_preview: str = "stub"
     image_provider_final: str = "stub"
-    # Single image model — nano banana pro (gemini-3-pro-image) for both tiers.
-    gemini_preview_model: str = "gemini-3-pro-image"
-    gemini_final_model: str = "gemini-3-pro-image"
+    # Single image model — gemini-2.5-flash-image ("Nano Banana") for both tiers.
+    # NB: gemini-3-pro-image ("Nano Banana Pro") is NOT served to this project —
+    # generateContent hangs forever (never returns/errors), pinning jobs at
+    # 'pending'. gemini-2.5-flash-image / gemini-3.1-flash-image both work.
+    gemini_preview_model: str = "gemini-2.5-flash-image"
+    gemini_final_model: str = "gemini-2.5-flash-image"
 
     # --- Email ---
     resend_api_key: str = ""

@@ -143,3 +143,147 @@ async def test_generate_reply_deepdive_gives_model_element_context(monkeypatch):
     p = captured["prompt"].lower()
     assert "text" in p        # model told the element is text (not a logo)
     assert "satish" in p      # model told what the text says
+
+
+# ---------------------------------------------------------------------------
+# Fix #1 — the model's private reasoning must NEVER reach the customer
+# Regression (session M7bd429P_q3zZCwYI5VK0g): Ricardo's reply was the raw
+# Haiku output including its chain-of-thought and an internal field name
+# ("purpose_asked"), because (a) internal bookkeeping flags were fed into the
+# reply prompt and (b) the model's "Here's Ricardo's message:" preamble was
+# never stripped.
+# ---------------------------------------------------------------------------
+
+
+def test_safe_collected_strips_internal_bookkeeping_flags() -> None:
+    """Only real design data may reach an LLM context — never state-machine
+    bookkeeping flags or ids (which the model reads and narrates about)."""
+    collected = {
+        "name": "Al",
+        "purpose": "team caps",
+        "design_description": {"summary": "blue logo"},
+        "quantity": 25,
+        # internal flags / ids that must be scrubbed:
+        "purpose_asked": True,
+        "email_captured": True,
+        "email_verified": True,
+        "email_prompt_shown": True,
+        "resume_email_sent": True,
+        "youth_flag": False,
+        "flow_mode": "canvas",
+        "lead_id": "495f409d-cc24-4d11-9ec6-24b22e42c37e",
+    }
+    safe = ie._safe_collected(collected)
+    # real design data survives
+    assert safe["name"] == "Al"
+    assert safe["purpose"] == "team caps"
+    assert safe["design_description"] == {"summary": "blue logo"}
+    assert safe["quantity"] == 25
+    # every internal flag / id is gone
+    for leaked in (
+        "purpose_asked", "email_captured", "email_verified", "email_prompt_shown",
+        "resume_email_sent", "youth_flag", "flow_mode", "lead_id", "email", "phone",
+    ):
+        assert leaked not in safe, f"{leaked!r} leaked into the LLM context"
+
+
+def test_strip_meta_preamble_removes_model_reasoning() -> None:
+    raw = (
+        "I notice the step instruction asks me to address the customer by name, "
+        "but the known details show that `purpose_asked` is already true.\n\n"
+        "Since we've already established the purpose, I'll move on.\n\n"
+        "Here's Ricardo's message:\n\n"
+        "So, what kind of style are you after?"
+    )
+    assert ie._strip_meta_preamble(raw) == "So, what kind of style are you after?"
+
+
+def test_strip_meta_preamble_leaves_clean_reply_untouched() -> None:
+    clean = "So, what kind of style are you after — bold or classic?"
+    assert ie._strip_meta_preamble(clean) == clean
+
+
+@pytest.mark.asyncio
+async def test_generate_reply_strips_leaked_reasoning(monkeypatch) -> None:
+    monkeypatch.setattr(ie, "_has_llm", True)
+
+    async def fake_complete(prompt, **kw):
+        return (
+            "I notice `purpose_asked` is already true, so I'll skip that step.\n\n"
+            "Here's Ricardo's message:\n\n"
+            "So, what style are you after?"
+        )
+
+    monkeypatch.setattr(ie, "_complete", fake_complete)
+    out = await ie.generate_reply("ask_purpose", {"name": "Al"}, "Ricardo")
+    assert "purpose_asked" not in out
+    assert "Here's" not in out
+    assert out == "So, what style are you after?"
+
+
+# ---------------------------------------------------------------------------
+# Fix #2 — mojibake repair (UTF-8 bytes mis-decoded as CP1252)
+# Regression (session M7bd429P_q3zZCwYI5VK0g): em-dashes were stored/shown as
+# "â€"". Defensive repair so a mis-encoded reply self-heals before the customer
+# ever sees it.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad,good",
+    [
+        ("address â€” could you", "address — could you"),
+        ("afterâ€”something", "after—something"),
+        ("itâ€™s ready", "it’s ready"),  # curly apostrophe
+    ],
+)
+def test_repair_mojibake_fixes_double_encoded_punctuation(bad: str, good: str) -> None:
+    assert ie.repair_mojibake(bad) == good
+
+
+def test_repair_mojibake_idempotent_on_clean_text() -> None:
+    clean = "what style are you after — bold or classic? café"
+    assert ie.repair_mojibake(clean) == clean
+
+
+@pytest.mark.asyncio
+async def test_generate_reply_repairs_mojibake(monkeypatch) -> None:
+    monkeypatch.setattr(ie, "_has_llm", True)
+
+    async def fake_complete(prompt, **kw):
+        return "what style are you afterâ€”bold or classic?"
+
+    monkeypatch.setattr(ie, "_complete", fake_complete)
+    out = await ie.generate_reply("ask_purpose", {}, "Ricardo")
+    assert "â€" not in out
+    assert "—" in out
+
+
+# ---------------------------------------------------------------------------
+# Fix #3 — a bare greeting must not be captured as the customer's name
+# Regression (session M7bd429P_q3zZCwYI5VK0g): the customer answered "What's
+# your first name?" with "hi" and it became collected["name"] = "hi".
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "greeting", ["hi", "Hi", "hello", "Hey there", "good morning", "yo", "hiya"]
+)
+def test_ask_name_rejects_greeting(greeting: str) -> None:
+    collected: dict = {}
+    asyncio.run(_ingest(ConversationState.ASK_NAME, greeting, collected))
+    assert "name" not in collected, f"{greeting!r} must NOT be captured as a name"
+
+
+def test_ask_name_still_captures_real_name() -> None:
+    collected: dict = {}
+    asyncio.run(_ingest(ConversationState.ASK_NAME, "Sam", collected))
+    assert collected.get("name") == "Sam"
+
+
+def test_ask_name_captures_name_that_merely_starts_like_greeting() -> None:
+    """A real name is not rejected just because it shares letters with a
+    greeting (e.g. 'Henry' contains 'he')."""
+    collected: dict = {}
+    asyncio.run(_ingest(ConversationState.ASK_NAME, "Henry", collected))
+    assert collected.get("name") == "Henry"

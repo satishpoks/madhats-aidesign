@@ -65,6 +65,23 @@ _LAYOUT_GUIDE_LABEL = (
 )
 
 
+def _image_part(mime: str, data: bytes, *, role: str, source_url: str | None) -> dict:
+    """Audit-log representation of an image content part.
+
+    Records what was sent (role, mime, source URL, byte size) WITHOUT the raw
+    bytes — the image itself lives in Storage, referenced by source_url. Keeps
+    the logged payload small and JSON-safe while still showing exactly which
+    image occupied which slot in the request.
+    """
+    return {
+        "type": "image",
+        "role": role,
+        "mime_type": mime,
+        "source_url": source_url,
+        "bytes": len(data),
+    }
+
+
 async def _fetch_bytes(url: str) -> tuple[bytes, str]:
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url)
@@ -213,9 +230,15 @@ class _GeminiAdapter(ImageProvider):
             ref_bytes, ref_mime = squared, "image/png"
         # Label each image part so the model can't conflate the two inputs and
         # echo the logo back as its own panel (the two-panel collage failure).
+        # `payload_parts` mirrors `contents` in order but records images by
+        # role/mime/source/size (not raw bytes) for the audit log.
         contents: list = [
             _FIRST_IMAGE_LABEL,
             {"mime_type": ref_mime, "data": ref_bytes},
+        ]
+        payload_parts: list[dict] = [
+            {"type": "text", "text": _FIRST_IMAGE_LABEL},
+            _image_part(ref_mime, ref_bytes, role="reference", source_url=reference_image_url),
         ]
 
         # On an edit, the previous render rides along as the design to REFINE.
@@ -224,6 +247,10 @@ class _GeminiAdapter(ImageProvider):
                 prior_bytes, prior_mime = await _fetch_bytes(prior_design_url)
                 contents.append(_PRIOR_DESIGN_LABEL)
                 contents.append({"mime_type": prior_mime, "data": prior_bytes})
+                payload_parts.append({"type": "text", "text": _PRIOR_DESIGN_LABEL})
+                payload_parts.append(
+                    _image_part(prior_mime, prior_bytes, role="prior_design", source_url=prior_design_url)
+                )
             except httpx.HTTPError:
                 log.warning("prior_design_fetch_failed", tier=self.tier)
 
@@ -237,6 +264,10 @@ class _GeminiAdapter(ImageProvider):
                     logo_bytes, logo_mime = squared_logo, "image/png"
                 contents.append(_SECOND_IMAGE_LABEL)
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
+                payload_parts.append({"type": "text", "text": _SECOND_IMAGE_LABEL})
+                payload_parts.append(
+                    _image_part(logo_mime, logo_bytes, role="uploaded_asset", source_url=uploaded_asset_url)
+                )
             except httpx.HTTPError:
                 log.warning("logo_fetch_failed", tier=self.tier)
 
@@ -252,10 +283,16 @@ class _GeminiAdapter(ImageProvider):
                 guide_bytes = _flatten_guide_on_grey(guide_bytes)
                 contents.append(_LAYOUT_GUIDE_LABEL)
                 contents.append({"mime_type": "image/png", "data": guide_bytes})
+                payload_parts.append({"type": "text", "text": _LAYOUT_GUIDE_LABEL})
+                payload_parts.append(
+                    _image_part("image/png", guide_bytes, role="layout_guide", source_url=layout_guide_url)
+                )
             except httpx.HTTPError:
                 log.warning("layout_guide_fetch_failed", tier=self.tier)
 
         contents.append(prompt)
+        payload_parts.append({"type": "text", "text": prompt})
+        request_payload = {"model": self.model_name, "contents": payload_parts}
 
         model = genai.GenerativeModel(self.model_name)
         response = await model.generate_content_async(contents)
@@ -280,6 +317,7 @@ class _GeminiAdapter(ImageProvider):
             model=self.model_name,
             raw_response=_serialise_response(response),
             response_meta=meta,
+            request_payload=request_payload,
         )
 
 

@@ -301,7 +301,10 @@ export interface GenerationLog {
   status: string
   model: string | null
   full_prompt: string
-  params: Record<string, unknown> | null
+  // The exact final payload sent to the image model: { model, contents: [...] }
+  // (text parts verbatim; images as role/mime/source_url/bytes). Only present on
+  // the detail row for a completed call.
+  request_payload: Record<string, unknown> | null
   reference_image_url: string | null
   uploaded_asset_url: string | null
   output_image_url: string | null
@@ -310,6 +313,9 @@ export interface GenerationLog {
   latency_ms: number | null
   request_at: string
   response_at: string | null
+  // Only present on the detail endpoint (excluded from the list to avoid
+  // shipping base64 image payloads for every row).
+  raw_response?: Record<string, unknown> | null
 }
 
 export interface Diagnostics {
@@ -360,6 +366,10 @@ export function listGenerationLogs(
   if (opts?.sessionId) params.set('session_id', opts.sessionId)
   if (opts?.status) params.set('status', opts.status)
   return request<Paginated<GenerationLog>>(`/admin/generation-logs?${params.toString()}`)
+}
+
+export function getGenerationLog(id: string): Promise<GenerationLog> {
+  return request<GenerationLog>(`/admin/generation-logs/${id}`)
 }
 
 export function getDiagnostics(): Promise<Diagnostics> {

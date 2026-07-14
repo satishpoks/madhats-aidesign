@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   getDiagnostics,
+  getGenerationLog,
   listGenerationLogs,
   type Diagnostics,
   type GenerationLog,
@@ -24,6 +25,20 @@ export function DiagnosticsView() {
   const [logs, setLogs] = useState<GenerationLog[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<GenerationLog | null>(null)
+  // Full detail (incl. raw_response) is fetched lazily when a row is opened —
+  // the list omits raw_response to avoid shipping base64 image payloads.
+  const [detail, setDetail] = useState<GenerationLog | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+
+  function openLog(r: GenerationLog) {
+    setSelected(r)
+    setDetail(null)
+    setDetailLoading(true)
+    getGenerationLog(r.id)
+      .then((d) => setDetail(d))
+      .catch(() => setDetail(null))
+      .finally(() => setDetailLoading(false))
+  }
 
   useEffect(() => {
     let active = true
@@ -88,16 +103,16 @@ export function DiagnosticsView() {
           columns={logColumns}
           rows={logs}
           empty="No generation logs"
-          onRowClick={(r) => setSelected(r)}
+          onRowClick={openLog}
         />
       </section>
 
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setSelected(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => { setSelected(null); setDetail(null) }}>
           <div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-lg bg-white p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Generation log · {selected.status}</h3>
-              <button onClick={() => setSelected(null)} className="text-sm text-gray-500 hover:underline">Close</button>
+              <button onClick={() => { setSelected(null); setDetail(null) }} className="text-sm text-gray-500 hover:underline">Close</button>
             </div>
             <div className="text-sm text-gray-600">
               {selected.tier} · {selected.model ?? 'unknown model'} · attempt {selected.attempt}
@@ -108,10 +123,10 @@ export function DiagnosticsView() {
               <div className="mb-1 text-xs font-medium text-gray-500">Prompt</div>
               <pre className="whitespace-pre-wrap rounded bg-gray-900 p-3 text-xs text-gray-100">{selected.full_prompt}</pre>
             </div>
-            {selected.params && (
+            {selected.request_payload && (
               <div>
-                <div className="mb-1 text-xs font-medium text-gray-500">Params</div>
-                <pre className="whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs">{JSON.stringify(selected.params, null, 2)}</pre>
+                <div className="mb-1 text-xs font-medium text-gray-500">Send payload (to image model)</div>
+                <pre className="whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs">{JSON.stringify(selected.request_payload, null, 2)}</pre>
               </div>
             )}
             {(selected.reference_image_url || selected.output_image_url) && (
@@ -130,6 +145,22 @@ export function DiagnosticsView() {
                 )}
               </div>
             )}
+            {(detail?.response_meta ?? selected.response_meta) && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-gray-500">Response meta</div>
+                <pre className="whitespace-pre-wrap rounded bg-gray-50 border border-gray-200 p-3 text-xs">{JSON.stringify(detail?.response_meta ?? selected.response_meta, null, 2)}</pre>
+              </div>
+            )}
+            <div>
+              <div className="mb-1 text-xs font-medium text-gray-500">Raw API response</div>
+              {detailLoading ? (
+                <div className="text-xs text-gray-400">Loading raw response…</div>
+              ) : detail?.raw_response ? (
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-900 p-3 text-xs text-gray-100">{JSON.stringify(detail.raw_response, null, 2)}</pre>
+              ) : (
+                <div className="text-xs text-gray-400">No raw response recorded for this call.</div>
+              )}
+            </div>
           </div>
         </div>
       )}

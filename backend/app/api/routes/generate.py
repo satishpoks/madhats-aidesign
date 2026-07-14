@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -9,7 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from app.api.deps import limiter
 from app.config import settings
 from app.db import get_supabase
-from app.models.generation import GenerateRequest, GenerationStatus, JobResponse
+from app.models.generation import GenerationStatus, JobResponse
 from app.services import delivery
 from app.services import design_summary
 from app.services import email as email_service
@@ -58,6 +57,51 @@ MAX_STALL_RETRIES = 2
 _STALL_ERROR_PREFIX = "stalled:"
 
 
+def _error_detail(exc: Exception) -> tuple[str, dict]:
+    """Build a human-readable error string + a JSON-safe raw dict from an exception.
+
+    The failure path previously logged only ``str(exc)``, which is EMPTY for an
+    asyncio timeout (a hung upstream connection) — so a stalled render left an
+    un-diagnosable blank in the admin audit log. This captures the exception type,
+    message/repr, and — for Google API errors — the status code, reason and any
+    upstream response body, so every failed provider call is diagnosable from the
+    admin panel. Design data only; carries no customer PII (CLAUDE.md §8.10).
+    """
+    etype = type(exc).__name__
+    msg = str(exc).strip()
+    raw: dict = {"error_type": etype, "message": msg, "repr": repr(exc)[:2000]}
+    if isinstance(exc, (asyncio.TimeoutError, TimeoutError)) and not msg:
+        # asyncio.wait_for timeout stringifies to "" — say what actually happened.
+        msg = (
+            f"provider call exceeded the {GENERATION_CALL_TIMEOUT_SECONDS}s timeout "
+            "(upstream connection hung — never returned or errored)"
+        )
+        raw["message"] = msg
+        raw["timeout_seconds"] = GENERATION_CALL_TIMEOUT_SECONDS
+    # Pull whatever structured detail a Google API error carries.
+    for attr in ("code", "reason", "errors", "details"):
+        val = getattr(exc, attr, None)
+        if val is not None:
+            raw[attr] = getattr(val, "value", val) if attr == "code" else _jsonable(val)
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        body = getattr(resp, "text", None)
+        raw["response_body"] = body[:4000] if isinstance(body, str) else _jsonable(resp)
+    error_str = f"{etype}: {msg}" if msg else etype
+    return error_str, raw
+
+
+def _jsonable(val):
+    """Best-effort coerce an arbitrary value to something JSON-serialisable."""
+    if isinstance(val, (str, int, float, bool)) or val is None:
+        return val
+    if isinstance(val, (list, tuple)):
+        return [_jsonable(v) for v in val]
+    if isinstance(val, dict):
+        return {str(k): _jsonable(v) for k, v in val.items()}
+    return repr(val)[:2000]
+
+
 def _is_transient(exc: Exception) -> bool:
     """Classify a provider exception as transient (retry) vs permanent (fail fast).
 
@@ -87,7 +131,7 @@ def _is_transient(exc: Exception) -> bool:
 @router.post("/generate/preview/{session_id}", response_model=JobResponse)
 @limiter.limit(settings.rate_limit_str)
 async def generate_preview(
-    session_id: str, body: GenerateRequest, request: Request, background: BackgroundTasks
+    session_id: str, request: Request, background: BackgroundTasks
 ) -> JobResponse:
     return await _start_generation(session_id, "preview", background)
 
@@ -95,7 +139,7 @@ async def generate_preview(
 @router.post("/generate/final/{session_id}", response_model=JobResponse)
 @limiter.limit(settings.rate_limit_str)
 async def generate_final(
-    session_id: str, body: GenerateRequest, request: Request, background: BackgroundTasks
+    session_id: str, request: Request, background: BackgroundTasks
 ) -> JobResponse:
     return await _start_generation(session_id, "final", background)
 
@@ -103,7 +147,7 @@ async def generate_final(
 @router.post("/generate/regenerate/{session_id}", response_model=JobResponse)
 @limiter.limit(settings.rate_limit_str)
 async def generate_regenerate(
-    session_id: str, body: GenerateRequest, request: Request, background: BackgroundTasks
+    session_id: str, request: Request, background: BackgroundTasks
 ) -> JobResponse:
     """Regenerate the design with the customer's latest requested change.
 
@@ -165,9 +209,12 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
     except prompt_builder.PromptBuildError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # moderation on the assembled design intent before any model call
+    # Moderation runs on the CUSTOMER'S input text only — never the assembled
+    # system prompt, whose imperative fidelity-lock scaffolding the LLM moderator
+    # otherwise mis-reads as a jailbreak and blocks (~83% false-positive rate),
+    # stranding legitimate designs at generation with a 422.
     try:
-        await check_text(prompt)
+        await check_text(prompt_builder.customer_content(collected))
     except ModerationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -210,7 +257,7 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 
 async def _render_view(
     *, view, provider, job_id, generation_id, session_id, tier,
-    prompt, ref_url, uploaded_url, params, params_dict, key, prior_design_url=None,
+    prompt, ref_url, uploaded_url, params, key, prior_design_url=None,
     layout_guide_url=None,
 ) -> dict:
     """Render ONE view: cache-check → provider (with retry) → watermark.
@@ -226,7 +273,7 @@ async def _render_view(
         generation_logger.log_cache_hit(
             generation_id=generation_id, job_id=job_id, session_id=session_id,
             tier=tier, reference_image_url=ref_url, uploaded_asset_url=uploaded_url,
-            full_prompt=prompt, params=params_dict, model=cached["model"],
+            full_prompt=prompt, model=cached["model"],
             output_image_url=cached["image_url"],
         )
         return {
@@ -245,7 +292,7 @@ async def _render_view(
         log_id = generation_logger.log_request(
             generation_id=generation_id, job_id=job_id, session_id=session_id,
             attempt=attempt, tier=tier, reference_image_url=ref_url,
-            uploaded_asset_url=uploaded_url, full_prompt=prompt, params=params_dict,
+            uploaded_asset_url=uploaded_url, full_prompt=prompt,
         )
         try:
             # Bound the call so a hung upstream connection can't pin the job at
@@ -263,13 +310,17 @@ async def _render_view(
             last_exc = None
             generation_logger.log_response(
                 log_id, status="complete", model=result.model,
-                output_image_url=result.image_url, response_meta=result.response_meta,
+                output_image_url=result.image_url, request_payload=result.request_payload,
+                response_meta=result.response_meta,
                 raw_response=result.raw_response, latency_ms=result.latency_ms,
             )
             break
         except Exception as exc:  # noqa: BLE001
             last_exc = exc
-            generation_logger.log_response(log_id, status="failed", error=str(exc))
+            error_str, error_raw = _error_detail(exc)
+            generation_logger.log_response(
+                log_id, status="failed", error=error_str, raw_response=error_raw,
+            )
             if attempt >= MAX_GENERATION_ATTEMPTS or not _is_transient(exc):
                 break
             backoff = _BACKOFF_SECONDS[min(attempt - 1, len(_BACKOFF_SECONDS) - 1)]
@@ -317,7 +368,6 @@ async def _run_generation(
     asset_hash = collected.get("asset_hash", "none")
     uploaded_path = collected.get("uploaded_asset_path")
     uploaded_url_full = generate_signed_url(uploaded_path) if uploaded_path else None
-    params_dict = asdict(params)
     is_canvas = collected.get("flow_mode") == "canvas"
     canvas_layouts = collected.get("canvas_layouts") or {}
 
@@ -384,7 +434,7 @@ async def _run_generation(
                 return await _render_view(
                     view=view, provider=provider, job_id=job_id, generation_id=generation_id,
                     session_id=session_id, tier=tier, prompt=view_prompt, ref_url=ref,
-                    uploaded_url=uploaded, params=params, params_dict={**params_dict, "view": view},
+                    uploaded_url=uploaded, params=params,
                     key=key, prior_design_url=prior, layout_guide_url=layout_guide,
                 )
             except Exception as exc:  # noqa: BLE001 — never let a build error escape gather

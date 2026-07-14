@@ -137,12 +137,80 @@ def _generate_reply_canned(state: str, collected: dict, persona_name: str) -> st
         return template
 
 
+# Internal state-machine bookkeeping that must never reach an LLM context: the
+# model reads these and narrates about them (leaking chain-of-thought and field
+# names to the customer). Only real design data should be handed to Haiku.
+_INTERNAL_KEY_SUFFIXES = (
+    "_asked", "_shown", "_offered", "_sent", "_captured", "_verified",
+    "_referred", "_done", "_blocked", "_reached", "_mode", "_idx", "_flag",
+)
+_INTERNAL_KEYS = frozenset({"lead_id"})
+
+
 def _safe_collected(collected: dict) -> dict:
-    """Strip PII before it is ever placed into an LLM context for reply wording."""
-    redacted = dict(collected)
-    redacted.pop("email", None)
-    redacted.pop("phone", None)
+    """Strip PII **and internal bookkeeping flags** before the dict is ever
+    placed into an LLM context (reply wording or turn interpretation)."""
+    redacted: dict = {}
+    for key, value in collected.items():
+        if key in ("email", "phone") or key in _INTERNAL_KEYS:
+            continue
+        if any(key.endswith(suffix) for suffix in _INTERNAL_KEY_SUFFIXES):
+            continue
+        redacted[key] = value
     return redacted
+
+
+# ---------------------------------------------------------------------------
+# Outgoing-reply hygiene: strip leaked model reasoning and repair mojibake so
+# nothing internal or garbled ever reaches the customer.
+# ---------------------------------------------------------------------------
+
+# The model sometimes prefixes its answer with its own reasoning followed by a
+# label like "Here's Ricardo's message:". Take everything after the last such
+# marker. A genuine reply never contains this phrase, so clean text is untouched.
+_META_PREAMBLE_MARKER = re.compile(r"here'?s\s+[\w' ]+?message\s*:", re.IGNORECASE)
+
+
+def _strip_meta_preamble(text: str) -> str:
+    """Drop any leaked "…Here's <persona>'s message:" reasoning preamble."""
+    marker = None
+    for marker in _META_PREAMBLE_MARKER.finditer(text):
+        pass  # keep the last match
+    if marker is not None:
+        return text[marker.end():].strip().strip('"').strip()
+    return text
+
+
+def repair_mojibake(text: str) -> str:
+    """Repair UTF-8 text that was mis-decoded as CP1252 (e.g. an em-dash "—"
+    showing up as "â€""). Only strings carrying a mojibake signature that round-
+    trip losslessly are repaired; clean text (including legitimate accents) is
+    returned unchanged."""
+    if not text or not any(marker in text for marker in ("Ã", "â€", "Â")):
+        return text
+    try:
+        return text.encode("cp1252").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
+# Pure greetings / fillers that must not be captured as a customer's name.
+_GREETING_TOKENS = frozenset({
+    "hi", "hii", "hiii", "hey", "heya", "hiya", "hello", "helo", "hullo",
+    "yo", "sup", "howdy", "greetings", "hola", "morning", "afternoon", "evening",
+})
+_GREETING_FILLERS = frozenset({"there", "good", "oh", "hey", "well"})
+
+
+def _is_greeting_only(text: str) -> bool:
+    """True when `text` is nothing but a greeting/filler (e.g. "hi", "hey
+    there", "good morning") — so it is never mistaken for a name."""
+    tokens = re.findall(r"[a-z]+", text.lower())
+    if not tokens:
+        return False
+    if not all(t in _GREETING_TOKENS or t in _GREETING_FILLERS for t in tokens):
+        return False
+    return any(t in _GREETING_TOKENS for t in tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +416,8 @@ async def generate_reply(
             base = prompts.ATTRIBUTE_QUESTIONS.get(ask_for, "Tell me a bit more.")
         else:
             base = _generate_reply_canned(state, collected, persona_name)
-        return f"{aside} {base}" if aside else base
+        reply = f"{aside} {base}" if aside else base
+        return repair_mojibake(reply)
 
     if ask_text:
         instruction = (
@@ -390,7 +459,8 @@ async def generate_reply(
         ),
         collected=json.dumps(_safe_collected(collected)),
     )
-    return await _complete(prompt, system=system, max_tokens=200)
+    raw = await _complete(prompt, system=system, max_tokens=200)
+    return repair_mojibake(_strip_meta_preamble(raw))
 
 
 # ---------------------------------------------------------------------------

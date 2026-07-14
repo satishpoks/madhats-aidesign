@@ -188,7 +188,7 @@ async def list_generation_logs(
     sb = get_supabase()
     q = sb.table("generation_logs").select(
         "id, generation_id, job_id, session_id, attempt, tier, status, model, "
-        "full_prompt, params, reference_image_url, uploaded_asset_url, output_image_url, "
+        "full_prompt, request_payload, reference_image_url, uploaded_asset_url, output_image_url, "
         "response_meta, error, latency_ms, request_at, response_at",
         count="exact",
     )
@@ -212,6 +212,25 @@ async def list_generation_logs(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/admin/generation-logs/{log_id}")
+async def get_generation_log(log_id: str, request: Request) -> dict:
+    """Full detail for one audit row — INCLUDING the raw provider response.
+
+    ``raw_response`` is deliberately excluded from the list endpoint (a successful
+    row carries the returned image as base64 — MBs per row). Here it's returned in
+    full so a failed call's raw upstream error, or a success's raw payload, can be
+    inspected from the admin panel."""
+    sb = get_supabase()
+    res = sb.table("generation_logs").select("*").eq("id", log_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Generation log not found")
+    row = res.data[0]
+    row["output_image_url"] = _img(row.get("output_image_url"), request)
+    row["uploaded_asset_url"] = _img(row.get("uploaded_asset_url"), request)
+    row["reference_image_url"] = _img(row.get("reference_image_url"), request)
+    return row
 
 
 def _count(table: str, **filters: object) -> int:

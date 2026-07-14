@@ -30,6 +30,10 @@ class GenerationResult:
     # Optional audit payloads (populated by real adapters, logged to generation_logs).
     raw_response: dict | None = None  # full serialised provider response
     response_meta: dict | None = None  # compact summary (finish reason, safety, etc.)
+    # The exact final payload sent to the image model: model name + ordered
+    # content parts (text verbatim; images as role/mime/source/byte-size — the
+    # bytes themselves live in Storage). Logged to generation_logs.request_payload.
+    request_payload: dict | None = None
 
 
 class ImageProvider(ABC):

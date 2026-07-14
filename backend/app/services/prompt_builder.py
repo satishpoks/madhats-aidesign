@@ -312,6 +312,28 @@ def _render_template(
     return template.format(**fmt)
 
 
+def customer_content(collected: dict) -> str:
+    """The customer-authored free text to run input moderation over.
+
+    Input moderation (security rule §8.10 / §8.5) must validate the UNTRUSTED
+    customer input — element descriptions, requested changes, colour remarks,
+    notes and purpose — NOT the assembled system prompt. The full prompt is
+    ~95% our own trusted fidelity-lock scaffolding ("PRIMARY DIRECTIVE / MUST /
+    Do NOT alter …"), whose imperative tone the LLM moderator mis-reads as a
+    prompt-injection and flags as a jailbreak ~83% of the time — silently
+    blocking legitimate designs at generation time. This returns just the
+    customer's contributed text (the design block + augmentations + free notes),
+    so moderation checks what the customer actually wrote.
+    """
+    block = _augment_design_block(_design_block(collected), collected)
+    extras = [
+        str(collected.get(field) or "").strip()
+        for field in ("notes", "purpose")
+    ]
+    tail = "\n".join(e for e in extras if e)
+    return f"{block}\n{tail}".strip() if tail else block
+
+
 def build_prompt(collected: dict, product_ref: dict, params: GenerationParams) -> str:
     if not product_ref or not product_ref.get("reference_image_url"):
         raise PromptBuildError("product reference_image_url missing — cannot composite")

@@ -447,3 +447,33 @@ def test_is_transient_classification():
 
     # InvalidArgument (400) — must be permanent (fail fast, no retry)
     assert generate_routes._is_transient(InvalidArgument("invalid request")) is False
+
+
+def test_error_detail_captures_type_and_raw():
+    err_str, raw = generate_routes._error_detail(ValueError("bad input"))
+    assert err_str == "ValueError: bad input"
+    assert raw["error_type"] == "ValueError"
+    assert raw["message"] == "bad input"
+
+
+def test_error_detail_timeout_gets_useful_message():
+    # asyncio.wait_for timeouts stringify to "" — the diagnostic message must
+    # still explain the hang so the admin panel isn't left with a blank error.
+    err_str, raw = generate_routes._error_detail(asyncio.TimeoutError())
+    assert "timeout" in err_str.lower()
+    assert raw["message"] and "timeout" in raw["message"].lower()
+    assert raw["timeout_seconds"] == generate_routes.GENERATION_CALL_TIMEOUT_SECONDS
+
+
+def test_failure_path_logs_raw_response(monkeypatch):
+    row = _generation_row()
+    fake = _FakeSB({"generations": [row]})
+    provider = _FlakyProvider([ValueError("bad input")])
+    _patch_common(monkeypatch, fake, provider=provider, sleeps=[], alerts=[], previews=[])
+    logs = _capture_logs(monkeypatch)
+
+    asyncio.run(generate_routes._run_generation(**_base_kwargs()))
+
+    _, resp = logs["response"][0]
+    assert resp["status"] == "failed"
+    assert resp["raw_response"]["error_type"] == "ValueError"
