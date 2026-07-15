@@ -262,6 +262,23 @@ async def finalize_canvas(
             "data": {"trigger_regeneration": True, "progress": sm_progress(new_state, collected)},
         }
 
+    # v2 step-by-step orchestrator: the design phase already happened in chat,
+    # and name/quantity/email/purpose were captured there. Skip the v1
+    # decoration/notes outro and go straight to generation.
+    if settings.canvas_orchestrator_v2:
+        from app.services.conversation.state_machine_v2 import progress_v2
+
+        new_state = S.GENERATING
+        reply = "Perfect — generating your design now…"
+        sb.table("design_sessions").update(
+            {"canvas_design": body.canvas_design, "collected": collected, "state": new_state.value}
+        ).eq("id", session_id).execute()
+        return {
+            "reply": reply,
+            "state": new_state.value,
+            "data": {"trigger_generation": True, "progress": progress_v2(new_state, collected)},
+        }
+
     active = deco_svc.list_types(store["id"], active_only=True)
     collected["decoration_options"] = [t["name"] for t in active]
 

@@ -294,6 +294,34 @@ def test_finalize_routes_to_decoration(client, seeded_store_headers, canvas_sess
     assert row["collected"]["hat_colour"] == {"name": "Navy", "hex": "#1e3a8a"}
 
 
+def test_v2_finalize_goes_straight_to_generating(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    """Under the v2 orchestrator flag, canvas-finalize must skip the v1
+    decoration/notes outro entirely and land on GENERATING with
+    trigger_generation set — name/quantity/email/purpose were already
+    captured in chat before finalize in the v2 flow."""
+    monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
+
+    design = {"colourway": {"name": "Navy", "hex": "#1e3a8a"},
+              "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
+                                    "x": 0.5, "y": 0.4, "width": 0.2, "height": 0.1,
+                                    "rotation": 0, "zIndex": 0}],
+                        "back": [], "left": [], "right": []}}
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": design, "name": "Al"},
+                    headers=seeded_store_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "generating"
+    assert body["data"]["trigger_generation"] is True
+    assert "options" not in body["data"]
+
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    assert row["state"] == "generating"
+    assert row["collected"]["elements"][0]["content"] == "HI"
+    assert row["collected"]["canvas_finalized"] is True
+    assert row["canvas_design"] == design
+
+
 def test_canvas_request_entry_path_defaults_non_null():
     """Regression: design_sessions.entry_path is NOT NULL, so the create request
     must default entry_path to a non-null marker (the mocked-supabase route tests
