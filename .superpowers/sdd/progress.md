@@ -38,3 +38,9 @@ Task 5: complete (commit 4093721, review clean — Spec ✅, Quality Approved). 
   MINOR (for final review): no test for flag-ON + non-canvas → v1 (logic correct, untested); _dispatch DB lookup has no try/except (SessionNotFound caught at handler; acceptable).
 
 Task 6 BASE (HEAD before impl): 4093721
+
+Task 6: complete (commit 2224a85, review clean — Spec ✅, Quality Approved). finalize_canvas v2 branch (flag-gated) → state=generating + trigger_generation, skips deco outro, no lead capture. Reused test_canvas_routes.py harness; flag-off regression (test_finalize_routes_to_decoration) confirmed; suite 545.
+  MINOR (final review): v2 branch reply "Perfect — generating…" hardcoded, not from v2_reply (v2_reply has no GENERATING entry) — matches brief.
+  NOTE: once Task 7 lands the real branding.canvas_intro_text, orchestrator_v2's defensive try/except import picks it up automatically.
+
+Task 7 BASE (HEAD before impl): 2224a85
