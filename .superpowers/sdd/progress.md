@@ -26,3 +26,10 @@ Task 3: complete (commit 04d4497 + fix 165e86a, review clean after fix — Spec 
   TEST-INFRA NOTE (for Task 4/6/15): backend has NO conftest.py; orchestrator tests use an inline _FakeSB/_FakeTable (see tests/test_conversation_smart.py ~L40-90) + monkeypatch <module>.get_supabase. The plan's "add conftest fixtures" is WRONG — use the _FakeSB pattern. For v2: also monkeypatch orchestrator_v2._can_start_design and orchestrator_v2.leads_service.capture_lead_and_verify; leave store_id off the fake session so get_store is skipped; v2_reply is deterministic (no generate_reply monkeypatch needed).
 
 Task 4 BASE (HEAD before impl): 165e86a
+
+Task 4: complete (commit a925d27 + fix 3f6306c, review + controller-verified fix). orchestrator_v2.handle_message (front half + tail handoff) + 6 tests, suite 542.
+  IMPORTANT FIX (reviewer-caught PLAN GAP): v2 dispatches every canvas turn but only owns the front half — the shared interactive tail (OFFER_REFINE, refine loop, QUOTE_REQUESTED, upsell) had no v2 routing → dead-end even on happy-path refine. Fixed: `_V2_OWNED` set; `if current not in _V2_OWNED: return await _v1.handle_message(...)` delegates tail turns to v1 (reuses all v1 tail logic incl. canvas quote). Daily-cap reroute now speaks GENERATION_BLOCKED_ASIDE + CANVAS_QUOTE_ASK + quote chips; next turn delegates. Controller-verified guard placement + 2 new tests (delegation, reroute).
+  Also removed unused `_apply_generation_gate` import + dropped always-False `email_retry` return (Minors).
+  NOTE: this delegation is the mechanism that makes "reuse the existing tail" actually work for interactive tail states. Task 5 route-dispatch (by flow_mode) is unaffected — v2 delegates internally by state.
+
+Task 5 BASE (HEAD before impl): 3f6306c
