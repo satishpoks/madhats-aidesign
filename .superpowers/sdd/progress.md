@@ -33,3 +33,8 @@ Task 4: complete (commit a925d27 + fix 3f6306c, review + controller-verified fix
   NOTE: this delegation is the mechanism that makes "reuse the existing tail" actually work for interactive tail states. Task 5 route-dispatch (by flow_mode) is unaffected — v2 delegates internally by state.
 
 Task 5 BASE (HEAD before impl): 3f6306c
+
+Task 5: complete (commit 4093721, review clean — Spec ✅, Quality Approved). chat.py _dispatch: canvas+flag→v2 else v1; poll routes untouched; flag-off skips DB. 2 dispatch tests + existing route test green.
+  MINOR (for final review): no test for flag-ON + non-canvas → v1 (logic correct, untested); _dispatch DB lookup has no try/except (SessionNotFound caught at handler; acceptable).
+
+Task 6 BASE (HEAD before impl): 4093721
