@@ -15,3 +15,7 @@ Task 1 BASE (HEAD before impl): 36cc1ba (ledger-reset commit; the recorded 8773c
 Task 1: complete (commit 5932bbc, review clean — Spec ✅, Quality Approved, no findings). CANVAS_ORCHESTRATOR_V2 bool flag in config.py + .env.example + 2 tests.
 
 Task 2 BASE (HEAD before impl): 5932bbc
+
+Task 2: complete (commit 775c22f, review clean — Spec ✅, Quality Approved, no findings). 8 additive enum members + state_machine_v2 (advance_state_v2/progress_v2/MAX_LOGOS/V2_STATES) + 7 tests. Reviewer independently confirmed enum edit additive-only + v1 advance_state untouched + no ordinal-dependent enum use in repo.
+
+Task 3 BASE (HEAD before impl): 775c22f
