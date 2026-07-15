@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
+from app import prompts
 from app.storage import media_url
 
 HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
@@ -57,7 +58,19 @@ def validate_brand(brand: dict) -> dict:
             raise ValueError(f"{key} must be a hex colour like #FF5C00")
     if "menu_items" in cleaned:
         cleaned["menu_items"] = _validate_menu_items(cleaned["menu_items"])
+    intro = cleaned.get("canvas_intro")
+    if intro is not None and (not isinstance(intro, str) or len(intro) > 600):
+        raise ValueError("canvas_intro must be a string of at most 600 characters")
     return cleaned
+
+
+def canvas_intro_text(store: dict | None) -> str:
+    """The admin-set step-2 intro for the v2 canvas flow, or the MadHats default."""
+    brand = (store or {}).get("brand") or {}
+    text = brand.get("canvas_intro")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return prompts.V2_DEFAULT_INTRO
 
 
 def public_brand(brand: dict | None, base_url: str) -> dict:
