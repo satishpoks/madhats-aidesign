@@ -107,7 +107,7 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
             "instructions": prompts.V2_TOOL_TIPS[tool],
             "show_done": True,
         }
-    if state is S.ASK_ANYTHING_ELSE:
+    if state in (S.ASK_ANYTHING_ELSE, S.ASK_QUANTITY):
         # Lock every tool once the design phase is over.
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
                 "instructions": None, "show_done": False}

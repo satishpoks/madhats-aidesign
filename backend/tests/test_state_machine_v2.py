@@ -65,7 +65,14 @@ def test_directive_anything_else_locks_all_tools():
 
 
 def test_directive_none_for_tail_states():
-    assert v2.canvas_directive(S.ASK_QUANTITY, {}) is None
+    # Genuine tail states drive no canvas change.
+    assert v2.canvas_directive(S.ASK_EMAIL, {}) is None
+    assert v2.canvas_directive(S.ASK_PURPOSE, {}) is None
+
+
+def test_directive_quantity_locks_all_tools():
+    d = v2.canvas_directive(S.ASK_QUANTITY, {})
+    assert d["allowed_tools"] == []
 
 
 def test_public_data_finalize_triggers_finalize():
