@@ -105,3 +105,38 @@ async def test_done_locks_and_advances_to_another_logo(monkeypatch):
 
     res = await o2.handle_message("s1", "done")
     assert res["state"] == S.ASK_ANOTHER_LOGO.value
+
+
+@pytest.mark.asyncio
+async def test_tail_state_delegates_to_v1(monkeypatch):
+    # A shared tail state (not in v2's owned set) must hand the turn to v1.
+    store = _new_store()
+    store["session"]["state"] = S.OFFER_REFINE.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    sentinel = {"reply": "V1", "state": S.OFFER_REFINE.value, "data": {}}
+
+    async def _fake_v1(session_id, message):
+        return sentinel
+
+    monkeypatch.setattr(o2._v1, "handle_message", _fake_v1)
+
+    res = await o2.handle_message("s1", "tweak the logo")
+    assert res is sentinel
+
+
+@pytest.mark.asyncio
+async def test_daily_cap_reroutes_to_quote_with_honest_copy(monkeypatch):
+    # At the ASK_PURPOSE turn the flow tries to enter FINALIZE_CANVAS; a capped
+    # customer is rerouted to QUOTE_REQUESTED with honest block copy this turn.
+    store = _new_store()
+    store["session"]["state"] = S.ASK_PURPOSE.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "email_captured": True}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda sid: False)
+
+    res = await o2.handle_message("s1", "for our footy club")
+
+    assert res["state"] == S.QUOTE_REQUESTED.value
+    assert prompts.GENERATION_BLOCKED_ASIDE in res["reply"]
+    assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]

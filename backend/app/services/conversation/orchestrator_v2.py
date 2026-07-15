@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 import structlog
 
+from app import prompts
 from app.config import settings
 from app.db import get_supabase
 from app.services import leads as leads_service
@@ -20,15 +21,14 @@ try:
     from app.services.branding import canvas_intro_text
 except ImportError:  # Task 7 not yet merged
     def canvas_intro_text(store):  # type: ignore
-        from app import prompts
         return prompts.V2_DEFAULT_INTRO
 
 from app.services.stores import get_store
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import state_machine_v2 as v2
+from app.services.conversation import orchestrator as _v1
 from app.services.conversation.orchestrator import (
     SessionNotFound,
-    _apply_generation_gate,   # reused (daily-cap honesty gate)
     _can_start_design,        # reused
 )
 from app.services.conversation.state_machine import (
@@ -39,6 +39,11 @@ from app.services.conversation.state_machine import (
 
 log = structlog.get_logger()
 S = ConversationState
+
+# States v2 owns (its front half). Every other state is a shared tail state
+# that v1's orchestrator already handles fully (refine loop, quote, upsell) —
+# delegate those turns to v1 so a canvas session isn't stranded post-design.
+_V2_OWNED = v2.V2_STATES | {S.GREETING, S.ASK_NAME, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE}
 
 _DONE_WORDS = ("done", "looks good", "that's it", "thats it", "finished", "ready", "good")
 
@@ -56,8 +61,13 @@ def _face_from(message: str) -> str | None:
     return None
 
 
-def _apply_v2_fields(state: ConversationState, collected: dict, message: str) -> bool:
-    """Capture the field(s) a v2 state expects. Returns email_retry flag."""
+def _apply_v2_fields(state: ConversationState, collected: dict, message: str) -> None:
+    """Capture the field(s) a v2 state expects, mutating ``collected`` in place.
+
+    At ASK_EMAIL this only stashes the parsed address as ``_pending_email``;
+    the actual double-opt-in capture (which needs the full session row) stays
+    inline in ``handle_message``.
+    """
     low = (message or "").strip().lower()
 
     if state is S.ASK_NAME and not collected.get("name"):
@@ -104,14 +114,12 @@ def _apply_v2_fields(state: ConversationState, collected: dict, message: str) ->
         collected["purpose"] = message.strip()
 
     # Email capture (double opt-in) at ASK_EMAIL.
-    email_retry = False
     if state is S.ASK_EMAIL and not collected.get("email_captured"):
         email = leads_service.extract_email(message)
         if email:
             # Need the full session row for capture; caller passes collected only,
             # so this branch is handled in handle_message (has the session).
             collected["_pending_email"] = email
-    return email_retry
 
 
 async def handle_message(session_id: str, message: str) -> dict:
@@ -122,6 +130,13 @@ async def handle_message(session_id: str, message: str) -> dict:
     session = res.data[0]
 
     current = ConversationState(session["state"])
+
+    # Only the front half is v2's. Every shared tail state (refine loop, quote,
+    # upsell, change-method …) is fully handled by v1's orchestrator — delegate
+    # so a canvas session isn't stranded once it reaches the tail.
+    if current not in _V2_OWNED:
+        return await _v1.handle_message(session_id, message)
+
     collected: dict = session.get("collected") or {}
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
@@ -152,9 +167,14 @@ async def handle_message(session_id: str, message: str) -> dict:
 
         # Daily-cap honesty gate on entry to FINALIZE_CANVAS (which leads to
         # generation): reroute to the quote handoff if the customer is capped.
+        # QUOTE_REQUESTED is a shared tail state, so the NEXT turn delegates to
+        # v1 (Fix 1) — but THIS turn must still speak honestly and pose the
+        # quote ask, since v2_reply/v2_public_data have no copy for it.
+        capped = False
         if new_state is S.FINALIZE_CANVAS and not _can_start_design(session_id):
             collected["generation_blocked"] = "daily_limit"
             new_state = S.QUOTE_REQUESTED
+            capped = True
 
         if email_retry:
             new_state = S.ASK_EMAIL
@@ -163,7 +183,10 @@ async def handle_message(session_id: str, message: str) -> dict:
         if new_state is S.SHOW_INTRO:
             collected["intro_shown"] = True
 
-        reply = v2.v2_reply(new_state, collected, persona, intro_text)
+        if capped:
+            reply = f"{prompts.GENERATION_BLOCKED_ASIDE} {prompts.CANVAS_QUOTE_ASK}"
+        else:
+            reply = v2.v2_reply(new_state, collected, persona, intro_text)
 
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
@@ -177,5 +200,11 @@ async def handle_message(session_id: str, message: str) -> dict:
          "state_before": state_before, "state_after": new_state.value},
     ]).execute()
 
-    data = v2.v2_public_data(new_state, collected)
+    if new_state is S.QUOTE_REQUESTED:
+        # Match v1's canvas quote ask chips (v2_public_data has no copy for the
+        # shared tail state).
+        data = {"options": ["Yes, request a quote", "No, I'm all set"],
+                "progress": v2.progress_v2(new_state, collected)}
+    else:
+        data = v2.v2_public_data(new_state, collected)
     return {"reply": reply, "state": new_state.value, "data": data}
