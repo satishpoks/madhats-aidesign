@@ -227,6 +227,15 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
           node.scaleX(1); node.scaleY(1)
         }}
       />
+      {el.removeBg && (
+        // Small "background will be removed" badge. name="export-hide" so it is
+        // NEVER baked into any export (layout guide OR the WYSIWYG preview);
+        // listening=false so it never steals clicks from the image beneath it.
+        <Group name="export-hide" listening={false} x={el.x * stageW} y={el.y * stageH}>
+          <Ellipse x={11} y={11} radiusX={10} radiusY={10} fill="#111827" opacity={0.85} />
+          <Text x={3} y={5} width={16} align="center" text="✂" fontSize={11} fill="#ffffff" />
+        </Group>
+      )}
       {isSelected && <Transformer ref={trRef as never} rotateEnabled />}
     </Group>
   )

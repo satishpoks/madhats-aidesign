@@ -148,7 +148,14 @@ def _element_line(el: dict) -> str:
     if etype == "logo":
         base = prompts.UPLOADED_ASSET_DESIGN_BLOCK
         place = _placement_phrase(el)
-        return base + (f"\nPlace the artwork{place}." if place else "")
+        line = base + (f"\nPlace the artwork{place}." if place else "")
+        if el.get("remove_bg"):
+            line += (
+                "\nRemove/knock out the background of the uploaded artwork — apply only "
+                "the logo/graphic itself onto the cap, with no surrounding background "
+                "box, panel or fill."
+            )
+        return line
     # text / graphic
     bits = []
     content = el.get("content", "")

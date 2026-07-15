@@ -114,6 +114,22 @@ def test_logo_element_keeps_second_image_directive():
     assert "onto the cap" in prompt.lower()
 
 
+def test_logo_remove_bg_adds_knockout_instruction():
+    prompt = _build({"elements": [{"type": "logo", "content": "uploaded logo",
+        "asset_path": "uploads/logo.png", "placement_zone": "front_panel",
+        "remove_bg": True, "deferred": []}],
+        "uploaded_asset_path": "uploads/logo.png"})
+    assert "knock out the background" in prompt.lower()
+
+
+def test_logo_without_remove_bg_has_no_knockout_instruction():
+    prompt = _build({"elements": [{"type": "logo", "content": "uploaded logo",
+        "asset_path": "uploads/logo.png", "placement_zone": "front_panel",
+        "remove_bg": False, "deferred": []}],
+        "uploaded_asset_path": "uploads/logo.png"})
+    assert "knock out the background" not in prompt.lower()
+
+
 def test_deferred_and_empty_attributes_skipped():
     prompt = _build({"elements": [{"type": "text", "content": "HI", "deferred": ["colour", "font"]}]})
     assert "Design colours" not in prompt and "font" not in prompt.lower()

@@ -19,13 +19,13 @@ export function StoreHeader({ subtitle }: { subtitle?: string }) {
       style={headerStyle}
     >
       {brand.logo_url ? (
-        <img src={brand.logo_url} alt={storeName || 'MAD HATS'} className="h-8 w-auto object-contain" />
+        <img src={brand.logo_url} alt={storeName || 'MAD HATS'} className="h-16 w-auto object-contain" />
       ) : (
         <span className="text-accent font-extrabold text-lg tracking-wide">
           {storeName || 'MAD HATS'}
         </span>
       )}
-      {subtitle && <span className="text-sm text-textMuted truncate">{subtitle}</span>}
+      {subtitle && <span className="text-sm opacity-70 truncate">{subtitle}</span>}
       {menu.length > 0 && (
         <nav className="ml-auto flex items-center gap-4 overflow-x-auto">
           {menu.map((m, i) => (

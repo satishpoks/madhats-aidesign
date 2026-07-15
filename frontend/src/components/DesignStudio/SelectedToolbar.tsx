@@ -1,8 +1,5 @@
-import { useState } from 'react'
-import { useCanvasStore, LINE_SHAPES, type CanvasElement } from '../../store/canvasStore'
-import { useSessionStore } from '../../store/sessionStore'
+import { useCanvasStore, LINE_SHAPES } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
-import { toggleBackground } from '../../lib/bgRemove'
 
 export function SelectedToolbar() {
   const activeFace = useCanvasStore(s => s.activeFace)
@@ -50,7 +47,14 @@ export function SelectedToolbar() {
           </label>
         </>
       )}
-      {el.type === 'image' && <BgRemoveToggle el={el} />}
+      {el.type === 'image' && (
+        <label className="flex items-center gap-1.5 text-sm text-textPrimary"
+          title="Flag this image so the design team knocks out its background when producing the artwork">
+          <input type="checkbox" checked={!!el.removeBg}
+            onChange={e => update(el.id, { removeBg: e.target.checked })} />
+          Remove background
+        </label>
+      )}
       {el.type === 'drawing' && (
         <label className="flex items-center gap-1 text-xs text-textMuted" title="Stroke colour">
           <span>Colour</span>
@@ -104,35 +108,5 @@ export function SelectedToolbar() {
       <button onClick={() => duplicate(el.id)} className="px-2 py-1 text-sm border border-border rounded" title="Duplicate">Duplicate</button>
       <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded" title="Delete">Delete</button>
     </div>
-  )
-}
-
-/** Background-removal toggle: runs client-side matting, swaps the element's image
- *  to the transparent (or restored original) upload. Async, with a busy state. */
-function BgRemoveToggle({ el }: { el: CanvasElement }) {
-  const sessionId = useSessionStore(s => s.sessionId)
-  const update = useCanvasStore(s => s.updateElement)
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
-
-  async function onToggle(on: boolean) {
-    if (!sessionId) return
-    setBusy(true); setFailed(false)
-    try {
-      const patch = await toggleBackground(sessionId, el, on)
-      update(el.id, patch)
-    } catch {
-      setFailed(true)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <label className="flex items-center gap-1.5 text-sm text-textPrimary">
-      <input type="checkbox" checked={!!el.removeBg} disabled={busy}
-        onChange={e => void onToggle(e.target.checked)} />
-      {busy ? 'Removing…' : failed ? 'Failed — try again' : 'Remove background'}
-    </label>
   )
 }

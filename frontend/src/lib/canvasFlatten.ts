@@ -14,6 +14,21 @@ export function dataUrlToFile(dataUrl: string, name: string): File {
  * photo background + colour tint). See flattenStage. */
 export const FLATTEN_HIDE_NAME = 'flatten-hide'
 
+/** Konva `name` for UI-only overlays (e.g. the bg-remove badge) that must NEVER
+ * appear in ANY export — neither the layout guide nor the WYSIWYG preview. */
+export const EXPORT_HIDE_NAME = 'export-hide'
+
+/** Hide every stage node whose space-separated `name` contains any of `names`;
+ * returns the nodes hidden so the caller can restore them. */
+function hideByName(stage: Konva.Stage, names: string[]): Konva.Node[] {
+  const hidden = stage.find((node: Konva.Node) => {
+    const name = typeof node.name === 'function' ? node.name() : ''
+    return typeof name === 'string' && name.split(/\s+/).some(n => names.includes(n))
+  })
+  hidden.forEach(n => n.hide())
+  return hidden
+}
+
 /**
  * Flatten the placed decorations to a transparent PNG data URL — the "layout
  * guide" sent to the image model.
@@ -30,11 +45,7 @@ export const FLATTEN_HIDE_NAME = 'flatten-hide'
  * unchanged.
  */
 export function flattenStage(stage: Konva.Stage, pixelRatio = 2): string {
-  const hidden = stage.find((node: Konva.Node) => {
-    const name = typeof node.name === 'function' ? node.name() : ''
-    return typeof name === 'string' && name.split(/\s+/).includes(FLATTEN_HIDE_NAME)
-  })
-  hidden.forEach(n => n.hide())
+  const hidden = hideByName(stage, [FLATTEN_HIDE_NAME, EXPORT_HIDE_NAME])
   try {
     // Re-render the scene with the background hidden before rasterising.
     stage.draw()
@@ -52,5 +63,13 @@ export function flattenStage(stage: Konva.Stage, pixelRatio = 2): string {
  * decorations-only layout guide the image model consumes).
  */
 export function flattenFull(stage: Konva.Stage, pixelRatio = 2): string {
-  return stage.toDataURL({ pixelRatio, mimeType: 'image/png' })
+  // Keep the product photo + tint, but still drop UI-only overlays (bg-remove badge).
+  const hidden = hideByName(stage, [EXPORT_HIDE_NAME])
+  try {
+    stage.draw()
+    return stage.toDataURL({ pixelRatio, mimeType: 'image/png' })
+  } finally {
+    hidden.forEach(n => n.show())
+    stage.draw()
+  }
 }
