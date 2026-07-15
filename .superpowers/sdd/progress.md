@@ -43,4 +43,9 @@ Task 6: complete (commit 2224a85, review clean — Spec ✅, Quality Approved). 
   MINOR (final review): v2 branch reply "Perfect — generating…" hardcoded, not from v2_reply (v2_reply has no GENERATING entry) — matches brief.
   NOTE: once Task 7 lands the real branding.canvas_intro_text, orchestrator_v2's defensive try/except import picks it up automatically.
 
-Task 7 BASE (HEAD before impl): 2224a85
+Task 7: complete (commit 723b760, review clean — Spec ✅, Quality Approved). branding.canvas_intro_text + validate_brand canvas_intro validation (≤600); NOT in public_brand. Admin PATCH read-merge already runs validate_brand (no route change). 4 tests + 23 brand tests.
+  MINOR (final review): no explicit test for ""/whitespace canvas_intro (logic correct via .strip()).
+
+=== BACKEND COMPLETE (Tasks 1-7). Frontend next (8-14). ===
+
+Task 8 BASE (HEAD before impl): 723b760
