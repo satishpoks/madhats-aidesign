@@ -8,6 +8,7 @@ tail (advance_state) takes over.
 """
 from __future__ import annotations
 
+from app import prompts
 from app.services.conversation.state_machine import ConversationState as S
 
 MAX_LOGOS = 4
@@ -67,3 +68,113 @@ def progress_v2(state: S, collected: dict) -> dict:
         return {"step": _V2_PROGRESS_PATH.index(norm) + 1, "total": total}
     # Past the questionnaire (finalize + tail) -> complete.
     return {"step": total, "total": total}
+
+
+_VALID_FACES = {"front", "back", "left", "right"}
+
+
+def _logo_face(collected: dict) -> str:
+    face = (collected.get("logo_face") or "front")
+    return face if face in _VALID_FACES else "front"
+
+
+def canvas_directive(state: S, collected: dict) -> dict | None:
+    """The canvas-control blob for a v2 state, or None when the state drives no
+    canvas change (tail/question-only states)."""
+    if state is S.ASK_LOGO_PLACEMENT:
+        # The customer is about to pick a face + upload; unlock+open upload.
+        return {
+            "allowed_tools": ["upload"],
+            "target_face": _logo_face(collected),
+            "auto_open": "upload",
+            "instructions": prompts.V2_TOOL_TIPS["upload"],
+            "show_done": False,
+        }
+    if state is S.LOGO_ADJUST:
+        return {
+            "allowed_tools": ["upload"],
+            "target_face": _logo_face(collected),
+            "auto_open": None,
+            "instructions": prompts.V2_TOOL_TIPS["upload"],
+            "show_done": True,
+        }
+    if state is S.DECOR_ADJUST:
+        tool = "text" if collected.get("decor_choice") == "text" else "shape"
+        return {
+            "allowed_tools": [tool],
+            "target_face": _logo_face(collected),
+            "auto_open": tool,
+            "instructions": prompts.V2_TOOL_TIPS[tool],
+            "show_done": True,
+        }
+    if state is S.ASK_ANYTHING_ELSE:
+        # Lock every tool once the design phase is over.
+        return {"allowed_tools": [], "target_face": None, "auto_open": None,
+                "instructions": None, "show_done": False}
+    return None
+
+
+def v2_public_data(state: S, collected: dict) -> dict:
+    """Non-PII UI data for a v2 state: chips + directive + trigger flags."""
+    data: dict = {}
+    if state is S.SHOW_INTRO:
+        data["continuable"] = True
+    elif state is S.ASK_LOGO_PLACEMENT:
+        data["options"] = ["Front", "Back", "Left", "Right"]
+    elif state is S.LOGO_ADJUST:
+        data["options"] = ["Done"]
+    elif state is S.ASK_ANOTHER_LOGO:
+        data["options"] = ["Yes, another logo", "No, that's it"]
+    elif state is S.ASK_ADD_DECOR:
+        data["options"] = ["Add text", "Add a shape", "No, nothing else"]
+    elif state is S.DECOR_ADJUST:
+        data["options"] = ["Done"]
+    elif state is S.ASK_ANYTHING_ELSE:
+        data["options"] = ["Add something else", "No, that's everything"]
+    elif state is S.ASK_QUANTITY:
+        data["options"] = ["1", "2-11", "12-49", "50-99", "100+", "Not sure"]
+    elif state is S.FINALIZE_CANVAS:
+        data["trigger_finalize"] = True
+    directive = canvas_directive(state, collected)
+    if directive is not None:
+        data["canvas"] = directive
+    data["progress"] = progress_v2(state, collected)
+    return data
+
+
+def v2_reply(state: S, collected: dict, persona: str, intro_text: str) -> str:
+    """Deterministic reply copy per v2 state (never LLM-paraphrased, so no
+    instruction detail is dropped)."""
+    name = collected.get("name") or "there"
+    tips = prompts.V2_TOOL_TIPS
+    if state is S.SHOW_INTRO:
+        return f"{intro_text}\n\nReady? Tap continue when you are."
+    if state is S.ASK_LOGO_PLACEMENT:
+        return (
+            f"Great, {name}! Let's add your logo. Which part of the cap should it "
+            f"go on — front, back, left or right? {tips['upload']}"
+        )
+    if state is S.LOGO_ADJUST:
+        return (
+            "Nice — your logo's on the cap. Do you want the background removed? "
+            "You can drag to move it, resize from a corner, or rotate it. "
+            "Press Done when the placement looks right."
+        )
+    if state is S.ASK_ANOTHER_LOGO:
+        return "Locked that in. Would you like to add another logo?"
+    if state is S.ASK_ADD_DECOR:
+        return "Would you like to add any text or a shape to your design?"
+    if state is S.DECOR_ADJUST:
+        tool = "text" if collected.get("decor_choice") == "text" else "shape"
+        return f"{tips[tool]} Press Done when you're happy with it."
+    if state is S.ASK_ANYTHING_ELSE:
+        return "Is that everything, or would you like to add anything else?"
+    if state is S.ASK_QUANTITY:
+        return "How many caps are you after?"
+    if state is S.ASK_EMAIL:
+        return "What's the best email to send your design preview to?"
+    if state is S.ASK_PURPOSE:
+        return "Last thing — if you don't mind me asking, what's the hat for?"
+    if state is S.FINALIZE_CANVAS:
+        return "Perfect — putting your design together now…"
+    return "Let's keep going."

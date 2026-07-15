@@ -1030,3 +1030,27 @@ QUOTE_ERROR_HTML = """\
 </body>
 </html>
 """
+
+# --- v2 step-by-step canvas orchestrator copy ---
+V2_TOOL_TIPS = {
+    "upload": (
+        'Tap the highlighted "Upload image" button to add your logo. '
+        "Once it's on the cap you can drag it to move it, pull a corner to "
+        "resize, and use the top handle to rotate."
+    ),
+    "text": (
+        'Tap the highlighted "Add text" button, type your wording, then drag '
+        "to position it. You can change the font, size and colour from the "
+        "toolbar under the cap."
+    ),
+    "shape": (
+        'Tap the highlighted "Graphics" button to drop in a shape, then drag '
+        "to position and resize it. Recolour it from the toolbar under the cap."
+    ),
+}
+
+V2_DEFAULT_INTRO = (
+    "Welcome! I'll help you put your design straight onto the cap. We'll add "
+    "your logo first, then any text or graphics, and I'll guide you through "
+    "each tool as we go."
+)
