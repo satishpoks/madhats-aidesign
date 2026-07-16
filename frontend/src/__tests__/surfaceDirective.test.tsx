@@ -50,3 +50,24 @@ test('directive shows the instruction callout and Done button', () => {
   expect(screen.getByText('Drag to move it')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument()
 })
+
+test('v2: SelectedToolbar mounts so a selected element is editable', () => {
+  // Regression: the toolbar was gated on `unlocked` (chatState === 'canvas_design'),
+  // which is always false in v2 — so directive copy telling the customer to change
+  // font/size/colour "in the toolbar" pointed at a toolbar that never rendered.
+  // targetFace null so the face-switch effect (which clears selectedId via
+  // setActiveFace) doesn't fire — the active face is already 'front' by default.
+  useChatStore.setState({
+    chatState: 'text_adjust',
+    canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: 'Style your text', showDone: false },
+  } as never)
+  // Add a text element on the active face and select it — the toolbar no-ops
+  // until something is selected, so a selection is what makes it appear.
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().select(id)
+  render(<DesignStudioSurface />)
+  // SelectedToolbar renders these text controls (stable aria-labels).
+  expect(screen.getByLabelText('Text content')).toBeInTheDocument()
+  expect(screen.getByLabelText('Font')).toBeInTheDocument()
+})

@@ -223,7 +223,11 @@ export function DesignStudioSurface() {
         {/* Centre — canvas + contextual toolbar */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           <CanvasStage stageRef={stageRef} locked={isV2 ? false : !unlocked} />
-          {unlocked && <SelectedToolbar />}
+          {/* v2 also mounts the toolbar: its instruction copy tells the customer
+              to change font/size/colour "in the toolbar under the cap". It
+              no-ops (returns null) until an element is selected, so it only
+              surfaces once they pick a placed element — exactly when needed. */}
+          {(unlocked || isV2) && <SelectedToolbar />}
           {canvasDirective?.showDone && (
             <button onClick={postDone}
               className="px-6 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold">
