@@ -59,5 +59,10 @@ Task 9: complete (commit 952cf62, review clean — Spec ✅, Quality Approved; r
 Task 10: complete (commit 66a6b48, review clean — Spec ✅, Quality Approved). ToolRail allowedTools Set gating + highlightTool (ring+animate-pulse); legacy `locked` fallback when allowedTools undefined; Draw/colourway/render unchanged. 7 tests (6 old + 1 new), tsc clean.
   MINOR (final review): hi() applies highlight regardless of allowedTools membership (Surface always passes the single allowed tool, so non-issue in practice).
 
-Task 11 BASE (HEAD before impl): 66a6b48
+Task 11: complete (commit 24b4a21, review clean — Spec ✅, Quality Approved). chatStore parseData: canvasDirective (snake→camel, defensive) + triggerFinalize; all 4 add-sites (interface/parseData/defaults/reset); no-stick proven by test. 3 new + 2 existing tests, tsc clean.
+
+Task 12: complete (commit direct by controller — 6-line pure constant module toolInstructions.ts, tsc clean, no test needed). TOOL_INSTRUCTIONS record (upload/text/shape).
+
+Task 13 BASE (HEAD before impl): <toolInstructions commit>
+Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
