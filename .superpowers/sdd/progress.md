@@ -70,5 +70,10 @@ Task 13: complete (commit 7943e06 + fix 473cab3, review clean after fix — Spec
   MINOR (FINAL REVIEW — decide): ToolRail Draw toggle + cap-colour swatches gated on `locked` only, so always ENABLED in v2 regardless of the step's allowedTools (a v2 customer can freehand-draw / change cap colour during e.g. a logo-upload step). Pre-existing gating, off-spec for strict one-tool-at-a-time. Not fixed (scope). SelectedToolbar edit controls also always available once an element is selected in v2 (acceptable — needed for editing).
 
 Task 14 BASE (HEAD before impl): 473cab3
+
+Task 14: complete (commit a2b651a, review clean — Spec ✅, Quality Approved). Brand.canvas_intro?:string in types.ts; BrandingView textarea via setField('canvas_intro'), maxLength 600, aria-label. Mirrored co-located BrandingView.test.tsx harness. 1 new + 3 existing pass, tsc clean.
+  MINOR (final): new test in __tests__/brandingCanvasIntro.test.tsx while component's other tests are co-located BrandingView.test.tsx (harmless split).
+
+Task 15 BASE (HEAD before impl): a2b651a
 Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
