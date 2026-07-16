@@ -53,4 +53,8 @@ Task 8 BASE (HEAD before impl): 723b760
 Task 8: complete (commit cd9a69c, review clean — Spec ✅, Quality Approved). canvasStore locked?:boolean + lockAll (clears selection) / unlockAll; FACES-iterated immutable spreads; 2 tests.
 
 Task 9 BASE (HEAD before impl): cd9a69c
+
+Task 9: complete (commit 952cf62, review clean — Spec ✅, Quality Approved; reviewer re-ran focused suite 4/4 + tsc clean). All 4 node types (Text/Image/Shape/Drawing) guard draggable/onClick/onTap/Transformer on !!el.locked. Real behavioral test (Konva .fire('click') + .draggable() + Transformer presence) for Text+Image, locked+unlocked. bg-removal badge intact. jsdom needed getContext stub in test. Full vitest run stalls (documented Windows tinypool flake) — targeted runs used.
+
+Task 10 BASE (HEAD before impl): 952cf62
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
