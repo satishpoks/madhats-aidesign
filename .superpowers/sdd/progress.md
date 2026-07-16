@@ -75,5 +75,19 @@ Task 14: complete (commit a2b651a, review clean — Spec ✅, Quality Approved).
   MINOR (final): new test in __tests__/brandingCanvasIntro.test.tsx while component's other tests are co-located BrandingView.test.tsx (harmless split).
 
 Task 15 BASE (HEAD before impl): a2b651a
+
+Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved). Genuine 12-turn e2e walk through real handle_message (asserts state EVERY turn, no weakening); _FakeSB + monkeypatched capture_lead_and_verify/_can_start_design. REGRESSION: backend full suite 550 pass (flag-off = v1 intact); frontend targeted 22 pass; tsc clean.
+
+=== ALL 15 TASKS COMPLETE. Final whole-branch review next. ===
+
+MINOR findings roll-up for final review to triage:
+- T3: v2_reply `persona` param unused; DECOR_ADJUST target_face reuses _logo_face (no decor_face field).
+- T4: (fixed) delegation + honest reroute.
+- T5: no test for flag-ON + non-canvas → v1; _dispatch DB lookup no try/except.
+- T6: v2 finalize reply hardcoded (not from v2_reply).
+- T7: no explicit ""/whitespace canvas_intro test.
+- T10: hi() highlights regardless of allowedTools membership (Surface always passes single allowed tool).
+- T13 (DECIDE): ToolRail Draw toggle + cap-colour swatches always ENABLED in v2 (gated on `locked`=false, not allowedTools) — a v2 customer can freehand-draw / recolour cap during any step. Off-spec for strict one-tool-at-a-time.
+- T14: brandingCanvasIntro test in __tests__/ while other BrandingView tests co-located (harmless split).
 Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
