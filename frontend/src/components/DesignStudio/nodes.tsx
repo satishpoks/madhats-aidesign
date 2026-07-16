@@ -49,6 +49,8 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
     return () => { cancelled = true }
   }, [fontFamily, shapeRef])
 
+  const locked = !!el.locked
+
   const common = {
     ref: shapeRef as never,
     x: el.x * stageW,
@@ -57,9 +59,9 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
     fontSize,
     fontFamily,
     fill,
-    draggable: true,
-    onClick: onSelect,
-    onTap: onSelect,
+    draggable: !locked,
+    onClick: locked ? undefined : onSelect,
+    onTap: locked ? undefined : onSelect,
     onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
       onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH }),
     onTransformEnd: (e: Konva.KonvaEventObject<Event>) => {
@@ -82,7 +84,7 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
       ) : (
         <Text {...common} text={content} />
       )}
-      {isSelected && (
+      {isSelected && !locked && (
         <Transformer
           ref={trRef as never}
           enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
@@ -150,6 +152,7 @@ export function ShapePrimitive({ el, lw, lh, listening = true, strokeScale = 1 }
 
 export function ShapeNode({ el, stageW, stageH, isSelected, onSelect, onChange }: NodeProps) {
   const { shapeRef, trRef } = useTransformer(isSelected)
+  const locked = !!el.locked
   const lw = el.width * stageW
   const lh = el.height * stageH
   return (
@@ -159,9 +162,9 @@ export function ShapeNode({ el, stageW, stageH, isSelected, onSelect, onChange }
         x={el.x * stageW}
         y={el.y * stageH}
         rotation={el.rotation}
-        draggable
-        onClick={onSelect}
-        onTap={onSelect}
+        draggable={!locked}
+        onClick={locked ? undefined : onSelect}
+        onTap={locked ? undefined : onSelect}
         onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
         onTransformEnd={e => {
           const node = e.target as Konva.Group
@@ -175,7 +178,7 @@ export function ShapeNode({ el, stageW, stageH, isSelected, onSelect, onChange }
       >
         <ShapePrimitive el={el} lw={lw} lh={lh} />
       </Group>
-      {isSelected && <Transformer ref={trRef as never} rotateEnabled />}
+      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled />}
     </Group>
   )
 }
@@ -189,6 +192,7 @@ export function curvePath(content: string, fontSize: number, curve: number): str
 
 export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }: NodeProps) {
   const { shapeRef, trRef } = useTransformer(isSelected)
+  const locked = !!el.locked
   const imgRef = useRef<HTMLImageElement | null>(null)
   const forceRef = useRef(0)
   if (!imgRef.current && el.assetUrl) {
@@ -213,9 +217,9 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
         width={el.width * stageW}
         height={el.height * stageH}
         rotation={el.rotation}
-        draggable
-        onClick={onSelect}
-        onTap={onSelect}
+        draggable={!locked}
+        onClick={locked ? undefined : onSelect}
+        onTap={locked ? undefined : onSelect}
         onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
         onTransformEnd={e => {
           const node = e.target as Konva.Image
@@ -236,13 +240,14 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
           <Text x={3} y={5} width={16} align="center" text="✂" fontSize={11} fill="#ffffff" />
         </Group>
       )}
-      {isSelected && <Transformer ref={trRef as never} rotateEnabled />}
+      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled />}
     </Group>
   )
 }
 
 export function DrawingNode({ el, stageW, stageH, isSelected, onSelect, onChange }: NodeProps) {
   const { shapeRef, trRef } = useTransformer(isSelected)
+  const locked = !!el.locked
   const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * stageW : p * stageH))
   const sw = (el.strokeWidth ?? 0.01) * stageW
   return (
@@ -252,9 +257,9 @@ export function DrawingNode({ el, stageW, stageH, isSelected, onSelect, onChange
         x={el.x * stageW}
         y={el.y * stageH}
         rotation={el.rotation}
-        draggable
-        onClick={onSelect}
-        onTap={onSelect}
+        draggable={!locked}
+        onClick={locked ? undefined : onSelect}
+        onTap={locked ? undefined : onSelect}
         onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
         onTransformEnd={e => {
           // Rotate-only transformer: Konva rotates around the stroke's bbox
@@ -267,7 +272,7 @@ export function DrawingNode({ el, stageW, stageH, isSelected, onSelect, onChange
         <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={sw}
           lineCap="round" lineJoin="round" tension={0.5} hitStrokeWidth={Math.max(sw, 12)} />
       </Group>
-      {isSelected && (
+      {isSelected && !locked && (
         <Transformer ref={trRef as never} rotateEnabled resizeEnabled={false} enabledAnchors={[]} />
       )}
     </Group>
