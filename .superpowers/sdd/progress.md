@@ -49,3 +49,8 @@ Task 7: complete (commit 723b760, review clean — Spec ✅, Quality Approved). 
 === BACKEND COMPLETE (Tasks 1-7). Frontend next (8-14). ===
 
 Task 8 BASE (HEAD before impl): 723b760
+
+Task 8: complete (commit cd9a69c, review clean — Spec ✅, Quality Approved). canvasStore locked?:boolean + lockAll (clears selection) / unlockAll; FACES-iterated immutable spreads; 2 tests.
+
+Task 9 BASE (HEAD before impl): cd9a69c
+Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
