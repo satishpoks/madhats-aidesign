@@ -71,3 +71,17 @@ test('unlocked leaves the tools enabled', () => {
   )
   expect(screen.getByRole('button', { name: /add text/i })).not.toBeDisabled()
 })
+
+test('only allowed tool is enabled and highlighted', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[]} onRender={() => {}} rendering={false} rendered={false}
+      allowedTools={new Set(['upload'])} highlightTool="upload" />,
+  )
+  const upload = screen.getByText('↑ Upload image')
+  const text = screen.getByText('+ Add text')
+  expect(upload).not.toBeDisabled()
+  expect(text).toBeDisabled()
+  expect(upload.className).toMatch(/animate-pulse|ring-2/)
+})

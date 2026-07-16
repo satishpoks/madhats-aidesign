@@ -1,6 +1,8 @@
 import type { Colourway } from '../../store/canvasStore'
 import { useCanvasStore } from '../../store/canvasStore'
 
+type Tool = 'upload' | 'text' | 'shape'
+
 interface ToolRailProps {
   onAddText: () => void
   onUploadClick: () => void
@@ -12,9 +14,13 @@ interface ToolRailProps {
   /** Canvas is view-only (chat not at canvas_design) — disable every tool so
    *  no modification can be made, without blurring the panel. */
   locked?: boolean
+  /** v2: when set, ONLY these tool buttons are enabled. */
+  allowedTools?: Set<Tool>
+  /** v2: the tool to visually highlight (accent glow + pulse). */
+  highlightTool?: Tool | null
 }
 
-export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked }: ToolRailProps) {
+export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, allowedTools, highlightTool }: ToolRailProps) {
   const colourway = useCanvasStore(s => s.colourway)
   const setColourway = useCanvasStore(s => s.setColourway)
   const drawMode = useCanvasStore(s => s.drawMode)
@@ -23,11 +29,20 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   const setDrawColour = useCanvasStore(s => s.setDrawColour)
   const drawWidth = useCanvasStore(s => s.drawWidth)
   const setDrawWidth = useCanvasStore(s => s.setDrawWidth)
+
+  // A tool is disabled if the whole rail is locked, or (v2) it's not in the
+  // allowed set. When allowedTools is undefined we fall back to the legacy
+  // `locked` behaviour so v1 is unaffected.
+  const toolDisabled = (t: Tool) =>
+    !!locked || (allowedTools !== undefined && !allowedTools.has(t))
+  const hi = (t: Tool) =>
+    highlightTool === t ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse' : ''
+
   return (
     <div className="flex flex-col gap-3 p-4 w-full md:w-64">
-      <button onClick={onAddText} disabled={locked} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border">+ Add text</button>
-      <button onClick={onUploadClick} disabled={locked} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border">↑ Upload image</button>
-      <button onClick={onGraphicsClick} disabled={locked} className="px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border">◈ Graphics</button>
+      <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
+      <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
+      <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
       <button onClick={() => setDrawMode(!drawMode)} disabled={locked}
         className={`px-4 py-2 border rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           drawMode ? 'border-accent bg-accent/10 text-accent' : 'bg-surface border-border text-textPrimary hover:border-accent'
