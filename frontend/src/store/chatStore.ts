@@ -36,6 +36,16 @@ interface ChatStoreState {
   chatError: string | null
   /** Guard so kickoff() sends the empty-string turn only once per session. */
   kickoffDone: boolean
+  /** v2 canvas flow: the current tool-control directive (null = no change). */
+  canvasDirective: {
+    allowedTools: string[]
+    targetFace: string | null
+    autoOpen: string | null
+    instructions: string | null
+    showDone: boolean
+  } | null
+  /** v2: the frontend should flatten + finalize the canvas now. */
+  triggerFinalize: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -77,7 +87,18 @@ function parseData(data: Record<string, unknown>) {
   const multiselect = data.multiselect === true
   const selected = Array.isArray(data.selected) ? (data.selected as string[]) : []
   const quoteUrl = typeof data.quote_url === 'string' ? data.quote_url : ''
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl }
+  const rawCanvas = (data.canvas && typeof data.canvas === 'object') ? data.canvas as Record<string, unknown> : null
+  const canvasDirective = rawCanvas
+    ? {
+        allowedTools: Array.isArray(rawCanvas.allowed_tools) ? rawCanvas.allowed_tools as string[] : [],
+        targetFace: typeof rawCanvas.target_face === 'string' ? rawCanvas.target_face : null,
+        autoOpen: typeof rawCanvas.auto_open === 'string' ? rawCanvas.auto_open : null,
+        instructions: typeof rawCanvas.instructions === 'string' ? rawCanvas.instructions : null,
+        showDone: rawCanvas.show_done === true,
+      }
+    : null
+  const triggerFinalize = data.trigger_finalize === true
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize }
 }
 
 function uid(): string {
@@ -103,6 +124,8 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   sending: false,
   chatError: null,
   kickoffDone: false,
+  canvasDirective: null,
+  triggerFinalize: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -272,5 +295,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       sending: false,
       chatError: null,
       kickoffDone: false,
+      canvasDirective: null,
+      triggerFinalize: false,
     }),
 }))
