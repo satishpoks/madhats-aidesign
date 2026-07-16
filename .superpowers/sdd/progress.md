@@ -63,6 +63,12 @@ Task 11: complete (commit 24b4a21, review clean — Spec ✅, Quality Approved).
 
 Task 12: complete (commit direct by controller — 6-line pure constant module toolInstructions.ts, tsc clean, no test needed). TOOL_INSTRUCTIONS record (upload/text/shape).
 
-Task 13 BASE (HEAD before impl): <toolInstructions commit>
+Task 13 BASE (HEAD before impl): d9bea1f (toolInstructions)
+
+Task 13: complete (commit 7943e06 + fix 473cab3, review clean after fix — Spec ✅, Quality Approved). Surface reacts to canvasDirective+triggerFinalize: face switch, allowedTools/highlightTool→ToolRail, instruction callout, Done button (posts "done"), auto-open dialog, triggerFinalize→doRender() once (ref-guard). v1 legacy gating byte-identical (isV2 false). Impl also fixed render-button-bypass (rendered={isV2?true:rendered}).
+  IMPORTANT FIX (reviewer-confirmed): SelectedToolbar was gated on `unlocked` (never true in v2) → font/size/colour controls unreachable despite instructions promising them. Fixed → `{(unlocked || isV2) && <SelectedToolbar/>}` + regression test. Controller-verified.
+  MINOR (FINAL REVIEW — decide): ToolRail Draw toggle + cap-colour swatches gated on `locked` only, so always ENABLED in v2 regardless of the step's allowedTools (a v2 customer can freehand-draw / change cap colour during e.g. a logo-upload step). Pre-existing gating, off-spec for strict one-tool-at-a-time. Not fixed (scope). SelectedToolbar edit controls also always available once an element is selected in v2 (acceptable — needed for editing).
+
+Task 14 BASE (HEAD before impl): 473cab3
 Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
