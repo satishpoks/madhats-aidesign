@@ -379,10 +379,19 @@ git commit -m "feat(canvas-v2): declare the step registry as data"
 
 **Interfaces:**
 - Consumes: `canvas_steps.REGISTRY`, `by_id`, `MAX_LOGOS`.
-- Produces: `next_step(collected: dict) -> Step`; `V2_OWNED: frozenset[ConversationState]`.
+- Produces: `next_step(collected: dict) -> Step`; `V2_OWNED: frozenset[ConversationState]`;
+  `progress_for(step: Step) -> dict`; `progress_v2(state: ConversationState, collected: dict) -> dict`.
 - Produces (test helper, imported by Task 4 too — do NOT duplicate it there):
   `canvas_step_helpers.satisfy(collected, step) -> None`,
   `canvas_step_helpers.seed_for(step) -> dict`.
+
+**Third consumer — `sessions.py` (found at Task 2 execution, plan gap):**
+`app/api/routes/sessions.py:269` imports `progress_v2` and calls it as
+`progress_v2(S.GENERATING, collected)` inside the v2-gated `canvas-finalize`
+branch. `GENERATING` is a shared-tail state with **no registry step**. Progress
+therefore ships in THIS task (not Task 6) so that route never breaks, and
+`progress_v2` keeps its exact current signature — **`sessions.py` needs no
+change**.
 
 Replace the whole file's routing section. Keep `V2_OWNED` exported — `orchestrator_v2` and `chat.py` read it.
 
@@ -526,6 +535,23 @@ def test_router_walks_every_step_in_declared_order():
 def test_v2_owned_is_the_registry_plus_greeting():
     assert v2.V2_OWNED == frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
     assert S.OFFER_REFINE not in v2.V2_OWNED     # shared tail stays v1's
+
+
+def test_progress_collapses_loop_steps_onto_their_anchor():
+    total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
+    for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
+        assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
+    for sid in (S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
+        assert v2.progress_for(cs.by_id(sid)) == {"step": 4, "total": total}
+    assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {"step": total, "total": total}
+
+
+def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
+    # sessions.py's canvas-finalize route calls this with GENERATING, which has
+    # NO registry step. It must report "complete", not explode.
+    total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
+    assert v2.progress_v2(S.GENERATING, {}) == {"step": total, "total": total}
+    assert v2.progress_v2(S.ASK_QUANTITY, {}) == {"step": 5, "total": total}
 ```
 
 Note: `test_router_never_returns_a_step_after_an_unmet_one` skips `DECOR_ADJUST` and `ASK_ANYTHING_ELSE` via `_satisfy` setting `decor_done` at `ASK_ADD_DECOR` — that is correct, it mirrors the "No, nothing else" path.
@@ -577,6 +603,39 @@ def next_step(collected: dict) -> Step:
         if not step.done_when(collected):
             return step
     return cs.REGISTRY[-1]
+
+
+# The customer-facing question steps, in order — the loop/adjust steps collapse
+# onto their loop's anchor so "Step X of N" stays steady during a deep-dive.
+_PROGRESS_ANCHORS: dict[S, S] = {
+    S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
+    S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
+    S.DECOR_ADJUST: S.ASK_ADD_DECOR,
+    S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
+}
+_PROGRESS_PATH: list[S] = [
+    S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
+    S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
+]
+
+
+def progress_for(step: Step) -> dict:
+    total = len(_PROGRESS_PATH)
+    anchor = _PROGRESS_ANCHORS.get(step.id, step.id)
+    if anchor in _PROGRESS_PATH:
+        return {"step": _PROGRESS_PATH.index(anchor) + 1, "total": total}
+    return {"step": total, "total": total}      # finalize + tail -> complete
+
+
+def progress_v2(state: S, collected: dict | None = None) -> dict:
+    """State-keyed wrapper, kept at its original signature for
+    `sessions.py`'s canvas-finalize route — which calls it with GENERATING, a
+    shared-tail state that has no registry step (-> "complete")."""
+    step = cs.by_id(state)
+    if step is None:
+        total = len(_PROGRESS_PATH)
+        return {"step": total, "total": total}
+    return progress_for(step)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -1225,7 +1284,8 @@ git commit -m "feat(canvas-v2): LLM slot interpreter with validation, no keyword
 - Test: `backend/tests/test_state_machine_v2.py`
 
 **Interfaces:**
-- Produces: `directive_for(step, collected) -> dict | None`; `progress_for(step) -> dict`; `public_data_for(step, collected) -> dict`; `canvas_directive(state, collected) -> dict | None` (kept for `chat.py`/tests that pass a state).
+- Consumes: `progress_for` (already shipped in Task 2 — do NOT re-implement it).
+- Produces: `directive_for(step, collected) -> dict`; `public_data_for(step, collected) -> dict`; `canvas_directive(state, collected) -> dict | None` (kept for `chat.py`/tests that pass a state).
 
 The response contract is frozen — the frontend must not change.
 
@@ -1281,13 +1341,9 @@ def test_public_data_marks_the_intro_continuable_and_finalize_triggering():
     assert v2.public_data_for(cs.by_id(S.FINALIZE_CANVAS), {})["trigger_finalize"] is True
 
 
-def test_progress_collapses_loop_steps_onto_their_anchor():
-    total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
-    for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
-        assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
-    for sid in (S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
-        assert v2.progress_for(cs.by_id(sid)) == {"step": 4, "total": total}
-    assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {"step": total, "total": total}
+def test_public_data_carries_progress():
+    # progress_for itself is covered in Task 2; this asserts it is wired in.
+    assert v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})["progress"]["step"] == 5
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1297,23 +1353,11 @@ Expected: FAIL — `AttributeError: ... has no attribute 'directive_for'`
 
 - [ ] **Step 3: Write minimal implementation**
 
-Append to `state_machine_v2.py`:
+Append to `state_machine_v2.py` (`_PROGRESS_PATH` / `_PROGRESS_ANCHORS` /
+`progress_for` already exist from Task 2 — do not redeclare them):
 
 ```python
 from app import prompts
-
-# The customer-facing question steps, in order — the loop/adjust steps collapse
-# onto their loop's anchor so "Step X of N" stays steady during a deep-dive.
-_PROGRESS_ANCHORS: dict[S, S] = {
-    S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
-    S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
-    S.DECOR_ADJUST: S.ASK_ADD_DECOR,
-    S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
-}
-_PROGRESS_PATH: list[S] = [
-    S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
-    S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
-]
 
 
 def _face(collected: dict) -> str:
@@ -1348,14 +1392,6 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
     """State-keyed wrapper: None for a shared-tail state v2 doesn't own."""
     step = cs.by_id(state)
     return directive_for(step, collected) if step else None
-
-
-def progress_for(step: Step) -> dict:
-    total = len(_PROGRESS_PATH)
-    anchor = _PROGRESS_ANCHORS.get(step.id, step.id)
-    if anchor in _PROGRESS_PATH:
-        return {"step": _PROGRESS_PATH.index(anchor) + 1, "total": total}
-    return {"step": total, "total": total}      # finalize + tail -> complete
 
 
 def public_data_for(step: Step, collected: dict) -> dict:
