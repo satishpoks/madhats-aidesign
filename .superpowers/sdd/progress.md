@@ -355,3 +355,55 @@ Task 9: complete (commit 2748d83 + controller 86448c9, review clean — Spec ✅
   turn) — these guarded a SHIPPED Critical and only had unit-level coverage.
 
 === ALL 9 TASKS COMPLETE. 660 passed / 0 failed. Final whole-branch review next. ===
+
+=== FINAL WHOLE-BRANCH REVIEW (opus) — DONE. Verdict: MERGE SAFE + ENABLE SAFE (after fixes). ===
+Suite: 668 passed / 0 failed (CANVAS_ORCHESTRATOR_V2=false).
+All 7 spec §9 success criteria met (§9.5 met after the drift guards below).
+
+FINAL REVIEW FOUND (all fixed, commits abe1807 + f0e2a44):
+- IMPORTANT 1 (missed by ALL 9 per-task reviews): a TYPED "no" re-asked FOREVER at both decor
+  steps. ASK_ANOTHER_LOGO correctly used `another_logo is not None` (yes AND no), but
+  ASK_ANYTHING_ELSE used `bool(more_decor)` -> a typed decline fills more_decor=False ->
+  bool(False) is False -> router returns the same step forever, 2 Haiku calls per lap,
+  _fail_count popped each success so the nudge never fires. And ASK_ADD_DECOR had NO slot to
+  express a decline (decor_choice is enum text|shape; decor_done was chip-only) -> {} ->
+  re-asks forever. THE "no" CONCEPT WAS IMPLEMENTED TWO WAYS IN ADJACENT STEPS — the exact bug
+  class the refactor exists to kill. Chips worked; only free text broke.
+  BLIND SPOT THAT HID IT: the controller-directed e2e runs the WHOLE walk with the interpreter
+  raising, so every interpreter-path done_when is unexercised end-to-end — the mirror image of
+  the old suite's blind spot. FIX: decor_done added to both steps' slots (now
+  interpreter-writable — reading the customer, not fabricating a terminal state);
+  ASK_ANYTHING_ELSE -> `is not None`; _SLOT_DOCS entry; _apply_anything_else clears decor_done
+  so "add more" beats contradictory model output.
+  ADVERSARIAL CHECK (reviewer): worst case a hallucinated decor_done skips the optional decor
+  loop to ask_quantity. Cannot touch name/quantity/email/purpose/finalize. email_captured is
+  STILL non-writable => FINALIZE_CANVAS invariant unweakened. Correct trade vs an infinite loop.
+- IMPORTANT 2: _SLOT_DOCS + _PROGRESS_PATH are silent 2nd/3rd declaration sites, defeating
+  §9.5 ("adding a step touches one record"). A slot missing from _SLOT_DOCS is silently dropped
+  from the interpreter prompt (`if s in _SLOT_DOCS`) -> model never learns the field exists ->
+  step re-asks forever, no error, no failing test. FIX: registry-generated drift guards, both
+  directions + progress guard (tightened to resolve the anchor's TARGET, closing a hole where
+  an anchor pointing outside _PROGRESS_PATH silently reported "complete").
+- MINOR: log.warning(err=str(exc)) could echo the ASK_EMAIL prompt's address -> PII in logs
+  (HARD constraint). Fixed to type(exc).__name__ in interpret_turn_v2 AND write_ack.
+  *** The first guard test was VACUOUS (pytest caplog; structlog doesn't route into it — it
+  passed with str(exc) restored). Caught by reverting the fix and watching it pass. Rewritten
+  on structlog.testing.capture_logs; proven RED (email visible in the captured event) -> GREEN.
+
+FIXER'S OWN CATCH (material): the review's suggested test used the literal "no, that's
+everything" — which IS the ASK_ANYTHING_ELSE chip label, so resolve_chip matched it and it
+never reached the interpreter; it would have passed PRE-fix for the wrong reason. Swapped to
+"nah, nothing more thanks". Same failure mode as the original sin ("NB: not 'another logo'").
+
+>>> REMAINING TICKETS (none block merge or enable):
+  - _direct_purpose has no length cap (outage-only; message unbounded at the route for v1 too).
+  - Guard-rejection loops uncounted (filler name / "sam at example dot com" re-asks forever).
+  - _apply_name guards only ASK_NAME though `name` is in WRITABLE_SLOTS (could be overwritten
+    unguarded from a later turn). Fix: move the guard into validate_fields.
+  - `purpose` unredacted to the model (PRE-EXISTING, affects v1 too; needs its own sweep).
+  - DECOR_ADJUST always targets the front face (_face defaults; no decor-face question).
+  - Kickoff discards a non-empty first message from the transcript.
+  - interpret_turn_v2's `collected` param unused (context-blind interpreter).
+  - v1's is_negative substring bug STILL LIVE (orchestrator.py:194,232,291,792,938,947,949,
+    951,970,973). v2 no longer calls it. Own ticket.
+  - No v2 test exercises REAL Haiku (all mock the interpreter) — residual risk on model output.
