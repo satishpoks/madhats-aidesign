@@ -141,6 +141,48 @@ async def test_interpret_raises_when_haiku_is_down(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_interpret_edit_confirm_returns_true_when_happy(monkeypatch):
+    async def fake(_prompt, **kw):
+        return '{"happy": true}'
+    monkeypatch.setattr(ie, "_complete", fake)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    assert await ie.interpret_edit_confirm("yeah that's great") is True
+
+
+@pytest.mark.asyncio
+async def test_interpret_edit_confirm_returns_false_when_not_happy(monkeypatch):
+    async def fake(_prompt, **kw):
+        return '{"happy": false}'
+    monkeypatch.setattr(ie, "_complete", fake)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    assert await ie.interpret_edit_confirm("that looks wrong") is False
+
+
+@pytest.mark.asyncio
+async def test_interpret_edit_confirm_raises_when_haiku_is_down(monkeypatch):
+    monkeypatch.setattr(ie, "_has_llm", False)
+    with pytest.raises(ie.LLMUnavailable):
+        await ie.interpret_edit_confirm("looks great")
+
+
+@pytest.mark.asyncio
+async def test_interpret_edit_confirm_never_logs_the_customers_words(monkeypatch):
+    """Same PII rule as interpret_canvas_edit: log only the exception type,
+    never str(exc) -- the prompt carries the customer's own words."""
+    import structlog
+
+    async def boom(prompt, **kw):
+        raise RuntimeError(f"upstream 500: bad request body: {prompt!r}")
+    monkeypatch.setattr(ie, "_complete", boom)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(ie.LLMUnavailable):
+            await ie.interpret_edit_confirm("my secret text SHIBBOLETH looks wrong")
+    assert logs, "expected a warning to be emitted"
+    assert "SHIBBOLETH" not in repr(logs)
+
+
+@pytest.mark.asyncio
 async def test_interpret_never_logs_the_customers_words(monkeypatch):
     """Pins the PII fix: the prompt embeds the customer's own message, so if
     an SDK error ever stringified request content, err=str(exc) would put it

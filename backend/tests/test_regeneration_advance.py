@@ -80,6 +80,38 @@ async def test_advance_after_regeneration_moves_to_offer_refine(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_advance_after_regeneration_clears_canvas_edit_scratch(monkeypatch):
+    # The clear-list comment says "so the NEXT edit starts fresh" but omitted
+    # the canvas_edit_* flags and the new edit_confirm_stalled/edit_confirmed
+    # pair -- safe today only because _apply_canvas_edit/_apply_edit_confirm
+    # pop their own flags, but the one clear list should be honest about all
+    # of them so a future canvas edit doesn't start from stale scratch.
+    store = {
+        "session": {
+            "id": "s1",
+            "state": S.REGENERATING.value,
+            "collected": {
+                "name": "Al", "flow_mode": "canvas", "wants_changes": True,
+                "canvas_edit_ops": True, "canvas_edit_refused": True,
+                "canvas_edit_stalled": True, "edit_confirm_stalled": True,
+                "edit_confirmed": True,
+            },
+            "upsell_count": 0,
+        }
+    }
+    monkeypatch.setattr(orch, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(orch.settings_service, "get_settings", _fake_settings())
+    monkeypatch.setattr(orch.ie, "generate_reply", _fixed_reply("Happy with it now?"))
+
+    await orch.advance_after_regeneration("s1")
+
+    collected = store["session"]["collected"]
+    for key in ("canvas_edit_ops", "canvas_edit_refused", "canvas_edit_stalled",
+                "edit_confirm_stalled", "edit_confirmed"):
+        assert key not in collected
+
+
+@pytest.mark.asyncio
 async def test_advance_after_regeneration_noop_when_not_regenerating(monkeypatch):
     store = {
         "session": {

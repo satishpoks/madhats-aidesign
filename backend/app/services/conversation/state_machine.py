@@ -119,7 +119,15 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.SHOW_DESIGN: [S.OFFER_REFINE],
     S.OFFER_REFINE: [S.ASK_CHANGE_METHOD, S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
     S.ASK_CHANGE_METHOD: [S.CANVAS_DESIGN, S.DESCRIBE_CHANGES],
-    S.DESCRIBE_CHANGES: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
+    # Canvas sessions: DESCRIBE_CHANGES edits the canvas rather than the
+    # prompt — DESCRIBE_CHANGES (stalled, re-ask), CONFIRM_CANVAS_EDIT (ops
+    # applied, awaiting yes/no), and OFFER_REFINE (refused, noted for the
+    # team) are canvas-only successors alongside the legacy chat successors.
+    S.DESCRIBE_CHANGES: [
+        S.DESCRIBE_CHANGES, S.CONFIRM_CANVAS_EDIT, S.OFFER_REFINE,
+        S.ELEMENT_DEEPDIVE, S.REFINE_FOLLOWUP, S.REFINE_CONFIRM,
+    ],
+    S.CONFIRM_CANVAS_EDIT: [S.REGENERATING, S.DESCRIBE_CHANGES],
     S.REFINE_FOLLOWUP: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_CONFIRM: [S.REGENERATING],
     S.REGENERATING: [S.OFFER_REFINE],
@@ -280,6 +288,8 @@ def advance_state(
         return S.REFINE_FOLLOWUP if (collected.get("refine_followups") or []) else S.REFINE_CONFIRM
 
     if current is S.CONFIRM_CANVAS_EDIT:
+        if collected.get("edit_confirm_stalled"):
+            return S.CONFIRM_CANVAS_EDIT   # Haiku down — re-ask, guess nothing, spend nothing
         return S.REGENERATING if collected.get("edit_confirmed") else S.DESCRIBE_CHANGES
 
     if current is S.REFINE_FOLLOWUP:

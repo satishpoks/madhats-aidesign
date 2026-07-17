@@ -721,3 +721,24 @@ async def interpret_canvas_edit(message: str, inventory: list[dict]) -> list[dic
         raise LLMUnavailable(str(exc)) from exc
     ops = _parse_json(raw).get("ops")
     return ops if isinstance(ops, list) else []
+
+
+async def interpret_edit_confirm(message: str) -> bool:
+    """Is the customer happy with the just-applied canvas edit?
+
+    Raises LLMUnavailable rather than guessing — misreading free text as
+    approval spends a render and burns the daily design cap (the harm the
+    CONFIRM_CANVAS_EDIT gate exists to prevent). Chip taps ("Looks right" /
+    "Not quite") never reach this function; only free text does.
+    """
+    if not _has_llm:
+        raise LLMUnavailable("no anthropic api key")
+    prompt = prompts.CANVAS_EDIT_CONFIRM_PROMPT.format(message=message)
+    try:
+        raw = await _complete(prompt, max_tokens=60)
+    except Exception as exc:  # noqa: BLE001 — any SDK error is "unavailable"
+        # err=type(exc).__name__, not str(exc): the prompt carries the
+        # customer's own words and some SDK errors stringify request content.
+        log.warning("edit_confirm_interpret_failed", err=type(exc).__name__)
+        raise LLMUnavailable(str(exc)) from exc
+    return bool(_parse_json(raw).get("happy"))

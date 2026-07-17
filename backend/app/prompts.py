@@ -1152,3 +1152,20 @@ how the decoration is made or finished ("thicker embroidery", "make it pop",
 Do NOT force an unrelated request into an op.
 
 JSON only."""
+
+# Confirm gate after a canvas edit is applied. The model returns a plain bool —
+# no ops, no geometry — so a misread never spends a render by itself; the
+# state machine still requires edit_confirmed to route to REGENERATING.
+CANVAS_EDIT_CONFIRM_PROMPT = """The customer just saw a change applied to their
+cap design and was asked if they're happy with it.
+
+The customer says: "{message}"
+
+Are they saying the change looks right and they're happy with it, or are they
+saying it's wrong / not what they wanted / needs more adjustment?
+
+Return JSON: {{"happy": true}} if they are approving the change as shown.
+Return JSON: {{"happy": false}} if they are NOT happy with it (including any
+hedge, complaint, or request for a further change).
+
+JSON only."""

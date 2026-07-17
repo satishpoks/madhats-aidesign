@@ -232,6 +232,34 @@ async def _apply_canvas_edit(session: dict, collected: dict, message: str) -> li
     return ops
 
 
+async def _apply_edit_confirm(collected: dict, message: str) -> None:
+    """Read the customer's answer at CONFIRM_CANVAS_EDIT: happy with the
+    change as applied, or want it different.
+
+    Chip labels are "Looks right" / "Not quite" (see _public_data) and match
+    deterministically with no model call — we generated those labels, so
+    matching them back is an identity lookup. Free text goes to the
+    interpreter. `is_affirmative`/substring matching is NOT safe here: it
+    reads "that looks wrong" as approval because "lo-ok-s" contains "ok",
+    which is exactly the harm this gate exists to prevent.
+    """
+    collected.pop("edit_confirm_stalled", None)
+    text = (message or "").strip()
+    low = text.lower()
+    if "looks right" in low:
+        collected["edit_confirmed"] = True
+        return
+    if "not quite" in low:
+        collected["edit_confirmed"] = False
+        return
+    try:
+        collected["edit_confirmed"] = await ie.interpret_edit_confirm(text)
+    except ie.LLMUnavailable:
+        # Haiku down — stall rather than guess. advance_state re-asks the
+        # chips instead of routing to REGENERATING or DESCRIBE_CHANGES.
+        collected["edit_confirm_stalled"] = True
+
+
 _CONFIRM_WORDS = (
     "generate", "looks good", "confirm", "go ahead", "that's right", "thats right",
     "perfect", "correct", "all good", "spot on", "that's everything",
@@ -407,6 +435,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             # Canvas sessions edit the canvas, not the prompt — so this never
             # touches refine_details, and change_request stays None for them.
             canvas_ops = await _apply_canvas_edit(session, collected, message)
+        elif current is ConversationState.CONFIRM_CANVAS_EDIT:
+            await _apply_edit_confirm(collected, message)
         elif current in (
             ConversationState.DESCRIBE_CHANGES,
             ConversationState.REFINE_FOLLOWUP,
@@ -711,9 +741,13 @@ async def advance_after_regeneration(session_id: str) -> dict:
 
     new_state = advance_state(current, collected)
     collected["wants_changes"] = False
-    # Clear the refine sub-flow scratch so the NEXT edit starts fresh.
+    # Clear the refine sub-flow scratch so the NEXT edit starts fresh. Includes
+    # the canvas-edit flags and the confirm-gate flags — safe today only
+    # because _apply_canvas_edit/_apply_edit_confirm pop their own on entry,
+    # but this is the one list documenting what a fresh edit starts with.
     for k in ("refine_mode", "refine_details", "refine_followups", "refine_followup_idx",
-              "last_change", "refine_views"):
+              "last_change", "refine_views", "canvas_edit_ops", "canvas_edit_refused",
+              "canvas_edit_stalled", "edit_confirm_stalled", "edit_confirmed"):
         collected.pop(k, None)
 
     reply = await ie.generate_reply(new_state.value, collected, persona)
@@ -995,10 +1029,14 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
              or "modif" in low or "different" in low)
             and not ("looks good" in low or "happy" in low)
         )
-    elif state is S.CONFIRM_CANVAS_EDIT:
-        # Chip labels are "Looks right" / "Not quite" (see _public_data).
-        collected["edit_confirmed"] = "looks right" in low or is_affirmative(message)
-    if state is S.DESCRIBE_CHANGES:
+    # CONFIRM_CANVAS_EDIT is handled by the async `_apply_edit_confirm` (it
+    # needs the interpreter, and `_apply_fields` is sync) — dispatched from
+    # `handle_message` alongside `_apply_canvas_edit`.
+    if state is S.DESCRIBE_CHANGES and collected.get("flow_mode") != "canvas":
+        # Canvas sessions edit the canvas, not the prompt — this must stay
+        # unset for them, or the fallback at generate.py:189 folds it into
+        # `change_request` and double-applies a change the canvas already
+        # made for free.
         collected["last_change"] = message.strip()[:400]
 
     # Change-method choice (canvas refine): rework on the canvas vs describe here.

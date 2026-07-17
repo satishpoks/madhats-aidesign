@@ -196,3 +196,20 @@ def test_canvas_progress_path():
     p = progress(S.ASK_DECORATION, collected)
     assert p["total"] == 7          # name,email,purpose,quantity,design,decoration,notes
     assert 1 <= p["step"] <= p["total"]
+
+
+def test_transitions_table_documents_the_canvas_edit_gate():
+    # TRANSITIONS exists purely to document reachability (module docstring at
+    # the top of the file). The canvas-edit branch added three new DESCRIBE_
+    # CHANGES successors (CONFIRM_CANVAS_EDIT, OFFER_REFINE on refusal, and a
+    # self-loop while stalled) and a brand new CONFIRM_CANVAS_EDIT state --
+    # both must appear here, mirroring how ASK_CHANGE_METHOD is already listed.
+    from app.services.conversation.state_machine import TRANSITIONS
+
+    describe_changes_successors = TRANSITIONS[S.DESCRIBE_CHANGES]
+    assert S.CONFIRM_CANVAS_EDIT in describe_changes_successors
+    assert S.OFFER_REFINE in describe_changes_successors
+    assert S.DESCRIBE_CHANGES in describe_changes_successors
+
+    assert S.CONFIRM_CANVAS_EDIT in TRANSITIONS
+    assert set(TRANSITIONS[S.CONFIRM_CANVAS_EDIT]) == {S.REGENERATING, S.DESCRIBE_CHANGES}
