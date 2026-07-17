@@ -1,228 +1,68 @@
-"""v2 step-by-step canvas orchestrator routing.
+"""v2 canvas routing — a generic engine over the canvas_steps registry.
 
-Linear front half with two loops (logos ≤4, then text/shape), then the
-quantity/email/purpose reorder, then a finalize handoff into the shared tail.
-The orchestrator sets the branch flags on `collected`; this module only maps
-(state, collected) -> next state. Downstream of FINALIZE_CANVAS the shared v1
-tail (advance_state) takes over.
+Routing is first-unmet resolution: return the first step whose done_when(collected)
+is False. That is a pure function of `collected`, so it is exhaustively testable
+with plain dicts and needs no LLM, no mocking and no Supabase.
+
+Flexibility comes from slot-filling, not from anyone choosing a route: if the
+interpreter banks a volunteered answer ("logo on the back and 50 caps"), the
+step that asks for it is already done, so the router simply doesn't return it.
+
+Order is enforced inherently — the router never returns any step positioned
+after an unmet one — which is why there is no separate "gate" concept. The
+load-bearing invariant (no FINALIZE_CANVAS without email_captured) holds because
+ask_email precedes finalize_canvas and its done_when reads `email_captured`,
+which only _apply_email sets and the interpreter cannot write.
 """
 from __future__ import annotations
 
-from app import prompts
+from app.services.conversation import canvas_steps as cs
+from app.services.conversation.canvas_steps import MAX_LOGOS, Step  # noqa: F401 re-export
 from app.services.conversation.state_machine import ConversationState as S
 
-MAX_LOGOS = 4
-
-# The front-half states v2 owns (everything before the shared tail).
-V2_STATES: frozenset[S] = frozenset({
-    S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO,
-    S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE, S.FINALIZE_CANVAS,
-})
-
-# Every state a v2 turn may rest on, including the shared-name states v2
-# reuses for its own reordered steps. Anything NOT in here is a tail state the
-# v1 orchestrator owns (orchestrator_v2 delegates those turns to v1).
-# Load-bearing invariant: ASK_EMAIL is claimed by v2 and is only safe because
-# v2 guarantees `email_captured` before FINALIZE_CANVAS.
-V2_OWNED: frozenset[S] = V2_STATES | frozenset({
-    S.GREETING, S.ASK_NAME, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
-})
-
-# The v2 steps that hand the customer a tool. Every OTHER owned state locks
-# every tool (see `canvas_directive`).
-_TOOL_STATES: frozenset[S] = frozenset({
-    S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.DECOR_ADJUST,
-})
+# Every state a v2 turn may rest on. GREETING is the kickoff (no registry step:
+# it greets and advances without ingesting the turn). Anything NOT here is a
+# shared tail state v1 owns — orchestrator_v2 delegates those turns to v1.
+V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
 
-def advance_state_v2(current: S, collected: dict) -> S:
-    if current is S.ASK_NAME:
-        # Re-ask until a plausible name is captured (orchestrator_v2 rejects
-        # filler like "ok"). Advancing unconditionally is what let a nameless
-        # session reach the intro and address the customer as "ok".
-        return S.SHOW_INTRO if collected.get("name") else S.ASK_NAME
-    if current is S.SHOW_INTRO:
-        return S.ASK_LOGO_PLACEMENT
-    if current is S.ASK_LOGO_PLACEMENT:
-        return S.LOGO_ADJUST
-    if current is S.LOGO_ADJUST:
-        return S.ASK_ANOTHER_LOGO if collected.get("logo_done") else S.LOGO_ADJUST
-    if current is S.ASK_ANOTHER_LOGO:
-        if collected.get("wants_another_logo") and int(collected.get("logo_count") or 0) < MAX_LOGOS:
-            return S.ASK_LOGO_PLACEMENT
-        return S.ASK_ADD_DECOR
-    if current is S.ASK_ADD_DECOR:
-        # An ambiguous/unrecognised reply (decor_answered False) must NOT
-        # silently fall through to the quantity step — re-ask instead. Only a
-        # recognised decline ("nothing else") or a recognised type (text/
-        # shape) counts as answered.
-        if not collected.get("decor_answered"):
-            return S.ASK_ADD_DECOR
-        return S.DECOR_ADJUST if collected.get("decor_choice") else S.ASK_QUANTITY
-    if current is S.DECOR_ADJUST:
-        return S.ASK_ANYTHING_ELSE if collected.get("decor_done") else S.DECOR_ADJUST
-    if current is S.ASK_ANYTHING_ELSE:
-        return S.ASK_ADD_DECOR if collected.get("wants_more_decor") else S.ASK_QUANTITY
-    if current is S.ASK_QUANTITY:
-        return S.ASK_EMAIL if collected.get("quantity") not in (None, "") else S.ASK_QUANTITY
-    if current is S.ASK_EMAIL:
-        return S.ASK_PURPOSE if collected.get("email_captured") else S.ASK_EMAIL
-    if current is S.ASK_PURPOSE:
-        return S.FINALIZE_CANVAS if collected.get("purpose") not in (None, "") else S.ASK_PURPOSE
-    # FINALIZE_CANVAS is resolved by the finalize route (-> GENERATING), not here.
-    return current
+def next_step(collected: dict) -> Step:
+    """The first step whose done_when is False. FINALIZE_CANVAS is terminal
+    (done_when is always False), so this always returns a Step."""
+    for step in cs.REGISTRY:
+        if not step.done_when(collected):
+            return step
+    return cs.REGISTRY[-1]
 
 
-# "Step X of N" — the ordered customer-facing question states for v2.
-_V2_PROGRESS_PATH: list[S] = [
-    S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT,
-    S.ASK_ADD_DECOR, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
+# The customer-facing question steps, in order — the loop/adjust steps collapse
+# onto their loop's anchor so "Step X of N" stays steady during a deep-dive.
+_PROGRESS_ANCHORS: dict[S, S] = {
+    S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
+    S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
+    S.DECOR_ADJUST: S.ASK_ADD_DECOR,
+    S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
+}
+_PROGRESS_PATH: list[S] = [
+    S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
+    S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
 ]
 
 
-def progress_v2(state: S, collected: dict) -> dict:
-    total = len(_V2_PROGRESS_PATH)
-    # Loop/adjust states collapse onto their loop's anchor question.
-    norm = state
-    if state in (S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
-        norm = S.ASK_LOGO_PLACEMENT
-    elif state in (S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
-        norm = S.ASK_ADD_DECOR
-    if norm in _V2_PROGRESS_PATH:
-        return {"step": _V2_PROGRESS_PATH.index(norm) + 1, "total": total}
-    # Past the questionnaire (finalize + tail) -> complete.
-    return {"step": total, "total": total}
+def progress_for(step: Step) -> dict:
+    total = len(_PROGRESS_PATH)
+    anchor = _PROGRESS_ANCHORS.get(step.id, step.id)
+    if anchor in _PROGRESS_PATH:
+        return {"step": _PROGRESS_PATH.index(anchor) + 1, "total": total}
+    return {"step": total, "total": total}      # finalize + tail -> complete
 
 
-_VALID_FACES = {"front", "back", "left", "right"}
-
-
-def _logo_face(collected: dict) -> str:
-    face = (collected.get("logo_face") or "front")
-    return face if face in _VALID_FACES else "front"
-
-
-def canvas_directive(state: S, collected: dict) -> dict | None:
-    """The canvas-control blob for a v2 state, or None for a state v2 doesn't
-    own (a shared tail state — the v1 UI drives those).
-
-    EVERY v2-owned state returns a directive: the tool steps hand over their one
-    tool, and every other owned step (a question, the intro, finalize) locks all
-    tools explicitly. That matters beyond tidiness: the frontend treats "no
-    directive" as a v1 session and falls back to v1's whole-rail gating + status
-    strip, which would show "Design locked in — finishing up" *mid-design* and
-    leave the tool locking to a coincidence rather than this state machine.
-    """
-    if state is S.ASK_LOGO_PLACEMENT:
-        # The customer is about to pick a face; the upload tool is enabled
-        # (highlighted) but must NOT auto-open yet — the file dialog would
-        # open before the face is answered, so `addImage` would land on
-        # whatever face is currently active (defaulting to "front") instead
-        # of the face the customer is about to name.
-        return {
-            "allowed_tools": ["upload"],
-            "target_face": _logo_face(collected),
-            "auto_open": None,
-            "instructions": prompts.V2_TOOL_TIPS["upload"],
-            "show_done": False,
-        }
-    if state is S.LOGO_ADJUST:
-        # By now `logo_face` is set from the answer, so `_logo_face` resolves
-        # to the correct face — safe to switch the canvas there and THEN open
-        # the upload picker.
-        return {
-            "allowed_tools": ["upload"],
-            "target_face": _logo_face(collected),
-            "auto_open": "upload",
-            "instructions": prompts.V2_TOOL_TIPS["upload"],
-            "show_done": True,
-        }
-    if state is S.DECOR_ADJUST:
-        tool = "text" if collected.get("decor_choice") == "text" else "shape"
-        return {
-            "allowed_tools": [tool],
-            "target_face": _logo_face(collected),
-            "auto_open": tool,
-            "instructions": prompts.V2_TOOL_TIPS[tool],
-            "show_done": True,
-        }
-    if state in V2_OWNED:
-        # Every other owned step — the intro, a question mid-design ("another
-        # logo?"), the wrap-up questions, finalize. The customer is answering in
-        # the chat, not editing: lock every tool.
-        return {"allowed_tools": [], "target_face": None, "auto_open": None,
-                "instructions": None, "show_done": False}
-    return None
-
-
-def v2_public_data(state: S, collected: dict) -> dict:
-    """Non-PII UI data for a v2 state: chips + directive + trigger flags."""
-    data: dict = {}
-    if state is S.SHOW_INTRO:
-        data["continuable"] = True
-    elif state is S.ASK_LOGO_PLACEMENT:
-        data["options"] = ["Front", "Back", "Left", "Right"]
-    elif state is S.LOGO_ADJUST:
-        data["options"] = ["Done"]
-    elif state is S.ASK_ANOTHER_LOGO:
-        data["options"] = ["Yes, another logo", "No, that's it"]
-    elif state is S.ASK_ADD_DECOR:
-        data["options"] = ["Add text", "Add a shape", "No, nothing else"]
-    elif state is S.DECOR_ADJUST:
-        data["options"] = ["Done"]
-    elif state is S.ASK_ANYTHING_ELSE:
-        data["options"] = ["Add something else", "No, that's everything"]
-    elif state is S.ASK_QUANTITY:
-        data["options"] = ["1", "2-11", "12-49", "50-99", "100+", "Not sure"]
-    elif state is S.FINALIZE_CANVAS:
-        data["trigger_finalize"] = True
-    directive = canvas_directive(state, collected)
-    if directive is not None:
-        data["canvas"] = directive
-    data["progress"] = progress_v2(state, collected)
-    return data
-
-
-def v2_reply(state: S, collected: dict, persona: str, intro_text: str) -> str:
-    """Deterministic reply copy per v2 state (never LLM-paraphrased, so no
-    instruction detail is dropped)."""
-    name = collected.get("name") or "there"
-    tips = prompts.V2_TOOL_TIPS
-    if state is S.ASK_NAME:
-        # `name_asked` is set by the orchestrator once this step has been shown,
-        # so a re-ask (filler reply) doesn't repeat the full greeting.
-        if collected.get("name_asked"):
-            return prompts.V2_ASK_NAME_RETRY
-        return prompts.V2_ASK_NAME.format(persona=persona)
-    if state is S.SHOW_INTRO:
-        return f"{intro_text}\n\nReady? Tap continue when you are."
-    if state is S.ASK_LOGO_PLACEMENT:
-        return (
-            f"Great, {name}! Let's add your logo. Which part of the cap should it "
-            f"go on — front, back, left or right? {tips['upload']}"
-        )
-    if state is S.LOGO_ADJUST:
-        return (
-            "Pop your logo on there — I've opened the picker for you. Once "
-            "it's on, drag to move it, pull a corner to resize, or rotate "
-            "it. There's a background-removal toggle in the toolbar if you "
-            "need it. Press Done when the placement looks right."
-        )
-    if state is S.ASK_ANOTHER_LOGO:
-        return "Locked that in. Would you like to add another logo?"
-    if state is S.ASK_ADD_DECOR:
-        return "Would you like to add any text or a shape to your design?"
-    if state is S.DECOR_ADJUST:
-        tool = "text" if collected.get("decor_choice") == "text" else "shape"
-        return f"{tips[tool]} Press Done when you're happy with it."
-    if state is S.ASK_ANYTHING_ELSE:
-        return "Is that everything, or would you like to add anything else?"
-    if state is S.ASK_QUANTITY:
-        return "How many caps are you after?"
-    if state is S.ASK_EMAIL:
-        return "What's the best email to send your design preview to?"
-    if state is S.ASK_PURPOSE:
-        return "Last thing — if you don't mind me asking, what's the hat for?"
-    if state is S.FINALIZE_CANVAS:
-        return "Perfect — putting your design together now…"
-    return "Let's keep going."
+def progress_v2(state: S, collected: dict | None = None) -> dict:
+    """State-keyed wrapper, kept at its original signature for
+    `sessions.py`'s canvas-finalize route — which calls it with GENERATING, a
+    shared-tail state that has no registry step (-> "complete")."""
+    step = cs.by_id(state)
+    if step is None:
+        total = len(_PROGRESS_PATH)
+        return {"step": total, "total": total}
+    return progress_for(step)
