@@ -127,6 +127,23 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     for msg, expected in walk:
         res = await o2.handle_message("s1", msg)
         assert res["state"] == expected.value, f"{msg!r} -> {res['state']}"
+        # Every v2-owned turn must carry a directive. A null one means "not a v2
+        # turn" to the frontend, which then falls back to v1's whole-rail gating
+        # and showed "Design locked in — finishing up" MID-design.
+        assert res["data"]["canvas"] is not None, f"{expected.value} had no directive"
+        # The auto_open split, asserted through the REAL pipeline (handle_message
+        # -> public_data_for), not just directive_for in isolation. Conflating
+        # these shipped a bug: the file dialog opening before the face is
+        # answered makes the logo land on whatever face is active (default
+        # front) instead of the one the customer just named.
+        d = res["data"]["canvas"]
+        if expected is S.ASK_LOGO_PLACEMENT:
+            assert d["allowed_tools"] == ["upload"] and d["auto_open"] is None
+        elif expected is S.LOGO_ADJUST:
+            assert d["auto_open"] == "upload" and d["show_done"] is True
+
+    # The second lap landed on the face the customer actually named.
+    assert store["session"]["collected"]["logos"][1]["face"] == "back"
 
     # The finalize state tells the frontend to flatten + finalize.
     assert res["data"]["trigger_finalize"] is True
