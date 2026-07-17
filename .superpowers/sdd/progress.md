@@ -265,3 +265,20 @@ Task 5: complete (commits 5a4c7a8 + fix 877cdef, review clean AFTER fix — Spec
   own regression sweep. Raise at final review.
 
 Task 6 BASE (HEAD before impl): 877cdef
+
+Task 6: complete (commit 4e4dcfb, review clean — Spec ✅, Quality Approved, ZERO findings).
+  directive_for / canvas_directive / public_data_for + _face/_decor_tool helpers derived from
+  the registry. 8 tests. Suite 9 failed / 637 passed (failure COUNT unchanged; 8 of the 9 now
+  fail on v2_reply [Task 7] instead of canvas_directive — expected progress, not regression).
+  Reviewer INDEPENDENTLY verified the FROZEN CONTRACT against the real frontend:
+  directive keys (allowed_tools/target_face/auto_open/instructions/show_done) match
+  chatStore.ts:93-97's parser byte-for-byte; options/continuable/trigger_finalize/progress
+  match parseData (chatStore.ts:73-100); Surface.tsx consumes the camelCase forms unchanged;
+  shape identical to the pre-registry v2_public_data (compared via git show 5c639f5~1).
+  NO frontend file touched (git diff -- 'frontend/*' empty). v1 untouched.
+  auto_open subtlety preserved: directive_for READS step.auto_open from the registry rather
+  than deriving it, so ASK_LOGO_PLACEMENT (None) vs LOGO_ADJUST ("upload") cannot drift —
+  that conflation was a shipped bug (dialog opened before the face was answered -> logo landed
+  on the active face). _decor_tool resolves shape/text and instructions use the RESOLVED tip.
+
+Task 7 BASE (HEAD before impl): 4e4dcfb
