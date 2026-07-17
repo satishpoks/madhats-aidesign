@@ -115,7 +115,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Yes, I have a logo",      S.ASK_LOGO_PLACEMENT),
         ("Front",                   S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
-        ("Yes, I've removed it",    S.ASK_ANOTHER_LOGO),
+        ("Yes, I've ticked it",     S.ASK_ANOTHER_LOGO),
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),

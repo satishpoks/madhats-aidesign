@@ -1055,7 +1055,8 @@ V2_TOOL_TIPS = {
 # the upload tip's "tap Upload image" would be actively wrong here.
 V2_BG_INSTRUCTIONS = (
     "Click your logo on the cap to select it, then tick \"Remove background\" "
-    "in the toolbar underneath. Give it a few seconds to process."
+    "in the toolbar underneath — it'll get a ✂ badge. The canvas won't change: "
+    "the background is knocked out when we render your design."
 )
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through

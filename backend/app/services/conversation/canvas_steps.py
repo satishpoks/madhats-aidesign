@@ -364,10 +364,15 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_LOGO_BG,
+        # "Remove background" is a MARK, not an edit: ticking it only flags the
+        # element (a ✂ badge, `name="export-hide"` so it never bakes into the
+        # layout guide). Nothing is matted client-side — `prompt_builder`
+        # instructs the image model to knock the background out at render time.
+        # So this copy must not promise processing or ask the customer to wait.
         ask=("Does your logo have a background that needs removing? If it does, "
              "click it on the cap and tick \"Remove background\" in the toolbar "
-             "underneath — I'll wait."),
-        chips=(Chip("Yes, I've removed it", {"logo_bg": "removed"}),
+             "underneath — we'll knock it out when we render your design."),
+        chips=(Chip("Yes, I've ticked it", {"logo_bg": "removed"}),
                Chip("No, it's fine as is", {"logo_bg": "none"})),
         slots=("logo_bg",),
         apply=_apply_logo_bg,
