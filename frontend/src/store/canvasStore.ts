@@ -74,6 +74,13 @@ interface CanvasState {
    *  step adds an element then locks, "lock all unlocked" == "lock the one
    *  just placed" without needing to track which element that was. */
   lockPlaced: () => void
+  /** Ops channel: patch by explicit face — `updateElement` only sees activeFace. */
+  patchElement: (face: Face, id: string, patch: Partial<CanvasElement>) => void
+  removeElementOn: (face: Face, id: string) => void
+  /** Patch the last unlocked image on `face` — the logo just placed. Same
+   *  "last unlocked" anchor `lockPlaced` uses, because the backend has no id
+   *  for it: canvas_design isn't persisted until finalize. */
+  patchPendingLogo: (face: Face, patch: Partial<CanvasElement>) => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
   /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
@@ -161,6 +168,26 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     faces: { ...s.faces, [s.activeFace]: s.faces[s.activeFace].filter(e => e.id !== id) },
     selectedId: s.selectedId === id ? null : s.selectedId,
   })),
+
+  patchElement: (face, id, patch) => set(s => ({
+    faces: { ...s.faces, [face]: s.faces[face].map(e => (e.id === id ? { ...e, ...patch } : e)) },
+  })),
+
+  removeElementOn: (face, id) => set(s => ({
+    faces: { ...s.faces, [face]: s.faces[face].filter(e => e.id !== id) },
+  })),
+
+  patchPendingLogo: (face, patch) => set(s => {
+    const arr = s.faces[face]
+    let idx = -1
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i].type === 'image' && !arr[i].locked) { idx = i; break }
+    }
+    if (idx === -1) return s
+    const next = arr.slice()
+    next[idx] = { ...next[idx], ...patch }
+    return { faces: { ...s.faces, [face]: next } }
+  }),
 
   reorder: (id, dir) => set(s => {
     const arr = [...s.faces[s.activeFace]]
