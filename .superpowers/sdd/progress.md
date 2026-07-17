@@ -298,3 +298,42 @@ Task 7: complete (commit 37cd6a2 + controller Minor-fix ea5abed, review clean �
   review found missing (LOGO_ADJUST tip-exclusion guard; DECOR_ADJUST==registry copy).
 
 Task 8 BASE (HEAD before impl): ea5abed
+
+Task 8: complete (7b4203d + fix ce7ff27 + controller 6e0f0d1, re-review clean — Spec ✅, Approved).
+  *** THE ENGINE IS LIVE. Suite 1 failed / 658 passed (the 1 = test_v2_e2e, Task 9 rewrites it).
+  orchestrator_v2 turn loop rewritten. Dead keyword path DELETED (controller grep-verified all
+  8 symbols at 0: is_affirmative/is_negative/_apply_v2_fields/_is_done/_face_from/
+  _plausible_name/_NAME_FILLER/_DONE_WORDS) while state_machine.py KEEPS its matchers for v1.
+  LIVE BUG PROVEN FIXED END-TO-END: test_the_live_bug_yes_another_logo_reopens_the_logo_loop
+  passes (chip resolves w/o the model; _apply_another_logo banks + re-seeds; router walks back
+  to ASK_LOGO_PLACEMENT). Chip-tap-zero-LLM test passes.
+  *** IMPORTANT 1 FIXED — update-then-apply order had NO test; reversing it left all 9 green.
+  Added test_filler_is_never_stored_as_a_name. Fixer RAN THE EXPERIMENT: apply-before-update
+  => FAIL ('ok' stored as name); restored => PASS. Order now genuinely pinned.
+  *** IMPORTANT 2 FIXED (USER-APPROVED DESIGN CHANGE) — the chip-nudge hatch could NEVER fire
+  on ask_name/ask_email/ask_purpose (no chips), and ask_name is step 1 => a Haiku outage or a
+  missing ANTHROPIC_API_KEY dead-ended 100% of canvas sessions at "what's your name?", before
+  email capture. _stall's docstring claimed the opposite. FIX: declarative
+  Step.direct_answer: Callable[[str], dict] | None on those 3 steps ONLY — the answer IS the
+  message (NOT a keyword fallback; there are no keywords). name still guarded by
+  _plausible_name; email via leads_service.extract_email regex (v1 already uses it). Reachable
+  ONLY inside except LLMUnavailable. Every other step still stalls. Restores no-key dev/CI.
+  MINOR FIXED: raw email no longer persists in collected (_apply_email pops it; reviewer
+  grep-confirmed ZERO readers of collected["email"] — all consumers read lead["email"]).
+  CONTROLLER FIX (6e0f0d1): narrowed the try to interpretation alone (try/except/else) so a
+  future write_ack raising LLMUnavailable can't silently clobber a successful interpretation.
+  >>> OPEN MINORS FOR FINAL REVIEW:
+    - _direct_purpose has no length cap/guard (unlike _direct_name). Outage + side-question at
+      ASK_PURPOSE stores it verbatim. Same as v1's behaviour; not a regression.
+    - Guard-rejection loops uncounted: filler name / "sam at example dot com" during an outage
+      re-asks forever, no escalation (_fail_count is popped on the success path). Pre-existing
+      shape; adjacent to the "don't dead-end sessions" motivation.
+    - intent_extractor.py:651 logs err=str(exc) on interpret failure. IF an Anthropic SDK error
+      echoes request content, the ASK_EMAIL prompt contains the address => PII in logs (HARD
+      constraint). Low risk, worth a look.
+    - _apply_name guards only the ASK_NAME step, but `name` is in WRITABLE_SLOTS so the
+      interpreter could fill it from a later turn unguarded (e.g. at ASK_PURPOSE).
+    - Kickoff writes content="" for the user row, discarding a non-empty first message from the
+      transcript (harmless today: ChatColumn kicks off with "").
+
+Task 9 BASE (HEAD before impl): 6e0f0d1
