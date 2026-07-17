@@ -619,7 +619,6 @@ def validate_fields(raw: dict) -> dict:
 
 _SLOT_DOCS: dict[str, str] = {
     "name": "name (string) — the customer's first name",
-    "intro_ack": "intro_ack (bool)",
     "logo_face": "logo_face (one of: front, back, left, right)",
     "logo_placed": "logo_placed (bool) — true when they say the logo looks right / they're done",
     "another_logo": "another_logo (bool) — true if they want to add ANOTHER logo",
@@ -654,18 +653,27 @@ async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
     return validate_fields(_parse_json(raw).get("fields") or {})
 
 
-async def write_ack(persona: str, message: str, fields: dict) -> str:
+async def write_ack(persona: str, fields: dict) -> str:
     """One warm sentence acknowledging the turn, or "" if unavailable.
 
     Best-effort by design: the instructions are concatenated from the registry
-    afterwards, so an outage makes the bot terse, never uninstructive."""
+    afterwards, so an outage makes the bot terse, never uninstructive.
+
+    Deliberately takes NO raw customer message. v1's reply-wording path
+    (`generate_reply`) never sees one either — only `interpret_turn` does,
+    because interpreting requires it. At ASK_EMAIL the raw message IS the email
+    address, so passing it here would send PII to the model on every turn. The
+    validated `fields` carry the substance the ack needs, and
+    `_safe_collected` strips `email`/`phone` from them.
+    """
     if not _has_llm:
         return ""
+    safe = _safe_collected(fields)
+    if not safe:
+        return ""                      # nothing non-PII to acknowledge
     try:
         text = await _complete(
-            prompts.V2_ACK_PROMPT.format(
-                persona=persona, message=message, fields=json.dumps(fields)
-            ),
+            prompts.V2_ACK_PROMPT.format(persona=persona, fields=json.dumps(safe)),
             max_tokens=80,
         )
     except Exception as exc:  # noqa: BLE001

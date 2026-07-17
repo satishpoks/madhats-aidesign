@@ -68,3 +68,44 @@ async def test_interpret_never_sends_pii(monkeypatch):
     await ie.interpret_turn_v2(cs.by_id(S.ASK_QUANTITY), "50",
                                {"name": "Sam", "email": "sam@example.com"})
     assert "sam@example.com" not in seen["prompt"]
+
+
+@pytest.mark.asyncio
+async def test_write_ack_never_sends_an_email_to_the_model(monkeypatch):
+    monkeypatch.setattr(ie, "_has_llm", True)
+    seen = {}
+
+    async def _spy(prompt, **k):
+        seen["prompt"] = prompt
+        return "Got it."
+
+    monkeypatch.setattr(ie, "_complete", _spy)
+    await ie.write_ack("Ricardo", {"email": "sam@example.com", "quantity": 50})
+    assert "sam@example.com" not in seen["prompt"]
+    assert "50" in seen["prompt"]          # non-PII substance still reaches it
+
+
+@pytest.mark.asyncio
+async def test_write_ack_skips_the_model_when_only_pii_was_captured(monkeypatch):
+    monkeypatch.setattr(ie, "_has_llm", True)
+    calls = []
+
+    async def _spy(prompt, **k):
+        calls.append(1)
+        return "x"
+
+    monkeypatch.setattr(ie, "_complete", _spy)
+    assert await ie.write_ack("Ricardo", {"email": "sam@example.com"}) == ""
+    assert calls == []                     # nothing non-PII left -> no call at all
+
+
+@pytest.mark.asyncio
+async def test_write_ack_returns_empty_on_failure(monkeypatch):
+    monkeypatch.setattr(ie, "_has_llm", True)
+
+    async def _boom(*a, **k):
+        raise RuntimeError("429")
+
+    monkeypatch.setattr(ie, "_complete", _boom)
+    # Best-effort by design: an outage makes the bot terse, never uninstructive.
+    assert await ie.write_ack("Ricardo", {"quantity": 50}) == ""
