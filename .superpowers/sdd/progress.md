@@ -282,3 +282,19 @@ Task 6: complete (commit 4e4dcfb, review clean — Spec ✅, Quality Approved, Z
   on the active face). _decor_tool resolves shape/text and instructions use the RESOLVED tip.
 
 Task 7 BASE (HEAD before impl): 4e4dcfb
+
+Task 7: complete (commit 37cd6a2 + controller Minor-fix ea5abed, review clean — Spec ✅, Approved).
+  reply_for(step, collected, *, persona, intro, ack="") = ack + scripted copy + VERBATIM tip.
+  9 tests (7 + 2 controller-added). Suite 9 failed / 646 passed.
+  Reviewer verified: tip is structurally undroppable (only conditional is the LOGO_ADJUST
+  exclusion); LOGO_ADJUST.ask GENUINELY contains its instructions inline (reviewer read the
+  registry) so the exclusion is justified — NOT a Critical; DECOR_ADJUST uses the RESOLVED
+  tool tip (shape choice never gets the text tip); ask_retry handles missing/None _asked.
+  FORMAT-CRASH RISK CLEARED: admin free text (stores.brand.canvas_intro) is passed AS a
+  format ARGUMENT, never spliced into the template, so literal braces in admin copy cannot
+  KeyError/500 the chat. (Reviewer traced branding.canvas_intro_text -> validated <=600.)
+  CONTROLLER MINOR-FIX (ea5abed): reply_for re-typed "Press Done when you're happy with it.",
+  duplicating DECOR_ADJUST.ask -> silent-drift risk. Now reads step.ask. Added the 2 tests
+  review found missing (LOGO_ADJUST tip-exclusion guard; DECOR_ADJUST==registry copy).
+
+Task 8 BASE (HEAD before impl): ea5abed
