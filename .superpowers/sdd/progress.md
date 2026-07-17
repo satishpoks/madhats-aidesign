@@ -80,6 +80,23 @@ Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved).
 
 === ALL 15 TASKS COMPLETE. Final whole-branch review DONE (opus). Verdict: merge safe (v1 byte-identical verified seam-by-seam), ENABLING not safe until fixes. ===
 
+WIRE-UP (user reported v2 not live on the current flow):
+  1. ROOT CAUSE: CANVAS_ORCHESTRATOR_V2 was in .env.example but NOT in the actual .env → default false
+     → every canvas session still routed to v1. Added `CANVAS_ORCHESTRATOR_V2=true` to .env (gitignored,
+     local config, not committed) + `docker compose up -d --force-recreate backend` (env is read only at
+     container start). Verified in-container: settings.canvas_orchestrator_v2 = True.
+  2. REAL CODE GAP FIXED: v2 states emitting NO directive (show_intro/ask_another_logo/ask_add_decor)
+     made the frontend treat the turn as v1 (isV2 = canvasDirective !== null) → v1 whole-rail gating +
+     status strip reading "Design locked in — finishing up in the chat" MID-DESIGN, and tool locking
+     only worked by coincidence of the legacy gate. Now EVERY V2_OWNED state emits a directive (tool
+     steps hand over one tool; all others lock all tools). V2_OWNED moved to state_machine_v2 as single
+     source of truth (orchestrator_v2 imports it). Backend 555 passed (+1 new coverage test).
+  LIVE-VERIFIED against the running API (not just tests):
+     canvas: ''→ask_name[tools=[]] → 'Sam'→show_intro[tools=[]] → 'continue'→ask_logo_placement
+     [tools=['upload'] face=front open=None] → 'Back'→logo_adjust[face=BACK open=upload done=True]
+     → 'done'→ask_another_logo[tools=[]] → 'no'→ask_add_decor[tools=[]]  ✓ (Critical face fix proven live)
+     v1 isolation with flag ON: non-canvas session → ask_name→ask_purpose, no canvas key ✓
+
 FIX WAVE COMPLETE (commits 318821f backend / 62c01c5 frontend / b856a70 CLAUDE.md).
 All 6 Critical+Important findings + cheap minors fixed. CONTROLLER-VERIFIED independently:
 backend pytest 554 passed; frontend targeted 26/26 (7 files); tsc --noEmit clean.
