@@ -41,6 +41,7 @@ class ConversationState(str, Enum):
     ASK_LOGO_PLACEMENT = "ask_logo_placement"
     LOGO_ADJUST = "logo_adjust"
     ASK_ANOTHER_LOGO = "ask_another_logo"
+    ASK_LOGO_BG = "ask_logo_bg"
     ASK_ADD_DECOR = "ask_add_decor"
     DECOR_ADJUST = "decor_adjust"
     ASK_ANYTHING_ELSE = "ask_anything_else"

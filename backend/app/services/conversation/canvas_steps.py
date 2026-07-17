@@ -51,6 +51,7 @@ class Step:
     direct_answer: Callable[[str], dict] | None = None
     tool: str | None = None
     tip: str | None = None
+    instructions: str | None = None            # overrides V2_TOOL_TIPS[tool] in the directive
     continuable: bool = False
     auto_open: str | None = None
     show_done: bool = False
@@ -147,6 +148,12 @@ def _apply_logo_face(c: dict, f: dict, s: dict) -> None:
 def _apply_logo_placed(c: dict, f: dict, s: dict) -> None:
     if f.get("logo_placed") and c.get("pending_logo") is not None:
         c["pending_logo"]["placed"] = True
+
+
+def _apply_logo_bg(c: dict, f: dict, s: dict) -> None:
+    bg = f.get("logo_bg")
+    if bg and c.get("pending_logo") is not None:
+        c["pending_logo"]["bg"] = bg
 
 
 def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
@@ -277,6 +284,28 @@ REGISTRY: tuple[Step, ...] = (
         face_target=True,
     ),
     Step(
+        id=S.ASK_LOGO_BG,
+        ask=("Does your logo have a background that needs removing? If it does, "
+             "click it on the cap and tick \"Remove background\" in the toolbar "
+             "underneath — I'll wait."),
+        chips=(Chip("Yes, I've removed it", {"logo_bg": "removed"}),
+               Chip("No, it's fine as is", {"logo_bg": "none"})),
+        slots=("logo_bg",),
+        apply=_apply_logo_bg,
+        done_when=lambda c: not _logos_open(c) or "bg" in _pending(c),
+        # tool="upload" is LOAD-BEARING, not decoration: it keeps v2Editing true
+        # on the frontend, so the just-placed logo is NOT locked and stays
+        # selectable — which is the only way the customer can reach the
+        # "Remove background" toggle in SelectedToolbar. The lock fires on
+        # ASK_ANOTHER_LOGO instead. See Surface.tsx:111-113 + canvasStore.ts:36.
+        tool="upload",
+        tip=None,                              # the upload tip is wrong here
+        instructions=prompts.V2_BG_INSTRUCTIONS,
+        auto_open=None,                        # or the file picker reopens
+        show_done=False,
+        face_target=True,
+    ),
+    Step(
         id=S.ASK_ANOTHER_LOGO,
         ask="Locked that in. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),
@@ -389,5 +418,6 @@ WRITABLE_SLOTS: frozenset[str] = frozenset(
 
 SLOT_ENUMS: dict[str, frozenset[str]] = {
     "logo_face": FACES,
+    "logo_bg": frozenset({"removed", "none"}),
     "decor_choice": frozenset({"text", "shape"}),
 }

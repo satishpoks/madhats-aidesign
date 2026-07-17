@@ -28,9 +28,9 @@ def test_face_answered_moves_to_adjust():
     assert v2.next_step(c).id is S.LOGO_ADJUST
 
 
-def test_placed_moves_to_another_logo():
+def test_placed_moves_to_logo_bg():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, pending_logo={"face": "back", "placed": True})
-    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+    assert v2.next_step(c).id is S.ASK_LOGO_BG
 
 
 def test_logo_loop_reopens_placement_when_another_wanted():
@@ -196,6 +196,29 @@ def test_decor_adjust_reply_uses_the_chosen_tool_tip():
     out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
     assert prompts.V2_TOOL_TIPS["shape"] in out
     assert prompts.V2_TOOL_TIPS["text"] not in out
+
+
+def test_ask_logo_bg_keeps_a_tool_allowed_so_the_logo_stays_selectable():
+    """LOAD-BEARING. Surface.tsx:111-113 locks every unlocked element when the
+    flow leaves an editing step (v2Editing = allowedTools.length > 0), and a
+    locked layer can't be selected (canvasStore.ts:36). The "Remove background"
+    toggle lives in SelectedToolbar, which only renders for a SELECTED element.
+    Drop this tool and the customer is told to tick a toggle they cannot reach —
+    a failure invisible from the backend. Do not "tidy" the tool away.
+    """
+    step = cs.by_id(S.ASK_LOGO_BG)
+    d = v2.directive_for(step, {"pending_logo": {"face": "back", "placed": True}})
+    assert d["allowed_tools"] == ["upload"]
+    assert d["auto_open"] is None          # or the file picker reopens
+    assert d["target_face"] == "back"
+    assert d["instructions"] == prompts.V2_BG_INSTRUCTIONS   # not the upload tip
+
+
+def test_ask_logo_bg_copy_does_not_append_the_upload_tip():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    reply = v2.reply_for(step, {"name": "Sam"}, persona="Ricardo", intro="hi")
+    assert "Upload image" not in reply
+    assert "background" in reply.lower()
 
 
 def test_reply_defaults_the_name_when_unknown():

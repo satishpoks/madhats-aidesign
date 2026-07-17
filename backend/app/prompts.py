@@ -1049,6 +1049,15 @@ V2_TOOL_TIPS = {
     ),
 }
 
+# The canvas instruction for ASK_LOGO_BG. Not a V2_TOOL_TIPS entry: those are
+# keyed by TOOL, and this step hands over the upload tool only to keep the
+# placed logo selectable (see Step.instructions / the lock note on the step) —
+# the upload tip's "tap Upload image" would be actively wrong here.
+V2_BG_INSTRUCTIONS = (
+    "Click your logo on the cap to select it, then tick \"Remove background\" "
+    "in the toolbar underneath. Give it a few seconds to process."
+)
+
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
 # to its catch-all, so the customer's first message was answered with "Let's
 # keep going." — no greeting, no question — and their reply ("ok") was stored

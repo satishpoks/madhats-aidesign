@@ -29,6 +29,8 @@ def satisfy(c: dict, step) -> None:
         c["pending_logo"] = {"face": "front"}
     elif step.id is S.LOGO_ADJUST:
         c.setdefault("pending_logo", {})["placed"] = True
+    elif step.id is S.ASK_LOGO_BG:
+        c.setdefault("pending_logo", {})["bg"] = "none"
     elif step.id is S.ASK_ANOTHER_LOGO:
         c["logos_done"] = True
         c["pending_logo"] = None

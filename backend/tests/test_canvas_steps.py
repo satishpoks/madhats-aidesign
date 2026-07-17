@@ -14,7 +14,7 @@ def test_registry_ids_are_unique_and_are_conversation_states():
 def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
-        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO,
+        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
@@ -52,7 +52,11 @@ def test_terminal_flags_are_not_interpreter_writable():
 
 def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
     for step in cs.REGISTRY:
-        assert bool(step.tool) == bool(step.tip), step.id
+        # ASK_LOGO_BG has a tool but uses instructions instead of tip.
+        if step.id is S.ASK_LOGO_BG:
+            assert step.tool and step.instructions and not step.tip
+        else:
+            assert bool(step.tool) == bool(step.tip), step.id
 
 
 def test_by_id_round_trips():
@@ -314,3 +318,34 @@ def test_ask_has_logo_is_satisfied_by_a_false_answer():
     forever (the bug already fixed on ASK_ANYTHING_ELSE and ASK_QUANTITY)."""
     assert cs.by_id(S.ASK_HAS_LOGO).done_when({"has_logo": False})
     assert not cs.by_id(S.ASK_HAS_LOGO).done_when({})
+
+
+def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True,
+         "pending_logo": {"face": "front", "placed": True}}
+    assert v2.next_step(c).id is S.ASK_LOGO_BG
+
+    step = cs.by_id(S.ASK_LOGO_BG)
+    fields = v2.resolve_chip(step, "Yes, I've removed it", c)
+    assert fields == {"logo_bg": "removed"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["pending_logo"]["bg"] == "removed"
+    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+
+
+def test_logo_bg_declined_still_satisfies_the_step():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True,
+         "pending_logo": {"face": "front", "placed": True}}
+    step = cs.by_id(S.ASK_LOGO_BG)
+    fields = v2.resolve_chip(step, "No, it's fine as is", c)
+    assert fields == {"logo_bg": "none"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+
+
+def test_logo_bg_is_skipped_when_there_is_no_logo():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": False,
+         "logos_done": True, "pending_logo": None}
+    assert cs.by_id(S.ASK_LOGO_BG).done_when(c)

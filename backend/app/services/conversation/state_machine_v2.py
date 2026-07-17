@@ -41,6 +41,7 @@ def next_step(collected: dict) -> Step:
 _PROGRESS_ANCHORS: dict[S, S] = {
     S.ASK_HAS_LOGO: S.ASK_LOGO_PLACEMENT,
     S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
+    S.ASK_LOGO_BG: S.ASK_LOGO_PLACEMENT,
     S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
     S.DECOR_ADJUST: S.ASK_ADD_DECOR,
     S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
@@ -97,7 +98,7 @@ def directive_for(step: Step, collected: dict) -> dict:
         "allowed_tools": [tool],
         "target_face": _face(collected) if step.face_target else None,
         "auto_open": tool if step.auto_open else None,
-        "instructions": prompts.V2_TOOL_TIPS[tool],
+        "instructions": step.instructions or prompts.V2_TOOL_TIPS[tool],
         "show_done": step.show_done,
     }
 
