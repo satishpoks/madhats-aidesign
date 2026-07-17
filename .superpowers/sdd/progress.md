@@ -240,3 +240,28 @@ Task 4: complete (commit a4a0942, review clean — Spec ✅, Quality Approved, Z
   orchestrator_v2 — byte-identical (reviewer verified). Task 8 deletes orchestrator_v2's copy.
 
 Task 5 BASE (HEAD before impl): a4a0942
+
+Task 5: complete (commits 5a4c7a8 + fix 877cdef, review clean AFTER fix — Spec ✅, Quality Approved).
+  prompts: V2_TURN_INTERPRETER_PROMPT / V2_ACK_PROMPT / V2_STALL_REPLY / V2_NUDGE_REPLY.
+  intent_extractor (ADDITIONS ONLY, v1 byte-unchanged): LLMUnavailable, validate_fields,
+  interpret_turn_v2, write_ack. 10 tests. Suite 9 failed / 629 passed.
+  *** CRITICAL FIXED (my PLAN's bug, caught by review) — write_ack sent PII to the model.
+  V2_ACK_PROMPT interpolated BOTH the raw customer message AND validated fields, so at
+  ASK_EMAIL (raw message IS the email) / ASK_NAME / ASK_PURPOSE, PII went to the Anthropic
+  API every turn. FIX (root, not special-case): dropped the `message` param entirely to match
+  v1's boundary — v1's reply-WORDING path (generate_reply) never receives a raw message; only
+  interpret_turn does, because interpreting requires it. fields now run through the existing
+  _safe_collected. Signature is now write_ack(persona, fields). Plan updated (b55cdaf) incl.
+  Task 8's call site. +3 real containment tests; dead _SLOT_DOCS["intro_ack"] removed.
+  _safe_collected REAL behaviour (reviewer read it): strips email, phone, lead_id + keys
+  ending _asked/_shown/_offered/_sent/_captured/_verified/_referred/_done/_blocked/_reached/
+  _mode/_idx/_flag. Does NOT strip name or purpose.
+  ADJUDICATED: `name` to the model is ACCEPTABLE — v1's generate_reply does exactly this via
+  the same helper; CLAUDE.md's hard rule is scoped to LOGS, not model prompts.
+  >>> FOLLOW-UP TICKET (PRE-EXISTING, affects v1 too — NOT this plan's scope): `purpose` is
+  unredacted free text sent to the model by v1's generate_reply/interpret_turn AND v2's
+  write_ack. A customer can type anything into "what's the hat for?". Consider adding
+  `purpose` to _safe_collected's strip list — but that changes v1 behaviour, so it needs its
+  own regression sweep. Raise at final review.
+
+Task 6 BASE (HEAD before impl): 877cdef
