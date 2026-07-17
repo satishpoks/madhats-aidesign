@@ -120,6 +120,27 @@ def public_data_for(step: Step, collected: dict) -> dict:
     return data
 
 
+def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
+              ack: str = "") -> str:
+    """ack (LLM, best-effort) + the step's copy + its tool tip (verbatim).
+
+    The tip is concatenated from the registry and never passes through a model,
+    so a warm paraphrase cannot drop "tap the highlighted button" and leave the
+    customer stuck. Without an ack the reply is simply the scripted copy."""
+    if step.id is S.DECOR_ADJUST:
+        body = f"{prompts.V2_TOOL_TIPS[_decor_tool(collected)]} Press Done when you're happy with it."
+    else:
+        asked = step.ask_retry and step.id.value in (collected.get("_asked") or [])
+        body = (step.ask_retry if asked else step.ask).format(
+            name=collected.get("name") or "there",
+            persona=persona,
+            intro=intro,
+        )
+        if step.tip and step.id is not S.LOGO_ADJUST:
+            body = f"{body} {step.tip}"
+    return f"{ack} {body}".strip() if ack else body
+
+
 def resolve_chip(step: Step, message: str) -> dict | None:
     """The fields for an offered chip, or None if `message` isn't one of them.
 

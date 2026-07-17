@@ -1,5 +1,6 @@
 import pytest
 
+from app import prompts
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
@@ -150,3 +151,49 @@ def test_public_data_marks_the_intro_continuable_and_finalize_triggering():
 def test_public_data_carries_progress():
     # progress_for itself is covered in Task 2; this asserts it is wired in.
     assert v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})["progress"]["step"] == 5
+
+
+def _reply(step_id, collected=None, **kw):
+    kw.setdefault("persona", "Ricardo")
+    kw.setdefault("intro", "Welcome!")
+    return v2.reply_for(cs.by_id(step_id), collected or {}, **kw)
+
+
+def test_reply_appends_the_tool_tip_verbatim():
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    assert prompts.V2_TOOL_TIPS["upload"] in out
+
+
+def test_the_ack_can_never_paraphrase_the_tip_away():
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"},
+                 ack="Nice — the back's a great spot.")
+    assert out.startswith("Nice — the back's a great spot.")
+    assert prompts.V2_TOOL_TIPS["upload"] in out       # concatenated, not generated
+
+
+def test_reply_falls_back_to_bare_copy_without_an_ack():
+    out = _reply(S.ASK_QUANTITY)
+    assert out == "How many caps are you after?"
+
+
+def test_reply_interpolates_name_persona_and_intro():
+    assert "Sam" in _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    assert "Ricardo" in _reply(S.ASK_NAME, persona="Ricardo")
+    assert "Welcome!" in _reply(S.SHOW_INTRO, intro="Welcome!")
+
+
+def test_reply_uses_retry_copy_once_the_step_has_been_asked():
+    first = _reply(S.ASK_NAME)
+    again = _reply(S.ASK_NAME, {"_asked": ["ask_name"]})
+    assert first != again
+    assert again == prompts.V2_ASK_NAME_RETRY
+
+
+def test_decor_adjust_reply_uses_the_chosen_tool_tip():
+    out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
+    assert prompts.V2_TOOL_TIPS["shape"] in out
+    assert prompts.V2_TOOL_TIPS["text"] not in out
+
+
+def test_reply_defaults_the_name_when_unknown():
+    assert "there" in _reply(S.ASK_LOGO_PLACEMENT, {})
