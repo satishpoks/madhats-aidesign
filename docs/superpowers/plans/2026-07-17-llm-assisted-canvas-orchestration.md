@@ -1034,7 +1034,7 @@ git commit -m "feat(canvas-v2): add apply hooks (logo loop, email capture, intro
 
 **Interfaces:**
 - Consumes: `_complete`, `_parse_json`, `_safe_collected`, `_has_llm`; `canvas_steps.WRITABLE_SLOTS`, `SLOT_ENUMS`.
-- Produces: `validate_fields(raw: dict) -> dict`; `async interpret_turn_v2(step, message: str, collected: dict) -> dict`; `LLMUnavailable(Exception)`.
+- Produces: `validate_fields(raw: dict) -> dict`; `async interpret_turn_v2(step, message: str, collected: dict) -> dict`; `async write_ack(persona: str, fields: dict) -> str`; `LLMUnavailable(Exception)`.
 
 `interpret_turn_v2` raises `LLMUnavailable` when there is no key or the call fails — it never falls back to keywords (Task 8 turns that into a stall).
 
@@ -1157,11 +1157,10 @@ V2_NUDGE_REPLY = (
 
 V2_ACK_PROMPT = """You are {persona}, a friendly cap-design assistant.
 
-Write ONE short, warm sentence acknowledging what the customer just said. Then stop.
+Write ONE short, warm sentence acknowledging what the customer just told you. Then stop.
 
 Do NOT ask a question. Do NOT give instructions. Do NOT mention buttons or tools — that copy is added separately.
 
-Customer said: {message}
 We understood: {fields}
 
 Reply with the sentence only.
@@ -1240,18 +1239,27 @@ async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
     return validate_fields(_parse_json(raw).get("fields") or {})
 
 
-async def write_ack(persona: str, message: str, fields: dict) -> str:
+async def write_ack(persona: str, fields: dict) -> str:
     """One warm sentence acknowledging the turn, or "" if unavailable.
 
     Best-effort by design: the instructions are concatenated from the registry
-    afterwards, so an outage makes the bot terse, never uninstructive."""
+    afterwards, so an outage makes the bot terse, never uninstructive.
+
+    Deliberately takes NO raw customer message. v1's reply-wording path
+    (`generate_reply`) never sees one either — only `interpret_turn` does,
+    because interpreting requires it. At ASK_EMAIL the raw message IS the email
+    address, so passing it here would send PII to the model on every turn. The
+    validated `fields` carry the substance the ack needs, and
+    `_safe_collected` strips `email`/`phone` from them.
+    """
     if not _has_llm:
         return ""
+    safe = _safe_collected(fields)
+    if not safe:
+        return ""                      # nothing non-PII to acknowledge
     try:
         text = await _complete(
-            prompts.V2_ACK_PROMPT.format(
-                persona=persona, message=message, fields=json.dumps(fields)
-            ),
+            prompts.V2_ACK_PROMPT.format(persona=persona, fields=json.dumps(safe)),
             max_tokens=80,
         )
     except Exception as exc:  # noqa: BLE001
@@ -1799,7 +1807,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         except ie.LLMUnavailable:
             return await _stall(sb, session_id, collected, step, state_before,
                                 message)
-        ack = await ie.write_ack(persona, message, fields)
+        ack = await ie.write_ack(persona, fields)
     elif fields is None:
         fields = {}                       # ack-only step (show_intro)
 
