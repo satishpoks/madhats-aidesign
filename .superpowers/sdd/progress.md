@@ -172,3 +172,18 @@ precedes finalize, done_when reads email_captured, only _apply_email sets it, an
 it is NOT in WRITABLE_SLOTS. Asserted by test in Task 2.
 
 Task 1 BASE (HEAD before impl): see git log — the plan-fix commit.
+
+Task 1: complete (commits b45225e + ca094cc, review clean — Spec ✅, Quality Approved).
+  canvas_steps.py: Chip/Step frozen dataclasses, REGISTRY (12 steps in flow order),
+  MAX_LOGOS=4, by_id, WRITABLE_SLOTS (union of step.slots), SLOT_ENUMS. 7 tests.
+  Reviewer independently confirmed: v1 untouched (no v1 file in diff); WRITABLE_SLOTS
+  really is the union with no bookkeeping key leaking in; logo-loop done_when correct
+  for all 3 phases (none/mid/closed).
+  CONTROLLER FIX: dropped unused `dataclasses.field` import (F401, my plan's bug) — ca094cc.
+  BASELINE CORRECTION: real baseline is 562 passed w/ CANVAS_ORCHESTRATOR_V2=false
+  (my "559" was the flag-ON passed count; 559+3failed=562). After Task 1: 569. Plan updated.
+  MINOR (final review): test_ask_email_precedes_finalize is implied by the exact-order
+  test (redundant, harmless). MAX_LOGOS declared in BOTH canvas_steps and state_machine_v2
+  — Task 2 re-exports from canvas_steps, which resolves it; verify at Task 2 review.
+
+Task 2 BASE (HEAD before impl): ca094cc
