@@ -51,10 +51,25 @@ class Step:
     direct_answer: Callable[[str], dict] | None = None
     tool: str | None = None
     tip: str | None = None
+    instructions: str | None = None            # overrides V2_TOOL_TIPS[tool] in the directive
     continuable: bool = False
     auto_open: str | None = None
     show_done: bool = False
     face_target: bool = False                  # directive should carry the logo face
+    # Chips that can't be literals because they come from store-scoped data.
+    # `chips_of` is the single read path, so a dynamic step is invisible to
+    # every consumer (public_data_for, resolve_chip) — they just ask for chips.
+    chips_from: Callable[[dict], tuple[Chip, ...]] | None = None
+    # The customer may pick several. The UI comma-joins the labels it was given
+    # (ChatColumn.submitDeco:274), so resolution stays an identity lookup on the
+    # closed set we shipped — just one per token instead of one per message.
+    multiselect: bool = False
+    # Impure setup run before the step is rendered: loads store-scoped data the
+    # step's chips need. Declared on the record — the alternative is an
+    # `if next_.id is ASK_DECORATION` branch in the orchestrator, which is the
+    # per-state switch this registry exists to avoid. May satisfy its own step
+    # (see _prepare_decoration), so the orchestrator re-resolves after it runs.
+    prepare: Callable[[dict, dict | None], None] | None = None
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -114,6 +129,19 @@ def _apply_intro(c: dict, f: dict, s: dict) -> None:
     c["intro_ack"] = True
 
 
+def _apply_has_logo(c: dict, f: dict, s: dict) -> None:
+    """A text-only customer closes the logo loop before it opens.
+
+    Every logo step's done_when short-circuits on `not _logos_open(c)`, so
+    setting logos_done here makes first-unmet skip all four by itself — no
+    branch, no back-edge. `has_logo is False` (not falsy) because the slot is
+    absent until answered.
+    """
+    if f.get("has_logo") is False:
+        c["logos_done"] = True
+        c["pending_logo"] = None
+
+
 def _apply_logo_face(c: dict, f: dict, s: dict) -> None:
     face = f.get("logo_face")
     if not face:
@@ -126,6 +154,12 @@ def _apply_logo_face(c: dict, f: dict, s: dict) -> None:
 def _apply_logo_placed(c: dict, f: dict, s: dict) -> None:
     if f.get("logo_placed") and c.get("pending_logo") is not None:
         c["pending_logo"]["placed"] = True
+
+
+def _apply_logo_bg(c: dict, f: dict, s: dict) -> None:
+    bg = f.get("logo_bg")
+    if bg and c.get("pending_logo") is not None:
+        c["pending_logo"]["bg"] = bg
 
 
 def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
@@ -154,7 +188,8 @@ def _apply_anything_else(c: dict, f: dict, s: dict) -> None:
     # silently routing a customer who asked to ADD something to the quantity
     # question with their decor state wiped. "Add more" always wins.
     if f.get("more_decor"):
-        for k in ("decor_choice", "decor_placed", "more_decor", "decor_done"):
+        for k in ("decor_choice", "decor_face", "decor_placed", "more_decor",
+                  "decor_done"):
             c.pop(k, None)
 
 
@@ -171,6 +206,71 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
     if ok:
         c["email_captured"] = True
     c.pop("email", None)   # the lead owns the address; don't persist it here too
+
+
+def _decoration_chips(c: dict) -> tuple[Chip, ...]:
+    """One chip per method the store actually offers (loaded by _prepare_decoration)."""
+    return tuple(Chip(name, {"decoration_types": [name]})
+                 for name in (c.get("decoration_options") or []))
+
+
+def _prepare_decoration(c: dict, store: dict | None) -> None:
+    """Load the store's active decoration methods before the step renders.
+
+    A store with none configured would leave the step with no chips and no way
+    to answer, dead-ending the funnel one step before the email — so mark it
+    done and let first-unmet skip it. Same for a store we can't read: the
+    decoration method is a nice-to-have on the brief, never worth losing a lead.
+    """
+    if "decoration_options" not in c:
+        from app.services import decoration_types as deco_svc  # noqa: PLC0415 cycle
+
+        opts: list[str] = []
+        if store and store.get("id"):
+            try:
+                opts = [t["name"] for t in
+                        deco_svc.list_types(store["id"], active_only=True)]
+            except Exception:  # noqa: BLE001 — never lose the lead over this
+                opts = []
+        c["decoration_options"] = opts
+    if not c["decoration_options"]:
+        c["decoration_done"] = True
+
+
+def _apply_decoration(c: dict, f: dict, s: dict) -> None:
+    """Filter the answer to what the store actually offers, then set the brief.
+
+    This filter IS the interpreter guard: `decoration_types` is store-dynamic,
+    so it cannot live in SLOT_ENUMS. An invented method yields nothing and never
+    reaches the brief. Exact token match (not substring) so a shorter name can't
+    match inside a longer one — "Print" inside "Screen Print".
+    """
+    if "decoration_types" not in f:
+        return
+    raw = f["decoration_types"]
+    if isinstance(raw, str):
+        raw = raw.split(",")            # the interpreter may return a bare string
+    if not isinstance(raw, list):
+        raw = []
+    offered = {str(o).casefold(): o for o in (c.get("decoration_options") or [])}
+    chosen: list[str] = []
+    for tok in raw:
+        opt = offered.get(str(tok).strip().casefold())
+        if opt and opt not in chosen:
+            chosen.append(opt)
+
+    c["decoration_types"] = chosen
+    c["decoration_done"] = True
+    if chosen:
+        c.setdefault("brief_notes", []).append(
+            f"Decoration method: {', '.join(chosen)}"
+        )
+        # v1's mapping, imported rather than re-typed: one keyword table, one
+        # behaviour. Local import — orchestrator imports this module's siblings.
+        from app.services.conversation.orchestrator import (  # noqa: PLC0415 cycle
+            _decoration_style_bucket,
+        )
+        c["decoration_type"] = _decoration_style_bucket(chosen[0])
 
 
 # --- direct answers ------------------------------------------------------------
@@ -213,9 +313,25 @@ REGISTRY: tuple[Step, ...] = (
         done_when=lambda c: bool(c.get("intro_ack")),
     ),
     Step(
+        id=S.ASK_HAS_LOGO,
+        ask="Great, {name}! Do you have a logo or image you'd like on the cap?",
+        chips=(Chip("Yes, I have a logo", {"has_logo": True}),
+               Chip("No — text only", {"has_logo": False})),
+        slots=("has_logo",),
+        apply=_apply_has_logo,
+        # NOT `"has_logo" in c`: the interpreter can volunteer this slot on an
+        # earlier turn, and a step that is already done never becomes current,
+        # so `_apply_has_logo` would never run and `logos_done` would never be
+        # set — marching a text-only customer into the logo loop, the exact bug
+        # this step exists to prevent. `True` needs no side effect, so it may
+        # skip on the raw slot; `False` stays unmet until the apply has actually
+        # run (which is what `not _logos_open(c)` observes).
+        done_when=lambda c: c.get("has_logo") is True or not _logos_open(c),
+    ),
+    Step(
         id=S.ASK_LOGO_PLACEMENT,
-        ask=("Great, {name}! Let's add your logo. Which part of the cap should "
-             "it go on — front, back, left or right?"),
+        ask="Which part of the cap should it go on — front, back, left or right?",
+        ask_retry="Where should this one go — front, back, left or right?",
         chips=(Chip("Front", {"logo_face": "front"}),
                Chip("Back", {"logo_face": "back"}),
                Chip("Left", {"logo_face": "left"}),
@@ -247,6 +363,28 @@ REGISTRY: tuple[Step, ...] = (
         face_target=True,
     ),
     Step(
+        id=S.ASK_LOGO_BG,
+        ask=("Does your logo have a background that needs removing? If it does, "
+             "click it on the cap and tick \"Remove background\" in the toolbar "
+             "underneath — I'll wait."),
+        chips=(Chip("Yes, I've removed it", {"logo_bg": "removed"}),
+               Chip("No, it's fine as is", {"logo_bg": "none"})),
+        slots=("logo_bg",),
+        apply=_apply_logo_bg,
+        done_when=lambda c: not _logos_open(c) or "bg" in _pending(c),
+        # tool="upload" is LOAD-BEARING, not decoration: it keeps v2Editing true
+        # on the frontend, so the just-placed logo is NOT locked and stays
+        # selectable — which is the only way the customer can reach the
+        # "Remove background" toggle in SelectedToolbar. The lock fires on
+        # ASK_ANOTHER_LOGO instead. See Surface.tsx:111-113 + canvasStore.ts:36.
+        tool="upload",
+        tip=None,                              # the upload tip is wrong here
+        instructions=prompts.V2_BG_INSTRUCTIONS,
+        auto_open=None,                        # or the file picker reopens
+        show_done=False,
+        face_target=True,
+    ),
+    Step(
         id=S.ASK_ANOTHER_LOGO,
         ask="Locked that in. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),
@@ -263,6 +401,23 @@ REGISTRY: tuple[Step, ...] = (
                Chip("No, nothing else", {"decor_done": True})),
         slots=("decor_choice", "decor_done"),
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("decor_choice")),
+    ),
+    Step(
+        id=S.ASK_DECOR_PLACEMENT,
+        ask="Which part of the cap should it go on — front, back, left or right?",
+        chips=(Chip("Front", {"decor_face": "front"}),
+               Chip("Back", {"decor_face": "back"}),
+               Chip("Left", {"decor_face": "left"}),
+               Chip("Right", {"decor_face": "right"})),
+        slots=("decor_face",),
+        done_when=lambda c: bool(c.get("decor_done")) or c.get("decor_face") in FACES,
+        # Mirrors ASK_LOGO_PLACEMENT: hand the tool over (highlighted) but do
+        # NOT auto-open it until the face is answered, or the decoration lands
+        # on whatever face is already active.
+        tool="text",                           # resolved per decor_choice at runtime
+        tip=None,
+        auto_open=None,
+        face_target=True,
     ),
     Step(
         id=S.DECOR_ADJUST,
@@ -308,6 +463,20 @@ REGISTRY: tuple[Step, ...] = (
         done_when=lambda c: "quantity" in c,
     ),
     Step(
+        id=S.ASK_DECORATION,
+        # No cost caveat here: ChatColumn already renders "each extra decoration
+        # adds to the cost" when 2+ are selected, so saying it again duplicates
+        # it on screen.
+        ask=("How would you like this decorated? Pick as many as apply — our "
+             "team will confirm what suits your artwork best."),
+        chips_from=_decoration_chips,
+        multiselect=True,
+        slots=("decoration_types",),
+        prepare=_prepare_decoration,
+        apply=_apply_decoration,
+        done_when=lambda c: bool(c.get("decoration_done")),
+    ),
+    Step(
         id=S.ASK_EMAIL,
         ask="What's the best email to send your design preview to?",
         slots=("email",),
@@ -343,6 +512,11 @@ def by_id(state: S) -> Step | None:
     return _BY_ID.get(state)
 
 
+def chips_of(step: Step, collected: dict) -> tuple[Chip, ...]:
+    """The step's chips — derived from `collected` when they can't be literals."""
+    return step.chips_from(collected) if step.chips_from else step.chips
+
+
 # Every slot any step asks for. This is the interpreter's writable set: it may
 # fill the current step's slot AND any other slot the customer volunteers
 # ("logo on the back and 50 caps"), which is where reordering comes from.
@@ -354,5 +528,7 @@ WRITABLE_SLOTS: frozenset[str] = frozenset(
 
 SLOT_ENUMS: dict[str, frozenset[str]] = {
     "logo_face": FACES,
+    "logo_bg": frozenset({"removed", "none"}),
     "decor_choice": frozenset({"text", "shape"}),
+    "decor_face": FACES,
 }

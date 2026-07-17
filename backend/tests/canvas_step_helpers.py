@@ -23,21 +23,29 @@ def satisfy(c: dict, step) -> None:
         c["name"] = "Sam"
     elif step.id is S.SHOW_INTRO:
         c["intro_ack"] = True
+    elif step.id is S.ASK_HAS_LOGO:
+        c["has_logo"] = True
     elif step.id is S.ASK_LOGO_PLACEMENT:
         c["pending_logo"] = {"face": "front"}
     elif step.id is S.LOGO_ADJUST:
         c.setdefault("pending_logo", {})["placed"] = True
+    elif step.id is S.ASK_LOGO_BG:
+        c.setdefault("pending_logo", {})["bg"] = "none"
     elif step.id is S.ASK_ANOTHER_LOGO:
         c["logos_done"] = True
         c["pending_logo"] = None
     elif step.id is S.ASK_ADD_DECOR:
         c["decor_choice"] = "text"
+    elif step.id is S.ASK_DECOR_PLACEMENT:
+        c["decor_face"] = "front"
     elif step.id is S.DECOR_ADJUST:
         c["decor_placed"] = True
     elif step.id is S.ASK_ANYTHING_ELSE:
         c["decor_done"] = True
     elif step.id is S.ASK_QUANTITY:
         c["quantity"] = 12
+    elif step.id is S.ASK_DECORATION:
+        c["decoration_done"] = True
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
     elif step.id is S.ASK_PURPOSE:

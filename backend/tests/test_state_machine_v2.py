@@ -19,54 +19,56 @@ def test_empty_session_asks_name():
 
 def test_name_then_intro_then_logo_face():
     assert v2.next_step(_seed(name="Sam")).id is S.SHOW_INTRO
-    assert v2.next_step(_seed(name="Sam", intro_ack=True)).id is S.ASK_LOGO_PLACEMENT
+    assert v2.next_step(_seed(name="Sam", intro_ack=True)).id is S.ASK_HAS_LOGO
+    assert v2.next_step(_seed(name="Sam", intro_ack=True, has_logo=True)).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_face_answered_moves_to_adjust():
-    c = _seed(name="Sam", intro_ack=True, pending_logo={"face": "back"})
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, pending_logo={"face": "back"})
     assert v2.next_step(c).id is S.LOGO_ADJUST
 
 
-def test_placed_moves_to_another_logo():
-    c = _seed(name="Sam", intro_ack=True, pending_logo={"face": "back", "placed": True})
-    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+def test_placed_moves_to_logo_bg():
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, pending_logo={"face": "back", "placed": True})
+    assert v2.next_step(c).id is S.ASK_LOGO_BG
 
 
 def test_logo_loop_reopens_placement_when_another_wanted():
     # "yes" clears another_logo and re-seeds pending_logo (Task 4's apply);
     # the router must walk BACK to the face question on its own.
-    c = _seed(name="Sam", intro_ack=True, logos=[{"face": "back", "placed": True}],
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
               pending_logo={})
     assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_logos_done_falls_through_to_decor():
-    c = _seed(name="Sam", intro_ack=True, logos=[{"face": "back", "placed": True}],
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
               pending_logo=None, logos_done=True)
     assert v2.next_step(c).id is S.ASK_ADD_DECOR
 
 
 def test_quantity_zero_counts_as_answered():
     # "Not sure" -> 0 is a real answer; presence, not truthiness.
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True, quantity=0)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              quantity=0, decoration_done=True)
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_missing_quantity_re_asks():
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True)
     assert v2.next_step(c).id is S.ASK_QUANTITY
 
 
 def test_finalize_unreachable_without_email_captured():
     # The load-bearing invariant. Every earlier slot filled, email not captured.
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True,
-              quantity=50, purpose="team caps", email="sam@example.com")
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              quantity=50, decoration_done=True, purpose="team caps", email="sam@example.com")
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_finalize_reached_when_everything_done():
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True,
-              quantity=50, email_captured=True, purpose="team caps")
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              quantity=50, decoration_done=True, email_captured=True, purpose="team caps")
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
@@ -86,9 +88,11 @@ def test_v2_owned_is_the_registry_plus_greeting():
 
 def test_progress_collapses_loop_steps_onto_their_anchor():
     total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
+    # ASK_HAS_LOGO and ASK_LOGO_PLACEMENT both have progress step 3
+    assert v2.progress_for(cs.by_id(S.ASK_HAS_LOGO)) == {"step": 3, "total": total}
     for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
         assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
-    for sid in (S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
+    for sid in (S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
         assert v2.progress_for(cs.by_id(sid)) == {"step": 4, "total": total}
     assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {"step": total, "total": total}
 
@@ -102,7 +106,7 @@ def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
 
 
 def test_tool_steps_hand_over_exactly_one_tool():
-    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), {"pending_logo": {"face": "back"}})
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), {"has_logo": True, "pending_logo": {"face": "back"}})
     assert d["allowed_tools"] == ["upload"]
     assert d["target_face"] == "back"
     assert d["auto_open"] == "upload"
@@ -112,7 +116,7 @@ def test_tool_steps_hand_over_exactly_one_tool():
 def test_face_question_enables_upload_but_does_not_auto_open_it():
     # Conflating these was a shipped bug: the file dialog opened before the face
     # was answered, so the logo landed on whatever face was already active.
-    d = v2.directive_for(cs.by_id(S.ASK_LOGO_PLACEMENT), {})
+    d = v2.directive_for(cs.by_id(S.ASK_LOGO_PLACEMENT), {"has_logo": True})
     assert d["allowed_tools"] == ["upload"]
     assert d["auto_open"] is None
     assert d["target_face"] == "front"          # default until answered
@@ -160,12 +164,12 @@ def _reply(step_id, collected=None, **kw):
 
 
 def test_reply_appends_the_tool_tip_verbatim():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True})
     assert prompts.V2_TOOL_TIPS["upload"] in out
 
 
 def test_the_ack_can_never_paraphrase_the_tip_away():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"},
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True},
                  ack="Nice — the back's a great spot.")
     assert out.startswith("Nice — the back's a great spot.")
     assert prompts.V2_TOOL_TIPS["upload"] in out       # concatenated, not generated
@@ -177,7 +181,7 @@ def test_reply_falls_back_to_bare_copy_without_an_ack():
 
 
 def test_reply_interpolates_name_persona_and_intro():
-    assert "Sam" in _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    assert "Sam" in _reply(S.ASK_HAS_LOGO, {"name": "Sam"})
     assert "Ricardo" in _reply(S.ASK_NAME, persona="Ricardo")
     assert "Welcome!" in _reply(S.SHOW_INTRO, intro="Welcome!")
 
@@ -195,8 +199,31 @@ def test_decor_adjust_reply_uses_the_chosen_tool_tip():
     assert prompts.V2_TOOL_TIPS["text"] not in out
 
 
+def test_ask_logo_bg_keeps_a_tool_allowed_so_the_logo_stays_selectable():
+    """LOAD-BEARING. Surface.tsx:111-113 locks every unlocked element when the
+    flow leaves an editing step (v2Editing = allowedTools.length > 0), and a
+    locked layer can't be selected (canvasStore.ts:36). The "Remove background"
+    toggle lives in SelectedToolbar, which only renders for a SELECTED element.
+    Drop this tool and the customer is told to tick a toggle they cannot reach —
+    a failure invisible from the backend. Do not "tidy" the tool away.
+    """
+    step = cs.by_id(S.ASK_LOGO_BG)
+    d = v2.directive_for(step, {"pending_logo": {"face": "back", "placed": True}})
+    assert d["allowed_tools"] == ["upload"]
+    assert d["auto_open"] is None          # or the file picker reopens
+    assert d["target_face"] == "back"
+    assert d["instructions"] == prompts.V2_BG_INSTRUCTIONS   # not the upload tip
+
+
+def test_ask_logo_bg_copy_does_not_append_the_upload_tip():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    reply = v2.reply_for(step, {"name": "Sam"}, persona="Ricardo", intro="hi")
+    assert "Upload image" not in reply
+    assert "background" in reply.lower()
+
+
 def test_reply_defaults_the_name_when_unknown():
-    assert "there" in _reply(S.ASK_LOGO_PLACEMENT, {})
+    assert "there" in _reply(S.ASK_HAS_LOGO, {})
 
 
 def test_logo_adjust_does_not_duplicate_its_tip():
@@ -204,7 +231,7 @@ def test_logo_adjust_does_not_duplicate_its_tip():
     # already carries the drag/resize/rotate instructions inline, so appending
     # V2_TOOL_TIPS["upload"] would say it all twice. (The customer still gets the
     # "tap the button" instruction implicitly — this step auto-opens the picker.)
-    out = _reply(S.LOGO_ADJUST, {"name": "Sam"})
+    out = _reply(S.LOGO_ADJUST, {"name": "Sam", "has_logo": True, "pending_logo": {"face": "front"}})
     assert prompts.V2_TOOL_TIPS["upload"] not in out
     assert "drag to move" in out and "Done" in out
 
@@ -213,5 +240,115 @@ def test_decor_adjust_reply_matches_its_registry_copy():
     # Guards the DRY fix: the step's copy is read from the registry, not re-typed
     # in reply_for, so the two can never silently diverge.
     step = cs.by_id(S.DECOR_ADJUST)
-    out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
+    out = _reply(S.DECOR_ADJUST, {"has_logo": True, "logos_done": True, "decor_choice": "shape"})
     assert out == f"{prompts.V2_TOOL_TIPS['shape']} {step.ask}"
+
+
+def _multi_step():
+    """A throwaway registry record — the mechanism is tested without depending
+    on Task 6's ASK_DECORATION."""
+    return cs.Step(
+        id=S.ASK_DECORATION,
+        ask="pick some",
+        chips_from=lambda c: tuple(
+            cs.Chip(n, {"decoration_types": [n]})
+            for n in (c.get("decoration_options") or [])
+        ),
+        multiselect=True,
+        slots=("decoration_types",),
+        done_when=lambda c: False,
+    )
+
+
+def test_chips_from_builds_chips_out_of_collected():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    labels = [ch.label for ch in cs.chips_of(_multi_step(), c)]
+    assert labels == ["Embroidery", "Screen Print"]
+
+
+def test_static_chips_are_unaffected_by_chips_of():
+    step = cs.by_id(S.ASK_QUANTITY)
+    assert cs.chips_of(step, {}) == step.chips
+
+
+def test_multiselect_resolves_a_comma_joined_selection_in_order():
+    """The UI ships `decoSel.join(', ')` (ChatColumn.submitDeco:274)."""
+    c = {"decoration_options": ["Embroidery", "Screen Print", "Vinyl"]}
+    fields = v2.resolve_chip(_multi_step(), "Screen Print, Embroidery", c)
+    assert fields == {"decoration_types": ["Screen Print", "Embroidery"]}
+
+
+def test_multiselect_drops_tokens_that_were_never_offered():
+    c = {"decoration_options": ["Embroidery"]}
+    fields = v2.resolve_chip(_multi_step(), "Embroidery, Sublimation", c)
+    assert fields == {"decoration_types": ["Embroidery"]}
+
+
+def test_multiselect_resolves_the_uis_empty_continue_sentinel():
+    """Continue with nothing selected sends the literal 'none'. It is a string
+    WE ship, so it must resolve deterministically — otherwise it falls through
+    to the interpreter and stalls under LLMUnavailable."""
+    c = {"decoration_options": ["Embroidery"]}
+    assert v2.resolve_chip(_multi_step(), "none", c) == {"decoration_types": []}
+
+
+def test_multiselect_free_text_falls_through_to_the_interpreter():
+    c = {"decoration_options": ["Embroidery"]}
+    assert v2.resolve_chip(_multi_step(), "whatever looks best", c) is None
+
+
+def test_public_data_marks_a_multiselect_step_for_the_frontend():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    data = v2.public_data_for(_multi_step(), c)
+    assert data["options"] == ["Embroidery", "Screen Print"]
+    assert data["multiselect"] is True
+    assert data["selected"] == []
+
+
+def test_public_data_does_not_mark_a_single_select_step_as_multiselect():
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
+    assert "multiselect" not in data
+
+
+def test_decor_adjust_targets_the_face_the_customer_named():
+    """Regression: DECOR_ADJUST has always set face_target=True while _face()
+    read pending_logo — which is None once the logo loop closes — so text
+    silently always targeted "front"."""
+    c = {"logos_done": True, "pending_logo": None,
+         "decor_choice": "text", "decor_face": "left"}
+    d = v2.directive_for(cs.by_id(S.DECOR_ADJUST), c)
+    assert d["target_face"] == "left"
+    assert d["allowed_tools"] == ["text"]
+
+
+def test_decor_adjust_targets_the_named_face_for_a_shape_too():
+    c = {"logos_done": True, "pending_logo": None,
+         "decor_choice": "shape", "decor_face": "right"}
+    d = v2.directive_for(cs.by_id(S.DECOR_ADJUST), c)
+    assert d["target_face"] == "right"
+    assert d["allowed_tools"] == ["shape"]
+
+
+def test_logo_steps_still_read_the_logo_face():
+    """_face is now step-aware; the logo branch must be unaffected."""
+    c = {"pending_logo": {"face": "back"}, "decor_face": "left"}
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), c)
+    assert d["target_face"] == "back"
+
+
+def test_the_second_logo_does_not_repeat_the_first_ask_verbatim():
+    step = cs.by_id(S.ASK_LOGO_PLACEMENT)
+    first = v2.reply_for(step, {"name": "Sam"}, persona="Ricardo", intro="hi")
+    second = v2.reply_for(step, {"name": "Sam", "_asked": ["ask_logo_placement"]},
+                          persona="Ricardo", intro="hi")
+    assert first != second
+    assert "this one" in second.lower()
+
+
+def test_the_text_tip_puts_the_styling_instruction_on_its_own_line():
+    """The tip already named font/size/colour, but as a trailing clause the
+    customer read straight past it."""
+    tip = prompts.V2_TOOL_TIPS["text"]
+    lines = [l for l in tip.split("\n") if l.strip()]
+    assert len(lines) == 2
+    assert "size" in lines[1] and "colour" in lines[1]

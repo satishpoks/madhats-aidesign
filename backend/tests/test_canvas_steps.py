@@ -13,10 +13,10 @@ def test_registry_ids_are_unique_and_are_conversation_states():
 
 def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
-        S.ASK_NAME, S.SHOW_INTRO,
-        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO,
-        S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
-        S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
+        S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
+        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
+        S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
+        S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
 
 
@@ -52,7 +52,12 @@ def test_terminal_flags_are_not_interpreter_writable():
 
 def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
     for step in cs.REGISTRY:
-        assert bool(step.tool) == bool(step.tip), step.id
+        # ASK_LOGO_BG and ASK_DECOR_PLACEMENT have tools but use instructions or
+        # runtime-resolved tips instead of step.tip.
+        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT):
+            assert step.tool and not step.tip
+        else:
+            assert bool(step.tool) == bool(step.tip), step.id
 
 
 def test_by_id_round_trips():
@@ -75,34 +80,68 @@ def test_every_offered_chip_is_understood(step, chip):
     find out what we had meant, reading "another" as "no". Enumerated from the
     registry, so a step added later is covered the moment it is declared.
     """
-    fields = v2.resolve_chip(step, chip.label)
+    fields = v2.resolve_chip(step, chip.label, {})
     assert fields == chip.fields, f"{step.id}: {chip.label!r} did not round-trip"
 
 
 def test_the_exact_bug_yes_another_logo_is_not_a_decline():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "Yes, another logo") == {"another_logo": True}
-    assert v2.resolve_chip(step, "No, that's it") == {"another_logo": False}
+    assert v2.resolve_chip(step, "Yes, another logo", {}) == {"another_logo": True}
+    assert v2.resolve_chip(step, "No, that's it", {}) == {"another_logo": False}
 
 
 def test_chip_match_is_case_and_whitespace_insensitive():
     step = cs.by_id(S.ASK_LOGO_PLACEMENT)
-    assert v2.resolve_chip(step, "  front  ") == {"logo_face": "front"}
+    assert v2.resolve_chip(step, "  front  ", {}) == {"logo_face": "front"}
 
 
 def test_free_text_is_not_a_chip():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "yeah go on then") is None
+    assert v2.resolve_chip(step, "yeah go on then", {}) is None
+
+
+def _decor_seed() -> dict:
+    return {"name": "Sam", "intro_ack": True, "has_logo": False,
+            "logos_done": True, "pending_logo": None}
+
+
+def test_decor_placement_is_asked_before_the_decor_tool_opens():
+    c = _decor_seed()
+    c["decor_choice"] = "text"
+    assert v2.next_step(c).id is S.ASK_DECOR_PLACEMENT
+
+    step = cs.by_id(S.ASK_DECOR_PLACEMENT)
+    fields = v2.resolve_chip(step, "Back", c)
+    assert fields == {"decor_face": "back"}
+    c.update(fields)
+    assert v2.next_step(c).id is S.DECOR_ADJUST
+
+
+def test_adding_a_second_decoration_re_asks_the_face():
+    """_apply_anything_else must clear decor_face too, or the second decoration
+    silently reuses the first one's face."""
+    c = _decor_seed()
+    c.update({"decor_choice": "text", "decor_face": "back", "decor_placed": True})
+    step = cs.by_id(S.ASK_ANYTHING_ELSE)
+    fields = v2.resolve_chip(step, "Add something else", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert "decor_face" not in c
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_decor_placement_is_skipped_when_no_decoration_is_wanted():
+    assert cs.by_id(S.ASK_DECOR_PLACEMENT).done_when({"decor_done": True})
 
 
 def test_a_stale_chip_from_another_step_does_not_match():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "Add text") is None
+    assert v2.resolve_chip(step, "Add text", {}) is None
 
 
 def test_resolve_chip_returns_a_copy_not_the_registry_dict():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    got = v2.resolve_chip(step, "Yes, another logo")
+    got = v2.resolve_chip(step, "Yes, another logo", {})
     got["another_logo"] = "mutated"
     assert step.chips[0].fields == {"another_logo": True}
 
@@ -119,7 +158,7 @@ def test_every_offered_chip_makes_progress(step, chip):
     the half of the round-trip test that needs the apply hooks."""
     c = seed_for(step)
     assert v2.next_step(c).id is step.id          # precondition: we're on it
-    fields = v2.resolve_chip(step, chip.label)
+    fields = v2.resolve_chip(step, chip.label, c)
     c.update(fields)
     if step.apply:
         step.apply(c, dict(fields), {})
@@ -169,7 +208,7 @@ def test_another_logo_yes_banks_the_logo_and_reopens_the_loop():
     assert c["pending_logo"] == {}
     assert "another_logo" not in c            # cleared -> the loop re-asks
     assert not c.get("logos_done")
-    assert v2.next_step(c | {"name": "Sam", "intro_ack": True}).id is S.ASK_LOGO_PLACEMENT
+    assert v2.next_step(c | {"name": "Sam", "intro_ack": True, "has_logo": True}).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_another_logo_no_banks_the_logo_and_closes_the_loop():
@@ -284,3 +323,211 @@ def test_every_asking_step_has_a_progress_position():
         anchor = v2._PROGRESS_ANCHORS.get(step.id, step.id)
         placed = anchor in v2._PROGRESS_PATH
         assert placed, f"{step.id.value} has no progress position"
+
+
+def test_no_logo_skips_the_entire_logo_branch():
+    """has_logo=False sets logos_done, and every logo step's done_when already
+    short-circuits on `not _logos_open(c)` — so first-unmet skips all four with
+    no new routing."""
+    c = {"name": "Sam", "intro_ack": True}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "No — text only", c)
+    assert fields == {"has_logo": False}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_has_logo_routes_into_the_logo_loop():
+    c = {"name": "Sam", "intro_ack": True}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "Yes, I have a logo", c)
+    assert fields == {"has_logo": True}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
+
+
+def test_ask_has_logo_false_does_not_re_ask_once_its_apply_has_run():
+    """Presence, not truthiness — a `False` answer that has actually gone
+    through `apply` (so `logos_done` is set) must not re-ask forever (the bug
+    already fixed on ASK_ANYTHING_ELSE and ASK_QUANTITY). Unlike the old
+    contract, a bare `has_logo: False` with no `apply` having run does NOT
+    satisfy the step on its own — see
+    test_volunteered_has_logo_false_without_apply_still_asks_the_step for why:
+    `apply` is what sets `logos_done`, the flag that actually skips the logo
+    loop, so the step must stay unmet until that side effect has run."""
+    c = {"has_logo": False}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    step.apply(c, {"has_logo": False}, {})
+    assert step.done_when(c)
+    assert not cs.by_id(S.ASK_HAS_LOGO).done_when({})
+
+
+def test_volunteered_has_logo_false_without_apply_still_asks_the_step():
+    """Regression: the interpreter can volunteer `has_logo=False` on an EARLIER
+    turn than ASK_HAS_LOGO becomes current (e.g. "Hi I'm Sam, no logo, just
+    text" fills {'name': 'Sam', 'has_logo': False} in one turn). The
+    orchestrator runs ONLY the CURRENT step's `apply` each turn
+    (orchestrator_v2.py:89-90) — so if `done_when` trusted the raw slot, the
+    step would already read as done, would never become current, its apply
+    would never run, and `logos_done` would never be set: a text-only customer
+    gets marched into the logo loop anyway, the exact bug this step exists to
+    prevent.
+
+    Confirmed failing before the fix (routed to ASK_LOGO_PLACEMENT instead):
+        next after name  : show_intro
+        next after intro : ask_logo_placement     <- WRONG
+        logos_done       : None
+    """
+    c = {"name": "Sam", "intro_ack": True, "has_logo": False}   # volunteered, no apply
+    assert v2.next_step(c).id is S.ASK_HAS_LOGO, (
+        "a volunteered False must still route to ASK_HAS_LOGO so its apply runs"
+    )
+
+    # Now let the step actually run, as the orchestrator would: resolve its
+    # chip and apply it.
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "No — text only", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["logos_done"] is True
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_volunteered_has_logo_true_skips_straight_into_the_logo_loop():
+    """`True` needs no side effect (there is nothing to skip), so it may
+    legitimately short-circuit `done_when` on the raw slot alone — unlike
+    `False`, which must wait for `apply` to set `logos_done`."""
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True}   # volunteered, no apply
+    assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
+
+
+def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True,
+         "pending_logo": {"face": "front", "placed": True}}
+    assert v2.next_step(c).id is S.ASK_LOGO_BG
+
+    step = cs.by_id(S.ASK_LOGO_BG)
+    fields = v2.resolve_chip(step, "Yes, I've removed it", c)
+    assert fields == {"logo_bg": "removed"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["pending_logo"]["bg"] == "removed"
+    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+
+
+def test_logo_bg_declined_still_satisfies_the_step():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True,
+         "pending_logo": {"face": "front", "placed": True}}
+    step = cs.by_id(S.ASK_LOGO_BG)
+    fields = v2.resolve_chip(step, "No, it's fine as is", c)
+    assert fields == {"logo_bg": "none"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+
+
+def test_logo_bg_is_skipped_when_there_is_no_logo():
+    c = {"name": "Sam", "intro_ack": True, "has_logo": False,
+         "logos_done": True, "pending_logo": None}
+    assert cs.by_id(S.ASK_LOGO_BG).done_when(c)
+
+
+def _quantity_done() -> dict:
+    return {"name": "Sam", "intro_ack": True, "has_logo": False,
+            "logos_done": True, "pending_logo": None, "decor_done": True,
+            "quantity": 50}
+
+
+def test_decoration_is_asked_after_quantity_and_before_email():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    assert v2.next_step(c).id is S.ASK_DECORATION
+
+
+def test_decoration_chips_come_from_the_stores_active_methods():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    labels = [ch.label for ch in cs.chips_of(cs.by_id(S.ASK_DECORATION), c)]
+    assert labels == ["Embroidery", "Screen Print"]
+
+
+def test_choosing_decorations_sets_the_brief_and_the_render_style_bucket():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = v2.resolve_chip(step, "Embroidery, Screen Print", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+
+    assert c["decoration_types"] == ["Embroidery", "Screen Print"]
+    # The customer's FIRST choice drives the render style.
+    assert c["decoration_type"] == "embroidery"
+    assert "Decoration method: Embroidery, Screen Print" in c["brief_notes"]
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_decoration_names_not_offered_by_the_store_never_reach_the_brief():
+    """decoration_types is store-dynamic so it cannot go in SLOT_ENUMS — this
+    filter IS the interpreter guard."""
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = {"decoration_types": ["Sublimation", "Embroidery"]}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["decoration_types"] == ["Embroidery"]
+
+
+def test_a_decoration_answer_as_a_bare_string_is_still_filtered():
+    """The interpreter may return a string rather than a list."""
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = {"decoration_types": "Screen Print"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["decoration_types"] == ["Screen Print"]
+    assert c["decoration_type"] == "print"
+
+
+def test_prepare_loads_the_stores_active_methods_once(monkeypatch):
+    calls = []
+
+    def _fake(store_id, active_only=False):
+        calls.append(store_id)
+        return [{"name": "Embroidery"}, {"name": "Vinyl"}]
+
+    monkeypatch.setattr("app.services.decoration_types.list_types", _fake)
+    c = _quantity_done()
+    step = cs.by_id(S.ASK_DECORATION)
+    step.prepare(c, {"id": "store-1"})
+    assert c["decoration_options"] == ["Embroidery", "Vinyl"]
+
+    step.prepare(c, {"id": "store-1"})          # already loaded
+    assert calls == ["store-1"]
+
+
+def test_a_store_with_no_decoration_methods_skips_the_step(monkeypatch):
+    """No options means no chips and no way to answer — that would dead-end the
+    funnel just before the email step."""
+    monkeypatch.setattr("app.services.decoration_types.list_types",
+                        lambda *a, **k: [])
+    c = _quantity_done()
+    step = cs.by_id(S.ASK_DECORATION)
+    step.prepare(c, {"id": "store-1"})
+    assert step.done_when(c)
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_prepare_survives_a_missing_store():
+    c = _quantity_done()
+    cs.by_id(S.ASK_DECORATION).prepare(c, None)
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_decoration_bookkeeping_is_not_interpreter_writable():
+    assert "decoration_types" in cs.WRITABLE_SLOTS
+    assert "decoration_done" not in cs.WRITABLE_SLOTS
+    assert "decoration_options" not in cs.WRITABLE_SLOTS
+    assert "decoration_type" not in cs.WRITABLE_SLOTS   # the render-style bucket

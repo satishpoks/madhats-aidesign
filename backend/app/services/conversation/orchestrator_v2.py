@@ -61,7 +61,7 @@ async def handle_message(session_id: str, message: str) -> dict:
     step = cs.by_id(current)
     ack = ""
 
-    fields = v2.resolve_chip(step, message)
+    fields = v2.resolve_chip(step, message, collected)
     if fields is None and step.slots:
         # Free text on a step that asks for something: the model reads it, or we
         # stall. No keyword fallback — a wrong field corrupts the design.
@@ -94,6 +94,13 @@ async def handle_message(session_id: str, message: str) -> dict:
         asked.append(step.id.value)
 
     next_ = v2.next_step(collected)
+    if next_.prepare:
+        # Load whatever the step needs to render (store-scoped chips). prepare
+        # may SATISFY its own step — a store with no decoration methods
+        # configured — so re-resolve. One pass is enough: only one step declares
+        # prepare, and a satisfied step routes forward to steps that don't.
+        next_.prepare(collected, store)
+        next_ = v2.next_step(collected)
 
     if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
         # Honesty gate: the customer is capped, so pose the quote ask instead of
@@ -124,7 +131,7 @@ async def _stall(sb, session_id, collected, step, state_before, message) -> dict
     """
     fails = int(collected.get("_fail_count") or 0) + 1
     collected["_fail_count"] = fails
-    nudge = fails >= _NUDGE_AFTER and step.chips
+    nudge = fails >= _NUDGE_AFTER and cs.chips_of(step, collected)
     reply = prompts.V2_NUDGE_REPLY if nudge else prompts.V2_STALL_REPLY
     return await _persist(sb, session_id, collected, step, reply, state_before,
                           step.id, user_message=message)

@@ -93,7 +93,7 @@ async def test_the_live_bug_yes_another_logo_reopens_the_logo_loop(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "pending_logo": {"face": "front", "placed": True},
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -108,7 +108,7 @@ async def test_a_chip_tap_makes_zero_llm_calls(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_QUANTITY.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "logos_done": True,
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
                                      "decor_done": True}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     calls = []
@@ -134,7 +134,7 @@ async def test_free_text_stalls_when_the_model_is_unavailable(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True,
+                                     "intro_ack": True, "has_logo": True,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)
@@ -149,7 +149,7 @@ async def test_two_failures_nudge_toward_the_chips(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "_fail_count": 1,
+                                     "intro_ack": True, "has_logo": True, "_fail_count": 1,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)
@@ -163,7 +163,7 @@ async def test_a_successful_turn_clears_the_fail_count(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "_fail_count": 1,
+                                     "intro_ack": True, "has_logo": True, "_fail_count": 1,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"another_logo": False})
@@ -177,14 +177,14 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "decor_done": True,
+                                     "intro_ack": True, "has_logo": True, "decor_done": True,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"another_logo": False, "quantity": 50})
     res = await o2.handle_message("s1", "no thanks, and I need 50 caps")
     assert store["session"]["collected"]["quantity"] == 50
     assert res["state"] == S.ASK_EMAIL.value        # ask_quantity skipped
-    assert res["data"]["progress"]["total"] == 7
+    assert res["data"]["progress"]["total"] == 8
 
 
 @pytest.mark.asyncio
@@ -209,7 +209,7 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_PURPOSE.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
         "email_captured": True,
     }
@@ -282,7 +282,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_EMAIL.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -300,7 +300,7 @@ async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "pending_logo": {"face": "front", "placed": True},
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -323,10 +323,57 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
-        "logos_done": True, "decor_choice": "text", "decor_placed": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "logos_done": True, "decor_choice": "text", "decor_face": "front", "decor_placed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"more_decor": False})
     res = await o2.handle_message("s1", "nah, nothing more thanks")
     assert res["state"] == S.ASK_QUANTITY.value      # must NOT re-ask itself
+
+
+@pytest.mark.asyncio
+async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypatch):
+    """Regression: a step with chips_from must nudge to chips after _NUDGE_AFTER
+    failures, not stall forever because step.chips is empty.
+
+    The fix routes the nudge check through cs.chips_of(step, collected) instead
+    of reading step.chips directly, so dynamic chips are visible to the nudge.
+    """
+    # Create a test step with chips_from that derives options from collected.
+    # We'll use a fictional "ask_colour" step that offers colour options from
+    # a store-scoped palette.
+    def _colours_from_collected(c: dict) -> tuple[cs.Chip, ...]:
+        colours = c.get("available_colours", ["Red", "Blue", "Green"])
+        return tuple(cs.Chip(colour, {"chosen_colour": colour}) for colour in colours)
+
+    test_step = cs.Step(
+        # ASK_QUANTITY is a real registry state (not unused) — this only works
+        # because `cs.by_id` is monkeypatched below to return `test_step` for it.
+        id=S.ASK_QUANTITY,
+        ask="Pick a colour:",
+        chips=(),  # empty: chips come from chips_from
+        chips_from=_colours_from_collected,
+        slots=("chosen_colour",),
+        done_when=lambda c: bool(c.get("chosen_colour")),
+    )
+
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "available_colours": ["Red", "Blue", "Green"],
+        "_fail_count": 1,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    monkeypatch.setattr(cs, "by_id", lambda state: test_step if state == S.ASK_QUANTITY else None)
+
+    # First failure (after one already): should nudge because fails >= 2
+    res = await o2.handle_message("s1", "something unmatchable")
+
+    # After the fix, nudge should appear
+    assert res["reply"] == prompts.V2_NUDGE_REPLY
+    # The data should contain the options derived from chips_from
+    assert res["data"]["options"] == ["Red", "Blue", "Green"]
+    assert store["session"]["collected"]["_fail_count"] == 2
