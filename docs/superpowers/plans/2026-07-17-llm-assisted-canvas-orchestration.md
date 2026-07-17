@@ -554,7 +554,6 @@ def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
     assert v2.progress_v2(S.ASK_QUANTITY, {}) == {"step": 5, "total": total}
 ```
 
-Note: `test_router_never_returns_a_step_after_an_unmet_one` skips `DECOR_ADJUST` and `ASK_ANYTHING_ELSE` via `_satisfy` setting `decor_done` at `ASK_ADD_DECOR` — that is correct, it mirrors the "No, nothing else" path.
 
 - [ ] **Step 2: Run test to verify it fails**
 

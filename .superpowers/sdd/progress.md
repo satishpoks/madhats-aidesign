@@ -187,3 +187,27 @@ Task 1: complete (commits b45225e + ca094cc, review clean — Spec ✅, Quality 
   — Task 2 re-exports from canvas_steps, which resolves it; verify at Task 2 review.
 
 Task 2 BASE (HEAD before impl): ca094cc
+
+Task 2: complete (commit 5c639f5, review clean — Spec ✅, Quality Approved, ZERO findings).
+  state_machine_v2 rewritten as a generic engine: next_step (first-unmet), V2_OWNED,
+  progress_for/progress_v2, MAX_LOGOS+Step RE-EXPORTED from canvas_steps (no drift).
+  New tests/canvas_step_helpers.py (satisfy/seed_for) — shared with Task 4, do NOT dup.
+  14 tests. Suite: 9 failed / 556 passed.
+  PLAN GAP FOUND BY IMPLEMENTER (correctly reported BLOCKED, did not commit a red route):
+    app/api/routes/sessions.py:269 imports progress_v2 and calls it with GENERATING (a
+    TAIL state, no registry step). Plan named only orchestrator_v2 + chat.py as consumers.
+    FIX: progress moved Task 6 -> Task 2; progress_v2 keeps its exact signature;
+    sessions.py UNTOUCHED. Plan updated (d5e41ae). Route test now green.
+  THE 9 EXPECTED FAILURES (Tasks 6/8 restore): test_orchestrator_v2 x8 + test_v2_e2e::
+    test_full_front_half_walk — AttributeError on v2_reply/canvas_directive/v2_public_data/
+    advance_state_v2 from orchestrator_v2.py:198/:216. NO v1 or other route test fails.
+  Reviewer independently verified: satisfy() does NOT shortcut via decor_done, so the
+  12-step walk really asserts every step; finalize-without-email test proves the invariant
+  genuinely (not incidentally); sessions.py byte-unmodified; v1 untouched.
+  COVERAGE GAP TO WATCH (Task 8/9): old test_decor_ambiguous_reply_reasks_instead_of_skipping
+    was deleted with the rewrite and has NO direct successor. New equivalent = "interpreter
+    returns {} -> decor step re-asks". Add it in Task 8 or flag at final review.
+  MAX_LOGOS cap has no test until Task 4 (test_logo_loop_stops_at_max_logos...) — verify there.
+  CONTROLLER: deleted a stale plan note (L557) that described the OLD buggy _satisfy.
+
+Task 3 BASE (HEAD before impl): 5c639f5
