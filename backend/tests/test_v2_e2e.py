@@ -59,7 +59,10 @@ def _new_store():
         "session": {
             "id": "s1",
             "state": S.GREETING.value,
-            "collected": {"flow_mode": "canvas"},
+            # decoration_options pre-seeded: _prepare_decoration only loads when
+            # the key is absent, and this fake session has no store to load from.
+            "collected": {"flow_mode": "canvas",
+                          "decoration_options": ["Embroidery", "Screen Print"]},
             "upsell_count": 0,
         }
     }
@@ -108,17 +111,22 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     walk = [
         ("",                        S.ASK_NAME),
         ("Sam",                     S.SHOW_INTRO),
-        ("ok",                      S.ASK_LOGO_PLACEMENT),   # intro ack (no slots)
+        ("ok",                      S.ASK_HAS_LOGO),         # intro ack (no slots)
+        ("Yes, I have a logo",      S.ASK_LOGO_PLACEMENT),
         ("Front",                   S.LOGO_ADJUST),
-        ("Done",                    S.ASK_ANOTHER_LOGO),
+        ("Done",                    S.ASK_LOGO_BG),
+        ("Yes, I've removed it",    S.ASK_ANOTHER_LOGO),
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
-        ("Done",                    S.ASK_ANOTHER_LOGO),
+        ("Done",                    S.ASK_LOGO_BG),
+        ("No, it's fine as is",     S.ASK_ANOTHER_LOGO),
         ("No, that's it",           S.ASK_ADD_DECOR),
-        ("Add text",                S.DECOR_ADJUST),
+        ("Add text",                S.ASK_DECOR_PLACEMENT),
+        ("Left",                    S.DECOR_ADJUST),
         ("Done",                    S.ASK_ANYTHING_ELSE),
         ("No, that's everything",   S.ASK_QUANTITY),
-        ("50-99",                   S.ASK_EMAIL),
+        ("50-99",                   S.ASK_DECORATION),
+        ("Embroidery, Screen Print", S.ASK_EMAIL),
         ("sam@example.com",         S.ASK_PURPOSE),
         ("for the team",            S.FINALIZE_CANVAS),
     ]
@@ -141,6 +149,14 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
             assert d["allowed_tools"] == ["upload"] and d["auto_open"] is None
         elif expected is S.LOGO_ADJUST:
             assert d["auto_open"] == "upload" and d["show_done"] is True
+        elif expected is S.ASK_LOGO_BG:
+            # Through the REAL pipeline: the tool must stay allowed or the logo
+            # is locked and the "Remove background" toggle is unreachable.
+            assert d["allowed_tools"] == ["upload"] and d["auto_open"] is None
+        elif expected is S.ASK_DECOR_PLACEMENT:
+            assert d["allowed_tools"] == ["text"] and d["auto_open"] is None
+        elif expected is S.DECOR_ADJUST:
+            assert d["target_face"] == "left"      # the face the customer named
 
     # The second lap landed on the face the customer actually named.
     assert store["session"]["collected"]["logos"][1]["face"] == "back"
@@ -152,3 +168,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     assert len(c["logos"]) == 2
     assert [l["face"] for l in c["logos"]] == ["front", "back"]
     assert c["quantity"] == 50
+    assert c["logos"][0]["bg"] == "removed"
+    assert c["logos"][1]["bg"] == "none"
+    assert c["decor_face"] == "left"
+    assert c["decoration_types"] == ["Embroidery", "Screen Print"]
+    assert c["decoration_type"] == "embroidery"   # first choice drives the style
