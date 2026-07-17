@@ -121,6 +121,10 @@ STATE_PROMPTS: dict[str, str] = {
         "the design themselves, or describe the change here for the team. Offer both, "
         "warm, one sentence."
     ),
+    "confirm_canvas_edit": (
+        "Tell them you've made that change on the design they can see now, and "
+        "ask if it looks right or they'd like it different. One or two sentences."
+    ),
     "describe_changes": (
         "Tell the customer you'll refine the design in ONE pass, so they should "
         "describe EVERYTHING they'd like changed — colours, text, size, placement, "
@@ -394,6 +398,10 @@ CANNED_REPLIES: dict[str, str] = {
     "ask_change_method": (
         "Sure! Would you like to reopen the canvas and tweak it yourself, or just "
         "describe the change here and I'll pass it to the team?"
+    ),
+    "confirm_canvas_edit": (
+        "Done — take a look at the design now. Does that look right, or would "
+        "you like it different?"
     ),
     "ask_notes": (
         "Almost there! Any final notes for our team before I generate your design — "

@@ -157,6 +157,54 @@ async def test_confirm_that_looks_wrong_does_not_confirm(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_confirm_text_merely_containing_looks_right_goes_to_interpreter(monkeypatch):
+    """Substring matching would let 'that hardly looks right' bypass the
+    interpreter and confirm — chip resolution must be an EXACT label match
+    (strip + casefold), same precedent as the v2 registry's chip handling."""
+    async def reads_it_correctly(_msg):
+        assert "hardly" in _msg
+        return False
+
+    monkeypatch.setattr(o.ie, "interpret_edit_confirm", reads_it_correctly)
+    c = {"flow_mode": "canvas"}
+    await o._apply_edit_confirm(c, "that hardly looks right")
+    assert c["edit_confirmed"] is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_text_containing_both_phrases_goes_to_interpreter(monkeypatch):
+    """'Not quite — the front one looks right' contains BOTH chip phrases as
+    substrings; substring matching (which checks 'looks right' first) would
+    wrongly confirm even though the customer led with 'Not quite'."""
+    async def reads_it_correctly(_msg):
+        assert "not quite" in _msg.lower()
+        return False
+
+    monkeypatch.setattr(o.ie, "interpret_edit_confirm", reads_it_correctly)
+    c = {"flow_mode": "canvas"}
+    await o._apply_edit_confirm(c, "Not quite — the front one looks right")
+    assert c["edit_confirmed"] is False
+
+
+@pytest.mark.asyncio
+async def test_confirm_chip_exact_match_is_case_and_whitespace_insensitive(monkeypatch):
+    """The exact-match comparison still tolerates surrounding whitespace and
+    case (a real chip tap could arrive as '  Looks right  ' or 'looks right'),
+    while NOT matching text that merely contains the phrase."""
+    calls = []
+
+    async def spy(_msg):
+        calls.append(_msg)
+        return False
+
+    monkeypatch.setattr(o.ie, "interpret_edit_confirm", spy)
+    c = {"flow_mode": "canvas"}
+    await o._apply_edit_confirm(c, "  Looks right  ")
+    assert c["edit_confirmed"] is True
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_confirm_outage_stalls_and_never_reaches_regenerating(monkeypatch):
     async def boom(_msg):
         raise o.ie.LLMUnavailable("down")

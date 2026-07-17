@@ -238,18 +238,21 @@ async def _apply_edit_confirm(collected: dict, message: str) -> None:
 
     Chip labels are "Looks right" / "Not quite" (see _public_data) and match
     deterministically with no model call — we generated those labels, so
-    matching them back is an identity lookup. Free text goes to the
-    interpreter. `is_affirmative`/substring matching is NOT safe here: it
-    reads "that looks wrong" as approval because "lo-ok-s" contains "ok",
-    which is exactly the harm this gate exists to prevent.
+    matching them back is an identity lookup against the EXACT label (strip +
+    casefold), same precedent as the v2 registry's chip handling. Anything
+    else — including free text that merely CONTAINS one of the phrases, e.g.
+    "that hardly looks right" or "Not quite — the front one looks right" —
+    goes to the interpreter. `is_affirmative`/substring matching is NOT safe
+    here: it reads "that looks wrong" as approval because "lo-ok-s" contains
+    "ok", which is exactly the harm this gate exists to prevent.
     """
     collected.pop("edit_confirm_stalled", None)
     text = (message or "").strip()
-    low = text.lower()
-    if "looks right" in low:
+    normalised = text.casefold()
+    if normalised == "looks right":
         collected["edit_confirmed"] = True
         return
-    if "not quite" in low:
+    if normalised == "not quite":
         collected["edit_confirmed"] = False
         return
     try:
