@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from app import prompts
+from app.services import leads as leads_service
+from app.services.conversation import intent_extractor as ie
 from app.services.conversation.state_machine import ConversationState as S
 
 MAX_LOGOS = 4
@@ -64,13 +66,109 @@ def _logos_open(c: dict) -> bool:
     return not c.get("logos_done")
 
 
+# --- apply hooks --------------------------------------------------------------
+# Most steps need no effect — merging the resolved fields into `collected` IS
+# the update. These few need bookkeeping beyond that merge: the logo loop, the
+# email double-opt-in capture, and one-shot flags. Declaring the hook on the
+# step's own record is the point — the alternative is a hidden switch statement.
+
+# Replies that are plainly not a name. Ported verbatim from orchestrator_v2
+# (commit 44e8eda): the old ASK_NAME step took the customer's first message
+# verbatim, so "ok" became their name and the bot said "Great, ok! Let's add
+# your logo." The interpreter is better at this than the old keyword ingest was,
+# but it is still a model — this deterministic guard is what GUARANTEES the bug
+# cannot come back. The model proposes; the guard disposes; done_when re-asks.
+_NAME_FILLER = frozenset({
+    "ok", "okay", "k", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "sure", "hi", "hello", "hey", "hiya", "thanks", "ta", "cool", "great",
+    "continue", "next", "done", "start", "go", "ready", "please",
+})
+
+
+def _plausible_name(candidate: str) -> bool:
+    if not candidate or "?" in candidate:
+        return False
+    if ie._is_greeting_only(candidate):
+        return False
+    if not any(ch.isalpha() for ch in candidate):
+        return False
+    return candidate.lower().strip(" .!,'\"") not in _NAME_FILLER
+
+
+def _apply_name(c: dict, f: dict, s: dict) -> None:
+    name = (f.get("name") or "").strip().split("\n")[0][:60]
+    if _plausible_name(name):
+        c["name"] = name
+    else:
+        c.pop("name", None)      # never let filler satisfy done_when
+
+
+def _apply_intro(c: dict, f: dict, s: dict) -> None:
+    # Any reply to the intro is an acknowledgement — there is nothing to parse,
+    # which is why show_intro declares no slots and never calls the model.
+    c["intro_ack"] = True
+
+
+def _apply_logo_face(c: dict, f: dict, s: dict) -> None:
+    face = f.get("logo_face")
+    if not face:
+        return
+    if c.get("pending_logo") is None:
+        c["pending_logo"] = {}
+    c["pending_logo"]["face"] = face
+
+
+def _apply_logo_placed(c: dict, f: dict, s: dict) -> None:
+    if f.get("logo_placed") and c.get("pending_logo") is not None:
+        c["pending_logo"]["placed"] = True
+
+
+def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
+    """The entire loop mechanism, declared next to the step it belongs to.
+
+    Bank the finished logo, then either re-seed a pending one (which makes the
+    three logo steps unmet again, so the router walks back to them by itself)
+    or close the loop. Looping is slot-clearing.
+    """
+    logos = c.setdefault("logos", [])
+    pending = c.get("pending_logo")
+    if pending:
+        logos.append(pending)
+    if f.get("another_logo") and len(logos) < MAX_LOGOS:
+        c["pending_logo"] = {}
+        c.pop("another_logo", None)
+    else:
+        c["pending_logo"] = None
+        c["logos_done"] = True
+
+
+def _apply_anything_else(c: dict, f: dict, s: dict) -> None:
+    if f.get("more_decor"):
+        for k in ("decor_choice", "decor_placed", "more_decor"):
+            c.pop(k, None)
+
+
+def _apply_email(c: dict, f: dict, s: dict) -> None:
+    """Double opt-in capture. `email_captured` is set ONLY here, and only after a
+    real capture — which is what makes FINALIZE_CANVAS unreachable without a
+    lead. On failure nothing is set, so ask_email re-asks itself."""
+    email = f.get("email")
+    if not email:
+        return
+    lead_id, ok = leads_service.capture_lead_and_verify(s, c, email)
+    if lead_id:
+        c["lead_id"] = lead_id
+    if ok:
+        c["email_captured"] = True
+
+
 REGISTRY: tuple[Step, ...] = (
     Step(
         id=S.ASK_NAME,
         ask=prompts.V2_ASK_NAME,
         ask_retry=prompts.V2_ASK_NAME_RETRY,
         slots=("name",),
-        # Task 4 wires apply=_apply_name here (rejects filler — "ok" is not a name).
+        apply=_apply_name,                     # rejects filler — "ok" is not a name.
         done_when=lambda c: bool(c.get("name")),
     ),
     Step(
@@ -78,6 +176,7 @@ REGISTRY: tuple[Step, ...] = (
         ask="{intro}\n\nReady? Tap continue when you are.",
         continuable=True,
         slots=(),                              # ack-only: any reply satisfies it
+        apply=_apply_intro,
         done_when=lambda c: bool(c.get("intro_ack")),
     ),
     Step(
@@ -89,6 +188,7 @@ REGISTRY: tuple[Step, ...] = (
                Chip("Left", {"logo_face": "left"}),
                Chip("Right", {"logo_face": "right"})),
         slots=("logo_face",),
+        apply=_apply_logo_face,
         done_when=lambda c: not _logos_open(c) or "face" in _pending(c),
         tool="upload",
         tip=prompts.V2_TOOL_TIPS["upload"],
@@ -105,6 +205,7 @@ REGISTRY: tuple[Step, ...] = (
              "it. Press Done when the placement looks right."),
         chips=(Chip("Done", {"logo_placed": True}),),
         slots=("logo_placed",),
+        apply=_apply_logo_placed,
         done_when=lambda c: not _logos_open(c) or bool(_pending(c).get("placed")),
         tool="upload",
         tip=prompts.V2_TOOL_TIPS["upload"],
@@ -118,6 +219,7 @@ REGISTRY: tuple[Step, ...] = (
         chips=(Chip("Yes, another logo", {"another_logo": True}),
                Chip("No, that's it", {"another_logo": False})),
         slots=("another_logo",),
+        apply=_apply_another_logo,
         done_when=lambda c: not _logos_open(c) or c.get("another_logo") is not None,
     ),
     Step(
@@ -149,6 +251,7 @@ REGISTRY: tuple[Step, ...] = (
         chips=(Chip("Add something else", {"more_decor": True}),
                Chip("No, that's everything", {"decor_done": True})),
         slots=("more_decor",),
+        apply=_apply_anything_else,
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("more_decor")),
     ),
     Step(
@@ -170,6 +273,7 @@ REGISTRY: tuple[Step, ...] = (
         id=S.ASK_EMAIL,
         ask="What's the best email to send your design preview to?",
         slots=("email",),
+        apply=_apply_email,
         # `email_captured` is set ONLY by _apply_email after a real
         # capture_lead_and_verify, and is not a writable slot — so the
         # interpreter cannot fake it and FINALIZE_CANVAS cannot be reached

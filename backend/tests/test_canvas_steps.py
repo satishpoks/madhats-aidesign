@@ -97,3 +97,113 @@ def test_resolve_chip_returns_a_copy_not_the_registry_dict():
     got = v2.resolve_chip(step, "Yes, another logo")
     got["another_logo"] = "mutated"
     assert step.chips[0].fields == {"another_logo": True}
+
+
+# Shared with test_state_machine_v2 — created in Task 2, do NOT re-declare here.
+from tests.canvas_step_helpers import seed_for
+
+
+@pytest.mark.parametrize(
+    "step,chip", _all_chips(), ids=lambda v: getattr(v, "label", getattr(v, "id", ""))
+)
+def test_every_offered_chip_makes_progress(step, chip):
+    """Understanding a chip is not enough — it must also move the flow. This is
+    the half of the round-trip test that needs the apply hooks."""
+    c = seed_for(step)
+    assert v2.next_step(c).id is step.id          # precondition: we're on it
+    fields = v2.resolve_chip(step, chip.label)
+    c.update(fields)
+    if step.apply:
+        step.apply(c, dict(fields), {})
+    assert v2.next_step(c).id is not step.id, f"{step.id}: {chip.label!r} did not advance"
+
+
+@pytest.mark.parametrize("filler", ["ok", "Okay", "yes", "hi there", "sure", "!!", "done"])
+def test_filler_never_becomes_a_name(filler):
+    """Regression (44e8eda): "ok" became a customer's name in a live session.
+    The interpreter proposes; this deterministic guard disposes."""
+    c = {"name": filler}                      # as the pre-apply merge leaves it
+    cs.by_id(S.ASK_NAME).apply(c, {"name": filler}, {})
+    assert "name" not in c
+    assert not cs.by_id(S.ASK_NAME).done_when(c)      # -> re-asks
+
+
+@pytest.mark.parametrize("real", ["Sam", "satish", "Mary-Jane", "Jo Smith"])
+def test_a_real_name_is_kept(real):
+    c = {"name": real}
+    cs.by_id(S.ASK_NAME).apply(c, {"name": real}, {})
+    assert c["name"] == real
+    assert cs.by_id(S.ASK_NAME).done_when(c)
+
+
+def test_a_name_is_trimmed_to_first_line_and_60_chars():
+    c = {}
+    cs.by_id(S.ASK_NAME).apply(c, {"name": "Sam\nsecond line"}, {})
+    assert c["name"] == "Sam"
+
+
+def test_intro_ack_is_set_by_any_reply():
+    c = {}
+    cs.by_id(S.SHOW_INTRO).apply(c, {}, {})
+    assert c["intro_ack"] is True
+
+
+def test_logo_face_lands_on_the_pending_logo():
+    c = {}
+    cs.by_id(S.ASK_LOGO_PLACEMENT).apply(c, {"logo_face": "back"}, {})
+    assert c["pending_logo"] == {"face": "back"}
+
+
+def test_another_logo_yes_banks_the_logo_and_reopens_the_loop():
+    c = {"pending_logo": {"face": "back", "placed": True}, "another_logo": True}
+    cs.by_id(S.ASK_ANOTHER_LOGO).apply(c, {"another_logo": True}, {})
+    assert c["logos"] == [{"face": "back", "placed": True}]
+    assert c["pending_logo"] == {}
+    assert "another_logo" not in c            # cleared -> the loop re-asks
+    assert not c.get("logos_done")
+    assert v2.next_step(c | {"name": "Sam", "intro_ack": True}).id is S.ASK_LOGO_PLACEMENT
+
+
+def test_another_logo_no_banks_the_logo_and_closes_the_loop():
+    c = {"pending_logo": {"face": "back", "placed": True}, "another_logo": False}
+    cs.by_id(S.ASK_ANOTHER_LOGO).apply(c, {"another_logo": False}, {})
+    assert c["logos"] == [{"face": "back", "placed": True}]
+    assert c["pending_logo"] is None
+    assert c["logos_done"] is True
+
+
+def test_logo_loop_stops_at_max_logos_even_when_more_are_wanted():
+    c = {"logos": [{"face": f} for f in ("front", "back", "left")],
+         "pending_logo": {"face": "right", "placed": True}}
+    cs.by_id(S.ASK_ANOTHER_LOGO).apply(c, {"another_logo": True}, {})
+    assert len(c["logos"]) == cs.MAX_LOGOS
+    assert c["logos_done"] is True             # capped
+    assert c["pending_logo"] is None
+
+
+def test_anything_else_yes_clears_the_decor_slots():
+    c = {"decor_choice": "text", "decor_placed": True, "more_decor": True}
+    cs.by_id(S.ASK_ANYTHING_ELSE).apply(c, {"more_decor": True}, {})
+    assert "decor_choice" not in c and "decor_placed" not in c and "more_decor" not in c
+
+
+def test_email_apply_captures_the_lead(monkeypatch):
+    seen = {}
+
+    def _fake(session, collected, email):
+        seen.update(session=session, email=email)
+        return "lead-1", True
+
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify", _fake)
+    c = {}
+    cs.by_id(S.ASK_EMAIL).apply(c, {"email": "sam@example.com"}, {"id": "s1"})
+    assert c["email_captured"] is True and c["lead_id"] == "lead-1"
+    assert seen["email"] == "sam@example.com"
+
+
+def test_email_apply_does_not_capture_when_verification_fails(monkeypatch):
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, e: (None, False))
+    c = {}
+    cs.by_id(S.ASK_EMAIL).apply(c, {"email": "sam@example.com"}, {"id": "s1"})
+    assert not c.get("email_captured")         # -> ask_email re-asks itself
