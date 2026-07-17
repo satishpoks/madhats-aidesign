@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { sendChat, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
+import { parseCanvasOps, applyCanvasOps } from '../lib/canvasOps'
 
 export interface ChatMessage {
   id: string
@@ -168,6 +169,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await sendChat(sessionId, text)
       const parsed = parseData(res.data)
+      applyCanvasOps(parseCanvasOps(res.data))   // before set(): patch, then Surface's lock effect
       set(state => ({
         messages: [
           ...state.messages,

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, test, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../lib/api', () => ({
   sendChat: vi.fn(),
@@ -8,7 +8,8 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { useChatStore } from '../store/chatStore'
-import { pollGenerationAdvance } from '../lib/api'
+import { useCanvasStore } from '../store/canvasStore'
+import { sendChat, pollGenerationAdvance } from '../lib/api'
 
 beforeEach(() => {
   useChatStore.getState().reset()
@@ -38,4 +39,24 @@ describe('advanceGeneration', () => {
     await useChatStore.getState().advanceGeneration('sess-1')
     expect(useChatStore.getState().messages.length).toBe(before)
   })
+})
+
+test('sendMessage applies canvas_ops from the response exactly once', async () => {
+  useCanvasStore.getState().reset()
+  useCanvasStore.getState().addImage('logo.png')
+  vi.mocked(sendChat).mockResolvedValue({
+    reply: 'Marked it.', state: 'ask_another_logo',
+    data: { canvas_ops: [{ target: { kind: 'pending_logo', face: 'front' }, patch: { removeBg: true } }] },
+  } as never)
+  await useChatStore.getState().sendMessage('s1', 'Yes, remove background')
+  expect(useCanvasStore.getState().faces.front[0].removeBg).toBe(true)
+})
+
+test('hydrate never applies canvas_ops — a resume must not re-edit the design', () => {
+  useCanvasStore.getState().reset()
+  useCanvasStore.getState().addImage('logo.png')
+  useChatStore.getState().hydrate([], 'ask_another_logo', {
+    canvas_ops: [{ target: { kind: 'pending_logo', face: 'front' }, patch: { removeBg: true } }],
+  })
+  expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
 })
