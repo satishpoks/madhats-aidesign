@@ -14,10 +14,11 @@ from app.services.conversation.state_machine import ConversationState as S
 def satisfy(c: dict, step) -> None:
     """Minimal mutation to make one step done, mirroring the apply hooks.
 
-    Walks the LONGEST path (one logo, one decoration) so that every step in the
-    registry becomes first-unmet in turn — hence decor_choice/decor_placed here
-    rather than the decor_done shortcut, which would skip DECOR_ADJUST and
-    ASK_ANYTHING_ELSE entirely.
+    Walks the LONGEST path (one logo, one decoration, a mixed decoration method)
+    so that every step in the registry becomes first-unmet in turn — hence
+    decor_choice/decor_placed here rather than the decor_done shortcut, which
+    would skip DECOR_ADJUST and ASK_ANYTHING_ELSE entirely, and decoration_mix
+    rather than decoration_done, which would skip ASK_DECORATION_MIX.
     """
     if step.id is S.ASK_NAME:
         c["name"] = "Sam"
@@ -45,7 +46,9 @@ def satisfy(c: dict, step) -> None:
     elif step.id is S.ASK_QUANTITY:
         c["quantity"] = 12
     elif step.id is S.ASK_DECORATION:
-        c["decoration_done"] = True
+        c["decoration_mix"] = True          # longest path: a mix must be described
+    elif step.id is S.ASK_DECORATION_MIX:
+        c["decoration_mix_note"] = "embroidered logo, printed text"
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
     elif step.id is S.ASK_PURPOSE:

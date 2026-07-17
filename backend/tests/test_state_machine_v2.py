@@ -4,7 +4,7 @@ from app import prompts
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
-from tests.canvas_step_helpers import satisfy
+from tests.canvas_step_helpers import satisfy, seed_for
 
 
 def _seed(**over):
@@ -352,3 +352,52 @@ def test_the_text_tip_puts_the_styling_instruction_on_its_own_line():
     lines = [l for l in tip.split("\n") if l.strip()]
     assert len(lines) == 2
     assert "size" in lines[1] and "colour" in lines[1]
+
+
+# --- merge_fields: the interpreter must never un-answer an answered step -------
+# Root cause of the live 12:24 session loop: the interpreter prompt exposes every
+# WRITABLE_SLOT on every turn, and the orchestrator blanket-merged whatever came
+# back. At ASK_DECORATION_MIX the answer "no - i just want embroydary" made Haiku
+# fill decor_done:false and decoration_mix:false — flags answered turns earlier —
+# so first-unmet walked BACKWARD and re-asked two settled questions.
+
+def test_a_falsy_write_from_another_step_cannot_un_answer_a_settled_step():
+    """The exact live regression: "no - i just want embroydary" at the mix step."""
+    step = cs.by_id(S.ASK_DECORATION_MIX)
+    c = seed_for(step)
+    assert c["decor_done"] is True             # settled six steps earlier
+
+    fields = v2.merge_fields(step, c, {"decor_done": False,
+                                       "decoration_mix_note": "embroidery"})
+
+    assert "decor_done" not in fields          # dropped: not this step's slot
+    c.update(fields)
+    assert v2.next_step(c).id is not S.ASK_ADD_DECOR
+
+
+def test_a_step_may_clear_its_own_slot_so_the_mix_can_be_cancelled():
+    """Backing out of a mix is the one legitimate falsy write here — the customer
+    tapped "I want a mix" then said "actually just embroidery"."""
+    step = cs.by_id(S.ASK_DECORATION_MIX)
+    c = seed_for(step)
+
+    fields = v2.merge_fields(step, c, {"decoration_mix": False})
+
+    assert fields["decoration_mix"] is False
+    c.update(fields)
+    assert v2.next_step(c).id is S.ASK_DECORATION   # re-asks the method, not decor
+
+
+def test_a_volunteered_answer_to_a_later_step_is_still_banked():
+    """The guard must not cost v2 its slot-filling flexibility."""
+    step = cs.by_id(S.ASK_ADD_DECOR)
+    fields = v2.merge_fields(step, {"name": "Sam"}, {"decor_done": True,
+                                                     "quantity": 50})
+    assert fields == {"decor_done": True, "quantity": 50}
+
+
+def test_a_truthy_correction_to_a_settled_slot_is_still_allowed():
+    """Only truthy->falsy un-answers a step; 50 -> 100 keeps ask_quantity done."""
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = v2.merge_fields(step, {"quantity": 50}, {"quantity": 100})
+    assert fields == {"quantity": 100}

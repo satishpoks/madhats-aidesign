@@ -85,6 +85,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         fields = {}                       # ack-only step (show_intro)
 
     collected.pop("_fail_count", None)
+    # Filter BEFORE apply, so an effect never sees a field the router rejected.
+    fields = v2.merge_fields(step, collected, fields)
     collected.update(fields)
     if step.apply:
         step.apply(collected, fields, session)

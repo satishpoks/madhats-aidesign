@@ -48,6 +48,7 @@ class ConversationState(str, Enum):
     ASK_ANYTHING_ELSE = "ask_anything_else"
     FINALIZE_CANVAS = "finalize_canvas"
     ASK_DECORATION = "ask_decoration"
+    ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
     ASK_NOTES = "ask_notes"
     ASK_CHANGE_METHOD = "ask_change_method"
     CONFIRM_BRIEF = "confirm_brief"

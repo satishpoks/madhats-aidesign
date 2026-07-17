@@ -12,6 +12,7 @@ import pytest
 
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation import orchestrator_v2 as o2
+from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
 
 
@@ -126,7 +127,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Done",                    S.ASK_ANYTHING_ELSE),
         ("No, that's everything",   S.ASK_QUANTITY),
         ("50-99",                   S.ASK_DECORATION),
-        ("Embroidery, Screen Print", S.ASK_EMAIL),
+        ("Embroidery",              S.ASK_EMAIL),          # single-select
         ("sam@example.com",         S.ASK_PURPOSE),
         ("for the team",            S.FINALIZE_CANVAS),
     ]
@@ -171,5 +172,44 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     assert c["logos"][0]["bg"] == "removed"
     assert c["logos"][1]["bg"] == "none"
     assert c["decor_face"] == "left"
-    assert c["decoration_types"] == ["Embroidery", "Screen Print"]
-    assert c["decoration_type"] == "embroidery"   # first choice drives the style
+    assert c["decoration_types"] == ["Embroidery"]
+    assert c["decoration_type"] == "embroidery"   # the pick drives the style
+    assert "decoration_mix" not in c              # no mix -> no describe step
+
+
+@pytest.mark.asyncio
+async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
+    """Tapping the mix chip must ask what the mix IS, and bank the answer — with
+    the interpreter down for the whole walk, proving the describe step's
+    direct_answer carries it (it has no chips, so it cannot nudge instead)."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_DECORATION.value
+    store["session"]["collected"].update(
+        {"name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+         "pending_logo": None, "decor_done": True, "quantity": 12}
+    )
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
+    monkeypatch.setattr(
+        cs.leads_service, "capture_lead_and_verify",
+        lambda s, c, e: ("lead-1", True),
+    )
+
+    async def _boom(*a, **k):
+        raise o2.ie.LLMUnavailable("the mix chip and its describe step need no model")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    res = await o2.handle_message("s1", cs.MIX_CHIP_LABEL)
+    assert res["state"] == S.ASK_DECORATION_MIX.value
+    assert "cost per hat" in res["reply"]
+    assert not res["data"].get("options")          # free text, no chips to tap
+    # Describing the mix must not grow the progress bar — it's a follow-up.
+    assert res["data"]["progress"] == v2.progress_v2(S.ASK_DECORATION, {})
+
+    res = await o2.handle_message("s1", "Embroidered logo, printed text on the back")
+    assert res["state"] == S.ASK_EMAIL.value
+
+    c = store["session"]["collected"]
+    assert c["decoration_mix_note"] == "Embroidered logo, printed text on the back"
+    assert "Decoration method: a mix — Embroidered logo" in c["brief_notes"][-1]
+    assert c["decoration_type"] == "embroidery"

@@ -208,10 +208,22 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
     c.pop("email", None)   # the lead owns the address; don't persist it here too
 
 
+MIX_CHIP_LABEL = "I want a mix"
+
+
 def _decoration_chips(c: dict) -> tuple[Chip, ...]:
-    """One chip per method the store actually offers (loaded by _prepare_decoration)."""
+    """One chip per method the store offers (loaded by _prepare_decoration), plus
+    the mix escape hatch.
+
+    Single-select is the default because one method is the normal answer and
+    mixing costs the customer more per hat — so a mix is a deliberate choice that
+    routes to ASK_DECORATION_MIX to be described, not something you fall into by
+    tapping a second chip.
+    """
     return tuple(Chip(name, {"decoration_types": [name]})
-                 for name in (c.get("decoration_options") or []))
+                 for name in (c.get("decoration_options") or [])) + (
+        Chip(MIX_CHIP_LABEL, {"decoration_mix": True}),
+    )
 
 
 def _prepare_decoration(c: dict, store: dict | None) -> None:
@@ -271,6 +283,27 @@ def _apply_decoration(c: dict, f: dict, s: dict) -> None:
             _decoration_style_bucket,
         )
         c["decoration_type"] = _decoration_style_bucket(chosen[0])
+
+
+def _apply_decoration_mix(c: dict, f: dict, s: dict) -> None:
+    """Record the customer's own description of the mix they want.
+
+    Deliberately NOT filtered against `decoration_options` the way a chip answer
+    is: the whole point of this step is that no single offered method covers what
+    they want, so the note goes to the team verbatim. The render-style bucket
+    still comes from their words, via the same keyword table a single pick uses —
+    it falls back to the prompt builder's own default ("print") when nothing
+    matches, which is exactly what an unset bucket would have done anyway.
+    """
+    note = (f.get("decoration_mix_note") or "").strip()[:600]
+    if not note:
+        return                                  # done_when re-asks
+    c["decoration_mix_note"] = note
+    c.setdefault("brief_notes", []).append(f"Decoration method: a mix — {note}")
+    from app.services.conversation.orchestrator import (  # noqa: PLC0415 cycle
+        _decoration_style_bucket,
+    )
+    c["decoration_type"] = _decoration_style_bucket(note)
 
 
 # --- direct answers ------------------------------------------------------------
@@ -469,17 +502,40 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_DECORATION,
-        # No cost caveat here: ChatColumn already renders "each extra decoration
-        # adds to the cost" when 2+ are selected, so saying it again duplicates
-        # it on screen.
-        ask=("How would you like this decorated? Pick as many as apply — our "
-             "team will confirm what suits your artwork best."),
+        # The cost caveat lives in the copy because this step is single-select:
+        # ChatColumn only renders its own "each extra decoration adds to the
+        # cost" line when 2+ chips are ticked (a v1 multi-select path), which
+        # can never happen here.
+        ask=("How would you like this decorated? Pick the one that suits — our "
+             f"team will confirm what works best for your artwork. Tap "
+             f"'{MIX_CHIP_LABEL}' if you need more than one method, just note "
+             "that mixing costs more per hat."),
         chips_from=_decoration_chips,
-        multiselect=True,
-        slots=("decoration_types",),
+        slots=("decoration_types", "decoration_mix"),
         prepare=_prepare_decoration,
         apply=_apply_decoration,
-        done_when=lambda c: bool(c.get("decoration_done")),
+        # A mix IS an answer to this step; ASK_DECORATION_MIX asks what it is.
+        done_when=lambda c: bool(c.get("decoration_done") or c.get("decoration_mix")),
+    ),
+    Step(
+        id=S.ASK_DECORATION_MIX,
+        ask=("No problem — tell me which methods you'd like and where each one "
+             "goes, and I'll pass it straight to the team. (Mixing methods does "
+             "add to the cost per hat.)"),
+        # decoration_mix is a slot of this step, not just of ASK_DECORATION: it
+        # is what lets the customer back out ("actually, just embroidery") after
+        # tapping the mix chip. Only the asking step may clear a settled flag —
+        # see state_machine_v2.merge_fields. Cancelling re-opens ASK_DECORATION,
+        # which is the right question to land on.
+        slots=("decoration_mix_note", "decoration_mix"),
+        apply=_apply_decoration_mix,
+        # No chips, so the stall-and-nudge escape hatch cannot fire — without a
+        # direct answer an interpreter outage strands the session one step
+        # before the email. See Step.direct_answer.
+        direct_answer=lambda m: {"decoration_mix_note": m.strip()},
+        # Conditional: only asked when the customer actually asked for a mix.
+        done_when=lambda c: (not c.get("decoration_mix")
+                             or bool(c.get("decoration_mix_note"))),
     ),
     Step(
         id=S.ASK_EMAIL,
