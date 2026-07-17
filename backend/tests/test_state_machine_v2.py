@@ -333,3 +333,21 @@ def test_logo_steps_still_read_the_logo_face():
     c = {"pending_logo": {"face": "back"}, "decor_face": "left"}
     d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), c)
     assert d["target_face"] == "back"
+
+
+def test_the_second_logo_does_not_repeat_the_first_ask_verbatim():
+    step = cs.by_id(S.ASK_LOGO_PLACEMENT)
+    first = v2.reply_for(step, {"name": "Sam"}, persona="Ricardo", intro="hi")
+    second = v2.reply_for(step, {"name": "Sam", "_asked": ["ask_logo_placement"]},
+                          persona="Ricardo", intro="hi")
+    assert first != second
+    assert "this one" in second.lower()
+
+
+def test_the_text_tip_puts_the_styling_instruction_on_its_own_line():
+    """The tip already named font/size/colour, but as a trailing clause the
+    customer read straight past it."""
+    tip = prompts.V2_TOOL_TIPS["text"]
+    lines = [l for l in tip.split("\n") if l.strip()]
+    assert len(lines) == 2
+    assert "size" in lines[1] and "colour" in lines[1]

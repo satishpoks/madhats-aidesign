@@ -1040,8 +1040,8 @@ V2_TOOL_TIPS = {
     ),
     "text": (
         'Tap the highlighted "Add text" button, type your wording, then drag '
-        "to position it. You can change the font, size and colour from the "
-        "toolbar under the cap."
+        "to position it.\n"
+        "You can change the font, size and colour from the toolbar under the cap."
     ),
     "shape": (
         'Tap the highlighted "Graphics" button to drop in a shape, then drag '

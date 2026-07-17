@@ -254,6 +254,7 @@ REGISTRY: tuple[Step, ...] = (
     Step(
         id=S.ASK_LOGO_PLACEMENT,
         ask="Which part of the cap should it go on — front, back, left or right?",
+        ask_retry="Where should this one go — front, back, left or right?",
         chips=(Chip("Front", {"logo_face": "front"}),
                Chip("Back", {"logo_face": "back"}),
                Chip("Left", {"logo_face": "left"}),
