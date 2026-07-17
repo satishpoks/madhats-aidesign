@@ -55,6 +55,14 @@ class Step:
     auto_open: str | None = None
     show_done: bool = False
     face_target: bool = False                  # directive should carry the logo face
+    # Chips that can't be literals because they come from store-scoped data.
+    # `chips_of` is the single read path, so a dynamic step is invisible to
+    # every consumer (public_data_for, resolve_chip) — they just ask for chips.
+    chips_from: Callable[[dict], tuple[Chip, ...]] | None = None
+    # The customer may pick several. The UI comma-joins the labels it was given
+    # (ChatColumn.submitDeco:274), so resolution stays an identity lookup on the
+    # closed set we shipped — just one per token instead of one per message.
+    multiselect: bool = False
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -341,6 +349,11 @@ _BY_ID: dict[S, Step] = {s.id: s for s in REGISTRY}
 def by_id(state: S) -> Step | None:
     """The Step for a state, or None for a shared-tail state v2 doesn't own."""
     return _BY_ID.get(state)
+
+
+def chips_of(step: Step, collected: dict) -> tuple[Chip, ...]:
+    """The step's chips — derived from `collected` when they can't be literals."""
+    return step.chips_from(collected) if step.chips_from else step.chips
 
 
 # Every slot any step asks for. This is the interpreter's writable set: it may

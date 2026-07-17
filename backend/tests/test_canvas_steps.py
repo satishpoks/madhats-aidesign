@@ -75,34 +75,34 @@ def test_every_offered_chip_is_understood(step, chip):
     find out what we had meant, reading "another" as "no". Enumerated from the
     registry, so a step added later is covered the moment it is declared.
     """
-    fields = v2.resolve_chip(step, chip.label)
+    fields = v2.resolve_chip(step, chip.label, {})
     assert fields == chip.fields, f"{step.id}: {chip.label!r} did not round-trip"
 
 
 def test_the_exact_bug_yes_another_logo_is_not_a_decline():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "Yes, another logo") == {"another_logo": True}
-    assert v2.resolve_chip(step, "No, that's it") == {"another_logo": False}
+    assert v2.resolve_chip(step, "Yes, another logo", {}) == {"another_logo": True}
+    assert v2.resolve_chip(step, "No, that's it", {}) == {"another_logo": False}
 
 
 def test_chip_match_is_case_and_whitespace_insensitive():
     step = cs.by_id(S.ASK_LOGO_PLACEMENT)
-    assert v2.resolve_chip(step, "  front  ") == {"logo_face": "front"}
+    assert v2.resolve_chip(step, "  front  ", {}) == {"logo_face": "front"}
 
 
 def test_free_text_is_not_a_chip():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "yeah go on then") is None
+    assert v2.resolve_chip(step, "yeah go on then", {}) is None
 
 
 def test_a_stale_chip_from_another_step_does_not_match():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    assert v2.resolve_chip(step, "Add text") is None
+    assert v2.resolve_chip(step, "Add text", {}) is None
 
 
 def test_resolve_chip_returns_a_copy_not_the_registry_dict():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
-    got = v2.resolve_chip(step, "Yes, another logo")
+    got = v2.resolve_chip(step, "Yes, another logo", {})
     got["another_logo"] = "mutated"
     assert step.chips[0].fields == {"another_logo": True}
 
@@ -119,7 +119,7 @@ def test_every_offered_chip_makes_progress(step, chip):
     the half of the round-trip test that needs the apply hooks."""
     c = seed_for(step)
     assert v2.next_step(c).id is step.id          # precondition: we're on it
-    fields = v2.resolve_chip(step, chip.label)
+    fields = v2.resolve_chip(step, chip.label, c)
     c.update(fields)
     if step.apply:
         step.apply(c, dict(fields), {})

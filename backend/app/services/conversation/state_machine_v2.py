@@ -109,8 +109,13 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
 
 def public_data_for(step: Step, collected: dict) -> dict:
     data: dict = {}
-    if step.chips:
-        data["options"] = [c.label for c in step.chips]
+    chips = cs.chips_of(step, collected)
+    if chips:
+        data["options"] = [c.label for c in chips]
+    if step.multiselect:
+        # The shape ChatColumn's multi-select already consumes from v1.
+        data["multiselect"] = True
+        data["selected"] = []
     if step.continuable:
         data["continuable"] = True
     if step.id is S.FINALIZE_CANVAS:
@@ -144,7 +149,7 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
     return f"{ack} {body}".strip() if ack else body
 
 
-def resolve_chip(step: Step, message: str) -> dict | None:
+def resolve_chip(step: Step, message: str, collected: dict) -> dict | None:
     """The fields for an offered chip, or None if `message` isn't one of them.
 
     A chip tap is not natural language: we generated the label in this registry
@@ -153,8 +158,38 @@ def resolve_chip(step: Step, message: str) -> dict | None:
     mode. Only the CURRENT step's chips match; a stale chip tapped on an older
     message falls through to the interpreter, which reads it in context.
     """
+    chips = cs.chips_of(step, collected)
+    if step.multiselect:
+        return _resolve_multi(step, chips, message)
     target = _norm(message)
-    for chip in step.chips:
+    for chip in chips:
         if _norm(chip.label) == target:
             return dict(chip.fields)
     return None
+
+
+def _resolve_multi(step: Step, chips: tuple[cs.Chip, ...], message: str) -> dict | None:
+    """A multi-select submission: the labels we shipped, comma-joined.
+
+    Both strings the UI can send here are ours: `decoSel.join(', ')` and the
+    literal 'none' when Continue is tapped with nothing selected
+    (ChatColumn.submitDeco:274). Anything else is free text and belongs to the
+    interpreter, so this returns None for it.
+    """
+    if _norm(message) == "none":
+        return {slot: [] for slot in step.slots}
+    by_label = {_norm(c.label): c for c in chips}
+    out: dict = {}
+    matched = False
+    for tok in message.split(","):
+        chip = by_label.get(_norm(tok))
+        if chip is None:
+            continue
+        matched = True
+        for key, val in chip.fields.items():
+            if isinstance(val, list):
+                cur = out.setdefault(key, [])
+                cur.extend(v for v in val if v not in cur)
+            else:
+                out[key] = val
+    return out if matched else None

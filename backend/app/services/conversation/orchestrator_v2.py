@@ -61,7 +61,7 @@ async def handle_message(session_id: str, message: str) -> dict:
     step = cs.by_id(current)
     ack = ""
 
-    fields = v2.resolve_chip(step, message)
+    fields = v2.resolve_chip(step, message, collected)
     if fields is None and step.slots:
         # Free text on a step that asks for something: the model reads it, or we
         # stall. No keyword fallback — a wrong field corrupts the design.

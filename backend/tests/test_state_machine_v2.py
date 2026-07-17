@@ -215,3 +215,69 @@ def test_decor_adjust_reply_matches_its_registry_copy():
     step = cs.by_id(S.DECOR_ADJUST)
     out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
     assert out == f"{prompts.V2_TOOL_TIPS['shape']} {step.ask}"
+
+
+def _multi_step():
+    """A throwaway registry record — the mechanism is tested without depending
+    on Task 6's ASK_DECORATION."""
+    return cs.Step(
+        id=S.ASK_DECORATION,
+        ask="pick some",
+        chips_from=lambda c: tuple(
+            cs.Chip(n, {"decoration_types": [n]})
+            for n in (c.get("decoration_options") or [])
+        ),
+        multiselect=True,
+        slots=("decoration_types",),
+        done_when=lambda c: False,
+    )
+
+
+def test_chips_from_builds_chips_out_of_collected():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    labels = [ch.label for ch in cs.chips_of(_multi_step(), c)]
+    assert labels == ["Embroidery", "Screen Print"]
+
+
+def test_static_chips_are_unaffected_by_chips_of():
+    step = cs.by_id(S.ASK_QUANTITY)
+    assert cs.chips_of(step, {}) == step.chips
+
+
+def test_multiselect_resolves_a_comma_joined_selection_in_order():
+    """The UI ships `decoSel.join(', ')` (ChatColumn.submitDeco:274)."""
+    c = {"decoration_options": ["Embroidery", "Screen Print", "Vinyl"]}
+    fields = v2.resolve_chip(_multi_step(), "Screen Print, Embroidery", c)
+    assert fields == {"decoration_types": ["Screen Print", "Embroidery"]}
+
+
+def test_multiselect_drops_tokens_that_were_never_offered():
+    c = {"decoration_options": ["Embroidery"]}
+    fields = v2.resolve_chip(_multi_step(), "Embroidery, Sublimation", c)
+    assert fields == {"decoration_types": ["Embroidery"]}
+
+
+def test_multiselect_resolves_the_uis_empty_continue_sentinel():
+    """Continue with nothing selected sends the literal 'none'. It is a string
+    WE ship, so it must resolve deterministically — otherwise it falls through
+    to the interpreter and stalls under LLMUnavailable."""
+    c = {"decoration_options": ["Embroidery"]}
+    assert v2.resolve_chip(_multi_step(), "none", c) == {"decoration_types": []}
+
+
+def test_multiselect_free_text_falls_through_to_the_interpreter():
+    c = {"decoration_options": ["Embroidery"]}
+    assert v2.resolve_chip(_multi_step(), "whatever looks best", c) is None
+
+
+def test_public_data_marks_a_multiselect_step_for_the_frontend():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    data = v2.public_data_for(_multi_step(), c)
+    assert data["options"] == ["Embroidery", "Screen Print"]
+    assert data["multiselect"] is True
+    assert data["selected"] == []
+
+
+def test_public_data_does_not_mark_a_single_select_step_as_multiselect():
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
+    assert "multiselect" not in data
