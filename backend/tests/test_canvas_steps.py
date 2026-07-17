@@ -277,5 +277,10 @@ def test_every_asking_step_has_a_progress_position():
     for step in cs.REGISTRY:
         if step.id is S.FINALIZE_CANVAS:
             continue          # terminal: deliberately reports complete
-        placed = step.id in v2._PROGRESS_PATH or step.id in v2._PROGRESS_ANCHORS
+        # Resolve the anchor's TARGET: progress_for maps id -> anchor -> path.
+        # Asserting mere membership in _PROGRESS_ANCHORS leaves a hole — an
+        # anchor pointing at a state absent from _PROGRESS_PATH silently
+        # reports "complete" and the guard would still pass.
+        anchor = v2._PROGRESS_ANCHORS.get(step.id, step.id)
+        placed = anchor in v2._PROGRESS_PATH
         assert placed, f"{step.id.value} has no progress position"

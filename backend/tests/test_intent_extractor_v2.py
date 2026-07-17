@@ -109,3 +109,29 @@ async def test_write_ack_returns_empty_on_failure(monkeypatch):
     monkeypatch.setattr(ie, "_complete", _boom)
     # Best-effort by design: an outage makes the bot terse, never uninstructive.
     assert await ie.write_ack("Ricardo", {"quantity": 50}) == ""
+
+
+@pytest.mark.asyncio
+async def test_interpret_failure_never_logs_the_exception_text(monkeypatch):
+    """Pins the PII fix: the interpreter prompt at ASK_EMAIL contains the
+    customer's address, so if an SDK error ever stringified request content,
+    err=str(exc) would put it in the logs — violating the hard no-PII-in-logs
+    rule. Logging only the exception TYPE makes that impossible.
+
+    Uses structlog.testing.capture_logs, NOT pytest's caplog: structlog does not
+    route into caplog here, so a caplog-based version of this test passes even
+    with err=str(exc) restored — i.e. it would be vacuous.
+    """
+    import structlog
+
+    monkeypatch.setattr(ie, "_has_llm", True)
+
+    async def _boom(*a, **k):
+        raise RuntimeError("400 bad request: sam@example.com")
+
+    monkeypatch.setattr(ie, "_complete", _boom)
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(ie.LLMUnavailable):
+            await ie.interpret_turn_v2(cs.by_id(S.ASK_EMAIL), "sam@example.com", {})
+    assert logs, "expected a warning to be emitted"
+    assert "sam@example.com" not in repr(logs)

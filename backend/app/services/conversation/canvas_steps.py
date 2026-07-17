@@ -148,8 +148,13 @@ def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
 
 
 def _apply_anything_else(c: dict, f: dict, s: dict) -> None:
+    # `decor_done` is popped too: it became interpreter-writable, so a model
+    # returning the contradictory {"more_decor": True, "decor_done": True} would
+    # otherwise leave decor_done set — and every decor step short-circuits on it,
+    # silently routing a customer who asked to ADD something to the quantity
+    # question with their decor state wiped. "Add more" always wins.
     if f.get("more_decor"):
-        for k in ("decor_choice", "decor_placed", "more_decor"):
+        for k in ("decor_choice", "decor_placed", "more_decor", "decor_done"):
             c.pop(k, None)
 
 
