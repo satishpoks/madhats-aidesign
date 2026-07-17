@@ -16,6 +16,7 @@ which only _apply_email sets and the interpreter cannot write.
 """
 from __future__ import annotations
 
+from app import prompts
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation.canvas_steps import MAX_LOGOS, Step  # noqa: F401 re-export
 from app.services.conversation.state_machine import ConversationState as S
@@ -70,6 +71,53 @@ def progress_v2(state: S, collected: dict | None = None) -> dict:
 
 def _norm(s: str) -> str:
     return (s or "").strip().casefold()
+
+
+def _face(collected: dict) -> str:
+    face = (collected.get("pending_logo") or {}).get("face")
+    return face if face in cs.FACES else "front"
+
+
+def _decor_tool(collected: dict) -> str:
+    return "shape" if collected.get("decor_choice") == "shape" else "text"
+
+
+def directive_for(step: Step, collected: dict) -> dict:
+    """The canvas-control blob for a step. EVERY owned step returns one: the
+    tool steps hand over their single tool, every other step locks all tools
+    explicitly. A null directive means "not a v2 turn" and makes the frontend
+    fall back to v1's whole-rail gating + status strip — which showed "Design
+    locked in — finishing up" mid-design."""
+    if step.tool is None:
+        return {"allowed_tools": [], "target_face": None, "auto_open": None,
+                "instructions": None, "show_done": False}
+    tool = _decor_tool(collected) if step.id is S.DECOR_ADJUST else step.tool
+    return {
+        "allowed_tools": [tool],
+        "target_face": _face(collected) if step.face_target else None,
+        "auto_open": tool if step.auto_open else None,
+        "instructions": prompts.V2_TOOL_TIPS[tool],
+        "show_done": step.show_done,
+    }
+
+
+def canvas_directive(state: S, collected: dict) -> dict | None:
+    """State-keyed wrapper: None for a shared-tail state v2 doesn't own."""
+    step = cs.by_id(state)
+    return directive_for(step, collected) if step else None
+
+
+def public_data_for(step: Step, collected: dict) -> dict:
+    data: dict = {}
+    if step.chips:
+        data["options"] = [c.label for c in step.chips]
+    if step.continuable:
+        data["continuable"] = True
+    if step.id is S.FINALIZE_CANVAS:
+        data["trigger_finalize"] = True
+    data["canvas"] = directive_for(step, collected)
+    data["progress"] = progress_for(step)
+    return data
 
 
 def resolve_chip(step: Step, message: str) -> dict | None:

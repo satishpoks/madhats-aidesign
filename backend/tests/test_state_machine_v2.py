@@ -98,3 +98,55 @@ def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
     total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
     assert v2.progress_v2(S.GENERATING, {}) == {"step": total, "total": total}
     assert v2.progress_v2(S.ASK_QUANTITY, {}) == {"step": 5, "total": total}
+
+
+def test_tool_steps_hand_over_exactly_one_tool():
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), {"pending_logo": {"face": "back"}})
+    assert d["allowed_tools"] == ["upload"]
+    assert d["target_face"] == "back"
+    assert d["auto_open"] == "upload"
+    assert d["show_done"] is True
+
+
+def test_face_question_enables_upload_but_does_not_auto_open_it():
+    # Conflating these was a shipped bug: the file dialog opened before the face
+    # was answered, so the logo landed on whatever face was already active.
+    d = v2.directive_for(cs.by_id(S.ASK_LOGO_PLACEMENT), {})
+    assert d["allowed_tools"] == ["upload"]
+    assert d["auto_open"] is None
+    assert d["target_face"] == "front"          # default until answered
+
+
+def test_every_other_owned_step_locks_all_tools():
+    # A null directive means "not a v2 turn" and makes the frontend fall back to
+    # v1's whole-rail gating + status strip, which showed "Design locked in —
+    # finishing up" MID-design. Every owned step must emit a directive.
+    for step in cs.REGISTRY:
+        d = v2.directive_for(step, {})
+        assert d is not None, step.id
+        if step.tool is None:
+            assert d["allowed_tools"] == [], step.id
+
+
+def test_decor_directive_follows_the_chosen_tool():
+    assert v2.directive_for(cs.by_id(S.DECOR_ADJUST), {"decor_choice": "shape"})["allowed_tools"] == ["shape"]
+    assert v2.directive_for(cs.by_id(S.DECOR_ADJUST), {"decor_choice": "text"})["allowed_tools"] == ["text"]
+
+
+def test_canvas_directive_is_none_for_a_shared_tail_state():
+    assert v2.canvas_directive(S.OFFER_REFINE, {}) is None
+
+
+def test_public_data_chips_come_from_the_registry():
+    d = v2.public_data_for(cs.by_id(S.ASK_ANOTHER_LOGO), {})
+    assert d["options"] == ["Yes, another logo", "No, that's it"]
+
+
+def test_public_data_marks_the_intro_continuable_and_finalize_triggering():
+    assert v2.public_data_for(cs.by_id(S.SHOW_INTRO), {})["continuable"] is True
+    assert v2.public_data_for(cs.by_id(S.FINALIZE_CANVAS), {})["trigger_finalize"] is True
+
+
+def test_public_data_carries_progress():
+    # progress_for itself is covered in Task 2; this asserts it is wired in.
+    assert v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})["progress"]["step"] == 5
