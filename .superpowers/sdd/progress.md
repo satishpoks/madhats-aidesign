@@ -320,3 +320,29 @@ finalize today).
 DECISION PENDING (user): fix #1 now (a Task 9: frontend sends live
 canvas_design each describe turn + backend persists) vs ship with #1 documented
 as a known gap + soften the "Not quite" re-ask copy.
+
+Task 9 BASE (HEAD before impl): 0c0bb3e
+
+Task 9: complete (commit e0b9628, review clean — Spec ✅, Quality Approved, 1
+Minor). Frontend sends live canvas_design on a describe turn; chat.py
+`_persist_live_canvas_design` adopts it (scoped to describe_changes + canvas +
+well-formed) before dispatch; existing `_apply_canvas_edit` reads the fresh
+design. No change to _apply_canvas_edit / handle_message / routing. Backend 792,
+frontend targeted 107 passing.
+  Reviewer verified the scoping guard is AIRTIGHT (malformed payload
+  short-circuits before get_supabase; persist fires only at describe_changes +
+  flow_mode==canvas), non-canvas wire is BYTE-IDENTICAL (sendChat without 3rd arg
+  still emits {message}), and ALL 11 modified pre-existing frontend tests (report
+  miscounted as 9) are legit cosmetic-arity updates — each fires from a
+  non-describe state so expecting `undefined` 3rd arg is correct, none weakened.
+  Minor: report's own count (9) is wrong (11). Harmless.
+  VERIFIED LIVE (real stack, real Haiku): 0.4 -> 0.35 -> 0.25. Turn 1 "move up"
+  (base 0.4) -> y=0.35; "Not quite" -> describe_changes; Turn 2 "up more" with
+  the frontend's edited design (y=0.35) -> y=0.25. It compounded from the EDITED
+  base instead of repeating 0.35 (the bug). Ops-ephemeral reload bug also closed
+  (the edited design is now persisted each describe turn).
+
+=== ALL 9 TASKS COMPLETE. Branch feat/canvas-led-refine ready to finish. ===
+Final review's one Important (compounding) is FIXED + live-verified. Remaining
+open items are all tickets (refused-ack copy; no-key stall at DESCRIBE_CHANGES;
+quota-blocked-finalize drops canvas_ops; TRANSITIONS comment) — none blockers.
