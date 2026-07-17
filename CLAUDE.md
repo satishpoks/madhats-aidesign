@@ -436,7 +436,63 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   interpreter raising `LLMUnavailable` for the whole walk — proving the entire
   front half needs no model at all). Spec/plan:
   `docs/superpowers/{specs,plans}/2026-07-17-llm-assisted-canvas-orchestration*`.
-- Tests: backend `pytest` 718 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **Canvas-led refine + self-ticking background removal (2026-07-17):** the
+  backend can mutate the canvas via `data.canvas_ops` — fully-resolved flat
+  patches (`{target, patch|remove}`), applied in `chatStore.sendMessage`'s
+  response handler via `lib/canvasOps.ts`, **never in a React effect** (an
+  effect fires on change, which would re-apply on resume and re-flag the wrong
+  logo on a later loop pass) and never on `hydrate`. Two target kinds:
+  `{kind:"element", id, face}` (refine — ids come from the persisted
+  `canvas_design`) and `{kind:"pending_logo", face}` (v2 background removal —
+  the backend has NO id there, since `canvas_design` is only written at
+  finalize, so the frontend resolves "last unlocked image on that face", the
+  same anchor `lockPlaced` uses). `canvasStore` gained face-aware
+  `patchElement`/`removeElementOn`/`patchPendingLogo` because `updateElement`
+  only ever sees `activeFace`.
+  **Background removal now ticks itself** (`canvas_steps._ops_logo_bg`): the
+  chip is "Yes, remove background" and emits the op. This fixed a live bug —
+  `pending_logo["bg"]` routes (it is `ask_logo_bg`'s `done_when` marker, so do
+  NOT delete it) but nothing on the RENDER path reads it; the knockout comes
+  solely from `el.removeBg` on the canvas blob, so "Yes, I've ticked it"
+  without ticking silently rendered no knockout. `tool="upload"` still stays —
+  the toggle remains a manual override. Copy still must never promise
+  processing or a wait.
+  **A described change now edits the canvas, not the prompt**
+  (`services/conversation/canvas_edit.py` + `ie.interpret_canvas_edit`):
+  `OFFER_REFINE` → "Describe the change here" → Haiku returns a **closed
+  vocabulary** (`move/resize/rotate/recolour/font/curve/set_text/delete`) and
+  **never a number** — `canvas_edit.resolve_ops` does the arithmetic and
+  clamping, a pure function over plain dicts (v2's "the LLM reads the customer,
+  it never routes" extended to "it never computes geometry"). Element ids are
+  validated against an inventory built from `canvas_design`, so a hallucinated
+  id is dropped. Ops → `CONFIRM_CANVAS_EDIT` ("Looks right" / "Not quite");
+  iteration before confirming is free and burns no edit cap. The confirm chip
+  resolves by **exact** label match (0 model calls); other free text goes to
+  `ie.interpret_edit_confirm` (a Haiku yes/no — the substring `is_affirmative`
+  would read "that looks wrong" as yes and spend a render), and an outage sets
+  `edit_confirm_stalled` → re-ask, never render. Render-level requests
+  ("thicker embroidery") return `[]` → refused, appended to `brief_notes` for
+  the team, back to `OFFER_REFINE` — **`change_request` is retired for canvas
+  sessions** (the `last_change` write is now `flow_mode`-gated so it can't sneak
+  back via `generate.py`'s fallback); non-canvas (`session`/`blank`) refine
+  keeps it unchanged. `LLMUnavailable` on the edit read stalls rather than
+  guessing geometry. **`CONFIRM_CANVAS_EDIT` must stay in
+  `goal_planner.GATE_STATES`** — `_route` only consults `advance_state` for
+  gate states; otherwise `next_goal` answers `GENERATING` for a finished canvas
+  session, a fresh render that burns the daily cap (the same trap
+  `ASK_CHANGE_METHOD` documents). Confirming reuses the existing rework path
+  (`_mark_canvas_rework` sets `reworking=True` → `trigger_finalize` → `doRender`
+  re-flattens the edited canvas → `sessions.py` → `REGENERATING`); `Surface`'s
+  `finalizeStarted` ref is now **re-armed when `triggerFinalize` goes false**,
+  without which the second finalize a refine needs was silently swallowed.
+  Known gaps (tickets, not blockers): confirmed-edit ops are ephemeral (only a
+  `canvas_edit_ops` flag is persisted, not the ops — a reload at the confirm
+  gate loses them); a refused change gets no tailored acknowledgement (lands on
+  the generic `OFFER_REFINE` ask); a no-`ANTHROPIC_API_KEY` deployment
+  permanently stalls at canvas `DESCRIBE_CHANGES` (that state ships no chips to
+  escape with). Spec/plan:
+  `docs/superpowers/{specs,plans}/2026-07-17-canvas-led-refine*`.
+- Tests: backend `pytest` 788 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 
 ---
