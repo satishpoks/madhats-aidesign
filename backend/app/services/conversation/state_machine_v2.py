@@ -19,6 +19,21 @@ V2_STATES: frozenset[S] = frozenset({
     S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE, S.FINALIZE_CANVAS,
 })
 
+# Every state a v2 turn may rest on, including the shared-name states v2
+# reuses for its own reordered steps. Anything NOT in here is a tail state the
+# v1 orchestrator owns (orchestrator_v2 delegates those turns to v1).
+# Load-bearing invariant: ASK_EMAIL is claimed by v2 and is only safe because
+# v2 guarantees `email_captured` before FINALIZE_CANVAS.
+V2_OWNED: frozenset[S] = V2_STATES | frozenset({
+    S.GREETING, S.ASK_NAME, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE,
+})
+
+# The v2 steps that hand the customer a tool. Every OTHER owned state locks
+# every tool (see `canvas_directive`).
+_TOOL_STATES: frozenset[S] = frozenset({
+    S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.DECOR_ADJUST,
+})
+
 
 def advance_state_v2(current: S, collected: dict) -> S:
     if current is S.ASK_NAME:
@@ -85,8 +100,16 @@ def _logo_face(collected: dict) -> str:
 
 
 def canvas_directive(state: S, collected: dict) -> dict | None:
-    """The canvas-control blob for a v2 state, or None when the state drives no
-    canvas change (tail/question-only states)."""
+    """The canvas-control blob for a v2 state, or None for a state v2 doesn't
+    own (a shared tail state — the v1 UI drives those).
+
+    EVERY v2-owned state returns a directive: the tool steps hand over their one
+    tool, and every other owned step (a question, the intro, finalize) locks all
+    tools explicitly. That matters beyond tidiness: the frontend treats "no
+    directive" as a v1 session and falls back to v1's whole-rail gating + status
+    strip, which would show "Design locked in — finishing up" *mid-design* and
+    leave the tool locking to a coincidence rather than this state machine.
+    """
     if state is S.ASK_LOGO_PLACEMENT:
         # The customer is about to pick a face; the upload tool is enabled
         # (highlighted) but must NOT auto-open yet — the file dialog would
@@ -120,8 +143,10 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
             "instructions": prompts.V2_TOOL_TIPS[tool],
             "show_done": True,
         }
-    if state in (S.ASK_ANYTHING_ELSE, S.ASK_QUANTITY):
-        # Lock every tool once the design phase is over.
+    if state in V2_OWNED:
+        # Every other owned step — the intro, a question mid-design ("another
+        # logo?"), the wrap-up questions, finalize. The customer is answering in
+        # the chat, not editing: lock every tool.
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
                 "instructions": None, "show_done": False}
     return None

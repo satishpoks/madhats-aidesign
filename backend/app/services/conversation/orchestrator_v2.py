@@ -43,7 +43,9 @@ S = ConversationState
 # before FINALIZE_CANVAS is reached. If ASK_EMAIL is ever removed from this
 # set (delegated to v1 instead), that guarantee no longer holds and a canvas
 # session could reach FINALIZE_CANVAS with no verified lead.
-_V2_OWNED = v2.V2_STATES | {S.GREETING, S.ASK_NAME, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE}
+# Single source of truth: `state_machine_v2.V2_OWNED` (the same set drives
+# `canvas_directive`, so routing and the canvas UI can never disagree).
+_V2_OWNED = v2.V2_OWNED
 
 # Word-boundary matched (like v1's `_DONE_ELEMENTS_RE` in orchestrator.py) so
 # "good" doesn't match inside another word, and multi-word phrases match as a

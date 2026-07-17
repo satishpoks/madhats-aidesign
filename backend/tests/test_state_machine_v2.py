@@ -81,10 +81,22 @@ def test_directive_anything_else_locks_all_tools():
     assert d["allowed_tools"] == []
 
 
-def test_directive_none_for_tail_states():
-    # Genuine tail states drive no canvas change.
-    assert v2.canvas_directive(S.ASK_EMAIL, {}) is None
-    assert v2.canvas_directive(S.ASK_PURPOSE, {}) is None
+def test_directive_none_only_for_unowned_tail_states():
+    # A state v2 doesn't own is driven by the v1 UI -> no directive.
+    assert v2.canvas_directive(S.OFFER_REFINE, {}) is None
+    assert v2.canvas_directive(S.QUOTE_REQUESTED, {}) is None
+
+
+def test_directive_locks_tools_on_every_owned_non_tool_state():
+    # Every v2-owned step that isn't a tool step must still emit a directive
+    # (locking all tools). A None here makes the frontend fall back to the v1
+    # UI mid-flow — showing "finishing up" during the design loop and leaving
+    # tool locking to the legacy gate rather than this state machine.
+    tool_states = {S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.DECOR_ADJUST}
+    for state in v2.V2_OWNED - tool_states:
+        d = v2.canvas_directive(state, {})
+        assert d is not None, f"{state.value} emitted no directive"
+        assert d["allowed_tools"] == [], f"{state.value} did not lock tools"
 
 
 def test_directive_quantity_locks_all_tools():
