@@ -1019,8 +1019,19 @@ git commit -m "feat(canvas): read a described change into closed-vocab ops, or r
 
 **Files:**
 - Modify: `backend/app/services/conversation/state_machine.py` (add `CONFIRM_CANVAS_EDIT` to the enum ~line 48; routing ~line 265)
+- Modify: `backend/app/services/conversation/goal_planner.py` (`GATE_STATES` ~line 17-47)
 - Modify: `backend/app/services/conversation/orchestrator.py` (`handle_message` refine dispatch ~line 372-377; `_public_data` ~line 1140-1200)
 - Test: `backend/tests/test_canvas_refine.py` (create)
+
+**CRITICAL — read before writing code.** `_route` (`orchestrator.py:765-772`)
+only consults `advance_state` for states in `goal_planner.GATE_STATES`;
+everything else is routed by `goal_planner.next_goal`. For a canvas session
+`_canvas_next_goal` walks a FORWARD questionnaire that is already complete
+post-design, so it answers `GENERATING` — a **fresh** generation, which burns
+the daily design cap instead of regenerating. A new state that is not in
+`GATE_STATES` is therefore silently mis-routed. `goal_planner.py:27-34` records
+this exact trap biting `ASK_CHANGE_METHOD`. `CONFIRM_CANVAS_EDIT` must be added
+to `GATE_STATES`, and the test below pins it.
 
 **Interfaces:**
 - Consumes: `canvas_edit.inventory`, `canvas_edit.resolve_ops` (Task 4); `ie.interpret_canvas_edit`, `ie.LLMUnavailable` (Task 5).
@@ -1104,6 +1115,22 @@ def test_a_non_canvas_session_still_uses_the_old_describe_route():
 def test_confirm_offers_the_two_chips():
     d = o._public_data(S.CONFIRM_CANVAS_EDIT, {"flow_mode": "canvas"})
     assert d["options"] == ["Looks right", "Not quite"]
+
+
+def test_confirm_is_a_gate_state_so_the_goal_planner_cannot_hijack_it():
+    """_route sends any non-GATE_STATE to goal_planner.next_goal, which for a
+    finished canvas session answers GENERATING — a FRESH generation that burns
+    the daily design cap. goal_planner.py:27-34 records this exact trap biting
+    ASK_CHANGE_METHOD."""
+    from app.services.conversation import goal_planner
+    assert S.CONFIRM_CANVAS_EDIT in goal_planner.GATE_STATES
+
+
+def test_route_sends_a_confirmed_edit_to_regeneration_not_generation():
+    # The end-to-end guarantee the gate exists for, through the real router.
+    c = {"flow_mode": "canvas", "edit_confirmed": True, "name": "Sam",
+         "canvas_finalized": True, "decoration_done": True, "notes_done": True}
+    assert o._route(S.CONFIRM_CANVAS_EDIT, c, 0) is S.REGENERATING
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -1138,6 +1165,18 @@ Replace the `DESCRIBE_CHANGES` branch in `advance_state` (~line 265):
 
     if current is S.CONFIRM_CANVAS_EDIT:
         return S.REGENERATING if collected.get("edit_confirmed") else S.DESCRIBE_CHANGES
+```
+
+In `backend/app/services/conversation/goal_planner.py`, add to `GATE_STATES`
+next to `ASK_CHANGE_METHOD` (~line 34):
+
+```python
+        # Confirming a canvas edit ("Looks right") — resolved by advance_state.
+        # It MUST be a gate: the planner only knows the forward questionnaire,
+        # which is already complete post-design, so it would answer GENERATING —
+        # a fresh generation burning the daily cap instead of a regeneration.
+        # Same trap as ASK_CHANGE_METHOD above.
+        S.CONFIRM_CANVAS_EDIT,
 ```
 
 In `backend/app/services/conversation/orchestrator.py`, add next to `_apply_refine` (~line 200):
