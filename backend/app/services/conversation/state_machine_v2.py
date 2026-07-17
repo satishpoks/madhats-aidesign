@@ -66,3 +66,23 @@ def progress_v2(state: S, collected: dict | None = None) -> dict:
         total = len(_PROGRESS_PATH)
         return {"step": total, "total": total}
     return progress_for(step)
+
+
+def _norm(s: str) -> str:
+    return (s or "").strip().casefold()
+
+
+def resolve_chip(step: Step, message: str) -> dict | None:
+    """The fields for an offered chip, or None if `message` isn't one of them.
+
+    A chip tap is not natural language: we generated the label in this registry
+    and shipped it to the browser, which sent it straight back. Matching it is an
+    identity lookup on a closed set we own — no model, no latency, no failure
+    mode. Only the CURRENT step's chips match; a stale chip tapped on an older
+    message falls through to the interpreter, which reads it in context.
+    """
+    target = _norm(message)
+    for chip in step.chips:
+        if _norm(chip.label) == target:
+            return dict(chip.fields)
+    return None
