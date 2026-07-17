@@ -348,7 +348,9 @@ async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypat
         return tuple(cs.Chip(colour, {"chosen_colour": colour}) for colour in colours)
 
     test_step = cs.Step(
-        id=S.ASK_QUANTITY,  # reuse an unused state for this test
+        # ASK_QUANTITY is a real registry state (not unused) — this only works
+        # because `cs.by_id` is monkeypatched below to return `test_step` for it.
+        id=S.ASK_QUANTITY,
         ask="Pick a colour:",
         chips=(),  # empty: chips come from chips_from
         chips_from=_colours_from_collected,

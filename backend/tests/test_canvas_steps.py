@@ -348,11 +348,59 @@ def test_has_logo_routes_into_the_logo_loop():
     assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
 
 
-def test_ask_has_logo_is_satisfied_by_a_false_answer():
-    """Presence, not truthiness — bool(False) is False, which would re-ask
-    forever (the bug already fixed on ASK_ANYTHING_ELSE and ASK_QUANTITY)."""
-    assert cs.by_id(S.ASK_HAS_LOGO).done_when({"has_logo": False})
+def test_ask_has_logo_false_does_not_re_ask_once_its_apply_has_run():
+    """Presence, not truthiness — a `False` answer that has actually gone
+    through `apply` (so `logos_done` is set) must not re-ask forever (the bug
+    already fixed on ASK_ANYTHING_ELSE and ASK_QUANTITY). Unlike the old
+    contract, a bare `has_logo: False` with no `apply` having run does NOT
+    satisfy the step on its own — see
+    test_volunteered_has_logo_false_without_apply_still_asks_the_step for why:
+    `apply` is what sets `logos_done`, the flag that actually skips the logo
+    loop, so the step must stay unmet until that side effect has run."""
+    c = {"has_logo": False}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    step.apply(c, {"has_logo": False}, {})
+    assert step.done_when(c)
     assert not cs.by_id(S.ASK_HAS_LOGO).done_when({})
+
+
+def test_volunteered_has_logo_false_without_apply_still_asks_the_step():
+    """Regression: the interpreter can volunteer `has_logo=False` on an EARLIER
+    turn than ASK_HAS_LOGO becomes current (e.g. "Hi I'm Sam, no logo, just
+    text" fills {'name': 'Sam', 'has_logo': False} in one turn). The
+    orchestrator runs ONLY the CURRENT step's `apply` each turn
+    (orchestrator_v2.py:89-90) — so if `done_when` trusted the raw slot, the
+    step would already read as done, would never become current, its apply
+    would never run, and `logos_done` would never be set: a text-only customer
+    gets marched into the logo loop anyway, the exact bug this step exists to
+    prevent.
+
+    Confirmed failing before the fix (routed to ASK_LOGO_PLACEMENT instead):
+        next after name  : show_intro
+        next after intro : ask_logo_placement     <- WRONG
+        logos_done       : None
+    """
+    c = {"name": "Sam", "intro_ack": True, "has_logo": False}   # volunteered, no apply
+    assert v2.next_step(c).id is S.ASK_HAS_LOGO, (
+        "a volunteered False must still route to ASK_HAS_LOGO so its apply runs"
+    )
+
+    # Now let the step actually run, as the orchestrator would: resolve its
+    # chip and apply it.
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "No — text only", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["logos_done"] is True
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_volunteered_has_logo_true_skips_straight_into_the_logo_loop():
+    """`True` needs no side effect (there is nothing to skip), so it may
+    legitimately short-circuit `done_when` on the raw slot alone — unlike
+    `False`, which must wait for `apply` to set `logos_done`."""
+    c = {"name": "Sam", "intro_ack": True, "has_logo": True}   # volunteered, no apply
+    assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():

@@ -319,8 +319,14 @@ REGISTRY: tuple[Step, ...] = (
                Chip("No — text only", {"has_logo": False})),
         slots=("has_logo",),
         apply=_apply_has_logo,
-        # Presence, not truthiness: False is a real answer.
-        done_when=lambda c: "has_logo" in c,
+        # NOT `"has_logo" in c`: the interpreter can volunteer this slot on an
+        # earlier turn, and a step that is already done never becomes current,
+        # so `_apply_has_logo` would never run and `logos_done` would never be
+        # set — marching a text-only customer into the logo loop, the exact bug
+        # this step exists to prevent. `True` needs no side effect, so it may
+        # skip on the raw slot; `False` stays unmet until the apply has actually
+        # run (which is what `not _logos_open(c)` observes).
+        done_when=lambda c: c.get("has_logo") is True or not _logos_open(c),
     ),
     Step(
         id=S.ASK_LOGO_PLACEMENT,
