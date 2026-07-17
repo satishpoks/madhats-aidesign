@@ -211,3 +211,17 @@ Task 2: complete (commit 5c639f5, review clean — Spec ✅, Quality Approved, Z
   CONTROLLER: deleted a stale plan note (L557) that described the OLD buggy _satisfy.
 
 Task 3 BASE (HEAD before impl): 5c639f5
+
+Task 3: complete (commit e741c75, review clean — Spec ✅, Quality Approved, ZERO findings).
+  resolve_chip(step, message) -> dict | None in state_machine_v2 (+20 lines). Exact match
+  strip+casefold, CURRENT step's chips only, returns dict(chip.fields) COPY, None (not {})
+  when not a chip. 24 new tests (19 registry-generated chip round-trips + 5 named), 31 in
+  test_canvas_steps.py. Suite: 9 failed / 580 passed (same 9; no regressions).
+  Reviewer INDEPENDENTLY recounted chips in the registry (4+1+2+3+1+2+6=19) — matched the
+  report exactly; confirmed _all_chips() walks REGISTRY dynamically at collection time, so a
+  chip added later is covered the moment it's declared. Copy-not-reference test proven real.
+  REVIEWER CAVEAT (correct, already planned): resolve_chip is NOT yet wired into
+  orchestrator_v2 — these tests prove the function in isolation. The LIVE bug is only proven
+  fixed end-to-end by Task 8's test_the_live_bug_yes_another_logo_reopens_the_logo_loop.
+
+Task 4 BASE (HEAD before impl): e741c75
