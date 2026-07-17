@@ -90,6 +90,10 @@ async def handle_message(session_id: str, message: str) -> dict:
     collected.update(fields)
     if step.apply:
         step.apply(collected, fields, session)
+    # Canvas mutations this answer implies. Computed from the step just
+    # ANSWERED (not the next one), so it must be read before next_step
+    # re-resolves.
+    canvas_ops = step.ops(collected, fields) if step.ops else []
 
     asked = collected.setdefault("_asked", [])
     if step.id.value not in asked:
@@ -117,8 +121,11 @@ async def handle_message(session_id: str, message: str) -> dict:
                               S.QUOTE_REQUESTED, user_message=message, data=data)
 
     reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack)
+    data = v2.public_data_for(next_, collected)
+    if canvas_ops:
+        data["canvas_ops"] = canvas_ops
     return await _persist(sb, session_id, collected, next_, reply, state_before,
-                          next_.id, user_message=message)
+                          next_.id, user_message=message, data=data)
 
 
 async def _stall(sb, session_id, collected, step, state_before, message) -> dict:

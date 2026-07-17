@@ -70,6 +70,12 @@ class Step:
     # per-state switch this registry exists to avoid. May satisfy its own step
     # (see _prepare_decoration), so the orchestrator re-resolves after it runs.
     prepare: Callable[[dict, dict | None], None] | None = None
+    # Canvas mutations this step's ANSWER implies, as fully-resolved canvas_ops
+    # (see docs/superpowers/specs/2026-07-17-canvas-led-refine-design.md).
+    # (collected, fields) -> list of {"target": …, "patch": …}. Declared on the
+    # record for the same reason as `prepare`: the alternative is an
+    # `if step.id is ASK_LOGO_BG` branch in the orchestrator.
+    ops: Callable[[dict, dict], list[dict]] | None = None
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -160,6 +166,20 @@ def _apply_logo_bg(c: dict, f: dict, s: dict) -> None:
     bg = f.get("logo_bg")
     if bg and c.get("pending_logo") is not None:
         c["pending_logo"]["bg"] = bg
+
+
+def _ops_logo_bg(c: dict, f: dict) -> list[dict]:
+    """Tick the box for the customer.
+
+    The backend has no element id here — `canvas_design` isn't persisted until
+    finalize — so the target is the semantic "pending logo": the last unlocked
+    image on the face, the same anchor `lockPlaced` leans on.
+    """
+    if f.get("logo_bg") != "removed":
+        return []
+    return [{"target": {"kind": "pending_logo",
+                        "face": _pending(c).get("face") or "front"},
+             "patch": {"removeBg": True}}]
 
 
 def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
@@ -397,23 +417,26 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_LOGO_BG,
-        # "Remove background" is a MARK, not an edit: ticking it only flags the
+        # "Remove background" is a MARK, not an edit: the op only flags the
         # element (a ✂ badge, `name="export-hide"` so it never bakes into the
         # layout guide). Nothing is matted client-side — `prompt_builder`
         # instructs the image model to knock the background out at render time.
         # So this copy must not promise processing or ask the customer to wait.
-        ask=("Does your logo have a background that needs removing? If it does, "
-             "click it on the cap and tick \"Remove background\" in the toolbar "
-             "underneath — we'll knock it out when we render your design."),
-        chips=(Chip("Yes, I've ticked it", {"logo_bg": "removed"}),
+        ask="Does your logo have a background that needs removing?",
+        # The chip IS the tick (see _ops_logo_bg). Previously this asked the
+        # customer to tick it themselves and only recorded their claim —
+        # pending_logo["bg"] routes but nothing on the RENDER path reads it, so
+        # "Yes, I've ticked it" without ticking silently rendered no knockout.
+        chips=(Chip("Yes, remove background", {"logo_bg": "removed"}),
                Chip("No, it's fine as is", {"logo_bg": "none"})),
         slots=("logo_bg",),
         apply=_apply_logo_bg,
+        ops=_ops_logo_bg,
         done_when=lambda c: not _logos_open(c) or "bg" in _pending(c),
         # tool="upload" is LOAD-BEARING, not decoration: it keeps v2Editing true
         # on the frontend, so the just-placed logo is NOT locked and stays
-        # selectable — which is the only way the customer can reach the
-        # "Remove background" toggle in SelectedToolbar. The lock fires on
+        # selectable. The customer no longer NEEDS the toggle (the op ticks it),
+        # but it stays reachable as a manual override / untick. The lock fires on
         # ASK_ANOTHER_LOGO instead. See Surface.tsx:111-113 + canvasStore.ts:36.
         tool="upload",
         tip=None,                              # the upload tip is wrong here

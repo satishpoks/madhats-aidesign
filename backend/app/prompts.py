@@ -1053,10 +1053,12 @@ V2_TOOL_TIPS = {
 # keyed by TOOL, and this step hands over the upload tool only to keep the
 # placed logo selectable (see Step.instructions / the lock note on the step) —
 # the upload tip's "tap Upload image" would be actively wrong here.
+# Must not promise processing or a wait: the mark is instant and the canvas
+# does not change. The knockout happens at render.
 V2_BG_INSTRUCTIONS = (
-    "Click your logo on the cap to select it, then tick \"Remove background\" "
-    "in the toolbar underneath — it'll get a ✂ badge. The canvas won't change: "
-    "the background is knocked out when we render your design."
+    "If it does, I'll mark it and we'll knock the background out when we "
+    "render your design — the cap on screen won't change. You can also tick "
+    "or untick \"Remove background\" yourself in the toolbar under the cap."
 )
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through

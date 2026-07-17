@@ -410,7 +410,7 @@ def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
     assert v2.next_step(c).id is S.ASK_LOGO_BG
 
     step = cs.by_id(S.ASK_LOGO_BG)
-    fields = v2.resolve_chip(step, "Yes, I've ticked it", c)
+    fields = v2.resolve_chip(step, "Yes, remove background", c)
     assert fields == {"logo_bg": "removed"}
     c.update(fields)
     step.apply(c, fields, {})
@@ -606,3 +606,40 @@ def test_decoration_bookkeeping_is_not_interpreter_writable():
     assert "decoration_done" not in cs.WRITABLE_SLOTS
     assert "decoration_options" not in cs.WRITABLE_SLOTS
     assert "decoration_type" not in cs.WRITABLE_SLOTS   # the render-style bucket
+
+
+def test_ask_logo_bg_chips_no_longer_ask_the_customer_to_tick():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    labels = [c.label for c in step.chips]
+    assert labels == ["Yes, remove background", "No, it's fine as is"]
+    assert "tick" not in step.ask.lower()
+
+
+def test_yes_emits_an_op_that_flags_the_pending_logo():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "back", "placed": True}}
+    ops = step.ops(c, {"logo_bg": "removed"})
+    assert ops == [{"target": {"kind": "pending_logo", "face": "back"},
+                    "patch": {"removeBg": True}}]
+
+
+def test_no_emits_no_op():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "front", "placed": True}}
+    assert step.ops(c, {"logo_bg": "none"}) == []
+
+
+def test_bg_copy_never_promises_processing_or_a_wait():
+    # Standing rule: ticking is instant; nothing is matted client-side.
+    step = cs.by_id(S.ASK_LOGO_BG)
+    blob = (step.ask + " " + (step.instructions or "")).lower()
+    for banned in ("wait", "processing", "hang on", "just a moment"):
+        assert banned not in blob
+
+
+def test_bg_still_marks_the_step_answered():
+    # pending_logo["bg"] is the done_when marker — the op is an ADDITION to it.
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "front", "placed": True}}
+    step.apply(c, {"logo_bg": "removed"}, {})
+    assert step.done_when(c) is True

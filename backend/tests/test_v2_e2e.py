@@ -116,7 +116,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Yes, I have a logo",      S.ASK_LOGO_PLACEMENT),
         ("Front",                   S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
-        ("Yes, I've ticked it",     S.ASK_ANOTHER_LOGO),
+        ("Yes, remove background",  S.ASK_ANOTHER_LOGO),
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
@@ -213,3 +213,22 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     assert c["decoration_mix_note"] == "Embroidered logo, printed text on the back"
     assert "Decoration method: a mix — Embroidered logo" in c["brief_notes"][-1]
     assert c["decoration_type"] == "embroidery"
+
+
+@pytest.mark.asyncio
+async def test_v2_bg_chip_ships_an_op_to_the_canvas(monkeypatch):
+    """The chip and the flag are the same act: tapping yes must reach the canvas.
+    Before this, 'Yes, I've ticked it' without ticking rendered no knockout."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_LOGO_BG.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": True,
+        "pending_logo": {"face": "front", "placed": True},
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    out = await o2.handle_message("s1", "Yes, remove background")
+    assert out["data"]["canvas_ops"] == [
+        {"target": {"kind": "pending_logo", "face": "front"},
+         "patch": {"removeBg": True}}
+    ]
