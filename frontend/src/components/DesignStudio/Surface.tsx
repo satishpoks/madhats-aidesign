@@ -34,6 +34,12 @@ export function DesignStudioSurface() {
   const highlightTool = isV2 && canvasDirective!.allowedTools.length === 1
     ? (canvasDirective!.allowedTools[0] as 'upload' | 'text' | 'shape')
     : null
+  // v2: a step that hands over no tool is a chat question, not an editing step
+  // — the stage and the element toolbar must be read-only for it. Previously
+  // both were hardcoded open for every v2 turn (`isV2 ? false : !unlocked`),
+  // so a placed element stayed draggable through the wrap-up questions.
+  const v2Editing = isV2 && canvasDirective!.allowedTools.length > 0
+  const stageLocked = isV2 ? !v2Editing : !unlocked
 
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -92,6 +98,19 @@ export function DesignStudioSurface() {
     if (canvasDirective?.autoOpen === 'shape') setGraphicsOpen(true)
     if (canvasDirective?.autoOpen === 'text') addText('Your text')
   }, [canvasDirective?.autoOpen, canvasDirective?.targetFace, addText])
+
+  // v2: lock whatever was just placed as soon as the flow leaves an editing
+  // step. Anchoring this to the DIRECTIVE rather than to the Done button is
+  // what makes it correct for every way the customer can answer: the canvas
+  // Done button, the chat's "Done" chip, or typing "done". The chip calls
+  // sendMessage directly and never went through postDone/lockPlaced, so the
+  // chat replied "Locked that in" while the logo stayed draggable.
+  // `v2Editing` (not `showDone`) is the trigger because ASK_LOGO_PLACEMENT
+  // hands over the upload tool without a Done button — it's still an editing
+  // step. Idempotent: leaving a non-editing step has nothing new to lock.
+  useEffect(() => {
+    if (isV2 && !v2Editing) lockPlaced()
+  }, [isV2, v2Editing, lockPlaced])
 
   // v2: when the chat says finalize, lock every placed element (freezing the
   // canvas for the multi-face export loop in doRender) and flatten + finalize
@@ -246,12 +265,13 @@ export function DesignStudioSurface() {
 
         {/* Centre — canvas + contextual toolbar */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          <CanvasStage stageRef={stageRef} locked={isV2 ? false : !unlocked} />
-          {/* v2 also mounts the toolbar: its instruction copy tells the customer
-              to change font/size/colour "in the toolbar under the cap". It
-              no-ops (returns null) until an element is selected, so it only
-              surfaces once they pick a placed element — exactly when needed. */}
-          {(unlocked || isV2) && <SelectedToolbar />}
+          <CanvasStage stageRef={stageRef} locked={stageLocked} />
+          {/* v2 mounts the toolbar on its editing steps: the instruction copy
+              tells the customer to change font/size/colour "in the toolbar
+              under the cap". It no-ops (returns null) until an element is
+              selected, so it only surfaces once they pick a placed element —
+              exactly when needed. On a no-tool step it stays out entirely. */}
+          {(isV2 ? v2Editing : unlocked) && <SelectedToolbar />}
           {canvasDirective?.showDone && (
             <button onClick={postDone}
               className="px-6 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold">

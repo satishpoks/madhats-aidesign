@@ -3,7 +3,9 @@ from app.services.conversation import state_machine_v2 as v2
 
 
 def test_intro_then_first_logo_placement():
-    assert v2.advance_state_v2(S.ASK_NAME, {}) is S.SHOW_INTRO
+    # ASK_NAME only advances once a name is captured (see
+    # test_ask_name_does_not_advance_until_a_name_is_captured).
+    assert v2.advance_state_v2(S.ASK_NAME, {"name": "Sam"}) is S.SHOW_INTRO
     assert v2.advance_state_v2(S.SHOW_INTRO, {}) is S.ASK_LOGO_PLACEMENT
 
 
@@ -112,3 +114,23 @@ def test_public_data_finalize_triggers_finalize():
 def test_reply_uses_intro_text():
     r = v2.v2_reply(S.SHOW_INTRO, {"name": "Sam"}, "Ricardo", "Welcome to MadHats!")
     assert "Welcome to MadHats!" in r
+
+
+# --- regression: the ASK_NAME step must actually greet + ask for the name ---
+
+def test_reply_ask_name_greets_and_asks_for_the_name():
+    # v2_reply had no ASK_NAME branch, so the kickoff fell through to the
+    # catch-all ("Let's keep going.") — the customer was never asked anything,
+    # and whatever they typed next was stored as their name.
+    reply = v2.v2_reply(S.ASK_NAME, {}, "Ricardo", "intro")
+
+    assert reply != "Let's keep going."
+    assert "name" in reply.lower()
+    assert "Ricardo" in reply
+
+
+def test_ask_name_does_not_advance_until_a_name_is_captured():
+    # No name in `collected` -> stay on ASK_NAME (re-ask) rather than marching
+    # on to the intro with an empty/filler name.
+    assert v2.advance_state_v2(S.ASK_NAME, {}) is S.ASK_NAME
+    assert v2.advance_state_v2(S.ASK_NAME, {"name": "Sam"}) is S.SHOW_INTRO

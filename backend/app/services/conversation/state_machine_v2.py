@@ -37,7 +37,10 @@ _TOOL_STATES: frozenset[S] = frozenset({
 
 def advance_state_v2(current: S, collected: dict) -> S:
     if current is S.ASK_NAME:
-        return S.SHOW_INTRO
+        # Re-ask until a plausible name is captured (orchestrator_v2 rejects
+        # filler like "ok"). Advancing unconditionally is what let a nameless
+        # session reach the intro and address the customer as "ok".
+        return S.SHOW_INTRO if collected.get("name") else S.ASK_NAME
     if current is S.SHOW_INTRO:
         return S.ASK_LOGO_PLACEMENT
     if current is S.ASK_LOGO_PLACEMENT:
@@ -185,6 +188,12 @@ def v2_reply(state: S, collected: dict, persona: str, intro_text: str) -> str:
     instruction detail is dropped)."""
     name = collected.get("name") or "there"
     tips = prompts.V2_TOOL_TIPS
+    if state is S.ASK_NAME:
+        # `name_asked` is set by the orchestrator once this step has been shown,
+        # so a re-ask (filler reply) doesn't repeat the full greeting.
+        if collected.get("name_asked"):
+            return prompts.V2_ASK_NAME_RETRY
+        return prompts.V2_ASK_NAME.format(persona=persona)
     if state is S.SHOW_INTRO:
         return f"{intro_text}\n\nReady? Tap continue when you are."
     if state is S.ASK_LOGO_PLACEMENT:

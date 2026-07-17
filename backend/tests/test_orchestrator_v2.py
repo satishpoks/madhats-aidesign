@@ -172,3 +172,30 @@ async def test_daily_cap_reroutes_to_quote_with_honest_copy(monkeypatch):
     assert res["state"] == S.QUOTE_REQUESTED.value
     assert prompts.GENERATION_BLOCKED_ASIDE in res["reply"]
     assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
+
+
+@pytest.mark.asyncio
+async def test_filler_reply_is_not_stored_as_a_name(monkeypatch):
+    # The real session: the kickoff never asked anything (v2_reply had no
+    # ASK_NAME branch), the customer typed "ok", and "ok" became their name —
+    # "Great, ok! Let's add your logo."
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    await o2.handle_message("s1", "")           # greeting -> ask_name
+    res = await o2.handle_message("s1", "ok")   # filler, not a name
+
+    assert store["session"]["collected"].get("name") is None
+    assert res["state"] == S.ASK_NAME.value
+
+
+@pytest.mark.asyncio
+async def test_real_name_is_still_accepted(monkeypatch):
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    await o2.handle_message("s1", "")
+    res = await o2.handle_message("s1", "Sam")
+
+    assert store["session"]["collected"]["name"] == "Sam"
+    assert res["state"] == S.SHOW_INTRO.value

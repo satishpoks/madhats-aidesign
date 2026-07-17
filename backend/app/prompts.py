@@ -1049,6 +1049,19 @@ V2_TOOL_TIPS = {
     ),
 }
 
+# The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
+# to its catch-all, so the customer's first message was answered with "Let's
+# keep going." — no greeting, no question — and their reply ("ok") was stored
+# as their name.
+V2_ASK_NAME = (
+    "Hi! I'm {persona} — I'll help you put your design straight onto the cap. "
+    "First up, what's your name?"
+)
+
+V2_ASK_NAME_RETRY = (
+    "Sorry, I didn't catch that — what name should I put on your design brief?"
+)
+
 V2_DEFAULT_INTRO = (
     "Welcome! I'll help you put your design straight onto the cap. We'll add "
     "your logo first, then any text or graphics, and I'll guide you through "

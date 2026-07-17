@@ -99,3 +99,49 @@ test('clicking Done locks the just-placed element (IMPORTANT 3)', async () => {
   // act() so its state update doesn't land after the test body.
   await act(async () => { await new Promise(r => setTimeout(r, 0)) })
 })
+
+test('answering Done via the chat chip also locks the placed element', () => {
+  // THE LOCK BUG: `LOGO_ADJUST` offers Done twice — the canvas button (which
+  // runs postDone -> lockPlaced) AND a chat chip (options: ["Done"], which
+  // calls sendMessage directly). Customers tap the chip, so lockPlaced never
+  // ran: the chat said "Locked that in" while the logo stayed draggable.
+  // Locking must follow the DIRECTIVE leaving a showDone step, not the button.
+  useChatStore.setState({
+    chatState: 'logo_adjust',
+    canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Drag it', showDone: true },
+  } as never)
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+
+  const { rerender } = render(<DesignStudioSurface />)
+  expect(useCanvasStore.getState().faces.front[0].locked).toBeFalsy()
+
+  // The chip reply lands: the backend moves to ask_another_logo ("Locked that
+  // in") — a step with no tools and no Done.
+  act(() => {
+    useChatStore.setState({
+      chatState: 'ask_another_logo',
+      canvasDirective: { allowedTools: [], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+    } as never)
+  })
+  rerender(<DesignStudioSurface />)
+
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
+})
+
+test('v2: the stage is read-only on a step that hands over no tools', () => {
+  // Surface passed `locked={isV2 ? false : !unlocked}` — hardcoded false for
+  // EVERY v2 turn — so the stage stayed interactive through the quantity/
+  // email/purpose questions where the directive locks all tools.
+  useChatStore.setState({
+    chatState: 'ask_quantity',
+    canvasDirective: { allowedTools: [], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+  } as never)
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().select(id)
+  render(<DesignStudioSurface />)
+
+  // No tools in play -> the element-editing toolbar must not be reachable.
+  expect(screen.queryByLabelText('Text content')).not.toBeInTheDocument()
+})

@@ -67,6 +67,26 @@ def _is_done(message: str) -> bool:
     return is_affirmative(message)
 
 
+# Replies that are plainly not a name. The ASK_NAME step took the customer's
+# first message verbatim, so when the kickoff failed to actually ask anything,
+# "ok" became their name and the bot said "Great, ok! Let's add your logo."
+_NAME_FILLER = frozenset({
+    "ok", "okay", "k", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "sure", "hi", "hello", "hey", "hiya", "thanks", "ta", "cool", "great",
+    "continue", "next", "done", "start", "go", "ready", "please",
+})
+
+
+def _plausible_name(candidate: str) -> bool:
+    if not candidate or "?" in candidate:
+        return False
+    if ie._is_greeting_only(candidate):
+        return False
+    if not any(ch.isalpha() for ch in candidate):
+        return False
+    return candidate.lower().strip(" .!,'\"") not in _NAME_FILLER
+
+
 def _face_from(message: str) -> str | None:
     low = (message or "").lower()
     for f in ("front", "back", "left", "right"):
@@ -86,7 +106,7 @@ def _apply_v2_fields(state: ConversationState, collected: dict, message: str) ->
 
     if state is S.ASK_NAME and not collected.get("name"):
         candidate = message.strip().split("\n")[0][:60]
-        if candidate and "?" not in candidate and not ie._is_greeting_only(candidate):
+        if _plausible_name(candidate):
             collected["name"] = candidate
 
     elif state is S.ASK_LOGO_PLACEMENT:
@@ -214,6 +234,11 @@ async def handle_message(session_id: str, message: str) -> dict:
             reply = f"{prompts.GENERATION_BLOCKED_ASIDE} {prompts.CANVAS_QUOTE_ASK}"
         else:
             reply = v2.v2_reply(new_state, collected, persona, intro_text)
+
+    # Mark the name step as shown AFTER `reply` is built, so this turn still
+    # gets the full greeting and only a re-ask gets the shorter retry copy.
+    if new_state is S.ASK_NAME:
+        collected["name_asked"] = True
 
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
