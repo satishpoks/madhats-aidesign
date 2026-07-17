@@ -200,6 +200,38 @@ async def _apply_refine(current: ConversationState, collected: dict, message: st
             details.append(text[:200])
 
 
+async def _apply_canvas_edit(session: dict, collected: dict, message: str) -> list[dict]:
+    """Apply a described change to the CANVAS rather than to the prompt.
+
+    Canvas sessions only. Returns fully-resolved canvas_ops for the frontend and
+    records which of the three outcomes happened, which is what advance_state
+    routes on:
+      - ops        -> CONFIRM_CANVAS_EDIT (free; no render until they say yes)
+      - refused    -> OFFER_REFINE, noted to brief_notes for the team
+      - stalled    -> DESCRIBE_CHANGES (Haiku down; never guess geometry)
+    """
+    from app.services.conversation import canvas_edit as ce
+
+    text = (message or "").strip()
+    for k in ("canvas_edit_ops", "canvas_edit_refused", "canvas_edit_stalled"):
+        collected.pop(k, None)
+    design = session.get("canvas_design") or {}
+    try:
+        raw = await ie.interpret_canvas_edit(text, ce.inventory(design))
+    except ie.LLMUnavailable:
+        collected["canvas_edit_stalled"] = True
+        return []
+    ops = ce.resolve_ops(raw, design)
+    if not ops:
+        # Render-level ("thicker embroidery") or unreadable: the team sees it at
+        # quote time rather than it evaporating. No PII — this is design text.
+        collected.setdefault("brief_notes", []).append(f"Refine request: {text[:300]}")
+        collected["canvas_edit_refused"] = True
+        return []
+    collected["canvas_edit_ops"] = True
+    return ops
+
+
 _CONFIRM_WORDS = (
     "generate", "looks good", "confirm", "go ahead", "that's right", "thats right",
     "perfect", "correct", "all good", "spot on", "that's everything",
@@ -351,6 +383,7 @@ async def handle_message(session_id: str, message: str) -> dict:
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
 
     state_before = current.value
+    canvas_ops: list[dict] = []
 
     # -----------------------------------------------------------------------
     # 2. KICKOFF: the very first call while still at GREETING
@@ -369,7 +402,12 @@ async def handle_message(session_id: str, message: str) -> dict:
         _apply_fields(current, interp.get("fields") or {}, collected, message)
         # Refine capture runs BEFORE the brief-merge so an "add element" seeds a
         # pending_element and doesn't ALSO leak into the flat design brief.
-        if current in (
+        if (current is ConversationState.DESCRIBE_CHANGES
+                and collected.get("flow_mode") == "canvas"):
+            # Canvas sessions edit the canvas, not the prompt — so this never
+            # touches refine_details, and change_request stays None for them.
+            canvas_ops = await _apply_canvas_edit(session, collected, message)
+        elif current in (
             ConversationState.DESCRIBE_CHANGES,
             ConversationState.REFINE_FOLLOWUP,
             ConversationState.REFINE_CONFIRM,
@@ -583,6 +621,8 @@ async def handle_message(session_id: str, message: str) -> dict:
     ).execute()
 
     data = _public_data(new_state, collected)
+    if canvas_ops:
+        data["canvas_ops"] = canvas_ops
     data["progress"] = progress(new_state, collected)
     return {"reply": reply, "state": new_state.value, "data": data}
 
@@ -955,6 +995,9 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
              or "modif" in low or "different" in low)
             and not ("looks good" in low or "happy" in low)
         )
+    elif state is S.CONFIRM_CANVAS_EDIT:
+        # Chip labels are "Looks right" / "Not quite" (see _public_data).
+        collected["edit_confirmed"] = "looks right" in low or is_affirmative(message)
     if state is S.DESCRIBE_CHANGES:
         collected["last_change"] = message.strip()[:400]
 
@@ -1191,6 +1234,8 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["No, generate"]}
     if state is S.ASK_CHANGE_METHOD:
         return {"options": ["Rework on the canvas", "Describe the change here"]}
+    if state is S.CONFIRM_CANVAS_EDIT:
+        return {"options": ["Looks right", "Not quite"]}
     if state is S.SESSION_END and collected.get("quote_url"):
         # The customer asked to request a quote — hand them the /quote link so
         # the frontend can show an "Open quote form" button (opens a new tab).

@@ -51,6 +51,7 @@ class ConversationState(str, Enum):
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
     ASK_NOTES = "ask_notes"
     ASK_CHANGE_METHOD = "ask_change_method"
+    CONFIRM_CANVAS_EDIT = "confirm_canvas_edit"   # canvas refine: ops applied, awaiting yes/no
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
@@ -265,9 +266,21 @@ def advance_state(
     #     confirm -> regen. Adding a text/graphic/logo seeds a pending_element,
     #     which routes into the SAME per-element deep-dive as the main flow.
     if current is S.DESCRIBE_CHANGES:
+        # Canvas sessions edit the CANVAS, not the prompt: the change is applied
+        # to the design on screen and confirmed before a render is spent. A
+        # described change never becomes a change_request for these sessions.
+        if collected.get("flow_mode") == "canvas":
+            if collected.get("canvas_edit_stalled"):
+                return S.DESCRIBE_CHANGES     # Haiku down — ask again, guess nothing
+            if collected.get("canvas_edit_ops"):
+                return S.CONFIRM_CANVAS_EDIT
+            return S.OFFER_REFINE             # refused: noted for the team, no render
         if collected.get("pending_element"):
             return S.ELEMENT_DEEPDIVE
         return S.REFINE_FOLLOWUP if (collected.get("refine_followups") or []) else S.REFINE_CONFIRM
+
+    if current is S.CONFIRM_CANVAS_EDIT:
+        return S.REGENERATING if collected.get("edit_confirmed") else S.DESCRIBE_CHANGES
 
     if current is S.REFINE_FOLLOWUP:
         queue = collected.get("refine_followups") or []
