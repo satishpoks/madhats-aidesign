@@ -141,12 +141,27 @@ async def test_interpret_raises_when_haiku_is_down(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_interpret_never_logs_the_customers_words(monkeypatch, caplog):
-    async def boom(_prompt, **kw):
-        raise RuntimeError("upstream 500")
+async def test_interpret_never_logs_the_customers_words(monkeypatch):
+    """Pins the PII fix: the prompt embeds the customer's own message, so if
+    an SDK error ever stringified request content, err=str(exc) would put it
+    in the logs. Logging only the exception TYPE makes that impossible.
+
+    Uses structlog.testing.capture_logs, NOT pytest's caplog: structlog does
+    not route into caplog here, so a caplog-based version of this test passes
+    even with err=str(exc) restored -- i.e. it would be vacuous. And the
+    mocked exception's str() must actually embed the prompt (which carries
+    the customer's words), or a real SDK error that stringifies request
+    content would go unnoticed too.
+    """
+    import structlog
+
+    async def boom(prompt, **kw):
+        raise RuntimeError(f"upstream 500: bad request body: {prompt!r}")
     monkeypatch.setattr(ie, "_complete", boom)
     monkeypatch.setattr(ie, "_has_llm", True)
-    with pytest.raises(ie.LLMUnavailable):
-        await ie.interpret_canvas_edit("move my secret text SHIBBOLETH up",
-                                       ce.inventory(_design()))
-    assert "SHIBBOLETH" not in caplog.text
+    with structlog.testing.capture_logs() as logs:
+        with pytest.raises(ie.LLMUnavailable):
+            await ie.interpret_canvas_edit("move my secret text SHIBBOLETH up",
+                                           ce.inventory(_design()))
+    assert logs, "expected a warning to be emitted"
+    assert "SHIBBOLETH" not in repr(logs)
