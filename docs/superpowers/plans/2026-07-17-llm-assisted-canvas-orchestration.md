@@ -20,7 +20,9 @@
 - **The response contract is frozen.** `{"reply", "state", "data": {...}}` where `data` may carry `options`, `continuable`, `canvas`, `progress`, `trigger_finalize`. The frontend must not need a change.
 - **`MAX_LOGOS = 4`.**
 - **Env flag unchanged:** `settings.canvas_orchestrator_v2` + `flow_mode == "canvas"` still selects v2 in `chat.py::_dispatch`.
-- **Run tests from `backend/`:** `cd backend && pytest -q`.
+- **A name must stay plausible.** `_plausible_name` / `_NAME_FILLER` (committed in `44e8eda`) exist because *"ok" became a customer's name* in a live session. The interpreter proposes `name`; a deterministic guard must still reject filler. Do not drop this — see Task 4.
+- **Run tests from `backend/`:** `cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q`.
+  **The env override is required.** The repo-root `.env` sets `CANVAS_ORCHESTRATOR_V2=true` for local dev, which makes three *pre-existing* tests fail (`test_config_v2_flag.py::test_flag_defaults_false`, `test_canvas_routes.py::test_finalize_routes_to_decoration`, `test_chat_route.py::test_chat_post_resolves_body_not_422`) — they assert flag-default-off and flag-off routing. With the override: **559 passed** at `44e8eda`. That is the baseline; do not "fix" those three.
 
 ## Deviation from the spec (read before Task 1)
 
@@ -210,6 +212,7 @@ REGISTRY: tuple[Step, ...] = (
         ask=prompts.V2_ASK_NAME,
         ask_retry=prompts.V2_ASK_NAME_RETRY,
         slots=("name",),
+        # Task 4 wires apply=_apply_name here (rejects filler — "ok" is not a name).
         done_when=lambda c: bool(c.get("name")),
     ),
     Step(
@@ -371,15 +374,72 @@ git commit -m "feat(canvas-v2): declare the step registry as data"
 
 **Files:**
 - Modify: `backend/app/services/conversation/state_machine_v2.py`
+- Create: `backend/tests/canvas_step_helpers.py`
 - Test: `backend/tests/test_state_machine_v2.py`
 
 **Interfaces:**
 - Consumes: `canvas_steps.REGISTRY`, `by_id`, `MAX_LOGOS`.
 - Produces: `next_step(collected: dict) -> Step`; `V2_OWNED: frozenset[ConversationState]`.
+- Produces (test helper, imported by Task 4 too — do NOT duplicate it there):
+  `canvas_step_helpers.satisfy(collected, step) -> None`,
+  `canvas_step_helpers.seed_for(step) -> dict`.
 
 Replace the whole file's routing section. Keep `V2_OWNED` exported — `orchestrator_v2` and `chat.py` read it.
 
+The backend has **no `conftest.py`** and tests use inline fakes; a plain helper
+module imported by both test files matches that convention.
+
 - [ ] **Step 1: Write the failing test**
+
+```python
+# backend/tests/canvas_step_helpers.py  (NEW — shared by test_state_machine_v2
+# and test_canvas_steps; the registry walk is needed by both, so it lives once)
+from app.services.conversation import canvas_steps as cs
+from app.services.conversation.state_machine import ConversationState as S
+
+
+def satisfy(c: dict, step) -> None:
+    """Minimal mutation to make one step done, mirroring the apply hooks.
+
+    Walks the LONGEST path (one logo, one decoration) so that every step in the
+    registry becomes first-unmet in turn — hence decor_choice/decor_placed here
+    rather than the decor_done shortcut, which would skip DECOR_ADJUST and
+    ASK_ANYTHING_ELSE entirely.
+    """
+    if step.id is S.ASK_NAME:
+        c["name"] = "Sam"
+    elif step.id is S.SHOW_INTRO:
+        c["intro_ack"] = True
+    elif step.id is S.ASK_LOGO_PLACEMENT:
+        c["pending_logo"] = {"face": "front"}
+    elif step.id is S.LOGO_ADJUST:
+        c.setdefault("pending_logo", {})["placed"] = True
+    elif step.id is S.ASK_ANOTHER_LOGO:
+        c["logos_done"] = True
+        c["pending_logo"] = None
+    elif step.id is S.ASK_ADD_DECOR:
+        c["decor_choice"] = "text"
+    elif step.id is S.DECOR_ADJUST:
+        c["decor_placed"] = True
+    elif step.id is S.ASK_ANYTHING_ELSE:
+        c["decor_done"] = True
+    elif step.id is S.ASK_QUANTITY:
+        c["quantity"] = 12
+    elif step.id is S.ASK_EMAIL:
+        c["email_captured"] = True
+    elif step.id is S.ASK_PURPOSE:
+        c["purpose"] = "team caps"
+
+
+def seed_for(step) -> dict:
+    """A collected where `step` is the first unmet step."""
+    c = {"flow_mode": "canvas"}
+    for s in cs.REGISTRY:
+        if s.id is step.id:
+            return c
+        satisfy(c, s)
+    raise AssertionError(f"unreachable step {step.id}")
+```
 
 ```python
 # backend/tests/test_state_machine_v2.py  (replace the routing tests)
@@ -388,6 +448,7 @@ import pytest
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
+from tests.canvas_step_helpers import satisfy
 
 
 def _seed(**over):
@@ -453,46 +514,13 @@ def test_finalize_reached_when_everything_done():
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
-def _satisfy(c: dict, step) -> None:
-    """Minimal mutation to make one step done, mirroring Task 4's applies.
-
-    Walks the LONGEST path (one logo, one decoration) so that every step in the
-    registry becomes first-unmet in turn — hence decor_choice/decor_placed here
-    rather than the decor_done shortcut, which would skip DECOR_ADJUST and
-    ASK_ANYTHING_ELSE entirely.
-    """
-    if step.id is S.ASK_NAME:
-        c["name"] = "Sam"
-    elif step.id is S.SHOW_INTRO:
-        c["intro_ack"] = True
-    elif step.id is S.ASK_LOGO_PLACEMENT:
-        c["pending_logo"] = {"face": "front"}
-    elif step.id is S.LOGO_ADJUST:
-        c["pending_logo"]["placed"] = True
-    elif step.id is S.ASK_ANOTHER_LOGO:
-        c["logos_done"] = True
-        c["pending_logo"] = None
-    elif step.id is S.ASK_ADD_DECOR:
-        c["decor_choice"] = "text"
-    elif step.id is S.DECOR_ADJUST:
-        c["decor_placed"] = True
-    elif step.id is S.ASK_ANYTHING_ELSE:
-        c["decor_done"] = True
-    elif step.id is S.ASK_QUANTITY:
-        c["quantity"] = 12
-    elif step.id is S.ASK_EMAIL:
-        c["email_captured"] = True
-    elif step.id is S.ASK_PURPOSE:
-        c["purpose"] = "team caps"
-
-
 def test_router_walks_every_step_in_declared_order():
     # Exhaustive order guarantee: satisfying each step in turn must yield the
     # next one, and never a step positioned after an unmet one.
     c = _seed()
     for step in cs.REGISTRY:
         assert v2.next_step(c).id is step.id, f"expected {step.id}"
-        _satisfy(c, step)
+        satisfy(c, step)
 
 
 def test_v2_owned_is_the_registry_plus_greeting():
@@ -694,49 +722,15 @@ enumerates the registry, so a chip added later is covered when declared."
 
 **Interfaces:**
 - Consumes: `leads.capture_lead_and_verify(session: dict, collected: dict, email: str) -> tuple[str | None, bool]`.
-- Produces: module-level `_apply_intro`, `_apply_logo_face`, `_apply_logo_placed`, `_apply_another_logo`, `_apply_anything_else`, `_apply_email`, each `(collected, fields, session) -> None`; wired onto their `Step`s.
+- Produces: module-level `_apply_name`, `_apply_intro`, `_apply_logo_face`, `_apply_logo_placed`, `_apply_another_logo`, `_apply_anything_else`, `_apply_email`, each `(collected, fields, session) -> None`; wired onto their `Step`s. Plus `_plausible_name` / `_NAME_FILLER`, ported from `orchestrator_v2` at `44e8eda`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```python
 # backend/tests/test_canvas_steps.py  (append)
 
-def _satisfy(c: dict, step) -> None:
-    """Minimal mutation to make one step done. Walks the LONGEST path (one logo,
-    one decoration) so every step can be seeded as first-unmet."""
-    if step.id is S.ASK_NAME:
-        c["name"] = "Sam"
-    elif step.id is S.SHOW_INTRO:
-        c["intro_ack"] = True
-    elif step.id is S.ASK_LOGO_PLACEMENT:
-        c["pending_logo"] = {"face": "front"}
-    elif step.id is S.LOGO_ADJUST:
-        c.setdefault("pending_logo", {})["placed"] = True
-    elif step.id is S.ASK_ANOTHER_LOGO:
-        c["logos_done"] = True
-        c["pending_logo"] = None
-    elif step.id is S.ASK_ADD_DECOR:
-        c["decor_choice"] = "text"
-    elif step.id is S.DECOR_ADJUST:
-        c["decor_placed"] = True
-    elif step.id is S.ASK_ANYTHING_ELSE:
-        c["decor_done"] = True
-    elif step.id is S.ASK_QUANTITY:
-        c["quantity"] = 12
-    elif step.id is S.ASK_EMAIL:
-        c["email_captured"] = True
-    elif step.id is S.ASK_PURPOSE:
-        c["purpose"] = "team caps"
-
-
-def _seed_for(step) -> dict:
-    """A collected where `step` is the first unmet step."""
-    c = {"flow_mode": "canvas"}
-    for s in cs.REGISTRY:
-        if s.id is step.id:
-            return c
-        _satisfy(c, s)
-    raise AssertionError(f"unreachable step {step.id}")
+# Shared with test_state_machine_v2 — created in Task 2, do NOT re-declare here.
+from tests.canvas_step_helpers import seed_for
 
 
 @pytest.mark.parametrize(
@@ -745,13 +739,37 @@ def _seed_for(step) -> dict:
 def test_every_offered_chip_makes_progress(step, chip):
     """Understanding a chip is not enough — it must also move the flow. This is
     the half of the round-trip test that needs the apply hooks."""
-    c = _seed_for(step)
+    c = seed_for(step)
     assert v2.next_step(c).id is step.id          # precondition: we're on it
     fields = v2.resolve_chip(step, chip.label)
     c.update(fields)
     if step.apply:
         step.apply(c, dict(fields), {})
     assert v2.next_step(c).id is not step.id, f"{step.id}: {chip.label!r} did not advance"
+
+
+@pytest.mark.parametrize("filler", ["ok", "Okay", "yes", "hi there", "sure", "!!", "done"])
+def test_filler_never_becomes_a_name(filler):
+    """Regression (44e8eda): "ok" became a customer's name in a live session.
+    The interpreter proposes; this deterministic guard disposes."""
+    c = {"name": filler}                      # as the pre-apply merge leaves it
+    cs.by_id(S.ASK_NAME).apply(c, {"name": filler}, {})
+    assert "name" not in c
+    assert not cs.by_id(S.ASK_NAME).done_when(c)      # -> re-asks
+
+
+@pytest.mark.parametrize("real", ["Sam", "satish", "Mary-Jane", "Jo Smith"])
+def test_a_real_name_is_kept(real):
+    c = {"name": real}
+    cs.by_id(S.ASK_NAME).apply(c, {"name": real}, {})
+    assert c["name"] == real
+    assert cs.by_id(S.ASK_NAME).done_when(c)
+
+
+def test_a_name_is_trimmed_to_first_line_and_60_chars():
+    c = {}
+    cs.by_id(S.ASK_NAME).apply(c, {"name": "Sam\nsecond line"}, {})
+    assert c["name"] == "Sam"
 
 
 def test_intro_ack_is_set_by_any_reply():
@@ -833,6 +851,37 @@ Add to `canvas_steps.py` above `REGISTRY`:
 
 ```python
 from app.services import leads as leads_service
+from app.services.conversation import intent_extractor as ie
+
+# Replies that are plainly not a name. Ported verbatim from orchestrator_v2
+# (commit 44e8eda): the old ASK_NAME step took the customer's first message
+# verbatim, so "ok" became their name and the bot said "Great, ok! Let's add
+# your logo." The interpreter is better at this than the old keyword ingest was,
+# but it is still a model — this deterministic guard is what GUARANTEES the bug
+# cannot come back. The model proposes; the guard disposes; done_when re-asks.
+_NAME_FILLER = frozenset({
+    "ok", "okay", "k", "yes", "yeah", "yep", "yup", "no", "nope", "nah",
+    "sure", "hi", "hello", "hey", "hiya", "thanks", "ta", "cool", "great",
+    "continue", "next", "done", "start", "go", "ready", "please",
+})
+
+
+def _plausible_name(candidate: str) -> bool:
+    if not candidate or "?" in candidate:
+        return False
+    if ie._is_greeting_only(candidate):
+        return False
+    if not any(ch.isalpha() for ch in candidate):
+        return False
+    return candidate.lower().strip(" .!,'\"") not in _NAME_FILLER
+
+
+def _apply_name(c: dict, f: dict, s: dict) -> None:
+    name = (f.get("name") or "").strip().split("\n")[0][:60]
+    if _plausible_name(name):
+        c["name"] = name
+    else:
+        c.pop("name", None)      # never let filler satisfy done_when
 
 
 def _apply_intro(c: dict, f: dict, s: dict) -> None:
@@ -894,10 +943,15 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
         c["email_captured"] = True
 ```
 
-Then wire them onto the records: `apply=_apply_intro` on `SHOW_INTRO`,
-`_apply_logo_face` on `ASK_LOGO_PLACEMENT`, `_apply_logo_placed` on `LOGO_ADJUST`,
-`_apply_another_logo` on `ASK_ANOTHER_LOGO`, `_apply_anything_else` on
-`ASK_ANYTHING_ELSE`, `_apply_email` on `ASK_EMAIL`.
+Then wire them onto the records: `apply=_apply_name` on `ASK_NAME`,
+`_apply_intro` on `SHOW_INTRO`, `_apply_logo_face` on `ASK_LOGO_PLACEMENT`,
+`_apply_logo_placed` on `LOGO_ADJUST`, `_apply_another_logo` on
+`ASK_ANOTHER_LOGO`, `_apply_anything_else` on `ASK_ANYTHING_ELSE`,
+`_apply_email` on `ASK_EMAIL`.
+
+`orchestrator_v2` does `collected.update(fields)` **before** calling `apply`, so
+`_apply_name` must actively `pop` an implausible name rather than merely decline
+to set it — the merge will already have written it.
 
 - [ ] **Step 4: Run test to verify it passes**
 
