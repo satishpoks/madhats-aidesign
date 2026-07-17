@@ -117,7 +117,14 @@ export function DesignStudioSurface() {
   // exactly like the v1 render. Guard so a re-render never double-fires.
   const finalizeStarted = useRef(false)
   useEffect(() => {
-    if (triggerFinalize && !finalizeStarted.current) {
+    if (!triggerFinalize) {
+      // Re-arm: the refine confirm step fires trigger_finalize a SECOND time.
+      // Without this the ref stays true from the first finalize and the
+      // re-render is silently swallowed.
+      finalizeStarted.current = false
+      return
+    }
+    if (!finalizeStarted.current) {
       finalizeStarted.current = true
       lockAll()
       void doRender()

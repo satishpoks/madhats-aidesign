@@ -200,6 +200,69 @@ async def _apply_refine(current: ConversationState, collected: dict, message: st
             details.append(text[:200])
 
 
+async def _apply_canvas_edit(session: dict, collected: dict, message: str) -> list[dict]:
+    """Apply a described change to the CANVAS rather than to the prompt.
+
+    Canvas sessions only. Returns fully-resolved canvas_ops for the frontend and
+    records which of the three outcomes happened, which is what advance_state
+    routes on:
+      - ops        -> CONFIRM_CANVAS_EDIT (free; no render until they say yes)
+      - refused    -> OFFER_REFINE, noted to brief_notes for the team
+      - stalled    -> DESCRIBE_CHANGES (Haiku down; never guess geometry)
+    """
+    from app.services.conversation import canvas_edit as ce
+
+    text = (message or "").strip()
+    for k in ("canvas_edit_ops", "canvas_edit_refused", "canvas_edit_stalled"):
+        collected.pop(k, None)
+    design = session.get("canvas_design") or {}
+    try:
+        raw = await ie.interpret_canvas_edit(text, ce.inventory(design))
+    except ie.LLMUnavailable:
+        collected["canvas_edit_stalled"] = True
+        return []
+    ops = ce.resolve_ops(raw, design)
+    if not ops:
+        # Render-level ("thicker embroidery") or unreadable: the team sees it at
+        # quote time rather than it evaporating. No PII — this is design text.
+        collected.setdefault("brief_notes", []).append(f"Refine request: {text[:300]}")
+        collected["canvas_edit_refused"] = True
+        return []
+    collected["canvas_edit_ops"] = True
+    return ops
+
+
+async def _apply_edit_confirm(collected: dict, message: str) -> None:
+    """Read the customer's answer at CONFIRM_CANVAS_EDIT: happy with the
+    change as applied, or want it different.
+
+    Chip labels are "Looks right" / "Not quite" (see _public_data) and match
+    deterministically with no model call — we generated those labels, so
+    matching them back is an identity lookup against the EXACT label (strip +
+    casefold), same precedent as the v2 registry's chip handling. Anything
+    else — including free text that merely CONTAINS one of the phrases, e.g.
+    "that hardly looks right" or "Not quite — the front one looks right" —
+    goes to the interpreter. `is_affirmative`/substring matching is NOT safe
+    here: it reads "that looks wrong" as approval because "lo-ok-s" contains
+    "ok", which is exactly the harm this gate exists to prevent.
+    """
+    collected.pop("edit_confirm_stalled", None)
+    text = (message or "").strip()
+    normalised = text.casefold()
+    if normalised == "looks right":
+        collected["edit_confirmed"] = True
+        return
+    if normalised == "not quite":
+        collected["edit_confirmed"] = False
+        return
+    try:
+        collected["edit_confirmed"] = await ie.interpret_edit_confirm(text)
+    except ie.LLMUnavailable:
+        # Haiku down — stall rather than guess. advance_state re-asks the
+        # chips instead of routing to REGENERATING or DESCRIBE_CHANGES.
+        collected["edit_confirm_stalled"] = True
+
+
 _CONFIRM_WORDS = (
     "generate", "looks good", "confirm", "go ahead", "that's right", "thats right",
     "perfect", "correct", "all good", "spot on", "that's everything",
@@ -335,6 +398,25 @@ def _can_start_design(session_id: str) -> bool:
     return limits.can_start_design(email)
 
 
+def _mark_canvas_rework(current: ConversationState, new_state: ConversationState,
+                         collected: dict) -> None:
+    """Reopen the canvas for a re-render, from either refine route.
+
+    "Rework on the canvas" (ASK_CHANGE_METHOD -> CANVAS_DESIGN) hands the canvas
+    back to the customer; confirming a described edit (CONFIRM_CANVAS_EDIT ->
+    REGENERATING) re-renders the canvas Ricardo just edited. Both need
+    canvas-finalize to re-render instead of re-running the outro questions,
+    which is what `reworking` means to sessions.py.
+    """
+    reopened = (new_state is ConversationState.CANVAS_DESIGN
+                and current is ConversationState.ASK_CHANGE_METHOD)
+    confirmed = (current is ConversationState.CONFIRM_CANVAS_EDIT
+                 and new_state is ConversationState.REGENERATING)
+    if reopened or confirmed:
+        collected["canvas_finalized"] = False
+        collected["reworking"] = True
+
+
 async def handle_message(session_id: str, message: str) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -351,6 +433,7 @@ async def handle_message(session_id: str, message: str) -> dict:
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
 
     state_before = current.value
+    canvas_ops: list[dict] = []
 
     # -----------------------------------------------------------------------
     # 2. KICKOFF: the very first call while still at GREETING
@@ -369,7 +452,14 @@ async def handle_message(session_id: str, message: str) -> dict:
         _apply_fields(current, interp.get("fields") or {}, collected, message)
         # Refine capture runs BEFORE the brief-merge so an "add element" seeds a
         # pending_element and doesn't ALSO leak into the flat design brief.
-        if current in (
+        if (current is ConversationState.DESCRIBE_CHANGES
+                and collected.get("flow_mode") == "canvas"):
+            # Canvas sessions edit the canvas, not the prompt — so this never
+            # touches refine_details, and change_request stays None for them.
+            canvas_ops = await _apply_canvas_edit(session, collected, message)
+        elif current is ConversationState.CONFIRM_CANVAS_EDIT:
+            await _apply_edit_confirm(collected, message)
+        elif current in (
             ConversationState.DESCRIBE_CHANGES,
             ConversationState.REFINE_FOLLOWUP,
             ConversationState.REFINE_CONFIRM,
@@ -444,12 +534,13 @@ async def handle_message(session_id: str, message: str) -> dict:
         else:
             new_state = _route(current, collected, upsell_count)
 
-        # "Rework on the canvas" reopens the canvas for editing: clear the
-        # finalized flag (so the overlay unlocks) and mark the rework so
-        # canvas-finalize re-renders instead of re-running the outro questions.
-        if new_state is ConversationState.CANVAS_DESIGN and current is ConversationState.ASK_CHANGE_METHOD:
-            collected["canvas_finalized"] = False
-            collected["reworking"] = True
+        # Reopen the canvas for a re-render, from either refine route: "Rework
+        # on the canvas" (ASK_CHANGE_METHOD -> CANVAS_DESIGN) hands the canvas
+        # back to the customer; confirming a described edit (CONFIRM_CANVAS_EDIT
+        # -> REGENERATING) re-renders the canvas Ricardo just edited. Both need
+        # canvas-finalize to re-render instead of re-running the outro
+        # questions, which is what `reworking` means to sessions.py.
+        _mark_canvas_rework(current, new_state, collected)
 
         if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
             upsell_count += 1
@@ -583,6 +674,8 @@ async def handle_message(session_id: str, message: str) -> dict:
     ).execute()
 
     data = _public_data(new_state, collected)
+    if canvas_ops:
+        data["canvas_ops"] = canvas_ops
     data["progress"] = progress(new_state, collected)
     return {"reply": reply, "state": new_state.value, "data": data}
 
@@ -671,9 +764,13 @@ async def advance_after_regeneration(session_id: str) -> dict:
 
     new_state = advance_state(current, collected)
     collected["wants_changes"] = False
-    # Clear the refine sub-flow scratch so the NEXT edit starts fresh.
+    # Clear the refine sub-flow scratch so the NEXT edit starts fresh. Includes
+    # the canvas-edit flags and the confirm-gate flags — safe today only
+    # because _apply_canvas_edit/_apply_edit_confirm pop their own on entry,
+    # but this is the one list documenting what a fresh edit starts with.
     for k in ("refine_mode", "refine_details", "refine_followups", "refine_followup_idx",
-              "last_change", "refine_views"):
+              "last_change", "refine_views", "canvas_edit_ops", "canvas_edit_refused",
+              "canvas_edit_stalled", "edit_confirm_stalled", "edit_confirmed"):
         collected.pop(k, None)
 
     reply = await ie.generate_reply(new_state.value, collected, persona)
@@ -955,7 +1052,14 @@ def _apply_fields(state: ConversationState, fields: dict, collected: dict, messa
              or "modif" in low or "different" in low)
             and not ("looks good" in low or "happy" in low)
         )
-    if state is S.DESCRIBE_CHANGES:
+    # CONFIRM_CANVAS_EDIT is handled by the async `_apply_edit_confirm` (it
+    # needs the interpreter, and `_apply_fields` is sync) — dispatched from
+    # `handle_message` alongside `_apply_canvas_edit`.
+    if state is S.DESCRIBE_CHANGES and collected.get("flow_mode") != "canvas":
+        # Canvas sessions edit the canvas, not the prompt — this must stay
+        # unset for them, or the fallback at generate.py:189 folds it into
+        # `change_request` and double-applies a change the canvas already
+        # made for free.
         collected["last_change"] = message.strip()[:400]
 
     # Change-method choice (canvas refine): rework on the canvas vs describe here.
@@ -1153,6 +1257,11 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
     if state is S.REFINE_CONFIRM:
         return {"options": ["No, that's everything"]}
     if state is S.REGENERATING:
+        # A confirmed canvas edit must re-FLATTEN first: the layout guide has to
+        # match the design Ricardo just changed. doRender -> canvas-finalize ->
+        # sessions.py sees `reworking` and returns trigger_regeneration itself.
+        if collected.get("reworking"):
+            return {"trigger_finalize": True}
         return {"trigger_regeneration": True}
     # Canvas quote ask is a yes/no question (handled below), NOT a tap-through
     # statement — so it must not fall into the statement-only block.
@@ -1191,6 +1300,8 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
         return {"options": ["No, generate"]}
     if state is S.ASK_CHANGE_METHOD:
         return {"options": ["Rework on the canvas", "Describe the change here"]}
+    if state is S.CONFIRM_CANVAS_EDIT:
+        return {"options": ["Looks right", "Not quite"]}
     if state is S.SESSION_END and collected.get("quote_url"):
         # The customer asked to request a quote — hand them the /quote link so
         # the frontend can show an "Open quote form" button (opens a new tab).

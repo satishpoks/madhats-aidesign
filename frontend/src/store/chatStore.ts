@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { sendChat, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
+import { parseCanvasOps, applyCanvasOps } from '../lib/canvasOps'
+import { useCanvasStore } from './canvasStore'
 
 export interface ChatMessage {
   id: string
@@ -166,8 +168,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2: [],
     }))
     try {
-      const res = await sendChat(sessionId, text)
+      // On a describe-a-change turn, send the live canvas so the backend edits
+      // against what's on screen (accumulated edits), not the last saved design.
+      const liveDesign = get().chatState === 'describe_changes'
+        ? useCanvasStore.getState().toCanvasDesign()
+        : undefined
+      const res = await sendChat(sessionId, text, liveDesign)
       const parsed = parseData(res.data)
+      applyCanvasOps(parseCanvasOps(res.data))   // before set(): patch, then Surface's lock effect
       set(state => ({
         messages: [
           ...state.messages,

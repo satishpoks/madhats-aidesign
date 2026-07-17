@@ -193,7 +193,7 @@ describe('ChatPanel option chips', () => {
 
     await waitFor(() => {
       // first call: kickoff (''), second call: chip click ('1')
-      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', '1')
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', '1', undefined)
     })
   })
 
@@ -269,7 +269,7 @@ describe('ChatPanel option chips', () => {
     fireEvent.click(continueBtn)
 
     await waitFor(() => {
-      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'ok')
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'ok', undefined)
     })
   })
 })
@@ -514,7 +514,7 @@ describe('ChatPanel special state banners', () => {
     // The email is sent through the normal chat turn, which captures it
     // server-side and advances the conversation.
     await waitFor(() =>
-      expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'sam@example.com'),
+      expect(sendChat).toHaveBeenCalledWith('sess-test-123', 'sam@example.com', undefined),
     )
   })
 })
@@ -621,7 +621,7 @@ describe('ChatPanel colour swatches', () => {
       reply: 'Great choice!', state: 'recommend_embroidery', data: {},
     })
     fireEvent.click(navy)
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', 'Navy'))
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', 'Navy', undefined))
   })
 
   it('renders a custom colour picker and sends the picked hex', async () => {
@@ -645,7 +645,7 @@ describe('ChatPanel colour swatches', () => {
     })
     fireEvent.click(await screen.findByRole('button', { name: /use this colour/i }))
     await waitFor(() =>
-      expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', '#1b5e20'),
+      expect(vi.mocked(sendChat)).toHaveBeenLastCalledWith('sess-test-123', '#1b5e20', undefined),
     )
   })
 })
@@ -686,7 +686,7 @@ describe('ChatPanel logo upload', () => {
       expect(vi.mocked(uploadLogo)).toHaveBeenCalledWith('sess-test-123', file)
     })
     await waitFor(() => {
-      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'Uploaded my logo')
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'Uploaded my logo', undefined)
     })
   })
 
@@ -870,7 +870,7 @@ describe('ChatPanel pin annotator', () => {
     fireEvent.click(addAnotherBtn)
 
     await waitFor(() => {
-      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'add another')
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'add another', undefined)
     })
   })
 
@@ -905,7 +905,7 @@ describe('ChatPanel pin annotator', () => {
     fireEvent.click(doneBtn)
 
     await waitFor(() => {
-      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'done')
+      expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-test-123', 'done', undefined)
     })
   })
 

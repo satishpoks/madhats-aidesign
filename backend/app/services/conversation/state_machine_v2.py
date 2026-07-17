@@ -27,6 +27,28 @@ from app.services.conversation.state_machine import ConversationState as S
 V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
 
+def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
+    """The fields of one interpreted turn that are safe to bank.
+
+    First-unmet routing only moves forward while answered stays answered: every
+    done_when is a truthiness read, so the ONE write that can un-answer a settled
+    step is truthy -> falsy. The interpreter sees every WRITABLE_SLOT on every
+    turn (deliberately — that is what banks a volunteered "and I need 50 caps"),
+    which means a stray "no" anywhere in a free-text answer can fill an unrelated
+    bool false and walk the router backward into a question the customer already
+    answered. Live case: "no - i just want embroydary" at ASK_DECORATION_MIX
+    filled decor_done:false, re-asking two settled steps.
+
+    So: a falsy value may only overwrite a truthy one on the step that ASKED for
+    that slot, where clearing it is the answer (backing out of a mix). Writes to
+    unset slots pass untouched, keeping slot-filling flexible, and a truthy
+    correction (50 -> 100 caps) never un-answers anything, so it passes too.
+    """
+    own = set(step.slots)
+    return {k: v for k, v in fields.items()
+            if k in own or v or not collected.get(k)}
+
+
 def next_step(collected: dict) -> Step:
     """The first step whose done_when is False. FINALIZE_CANVAS is terminal
     (done_when is always False), so this always returns a Step."""
@@ -46,6 +68,9 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     S.ASK_DECOR_PLACEMENT: S.ASK_ADD_DECOR,
     S.DECOR_ADJUST: S.ASK_ADD_DECOR,
     S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
+    # Describing a mix is a follow-up to the decoration question, not a step of
+    # its own — asking for a mix must not make the counter grow a step.
+    S.ASK_DECORATION_MIX: S.ASK_DECORATION,
 }
 _PROGRESS_PATH: list[S] = [
     S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,

@@ -121,6 +121,10 @@ STATE_PROMPTS: dict[str, str] = {
         "the design themselves, or describe the change here for the team. Offer both, "
         "warm, one sentence."
     ),
+    "confirm_canvas_edit": (
+        "Tell them you've made that change on the design they can see now, and "
+        "ask if it looks right or they'd like it different. One or two sentences."
+    ),
     "describe_changes": (
         "Tell the customer you'll refine the design in ONE pass, so they should "
         "describe EVERYTHING they'd like changed — colours, text, size, placement, "
@@ -394,6 +398,10 @@ CANNED_REPLIES: dict[str, str] = {
     "ask_change_method": (
         "Sure! Would you like to reopen the canvas and tweak it yourself, or just "
         "describe the change here and I'll pass it to the team?"
+    ),
+    "confirm_canvas_edit": (
+        "Done — take a look at the design now. Does that look right, or would "
+        "you like it different?"
     ),
     "ask_notes": (
         "Almost there! Any final notes for our team before I generate your design — "
@@ -1053,10 +1061,12 @@ V2_TOOL_TIPS = {
 # keyed by TOOL, and this step hands over the upload tool only to keep the
 # placed logo selectable (see Step.instructions / the lock note on the step) —
 # the upload tip's "tap Upload image" would be actively wrong here.
+# Must not promise processing or a wait: the mark is instant and the canvas
+# does not change. The knockout happens at render.
 V2_BG_INSTRUCTIONS = (
-    "Click your logo on the cap to select it, then tick \"Remove background\" "
-    "in the toolbar underneath — it'll get a ✂ badge. The canvas won't change: "
-    "the background is knocked out when we render your design."
+    "If it does, I'll mark it and we'll knock the background out when we "
+    "render your design — the cap on screen won't change. You can also tick "
+    "or untick \"Remove background\" yourself in the toolbar under the cap."
 )
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
@@ -1119,3 +1129,51 @@ We understood: {fields}
 
 Reply with the sentence only.
 """
+
+# Refine on the canvas: read the customer's change into a CLOSED vocabulary.
+# The model never emits a coordinate — canvas_edit.resolve_ops does the maths.
+# An empty list is a real answer: it means "the canvas can't express this",
+# which routes to the refuse path rather than a render.
+CANVAS_EDIT_PROMPT = """The customer has a cap design and wants to change it.
+Here is every element currently on the design:
+
+{inventory}
+
+The customer says: "{message}"
+
+Return JSON: {{"ops": [...]}} — one op per change they asked for.
+Each op MUST use an `element_id` from the list above. Never invent an id.
+
+Allowed ops (use EXACTLY these shapes, no other fields, no numbers):
+- {{"op": "move", "element_id": "…", "direction": "up|down|left|right", "amount": "small|medium|large"}}
+- {{"op": "resize", "element_id": "…", "direction": "bigger|smaller", "amount": "small|medium|large"}}
+- {{"op": "rotate", "element_id": "…", "direction": "clockwise|anticlockwise", "amount": "small|medium|large"}}
+- {{"op": "recolour", "element_id": "…", "colour": "a plain colour name or #rrggbb"}}
+- {{"op": "font", "element_id": "…", "font": "font family name"}}
+- {{"op": "curve", "element_id": "…", "direction": "up|down|none"}}
+- {{"op": "set_text", "element_id": "…", "text": "the new wording"}}
+- {{"op": "delete", "element_id": "…"}}
+
+Return {{"ops": []}} if they are asking for something the LAYOUT cannot express —
+how the decoration is made or finished ("thicker embroidery", "make it pop",
+"less shiny", "different material"), or anything not about the elements listed.
+Do NOT force an unrelated request into an op.
+
+JSON only."""
+
+# Confirm gate after a canvas edit is applied. The model returns a plain bool —
+# no ops, no geometry — so a misread never spends a render by itself; the
+# state machine still requires edit_confirmed to route to REGENERATING.
+CANVAS_EDIT_CONFIRM_PROMPT = """The customer just saw a change applied to their
+cap design and was asked if they're happy with it.
+
+The customer says: "{message}"
+
+Are they saying the change looks right and they're happy with it, or are they
+saying it's wrong / not what they wanted / needs more adjustment?
+
+Return JSON: {{"happy": true}} if they are approving the change as shown.
+Return JSON: {{"happy": false}} if they are NOT happy with it (including any
+hedge, complaint, or request for a further change).
+
+JSON only."""

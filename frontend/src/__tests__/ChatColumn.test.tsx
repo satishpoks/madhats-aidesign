@@ -74,7 +74,7 @@ describe('ChatColumn', () => {
     })
     render(<ChatColumn />)
     fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes'))
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes', undefined))
   })
 
   it('sends typed input on submit', async () => {
@@ -82,7 +82,7 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     fireEvent.change(screen.getByPlaceholderText(/type your message/i), { target: { value: 'hello' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello'))
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello', undefined))
   })
 
   it('ask_decoration shows a multi-select with cost caveat once 2+ chosen', async () => {
@@ -102,6 +102,6 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     const cont = await screen.findByRole('button', { name: 'Continue' })
     fireEvent.click(cont)
-    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none'))
+    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', undefined))
   })
 })

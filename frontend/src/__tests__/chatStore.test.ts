@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, test, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../lib/api', () => ({
   sendChat: vi.fn(),
@@ -8,7 +8,8 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { useChatStore } from '../store/chatStore'
-import { pollGenerationAdvance } from '../lib/api'
+import { useCanvasStore } from '../store/canvasStore'
+import { sendChat, pollGenerationAdvance } from '../lib/api'
 
 beforeEach(() => {
   useChatStore.getState().reset()
@@ -37,5 +38,51 @@ describe('advanceGeneration', () => {
     const before = useChatStore.getState().messages.length
     await useChatStore.getState().advanceGeneration('sess-1')
     expect(useChatStore.getState().messages.length).toBe(before)
+  })
+})
+
+test('sendMessage applies canvas_ops from the response exactly once', async () => {
+  useCanvasStore.getState().reset()
+  useCanvasStore.getState().addImage('logo.png')
+  vi.mocked(sendChat).mockResolvedValue({
+    reply: 'Marked it.', state: 'ask_another_logo',
+    data: { canvas_ops: [{ target: { kind: 'pending_logo', face: 'front' }, patch: { removeBg: true } }] },
+  } as never)
+  await useChatStore.getState().sendMessage('s1', 'Yes, remove background')
+  expect(useCanvasStore.getState().faces.front[0].removeBg).toBe(true)
+})
+
+test('hydrate never applies canvas_ops — a resume must not re-edit the design', () => {
+  useCanvasStore.getState().reset()
+  useCanvasStore.getState().addImage('logo.png')
+  useChatStore.getState().hydrate([], 'ask_another_logo', {
+    canvas_ops: [{ target: { kind: 'pending_logo', face: 'front' }, patch: { removeBg: true } }],
+  })
+  expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
+})
+
+describe('sendMessage sends the live canvas_design only at describe_changes', () => {
+  beforeEach(() => {
+    useCanvasStore.getState().reset()
+    useCanvasStore.getState().addImage('logo.png')
+  })
+
+  it('passes the live canvas_design as the 3rd sendChat arg at describe_changes', async () => {
+    useChatStore.setState({ chatState: 'describe_changes' })
+    vi.mocked(sendChat).mockResolvedValue({
+      reply: 'Moved it up.', state: 'confirm_canvas_edit', data: {},
+    } as never)
+    await useChatStore.getState().sendMessage('s1', 'move it up more')
+    const liveDesign = useCanvasStore.getState().toCanvasDesign()
+    expect(sendChat).toHaveBeenCalledWith('s1', 'move it up more', liveDesign)
+  })
+
+  it('sends undefined as the 3rd arg on any other state', async () => {
+    useChatStore.setState({ chatState: 'offer_refine' })
+    vi.mocked(sendChat).mockResolvedValue({
+      reply: 'ok', state: 'offer_refine', data: {},
+    } as never)
+    await useChatStore.getState().sendMessage('s1', 'hello')
+    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', undefined)
   })
 })

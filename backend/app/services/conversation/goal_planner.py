@@ -32,6 +32,12 @@ GATE_STATES: frozenset[S] = frozenset(
         # never reopened, and a v2 session (which never sets v1's
         # `email_prompt_shown` sentinel) was re-asked for its verified email.
         S.ASK_CHANGE_METHOD,
+        # Confirming a canvas edit ("Looks right") — resolved by advance_state.
+        # It MUST be a gate: the planner only knows the forward questionnaire,
+        # which is already complete post-design, so it would answer GENERATING —
+        # a fresh generation burning the daily cap instead of a regeneration.
+        # Same trap as ASK_CHANGE_METHOD above.
+        S.CONFIRM_CANVAS_EDIT,
         S.ASK_DECORATION,
         S.ASK_NOTES,
         S.GENERATING,

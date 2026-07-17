@@ -170,6 +170,12 @@ def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
     _mark_session_verified) so the guard write preserves email_verified. The
     resume link reuses the same ``?session=<share_token>`` deep link the preview
     email's edit CTA uses. PII (name/email) is never logged.
+
+    Skipped for v2 canvas sessions: v2 asks for the email at the END of the flow
+    (ask_email sits right before FINALIZE_CANVAS), so the customer is still in
+    the tab watching their design render — "pick up where you left off" is
+    nonsense there, and the preview email follows on its own. Every other flow
+    captures the email mid-design, where the resume link earns its place.
     """
     row = (
         sb.table("design_sessions")
@@ -181,6 +187,10 @@ def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
     if not row.data:
         return
     collected = row.data[0].get("collected") or {}
+    # Same selector as chat.py::_dispatch — no guard flag is written, so
+    # flipping the flag back off restores the v1 behaviour for these sessions.
+    if settings.canvas_orchestrator_v2 and collected.get("flow_mode") == "canvas":
+        return
     if collected.get("resume_email_sent"):
         return
     share_token = row.data[0].get("share_token") or ""

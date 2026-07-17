@@ -513,6 +513,85 @@ def test_resume_email_falls_back_to_defaults_without_store(monkeypatch):
     assert kwargs.get("primary_colour") == "#ff5c00"
 
 
+def test_resume_email_skipped_for_v2_canvas_sessions(monkeypatch):
+    """v2 asks for the email at the END of the flow — the customer is sitting in
+    the tab watching their design render, so a 'pick up where you left off' email
+    is nonsense. Verification (and everything else) must still work."""
+    from app.api.routes import leads as leads_routes
+
+    token = jwt.encode({"lead_id": "lead-1"}, settings.admin_secret, algorithm="HS256")
+    token_hash = leads_routes.leads_service.hash_token(token)
+
+    lead = _lead_row(email_verified=False, preview_email_sent=False)
+    verification = {"id": "ver-1", "token_hash": token_hash, "used_at": None}
+    session = _session_row(collected={"quantity": 24, "flow_mode": "canvas"})
+    tables = {
+        "leads": [lead],
+        "email_verifications": [verification],
+        "generations": [],  # nothing complete yet -> preview gate fails
+        "design_sessions": [session],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    resume_calls: list = []
+
+    monkeypatch.setattr(leads_routes, "get_supabase", lambda: fake)
+    monkeypatch.setattr(leads_routes.settings, "canvas_orchestrator_v2", True)
+    _patch_common(monkeypatch, fake, sent)
+    monkeypatch.setattr(
+        leads_routes.email_service,
+        "send_resume_email",
+        lambda *a, **k: resume_calls.append((a, k)) or True,
+    )
+
+    import asyncio
+
+    html = asyncio.run(leads_routes.confirm_verification(token))
+
+    assert html.status_code == 200
+    assert lead["email_verified"] is True
+    assert resume_calls == []
+    # No guard flag written — flipping the flag back off restores v1 behaviour.
+    assert "resume_email_sent" not in session["collected"]
+
+
+def test_resume_email_still_sent_for_v1_canvas_sessions(monkeypatch):
+    """The skip is v2-only. v1 captures the email early, mid-design, where the
+    resume link is genuinely useful — flag off, a canvas session still gets it."""
+    from app.api.routes import leads as leads_routes
+
+    token = jwt.encode({"lead_id": "lead-1"}, settings.admin_secret, algorithm="HS256")
+    token_hash = leads_routes.leads_service.hash_token(token)
+
+    lead = _lead_row(email_verified=False, preview_email_sent=False)
+    verification = {"id": "ver-1", "token_hash": token_hash, "used_at": None}
+    session = _session_row(collected={"quantity": 24, "flow_mode": "canvas"})
+    tables = {
+        "leads": [lead],
+        "email_verifications": [verification],
+        "generations": [],
+        "design_sessions": [session],
+    }
+    fake = _FakeSB(tables)
+    sent: dict = {}
+    resume_calls: list = []
+
+    monkeypatch.setattr(leads_routes, "get_supabase", lambda: fake)
+    monkeypatch.setattr(leads_routes.settings, "canvas_orchestrator_v2", False)
+    _patch_common(monkeypatch, fake, sent)
+    monkeypatch.setattr(
+        leads_routes.email_service,
+        "send_resume_email",
+        lambda *a, **k: resume_calls.append((a, k)) or True,
+    )
+
+    import asyncio
+
+    asyncio.run(leads_routes.confirm_verification(token))
+
+    assert len(resume_calls) == 1
+
+
 def test_preview_email_quote_url_is_quote_page(monkeypatch):
     """The preview email's 'request a quote' CTA must link to the real quote
     page (/quote/<token>), not a mailto: placeholder, and the token must decode

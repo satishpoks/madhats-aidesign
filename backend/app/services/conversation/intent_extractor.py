@@ -631,6 +631,8 @@ _SLOT_DOCS: dict[str, str] = {
     "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
     "quantity": "quantity (integer) — how many caps; 0 means not sure",
     "decoration_types": "decoration_types (list of strings) — decoration methods they chose, copied EXACTLY from the options offered in the question",
+    "decoration_mix": "decoration_mix (bool) — true if they want a MIX of more than one decoration method, or aren't sure which single one they want",
+    "decoration_mix_note": "decoration_mix_note (string) — their description of the mix of methods they want, in their own words",
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
 }
@@ -688,3 +690,55 @@ async def write_ack(persona: str, fields: dict) -> str:
         log.warning("v2_ack_failed", err=type(exc).__name__)
         return ""
     return _strip_meta_preamble(repair_mojibake(text)).strip()
+
+
+# ---------------------------------------------------------------------------
+# Refine on the canvas: read a described change into closed-vocab ops.
+# canvas_edit.resolve_ops does every bit of the arithmetic — this only reads
+# WHAT the customer wants. See canvas_edit.py for the split rationale.
+# ---------------------------------------------------------------------------
+
+
+async def interpret_canvas_edit(message: str, inventory: list[dict]) -> list[dict]:
+    """Raw closed-vocabulary ops for one described change.
+
+    Raises LLMUnavailable rather than guessing — geometry is exactly where a
+    wrong guess wrecks a design the customer already approved. `[]` is a real
+    answer meaning "not expressible on the canvas" (the refuse path).
+    """
+    if not _has_llm:
+        raise LLMUnavailable("no anthropic api key")
+    lines = "\n".join(
+        f"- id={e['id']} ({e['face']} face): {e['description']}" for e in inventory
+    ) or "(nothing on the design)"
+    prompt = prompts.CANVAS_EDIT_PROMPT.format(inventory=lines, message=message)
+    try:
+        raw = await _complete(prompt, max_tokens=400)
+    except Exception as exc:  # noqa: BLE001 — any SDK error is "unavailable"
+        # err=type(exc).__name__, not str(exc): the prompt carries the
+        # customer's own words and some SDK errors stringify request content.
+        log.warning("canvas_edit_interpret_failed", err=type(exc).__name__)
+        raise LLMUnavailable(str(exc)) from exc
+    ops = _parse_json(raw).get("ops")
+    return ops if isinstance(ops, list) else []
+
+
+async def interpret_edit_confirm(message: str) -> bool:
+    """Is the customer happy with the just-applied canvas edit?
+
+    Raises LLMUnavailable rather than guessing — misreading free text as
+    approval spends a render and burns the daily design cap (the harm the
+    CONFIRM_CANVAS_EDIT gate exists to prevent). Chip taps ("Looks right" /
+    "Not quite") never reach this function; only free text does.
+    """
+    if not _has_llm:
+        raise LLMUnavailable("no anthropic api key")
+    prompt = prompts.CANVAS_EDIT_CONFIRM_PROMPT.format(message=message)
+    try:
+        raw = await _complete(prompt, max_tokens=60)
+    except Exception as exc:  # noqa: BLE001 — any SDK error is "unavailable"
+        # err=type(exc).__name__, not str(exc): the prompt carries the
+        # customer's own words and some SDK errors stringify request content.
+        log.warning("edit_confirm_interpret_failed", err=type(exc).__name__)
+        raise LLMUnavailable(str(exc)) from exc
+    return bool(_parse_json(raw).get("happy"))

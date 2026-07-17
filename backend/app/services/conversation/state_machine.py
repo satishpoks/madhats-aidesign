@@ -48,8 +48,10 @@ class ConversationState(str, Enum):
     ASK_ANYTHING_ELSE = "ask_anything_else"
     FINALIZE_CANVAS = "finalize_canvas"
     ASK_DECORATION = "ask_decoration"
+    ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
     ASK_NOTES = "ask_notes"
     ASK_CHANGE_METHOD = "ask_change_method"
+    CONFIRM_CANVAS_EDIT = "confirm_canvas_edit"   # canvas refine: ops applied, awaiting yes/no
     CONFIRM_BRIEF = "confirm_brief"
     GENERATING = "generating"
     ASK_EMAIL = "ask_email"
@@ -117,7 +119,15 @@ TRANSITIONS: dict[ConversationState, list[ConversationState]] = {
     S.SHOW_DESIGN: [S.OFFER_REFINE],
     S.OFFER_REFINE: [S.ASK_CHANGE_METHOD, S.DESCRIBE_CHANGES, S.QUOTE_REQUESTED],
     S.ASK_CHANGE_METHOD: [S.CANVAS_DESIGN, S.DESCRIBE_CHANGES],
-    S.DESCRIBE_CHANGES: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
+    # Canvas sessions: DESCRIBE_CHANGES edits the canvas rather than the
+    # prompt — DESCRIBE_CHANGES (stalled, re-ask), CONFIRM_CANVAS_EDIT (ops
+    # applied, awaiting yes/no), and OFFER_REFINE (refused, noted for the
+    # team) are canvas-only successors alongside the legacy chat successors.
+    S.DESCRIBE_CHANGES: [
+        S.DESCRIBE_CHANGES, S.CONFIRM_CANVAS_EDIT, S.OFFER_REFINE,
+        S.ELEMENT_DEEPDIVE, S.REFINE_FOLLOWUP, S.REFINE_CONFIRM,
+    ],
+    S.CONFIRM_CANVAS_EDIT: [S.REGENERATING, S.DESCRIBE_CHANGES],
     S.REFINE_FOLLOWUP: [S.REFINE_FOLLOWUP, S.REFINE_CONFIRM],
     S.REFINE_CONFIRM: [S.REGENERATING],
     S.REGENERATING: [S.OFFER_REFINE],
@@ -264,9 +274,23 @@ def advance_state(
     #     confirm -> regen. Adding a text/graphic/logo seeds a pending_element,
     #     which routes into the SAME per-element deep-dive as the main flow.
     if current is S.DESCRIBE_CHANGES:
+        # Canvas sessions edit the CANVAS, not the prompt: the change is applied
+        # to the design on screen and confirmed before a render is spent. A
+        # described change never becomes a change_request for these sessions.
+        if collected.get("flow_mode") == "canvas":
+            if collected.get("canvas_edit_stalled"):
+                return S.DESCRIBE_CHANGES     # Haiku down — ask again, guess nothing
+            if collected.get("canvas_edit_ops"):
+                return S.CONFIRM_CANVAS_EDIT
+            return S.OFFER_REFINE             # refused: noted for the team, no render
         if collected.get("pending_element"):
             return S.ELEMENT_DEEPDIVE
         return S.REFINE_FOLLOWUP if (collected.get("refine_followups") or []) else S.REFINE_CONFIRM
+
+    if current is S.CONFIRM_CANVAS_EDIT:
+        if collected.get("edit_confirm_stalled"):
+            return S.CONFIRM_CANVAS_EDIT   # Haiku down — re-ask, guess nothing, spend nothing
+        return S.REGENERATING if collected.get("edit_confirmed") else S.DESCRIBE_CHANGES
 
     if current is S.REFINE_FOLLOWUP:
         queue = collected.get("refine_followups") or []

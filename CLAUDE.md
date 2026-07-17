@@ -329,12 +329,25 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   **free text goes to Haiku** (`intent_extractor.interpret_turn_v2`) which fills
   *slots only and never names a state*; validation (`validate_fields`) drops
   anything outside `WRITABLE_SLOTS` so internal flags like `email_captured` can
-  never be model-written. **There is no keyword fallback** — on `LLMUnavailable`
+  never be model-written. **A second guard, `state_machine_v2.merge_fields`,
+  keeps answered steps answered** — every `done_when` is a truthiness read, so
+  the one write that can un-answer a settled step is truthy→falsy, and only the
+  step that ASKED for a slot may make it falsy. The interpreter deliberately
+  sees every `WRITABLE_SLOT` every turn (that is what banks a volunteered "and I
+  need 50 caps"), which shipped a live loop: "no - i just want embroydary" at
+  `ask_decoration_mix` made Haiku fill `decor_done:false`, so first-unmet walked
+  BACKWARD and re-asked two settled questions. Writes to unset slots and truthy
+  corrections (50→100 caps) still pass, so slot-filling stays flexible. This is
+  why `decoration_mix` is a slot of `ask_decoration_mix` as well as
+  `ask_decoration`: cancelling a mix is the one legitimate falsy write there, and
+  it re-opens `ask_decoration` (the right question to land on).
+  **There is no keyword fallback** — on `LLMUnavailable`
   the turn **stalls** (state unchanged, nothing guessed) and after 2 consecutive
   failures re-renders the chips to nudge a tap, so an outage degrades to a
-  tap-through wizard rather than stranding a pre-email session. **Three steps are
-  the exception** (`Step.direct_answer`): `ask_name`/`ask_email`/`ask_purpose`
-  have no chips, so the chip-nudge escape hatch can never fire for them — on
+  tap-through wizard rather than stranding a pre-email session. **Four steps are
+  the exception** (`Step.direct_answer`):
+  `ask_name`/`ask_email`/`ask_purpose`/`ask_decoration_mix` have no chips, so
+  the chip-nudge escape hatch can never fire for them — on
   `LLMUnavailable` they resolve the answer deterministically from the raw
   message instead (name still guarded by `canvas_steps._plausible_name`, email
   via `leads_service.extract_email`) so a Haiku outage (or no
@@ -371,28 +384,49 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   so text had **always** silently landed on the front; `_face(step, collected)`
   is now step-aware via `_DECOR_STEPS`, and `_apply_anything_else` clears
   `decor_face` so a second decoration re-asks). After quantity,
-  `ask_decoration` collects the decoration method — a **multi-select of the
-  store's `decoration_types` rows**, whose first choice sets the
+  `ask_decoration` collects the decoration method — **single-select** chips, one
+  per the store's `decoration_types` rows, whose choice sets the
   `decoration_type` render-style bucket the prompt builder reads (v2 never
-  collected it before). It is the registry's only user of three capabilities
-  added for it: `Step.prepare(collected, store)` (loads store-scoped data before
+  collected it before). It is the registry's only user of two capabilities added
+  for it: `Step.prepare(collected, store)` (loads store-scoped data before
   the step renders; **may satisfy its own step** — a store with no methods
   configured, a missing store, or a DB error all auto-skip rather than
   dead-ending the funnel one step before email capture — so the orchestrator
-  re-resolves `next_step` after it), `Step.chips_from` (chips derived from
-  `collected`; read ONLY via `chips_of`, never `step.chips`), and
-  `Step.multiselect` (the UI comma-joins the labels it was given, or ships the
-  literal `'none'`). `decoration_types` is store-dynamic so it cannot live in
+  re-resolves `next_step` after it) and `Step.chips_from` (chips derived from
+  `collected`; read ONLY via `chips_of`, never `step.chips`).
+  `decoration_types` is store-dynamic so it cannot live in
   `SLOT_ENUMS` — `_apply_decoration`'s exact-token filter against
   `decoration_options` IS the interpreter guard. `Step.instructions` overrides
   the tool-keyed `V2_TOOL_TIPS` for a step whose tool is held open for a
-  non-tool reason (`ask_logo_bg`). The cost caveat is NOT in the ask copy —
-  `ChatColumn.tsx:597-600` already renders it when 2+ are selected.
+  non-tool reason (`ask_logo_bg`).
+  **A mix is single-select's escape hatch, not a second tick (2026-07-17):** one
+  method is the normal answer and mixing costs more per hat, so a mix is a
+  deliberate choice — a final `canvas_steps.MIX_CHIP_LABEL` chip sets
+  `decoration_mix`, which satisfies `ask_decoration` and makes the conditional
+  `ask_decoration_mix` first-unmet. That step takes the mix in free text
+  (`decoration_mix_note` → `brief_notes` verbatim for the team; deliberately NOT
+  filtered against `decoration_options`, since the point is that no offered
+  method covers it) and derives the render bucket from the customer's own words
+  via the same `_decoration_style_bucket` keyword table, falling back to the
+  prompt builder's own "print" default. It collapses onto `ask_decoration` in
+  `_PROGRESS_ANCHORS`, so asking for a mix never grows the counter (still 8).
+  **The cost caveat lives in the ask copy** (both steps) because single-select
+  can never trip `ChatColumn.tsx:597-600`, which only renders its own caveat at
+  2+ ticks — that path is now **v1-only**, as is the registry's
+  `Step.multiselect` field (retained, no v2 user; v1's `ASK_DECORATION` still
+  ships `multiselect: true` from `orchestrator.py:1186`).
   **Known gap (pre-existing, not from this work):** resuming a v2 canvas session
   mid-design via `?session=<token>` does not rehydrate the `canvas` directive,
   so `isV2` is false and the customer gets v1's whole-rail lock + "Design locked
   in — finishing up" over a live design. Post-design resume (the preview email's
   edit link) is unaffected, since the tail states are v1-owned anyway.
+  **No resume email in v2:** because `ask_email` sits at the END of the flow,
+  the customer verifies while still in the tab watching the render — so
+  `leads.py::_maybe_send_resume_email` returns early for v2 canvas sessions
+  (same `settings.canvas_orchestrator_v2 and flow_mode == "canvas"` selector as
+  `chat.py::_dispatch`; no guard flag written, so flipping the flag off restores
+  it). The "Pick up where you left off" email is retained and unchanged for
+  every other flow, which captures the email mid-design.
   Spec/plan: `docs/superpowers/{specs,plans}/2026-07-17-v2-canvas-flow-gaps*`. **Known landmine:** `state_machine.is_negative`
   still matches by **substring** ("a**no**ther" contains "no") and **v1 still
   routes on it** — v2 no longer calls it (proven by
@@ -402,7 +436,63 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   interpreter raising `LLMUnavailable` for the whole walk — proving the entire
   front half needs no model at all). Spec/plan:
   `docs/superpowers/{specs,plans}/2026-07-17-llm-assisted-canvas-orchestration*`.
-- Tests: backend `pytest` 718 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **Canvas-led refine + self-ticking background removal (2026-07-17):** the
+  backend can mutate the canvas via `data.canvas_ops` — fully-resolved flat
+  patches (`{target, patch|remove}`), applied in `chatStore.sendMessage`'s
+  response handler via `lib/canvasOps.ts`, **never in a React effect** (an
+  effect fires on change, which would re-apply on resume and re-flag the wrong
+  logo on a later loop pass) and never on `hydrate`. Two target kinds:
+  `{kind:"element", id, face}` (refine — ids come from the persisted
+  `canvas_design`) and `{kind:"pending_logo", face}` (v2 background removal —
+  the backend has NO id there, since `canvas_design` is only written at
+  finalize, so the frontend resolves "last unlocked image on that face", the
+  same anchor `lockPlaced` uses). `canvasStore` gained face-aware
+  `patchElement`/`removeElementOn`/`patchPendingLogo` because `updateElement`
+  only ever sees `activeFace`.
+  **Background removal now ticks itself** (`canvas_steps._ops_logo_bg`): the
+  chip is "Yes, remove background" and emits the op. This fixed a live bug —
+  `pending_logo["bg"]` routes (it is `ask_logo_bg`'s `done_when` marker, so do
+  NOT delete it) but nothing on the RENDER path reads it; the knockout comes
+  solely from `el.removeBg` on the canvas blob, so "Yes, I've ticked it"
+  without ticking silently rendered no knockout. `tool="upload"` still stays —
+  the toggle remains a manual override. Copy still must never promise
+  processing or a wait.
+  **A described change now edits the canvas, not the prompt**
+  (`services/conversation/canvas_edit.py` + `ie.interpret_canvas_edit`):
+  `OFFER_REFINE` → "Describe the change here" → Haiku returns a **closed
+  vocabulary** (`move/resize/rotate/recolour/font/curve/set_text/delete`) and
+  **never a number** — `canvas_edit.resolve_ops` does the arithmetic and
+  clamping, a pure function over plain dicts (v2's "the LLM reads the customer,
+  it never routes" extended to "it never computes geometry"). Element ids are
+  validated against an inventory built from `canvas_design`, so a hallucinated
+  id is dropped. Ops → `CONFIRM_CANVAS_EDIT` ("Looks right" / "Not quite");
+  iteration before confirming is free and burns no edit cap. The confirm chip
+  resolves by **exact** label match (0 model calls); other free text goes to
+  `ie.interpret_edit_confirm` (a Haiku yes/no — the substring `is_affirmative`
+  would read "that looks wrong" as yes and spend a render), and an outage sets
+  `edit_confirm_stalled` → re-ask, never render. Render-level requests
+  ("thicker embroidery") return `[]` → refused, appended to `brief_notes` for
+  the team, back to `OFFER_REFINE` — **`change_request` is retired for canvas
+  sessions** (the `last_change` write is now `flow_mode`-gated so it can't sneak
+  back via `generate.py`'s fallback); non-canvas (`session`/`blank`) refine
+  keeps it unchanged. `LLMUnavailable` on the edit read stalls rather than
+  guessing geometry. **`CONFIRM_CANVAS_EDIT` must stay in
+  `goal_planner.GATE_STATES`** — `_route` only consults `advance_state` for
+  gate states; otherwise `next_goal` answers `GENERATING` for a finished canvas
+  session, a fresh render that burns the daily cap (the same trap
+  `ASK_CHANGE_METHOD` documents). Confirming reuses the existing rework path
+  (`_mark_canvas_rework` sets `reworking=True` → `trigger_finalize` → `doRender`
+  re-flattens the edited canvas → `sessions.py` → `REGENERATING`); `Surface`'s
+  `finalizeStarted` ref is now **re-armed when `triggerFinalize` goes false**,
+  without which the second finalize a refine needs was silently swallowed.
+  Known gaps (tickets, not blockers): confirmed-edit ops are ephemeral (only a
+  `canvas_edit_ops` flag is persisted, not the ops — a reload at the confirm
+  gate loses them); a refused change gets no tailored acknowledgement (lands on
+  the generic `OFFER_REFINE` ask); a no-`ANTHROPIC_API_KEY` deployment
+  permanently stalls at canvas `DESCRIBE_CHANGES` (that state ships no chips to
+  escape with). Spec/plan:
+  `docs/superpowers/{specs,plans}/2026-07-17-canvas-led-refine*`.
+- Tests: backend `pytest` 788 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 
 ---

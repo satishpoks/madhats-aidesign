@@ -16,7 +16,8 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
-        S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
+        S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
+        S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
 
 
@@ -409,7 +410,7 @@ def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
     assert v2.next_step(c).id is S.ASK_LOGO_BG
 
     step = cs.by_id(S.ASK_LOGO_BG)
-    fields = v2.resolve_chip(step, "Yes, I've ticked it", c)
+    fields = v2.resolve_chip(step, "Yes, remove background", c)
     assert fields == {"logo_bg": "removed"}
     c.update(fields)
     step.apply(c, fields, {})
@@ -446,25 +447,97 @@ def test_decoration_is_asked_after_quantity_and_before_email():
     assert v2.next_step(c).id is S.ASK_DECORATION
 
 
-def test_decoration_chips_come_from_the_stores_active_methods():
+def test_decoration_chips_are_the_stores_methods_plus_a_mix_escape_hatch():
     c = {"decoration_options": ["Embroidery", "Screen Print"]}
     labels = [ch.label for ch in cs.chips_of(cs.by_id(S.ASK_DECORATION), c)]
-    assert labels == ["Embroidery", "Screen Print"]
+    assert labels == ["Embroidery", "Screen Print", cs.MIX_CHIP_LABEL]
 
 
-def test_choosing_decorations_sets_the_brief_and_the_render_style_bucket():
+def test_decoration_is_single_select():
+    """One method is the default answer. A mix is possible but deliberately
+    costs an extra step, because it costs the customer more per hat."""
+    assert cs.by_id(S.ASK_DECORATION).multiselect is False
+
+
+def test_the_decoration_ask_warns_that_mixing_costs_more_per_hat():
+    """The v1-only ChatColumn multi-select renders that caveat when 2+ chips are
+    ticked; single-select never trips it, so the copy has to carry it."""
+    ask = cs.by_id(S.ASK_DECORATION).ask.lower()
+    assert "cost" in ask and "per hat" in ask
+
+
+def test_choosing_one_decoration_sets_the_brief_and_the_render_style_bucket():
     c = _quantity_done()
     c["decoration_options"] = ["Embroidery", "Screen Print"]
     step = cs.by_id(S.ASK_DECORATION)
-    fields = v2.resolve_chip(step, "Embroidery, Screen Print", c)
+    fields = v2.resolve_chip(step, "Embroidery", c)
     c.update(fields)
     step.apply(c, fields, {})
 
-    assert c["decoration_types"] == ["Embroidery", "Screen Print"]
-    # The customer's FIRST choice drives the render style.
+    assert c["decoration_types"] == ["Embroidery"]
     assert c["decoration_type"] == "embroidery"
-    assert "Decoration method: Embroidery, Screen Print" in c["brief_notes"]
+    assert "Decoration method: Embroidery" in c["brief_notes"]
+    assert v2.next_step(c).id is S.ASK_EMAIL       # no mix -> no describe step
+
+
+def test_the_mix_chip_routes_to_the_describe_step_and_asks_nothing_else():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = v2.resolve_chip(step, cs.MIX_CHIP_LABEL, c)
+    assert fields == {"decoration_mix": True}
+    c.update(fields)
+    step.apply(c, fields, {})
+
+    assert step.done_when(c)                       # the mix IS an answer
+    assert v2.next_step(c).id is S.ASK_DECORATION_MIX
+
+
+def test_describing_the_mix_records_the_brief_and_a_style_bucket():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    c["decoration_mix"] = True
+    step = cs.by_id(S.ASK_DECORATION_MIX)
+    fields = {"decoration_mix_note": "Embroidery on the front, screen print on the back"}
+    c.update(fields)
+    step.apply(c, fields, {})
+
+    assert step.done_when(c)
+    assert "Embroidery on the front" in c["brief_notes"][-1]
+    # No single method covers a mix, so the bucket comes from the customer's own
+    # words via the same keyword table a single pick uses.
+    assert c["decoration_type"] == "embroidery"
     assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_the_mix_describe_step_warns_about_cost_too():
+    ask = cs.by_id(S.ASK_DECORATION_MIX).ask.lower()
+    assert "cost" in ask and "per hat" in ask
+
+
+def test_an_empty_mix_description_re_asks_rather_than_banking_nothing():
+    c = _quantity_done()
+    c["decoration_mix"] = True
+    step = cs.by_id(S.ASK_DECORATION_MIX)
+    step.apply(c, {"decoration_mix_note": "   "}, {})
+    assert not step.done_when(c)
+    assert v2.next_step(c).id is S.ASK_DECORATION_MIX
+
+
+def test_the_mix_step_is_skipped_entirely_when_no_mix_was_asked_for():
+    c = _quantity_done()
+    c["decoration_done"] = True
+    assert cs.by_id(S.ASK_DECORATION_MIX).done_when(c)
+
+
+def test_the_mix_step_resolves_free_text_without_a_model():
+    """It has no chips, so the stall-and-nudge escape hatch cannot fire — an
+    interpreter outage would strand the session one step before the email."""
+    step = cs.by_id(S.ASK_DECORATION_MIX)
+    assert step.direct_answer is not None
+    assert step.direct_answer("embroidered logo, printed text") == {
+        "decoration_mix_note": "embroidered logo, printed text"
+    }
 
 
 def test_decoration_names_not_offered_by_the_store_never_reach_the_brief():
@@ -528,6 +601,45 @@ def test_prepare_survives_a_missing_store():
 
 def test_decoration_bookkeeping_is_not_interpreter_writable():
     assert "decoration_types" in cs.WRITABLE_SLOTS
+    assert "decoration_mix" in cs.WRITABLE_SLOTS        # "I'd like a mix" in free text
+    assert "decoration_mix_note" in cs.WRITABLE_SLOTS
     assert "decoration_done" not in cs.WRITABLE_SLOTS
     assert "decoration_options" not in cs.WRITABLE_SLOTS
     assert "decoration_type" not in cs.WRITABLE_SLOTS   # the render-style bucket
+
+
+def test_ask_logo_bg_chips_no_longer_ask_the_customer_to_tick():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    labels = [c.label for c in step.chips]
+    assert labels == ["Yes, remove background", "No, it's fine as is"]
+    assert "tick" not in step.ask.lower()
+
+
+def test_yes_emits_an_op_that_flags_the_pending_logo():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "back", "placed": True}}
+    ops = step.ops(c, {"logo_bg": "removed"})
+    assert ops == [{"target": {"kind": "pending_logo", "face": "back"},
+                    "patch": {"removeBg": True}}]
+
+
+def test_no_emits_no_op():
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "front", "placed": True}}
+    assert step.ops(c, {"logo_bg": "none"}) == []
+
+
+def test_bg_copy_never_promises_processing_or_a_wait():
+    # Standing rule: ticking is instant; nothing is matted client-side.
+    step = cs.by_id(S.ASK_LOGO_BG)
+    blob = (step.ask + " " + (step.instructions or "")).lower()
+    for banned in ("wait", "processing", "hang on", "just a moment"):
+        assert banned not in blob
+
+
+def test_bg_still_marks_the_step_answered():
+    # pending_logo["bg"] is the done_when marker — the op is an ADDITION to it.
+    step = cs.by_id(S.ASK_LOGO_BG)
+    c = {"pending_logo": {"face": "front", "placed": True}}
+    step.apply(c, {"logo_bg": "removed"}, {})
+    assert step.done_when(c) is True
