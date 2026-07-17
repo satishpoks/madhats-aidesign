@@ -43,6 +43,7 @@ class ConversationState(str, Enum):
     ASK_ANOTHER_LOGO = "ask_another_logo"
     ASK_LOGO_BG = "ask_logo_bg"
     ASK_ADD_DECOR = "ask_add_decor"
+    ASK_DECOR_PLACEMENT = "ask_decor_placement"
     DECOR_ADJUST = "decor_adjust"
     ASK_ANYTHING_ELSE = "ask_anything_else"
     FINALIZE_CANVAS = "finalize_canvas"

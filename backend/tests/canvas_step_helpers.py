@@ -36,6 +36,8 @@ def satisfy(c: dict, step) -> None:
         c["pending_logo"] = None
     elif step.id is S.ASK_ADD_DECOR:
         c["decor_choice"] = "text"
+    elif step.id is S.ASK_DECOR_PLACEMENT:
+        c["decor_face"] = "front"
     elif step.id is S.DECOR_ADJUST:
         c["decor_placed"] = True
     elif step.id is S.ASK_ANYTHING_ELSE:

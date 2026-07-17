@@ -182,7 +182,8 @@ def _apply_anything_else(c: dict, f: dict, s: dict) -> None:
     # silently routing a customer who asked to ADD something to the quantity
     # question with their decor state wiped. "Add more" always wins.
     if f.get("more_decor"):
-        for k in ("decor_choice", "decor_placed", "more_decor", "decor_done"):
+        for k in ("decor_choice", "decor_face", "decor_placed", "more_decor",
+                  "decor_done"):
             c.pop(k, None)
 
 
@@ -324,6 +325,23 @@ REGISTRY: tuple[Step, ...] = (
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("decor_choice")),
     ),
     Step(
+        id=S.ASK_DECOR_PLACEMENT,
+        ask="Which part of the cap should it go on — front, back, left or right?",
+        chips=(Chip("Front", {"decor_face": "front"}),
+               Chip("Back", {"decor_face": "back"}),
+               Chip("Left", {"decor_face": "left"}),
+               Chip("Right", {"decor_face": "right"})),
+        slots=("decor_face",),
+        done_when=lambda c: bool(c.get("decor_done")) or c.get("decor_face") in FACES,
+        # Mirrors ASK_LOGO_PLACEMENT: hand the tool over (highlighted) but do
+        # NOT auto-open it until the face is answered, or the decoration lands
+        # on whatever face is already active.
+        tool="text",                           # resolved per decor_choice at runtime
+        tip=None,
+        auto_open=None,
+        face_target=True,
+    ),
+    Step(
         id=S.DECOR_ADJUST,
         # reply_for prepends the tip for the tool actually chosen (text vs
         # shape), which is why this copy is only the tail of the sentence.
@@ -420,4 +438,5 @@ SLOT_ENUMS: dict[str, frozenset[str]] = {
     "logo_face": FACES,
     "logo_bg": frozenset({"removed", "none"}),
     "decor_choice": frozenset({"text", "shape"}),
+    "decor_face": FACES,
 }

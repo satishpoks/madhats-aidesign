@@ -15,7 +15,7 @@ def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
-        S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
+        S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
 
@@ -52,9 +52,10 @@ def test_terminal_flags_are_not_interpreter_writable():
 
 def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
     for step in cs.REGISTRY:
-        # ASK_LOGO_BG has a tool but uses instructions instead of tip.
-        if step.id is S.ASK_LOGO_BG:
-            assert step.tool and step.instructions and not step.tip
+        # ASK_LOGO_BG and ASK_DECOR_PLACEMENT have tools but use instructions or
+        # runtime-resolved tips instead of step.tip.
+        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT):
+            assert step.tool and not step.tip
         else:
             assert bool(step.tool) == bool(step.tip), step.id
 
@@ -97,6 +98,40 @@ def test_chip_match_is_case_and_whitespace_insensitive():
 def test_free_text_is_not_a_chip():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
     assert v2.resolve_chip(step, "yeah go on then", {}) is None
+
+
+def _decor_seed() -> dict:
+    return {"name": "Sam", "intro_ack": True, "has_logo": False,
+            "logos_done": True, "pending_logo": None}
+
+
+def test_decor_placement_is_asked_before_the_decor_tool_opens():
+    c = _decor_seed()
+    c["decor_choice"] = "text"
+    assert v2.next_step(c).id is S.ASK_DECOR_PLACEMENT
+
+    step = cs.by_id(S.ASK_DECOR_PLACEMENT)
+    fields = v2.resolve_chip(step, "Back", c)
+    assert fields == {"decor_face": "back"}
+    c.update(fields)
+    assert v2.next_step(c).id is S.DECOR_ADJUST
+
+
+def test_adding_a_second_decoration_re_asks_the_face():
+    """_apply_anything_else must clear decor_face too, or the second decoration
+    silently reuses the first one's face."""
+    c = _decor_seed()
+    c.update({"decor_choice": "text", "decor_face": "back", "decor_placed": True})
+    step = cs.by_id(S.ASK_ANYTHING_ELSE)
+    fields = v2.resolve_chip(step, "Add something else", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert "decor_face" not in c
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_decor_placement_is_skipped_when_no_decoration_is_wanted():
+    assert cs.by_id(S.ASK_DECOR_PLACEMENT).done_when({"decor_done": True})
 
 
 def test_a_stale_chip_from_another_step_does_not_match():

@@ -324,7 +324,7 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
-        "logos_done": True, "decor_choice": "text", "decor_placed": True,
+        "logos_done": True, "decor_choice": "text", "decor_face": "front", "decor_placed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"more_decor": False})

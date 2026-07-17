@@ -625,6 +625,7 @@ _SLOT_DOCS: dict[str, str] = {
     "logo_bg": "logo_bg (one of: removed, none) — 'removed' if they removed the logo's background, 'none' if it doesn't need it",
     "another_logo": "another_logo (bool) — true if they want to add ANOTHER logo",
     "decor_choice": "decor_choice (one of: text, shape)",
+    "decor_face": "decor_face (one of: front, back, left, right) — where the text/shape goes",
     "decor_placed": "decor_placed (bool) — true when they're happy with it",
     "more_decor": "more_decor (bool) — true if they want to add something else",
     "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",

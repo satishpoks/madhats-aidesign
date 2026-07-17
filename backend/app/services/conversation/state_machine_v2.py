@@ -43,6 +43,7 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
     S.ASK_LOGO_BG: S.ASK_LOGO_PLACEMENT,
     S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
+    S.ASK_DECOR_PLACEMENT: S.ASK_ADD_DECOR,
     S.DECOR_ADJUST: S.ASK_ADD_DECOR,
     S.ASK_ANYTHING_ELSE: S.ASK_ADD_DECOR,
 }
@@ -75,8 +76,18 @@ def _norm(s: str) -> str:
     return (s or "").strip().casefold()
 
 
-def _face(collected: dict) -> str:
-    face = (collected.get("pending_logo") or {}).get("face")
+# The decor branch's steps. They read `decor_face`; the logo branch reads the
+# pending logo's face. DECOR_ADJUST always set face_target=True but _face read
+# pending_logo — which is None once the logo loop closes — so text silently
+# always targeted "front".
+_DECOR_STEPS: frozenset[S] = frozenset({S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST})
+
+
+def _face(step: Step, collected: dict) -> str:
+    if step.id in _DECOR_STEPS:
+        face = collected.get("decor_face")
+    else:
+        face = (collected.get("pending_logo") or {}).get("face")
     return face if face in cs.FACES else "front"
 
 
@@ -93,10 +104,10 @@ def directive_for(step: Step, collected: dict) -> dict:
     if step.tool is None:
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
                 "instructions": None, "show_done": False}
-    tool = _decor_tool(collected) if step.id is S.DECOR_ADJUST else step.tool
+    tool = _decor_tool(collected) if step.id in _DECOR_STEPS else step.tool
     return {
         "allowed_tools": [tool],
-        "target_face": _face(collected) if step.face_target else None,
+        "target_face": _face(step, collected) if step.face_target else None,
         "auto_open": tool if step.auto_open else None,
         "instructions": step.instructions or prompts.V2_TOOL_TIPS[tool],
         "show_done": step.show_done,

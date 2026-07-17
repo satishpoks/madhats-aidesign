@@ -91,7 +91,7 @@ def test_progress_collapses_loop_steps_onto_their_anchor():
     assert v2.progress_for(cs.by_id(S.ASK_HAS_LOGO)) == {"step": 3, "total": total}
     for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
         assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
-    for sid in (S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
+    for sid in (S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
         assert v2.progress_for(cs.by_id(sid)) == {"step": 4, "total": total}
     assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {"step": total, "total": total}
 
@@ -307,3 +307,29 @@ def test_public_data_marks_a_multiselect_step_for_the_frontend():
 def test_public_data_does_not_mark_a_single_select_step_as_multiselect():
     data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
     assert "multiselect" not in data
+
+
+def test_decor_adjust_targets_the_face_the_customer_named():
+    """Regression: DECOR_ADJUST has always set face_target=True while _face()
+    read pending_logo — which is None once the logo loop closes — so text
+    silently always targeted "front"."""
+    c = {"logos_done": True, "pending_logo": None,
+         "decor_choice": "text", "decor_face": "left"}
+    d = v2.directive_for(cs.by_id(S.DECOR_ADJUST), c)
+    assert d["target_face"] == "left"
+    assert d["allowed_tools"] == ["text"]
+
+
+def test_decor_adjust_targets_the_named_face_for_a_shape_too():
+    c = {"logos_done": True, "pending_logo": None,
+         "decor_choice": "shape", "decor_face": "right"}
+    d = v2.directive_for(cs.by_id(S.DECOR_ADJUST), c)
+    assert d["target_face"] == "right"
+    assert d["allowed_tools"] == ["shape"]
+
+
+def test_logo_steps_still_read_the_logo_face():
+    """_face is now step-aware; the logo branch must be unaffected."""
+    c = {"pending_logo": {"face": "back"}, "decor_face": "left"}
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), c)
+    assert d["target_face"] == "back"
