@@ -1,409 +1,232 @@
-# SDD progress — Step-by-Step Canvas Orchestrator (v2)
-
-Plan: docs/superpowers/plans/2026-07-15-step-by-step-canvas-orchestrator-v2.md
-Spec: docs/superpowers/specs/2026-07-15-step-by-step-canvas-orchestrator-v2-design.md
-Branch: feat/canvas-orchestrator-v2
-BRANCH_BASE: 8773c16dd17bbe2532908bc79b61073842cf18a8  (master 8773c16 — merge-base for final review)
-
-Note: pre-existing bg-removal WIP committed on master as 8773c16 (user-approved)
-so v2 task commits stay clean. Working tree clean at branch start.
-
-15 tasks total (7 backend, 7 frontend, 1 e2e/regression).
-
-Task 1 BASE (HEAD before impl): 36cc1ba (ledger-reset commit; the recorded 8773c16 was pre-ledger)
-
-Task 1: complete (commit 5932bbc, review clean — Spec ✅, Quality Approved, no findings). CANVAS_ORCHESTRATOR_V2 bool flag in config.py + .env.example + 2 tests.
-
-Task 2 BASE (HEAD before impl): 5932bbc
-
-Task 2: complete (commit 775c22f, review clean — Spec ✅, Quality Approved, no findings). 8 additive enum members + state_machine_v2 (advance_state_v2/progress_v2/MAX_LOGOS/V2_STATES) + 7 tests. Reviewer independently confirmed enum edit additive-only + v1 advance_state untouched + no ordinal-dependent enum use in repo.
-
-Task 3 BASE (HEAD before impl): 775c22f
-
-Task 3: complete (commit 04d4497 + fix 165e86a, review clean after fix — Spec ✅, Quality Approved). canvas_directive/v2_public_data/v2_reply + V2_TOOL_TIPS/V2_DEFAULT_INTRO + 14 tests.
-  FIX: reviewer caught brief self-contradiction — canvas_directive must lock tools at BOTH ASK_ANYTHING_ELSE AND ASK_QUANTITY (impl had dropped ASK_QUANTITY, test wrongly asserted None). Fixed + test corrected. Controller-verified fix diff directly.
-  MINOR (for final review): v2_reply `persona` param unused (signature parity); DECOR_ADJUST target_face reuses _logo_face (no decor_face field — matches plan).
-  TEST-INFRA NOTE (for Task 4/6/15): backend has NO conftest.py; orchestrator tests use an inline _FakeSB/_FakeTable (see tests/test_conversation_smart.py ~L40-90) + monkeypatch <module>.get_supabase. The plan's "add conftest fixtures" is WRONG — use the _FakeSB pattern. For v2: also monkeypatch orchestrator_v2._can_start_design and orchestrator_v2.leads_service.capture_lead_and_verify; leave store_id off the fake session so get_store is skipped; v2_reply is deterministic (no generate_reply monkeypatch needed).
-
-Task 4 BASE (HEAD before impl): 165e86a
-
-Task 4: complete (commit a925d27 + fix 3f6306c, review + controller-verified fix). orchestrator_v2.handle_message (front half + tail handoff) + 6 tests, suite 542.
-  IMPORTANT FIX (reviewer-caught PLAN GAP): v2 dispatches every canvas turn but only owns the front half — the shared interactive tail (OFFER_REFINE, refine loop, QUOTE_REQUESTED, upsell) had no v2 routing → dead-end even on happy-path refine. Fixed: `_V2_OWNED` set; `if current not in _V2_OWNED: return await _v1.handle_message(...)` delegates tail turns to v1 (reuses all v1 tail logic incl. canvas quote). Daily-cap reroute now speaks GENERATION_BLOCKED_ASIDE + CANVAS_QUOTE_ASK + quote chips; next turn delegates. Controller-verified guard placement + 2 new tests (delegation, reroute).
-  Also removed unused `_apply_generation_gate` import + dropped always-False `email_retry` return (Minors).
-  NOTE: this delegation is the mechanism that makes "reuse the existing tail" actually work for interactive tail states. Task 5 route-dispatch (by flow_mode) is unaffected — v2 delegates internally by state.
-
-Task 5 BASE (HEAD before impl): 3f6306c
-
-Task 5: complete (commit 4093721, review clean — Spec ✅, Quality Approved). chat.py _dispatch: canvas+flag→v2 else v1; poll routes untouched; flag-off skips DB. 2 dispatch tests + existing route test green.
-  MINOR (for final review): no test for flag-ON + non-canvas → v1 (logic correct, untested); _dispatch DB lookup has no try/except (SessionNotFound caught at handler; acceptable).
-
-Task 6 BASE (HEAD before impl): 4093721
-
-Task 6: complete (commit 2224a85, review clean — Spec ✅, Quality Approved). finalize_canvas v2 branch (flag-gated) → state=generating + trigger_generation, skips deco outro, no lead capture. Reused test_canvas_routes.py harness; flag-off regression (test_finalize_routes_to_decoration) confirmed; suite 545.
-  MINOR (final review): v2 branch reply "Perfect — generating…" hardcoded, not from v2_reply (v2_reply has no GENERATING entry) — matches brief.
-  NOTE: once Task 7 lands the real branding.canvas_intro_text, orchestrator_v2's defensive try/except import picks it up automatically.
-
-Task 7: complete (commit 723b760, review clean — Spec ✅, Quality Approved). branding.canvas_intro_text + validate_brand canvas_intro validation (≤600); NOT in public_brand. Admin PATCH read-merge already runs validate_brand (no route change). 4 tests + 23 brand tests.
-  MINOR (final review): no explicit test for ""/whitespace canvas_intro (logic correct via .strip()).
-
-=== BACKEND COMPLETE (Tasks 1-7). Frontend next (8-14). ===
-
-Task 8 BASE (HEAD before impl): 723b760
-
-Task 8: complete (commit cd9a69c, review clean — Spec ✅, Quality Approved). canvasStore locked?:boolean + lockAll (clears selection) / unlockAll; FACES-iterated immutable spreads; 2 tests.
-
-Task 9 BASE (HEAD before impl): cd9a69c
-
-Task 9: complete (commit 952cf62, review clean — Spec ✅, Quality Approved; reviewer re-ran focused suite 4/4 + tsc clean). All 4 node types (Text/Image/Shape/Drawing) guard draggable/onClick/onTap/Transformer on !!el.locked. Real behavioral test (Konva .fire('click') + .draggable() + Transformer presence) for Text+Image, locked+unlocked. bg-removal badge intact. jsdom needed getContext stub in test. Full vitest run stalls (documented Windows tinypool flake) — targeted runs used.
-
-Task 10: complete (commit 66a6b48, review clean — Spec ✅, Quality Approved). ToolRail allowedTools Set gating + highlightTool (ring+animate-pulse); legacy `locked` fallback when allowedTools undefined; Draw/colourway/render unchanged. 7 tests (6 old + 1 new), tsc clean.
-  MINOR (final review): hi() applies highlight regardless of allowedTools membership (Surface always passes the single allowed tool, so non-issue in practice).
-
-Task 11: complete (commit 24b4a21, review clean — Spec ✅, Quality Approved). chatStore parseData: canvasDirective (snake→camel, defensive) + triggerFinalize; all 4 add-sites (interface/parseData/defaults/reset); no-stick proven by test. 3 new + 2 existing tests, tsc clean.
-
-Task 12: complete (commit direct by controller — 6-line pure constant module toolInstructions.ts, tsc clean, no test needed). TOOL_INSTRUCTIONS record (upload/text/shape).
-
-Task 13 BASE (HEAD before impl): d9bea1f (toolInstructions)
-
-Task 13: complete (commit 7943e06 + fix 473cab3, review clean after fix — Spec ✅, Quality Approved). Surface reacts to canvasDirective+triggerFinalize: face switch, allowedTools/highlightTool→ToolRail, instruction callout, Done button (posts "done"), auto-open dialog, triggerFinalize→doRender() once (ref-guard). v1 legacy gating byte-identical (isV2 false). Impl also fixed render-button-bypass (rendered={isV2?true:rendered}).
-  IMPORTANT FIX (reviewer-confirmed): SelectedToolbar was gated on `unlocked` (never true in v2) → font/size/colour controls unreachable despite instructions promising them. Fixed → `{(unlocked || isV2) && <SelectedToolbar/>}` + regression test. Controller-verified.
-  MINOR (FINAL REVIEW — decide): ToolRail Draw toggle + cap-colour swatches gated on `locked` only, so always ENABLED in v2 regardless of the step's allowedTools (a v2 customer can freehand-draw / change cap colour during e.g. a logo-upload step). Pre-existing gating, off-spec for strict one-tool-at-a-time. Not fixed (scope). SelectedToolbar edit controls also always available once an element is selected in v2 (acceptable — needed for editing).
-
-Task 14 BASE (HEAD before impl): 473cab3
-
-Task 14: complete (commit a2b651a, review clean — Spec ✅, Quality Approved). Brand.canvas_intro?:string in types.ts; BrandingView textarea via setField('canvas_intro'), maxLength 600, aria-label. Mirrored co-located BrandingView.test.tsx harness. 1 new + 3 existing pass, tsc clean.
-  MINOR (final): new test in __tests__/brandingCanvasIntro.test.tsx while component's other tests are co-located BrandingView.test.tsx (harmless split).
-
-Task 15 BASE (HEAD before impl): a2b651a
-
-Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved). Genuine 12-turn e2e walk through real handle_message (asserts state EVERY turn, no weakening); _FakeSB + monkeypatched capture_lead_and_verify/_can_start_design. REGRESSION: backend full suite 550 pass (flag-off = v1 intact); frontend targeted 22 pass; tsc clean.
-
-=== ALL 15 TASKS COMPLETE. Final whole-branch review DONE (opus). Verdict: merge safe (v1 byte-identical verified seam-by-seam), ENABLING not safe until fixes. ===
-
-WIRE-UP (user reported v2 not live on the current flow):
-  1. ROOT CAUSE: CANVAS_ORCHESTRATOR_V2 was in .env.example but NOT in the actual .env → default false
-     → every canvas session still routed to v1. Added `CANVAS_ORCHESTRATOR_V2=true` to .env (gitignored,
-     local config, not committed) + `docker compose up -d --force-recreate backend` (env is read only at
-     container start). Verified in-container: settings.canvas_orchestrator_v2 = True.
-  2. REAL CODE GAP FIXED: v2 states emitting NO directive (show_intro/ask_another_logo/ask_add_decor)
-     made the frontend treat the turn as v1 (isV2 = canvasDirective !== null) → v1 whole-rail gating +
-     status strip reading "Design locked in — finishing up in the chat" MID-DESIGN, and tool locking
-     only worked by coincidence of the legacy gate. Now EVERY V2_OWNED state emits a directive (tool
-     steps hand over one tool; all others lock all tools). V2_OWNED moved to state_machine_v2 as single
-     source of truth (orchestrator_v2 imports it). Backend 555 passed (+1 new coverage test).
-  LIVE-VERIFIED against the running API (not just tests):
-     canvas: ''→ask_name[tools=[]] → 'Sam'→show_intro[tools=[]] → 'continue'→ask_logo_placement
-     [tools=['upload'] face=front open=None] → 'Back'→logo_adjust[face=BACK open=upload done=True]
-     → 'done'→ask_another_logo[tools=[]] → 'no'→ask_add_decor[tools=[]]  ✓ (Critical face fix proven live)
-     v1 isolation with flag ON: non-canvas session → ask_name→ask_purpose, no canvas key ✓
-
-FIX WAVE COMPLETE (commits 318821f backend / 62c01c5 frontend / b856a70 CLAUDE.md).
-All 6 Critical+Important findings + cheap minors fixed. CONTROLLER-VERIFIED independently:
-backend pytest 554 passed; frontend targeted 26/26 (7 files); tsc --noEmit clean.
-Fixes: auto_open moved ASK_LOGO_PLACEMENT→LOGO_ADJUST (+ effect ordering, logo_face reset per loop);
-_is_done negation-guarded + word-boundary regex (+ bg question removed from copy); lockPlaced() wired to
-postDone (unlockAll deleted as dead); ToolRail railGated disables Draw+cap-colour in v2; finalize retry
-(finalizeStarted reset + "Try again" button); CLAUDE.md documented.
-NOT covered by a test: the "Try again" button path (needs a real canvas 2D backend/toDataURL that jsdom
-lacks here) — verified by inspection + tsc.
-
-FINAL REVIEW FINDINGS (all fixed above):
-- CRITICAL 1: logo lands on WRONG FACE for any answer but Front. ASK_LOGO_PLACEMENT emits auto_open:"upload" so the file dialog opens BEFORE the face is answered; addImage appends to activeFace (=front default). Loop 2 pre-lands on previous logo's face. PLAN BUG (spec conflated ask-face + open-tool in one step). e2e only ever answered "Front" → missed.
-- IMPORTANT 2: _is_done matches substrings + ignores is_negative → "no, not done yet"/"isn't good"/"not ready" all read as Done; also LOGO_ADJUST asks "background removed?" but only tests _is_done → "yes, remove the background" = Done, bg never removed.
-- IMPORTANT 3: spec's "Done locks the layer" NEVER WIRED — lockAll only called at triggerFinalize; unlockAll zero prod callers. Tasks 8/9 primitives unused by Task 13.
-- IMPORTANT 4: ToolRail Draw + cap-colour gated on `locked` only → always enabled in v2, violating allowed_tools:[] ("all locked") at ASK_ANYTHING_ELSE/ASK_QUANTITY.
-- IMPORTANT 5: failed finalize = unrecoverable dead end (finalizeStarted ref never reset, triggerFinalize dep unchanged, render button disabled).
-- IMPORTANT 6: CLAUDE.md not updated (parallel orchestrator behind env flag = load-bearing fact for next agent).
-- MINORS: toolInstructions.ts dead (copy lives in prompts.V2_TOOL_TIPS — good deviation, delete orphan); Task-7 try/except import scaffolding now swallows real ImportErrors; unused `log`/`email_retry`; ASK_ADD_DECOR ambiguous free text silently skips decor loop + decor_choice not reset per loop; ASK_EMAIL shared v2/v1-tail invariant needs comment; v2_reply persona unused; DECOR_ADJUST reuses _logo_face; sessions.py hardcoded reply; _dispatch extra round-trip/no try-except; hi() membership; canvas_intro ""/ws test; test file split; branding.py docstring drift.
-- Flag-flip migration note: flipping the flag strands in-flight v1 canvas sessions at canvas_design (they'd skip the deco/notes outro). Staged-rollout caveat.
-
-MINOR findings roll-up for final review to triage:
-- T3: v2_reply `persona` param unused; DECOR_ADJUST target_face reuses _logo_face (no decor_face field).
-- T4: (fixed) delegation + honest reroute.
-- T5: no test for flag-ON + non-canvas → v1; _dispatch DB lookup no try/except.
-- T6: v2 finalize reply hardcoded (not from v2_reply).
-- T7: no explicit ""/whitespace canvas_intro test.
-- T10: hi() highlights regardless of allowedTools membership (Surface always passes single allowed tool).
-- T13 (DECIDE): ToolRail Draw toggle + cap-colour swatches always ENABLED in v2 (gated on `locked`=false, not allowedTools) — a v2 customer can freehand-draw / recolour cap during any step. Off-spec for strict one-tool-at-a-time.
-- T14: brandingCanvasIntro test in __tests__/ while other BrandingView tests co-located (harmless split).
-Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
-Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
-
-================================================================================
-=== NEW PLAN (2026-07-17): LLM-Assisted Canvas Orchestration (step registry) ===
-================================================================================
-
-Plan: docs/superpowers/plans/2026-07-17-llm-assisted-canvas-orchestration.md
-Spec: docs/superpowers/specs/2026-07-17-llm-assisted-canvas-orchestration-design.md
-Branch: feat/canvas-orchestrator-v2
-BRANCH_BASE (merge-base w/ master): 8773c16  (unchanged from the previous plan)
-
-WHY: live session e4c2f3de stalled at ask_email with quantity 0 — customer asked
-3x for a second logo, was marched to email. Root cause: state_machine.is_negative
-matches by SUBSTRING and "aNOther" contains "no", so v2's OWN chip label
-"Yes, another logo" read as a decline. Logo loop + MAX_LOGOS=4 were dead code.
-Generalisation: v1 is interpreter-first; v2 regressed to keywords for
-understanding, and the chip label + its matcher were declared in 2 places with
-nothing forcing agreement.
-
-9 tasks. Registry -> router -> chip resolution -> apply hooks -> interpreter ->
-UI surface -> reply assembly -> turn loop -> cleanup/e2e/docs.
-
-PRE-FLIGHT (before Task 1):
-  - Committed the previous session's uncommitted fix wave as 44e8eda (name
-    capture/V2_ASK_NAME, goal_planner ASK_CHANGE_METHOD gate, Surface
-    directive-anchored lockPlaced + read-only stage). Plan DEPENDS on
-    prompts.V2_ASK_NAME/_RETRY which existed only in that working tree.
-  - PLAN GAP FOUND+FIXED: plan dropped _plausible_name -> regressed "ok became
-    a name". Now ported into canvas_steps as ASK_NAME's apply (Task 4) + tests.
-  - TEST BASELINE: repo-root .env sets CANVAS_ORCHESTRATOR_V2=true -> 3
-    PRE-EXISTING failures (test_flag_defaults_false, test_finalize_routes_to
-    _decoration, test_chat_post_resolves_body_not_422). ALWAYS run
-    `cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q`. Baseline 559 passed
-    at 44e8eda. Do NOT "fix" those 3.
-  - Hoisted satisfy/seed_for into tests/canvas_step_helpers.py (was mandated as
-    verbatim dup in 2 files).
-  Plan fixes committed as (see git log after 44e8eda).
-
-SPEC DEVIATION (approved, in plan): §4.6 gate=True NOT implemented — first-unmet
-routing makes it a no-op (never returns a step after ANY unmet step). Invariant
-(no FINALIZE_CANVAS without email_captured) holds by construction: ask_email
-precedes finalize, done_when reads email_captured, only _apply_email sets it, and
-it is NOT in WRITABLE_SLOTS. Asserted by test in Task 2.
-
-Task 1 BASE (HEAD before impl): see git log — the plan-fix commit.
-
-Task 1: complete (commits b45225e + ca094cc, review clean — Spec ✅, Quality Approved).
-  canvas_steps.py: Chip/Step frozen dataclasses, REGISTRY (12 steps in flow order),
-  MAX_LOGOS=4, by_id, WRITABLE_SLOTS (union of step.slots), SLOT_ENUMS. 7 tests.
-  Reviewer independently confirmed: v1 untouched (no v1 file in diff); WRITABLE_SLOTS
-  really is the union with no bookkeeping key leaking in; logo-loop done_when correct
-  for all 3 phases (none/mid/closed).
-  CONTROLLER FIX: dropped unused `dataclasses.field` import (F401, my plan's bug) — ca094cc.
-  BASELINE CORRECTION: real baseline is 562 passed w/ CANVAS_ORCHESTRATOR_V2=false
-  (my "559" was the flag-ON passed count; 559+3failed=562). After Task 1: 569. Plan updated.
-  MINOR (final review): test_ask_email_precedes_finalize is implied by the exact-order
-  test (redundant, harmless). MAX_LOGOS declared in BOTH canvas_steps and state_machine_v2
-  — Task 2 re-exports from canvas_steps, which resolves it; verify at Task 2 review.
-
-Task 2 BASE (HEAD before impl): ca094cc
-
-Task 2: complete (commit 5c639f5, review clean — Spec ✅, Quality Approved, ZERO findings).
-  state_machine_v2 rewritten as a generic engine: next_step (first-unmet), V2_OWNED,
-  progress_for/progress_v2, MAX_LOGOS+Step RE-EXPORTED from canvas_steps (no drift).
-  New tests/canvas_step_helpers.py (satisfy/seed_for) — shared with Task 4, do NOT dup.
-  14 tests. Suite: 9 failed / 556 passed.
-  PLAN GAP FOUND BY IMPLEMENTER (correctly reported BLOCKED, did not commit a red route):
-    app/api/routes/sessions.py:269 imports progress_v2 and calls it with GENERATING (a
-    TAIL state, no registry step). Plan named only orchestrator_v2 + chat.py as consumers.
-    FIX: progress moved Task 6 -> Task 2; progress_v2 keeps its exact signature;
-    sessions.py UNTOUCHED. Plan updated (d5e41ae). Route test now green.
-  THE 9 EXPECTED FAILURES (Tasks 6/8 restore): test_orchestrator_v2 x8 + test_v2_e2e::
-    test_full_front_half_walk — AttributeError on v2_reply/canvas_directive/v2_public_data/
-    advance_state_v2 from orchestrator_v2.py:198/:216. NO v1 or other route test fails.
-  Reviewer independently verified: satisfy() does NOT shortcut via decor_done, so the
-  12-step walk really asserts every step; finalize-without-email test proves the invariant
-  genuinely (not incidentally); sessions.py byte-unmodified; v1 untouched.
-  COVERAGE GAP TO WATCH (Task 8/9): old test_decor_ambiguous_reply_reasks_instead_of_skipping
-    was deleted with the rewrite and has NO direct successor. New equivalent = "interpreter
-    returns {} -> decor step re-asks". Add it in Task 8 or flag at final review.
-  MAX_LOGOS cap has no test until Task 4 (test_logo_loop_stops_at_max_logos...) — verify there.
-  CONTROLLER: deleted a stale plan note (L557) that described the OLD buggy _satisfy.
-
-Task 3 BASE (HEAD before impl): 5c639f5
-
-Task 3: complete (commit e741c75, review clean — Spec ✅, Quality Approved, ZERO findings).
-  resolve_chip(step, message) -> dict | None in state_machine_v2 (+20 lines). Exact match
-  strip+casefold, CURRENT step's chips only, returns dict(chip.fields) COPY, None (not {})
-  when not a chip. 24 new tests (19 registry-generated chip round-trips + 5 named), 31 in
-  test_canvas_steps.py. Suite: 9 failed / 580 passed (same 9; no regressions).
-  Reviewer INDEPENDENTLY recounted chips in the registry (4+1+2+3+1+2+6=19) — matched the
-  report exactly; confirmed _all_chips() walks REGISTRY dynamically at collection time, so a
-  chip added later is covered the moment it's declared. Copy-not-reference test proven real.
-  REVIEWER CAVEAT (correct, already planned): resolve_chip is NOT yet wired into
-  orchestrator_v2 — these tests prove the function in isolation. The LIVE bug is only proven
-  fixed end-to-end by Task 8's test_the_live_bug_yes_another_logo_reopens_the_logo_loop.
-
-Task 4 BASE (HEAD before impl): e741c75
-
-Task 4: complete (commit a4a0942, review clean — Spec ✅, Quality Approved, ZERO findings).
-  7 apply hooks on canvas_steps + _plausible_name/_NAME_FILLER ported verbatim from
-  orchestrator_v2 (44e8eda). 39 new tests; test_canvas_steps.py at 70. Suite 9 failed/619 passed.
-  Reviewer HAND-TRACED _apply_another_logo for all 4 cases (yes-reopens / no-closes /
-  yes-at-cap-closes-at-exactly-4-never-5 / empty-pending-appends-no-junk) and confirmed the
-  loop tests assert the ROUTER WALKS BACK (next_step is ASK_LOGO_PLACEMENT), not dict shape.
-  Confirmed _apply_name POPS (test seeds c={"name": filler} first, mirroring Task 8's
-  update-then-apply order — so the pop is proven load-bearing); _apply_email sets
-  email_captured only on ok=True (the sole mechanism gating FINALIZE_CANVAS); no PII logged;
-  seed_for imported from canvas_step_helpers (not duplicated); v1 untouched.
-  EXPECTED DUP (Task 8 removes): _plausible_name/_NAME_FILLER now in BOTH canvas_steps and
-  orchestrator_v2 — byte-identical (reviewer verified). Task 8 deletes orchestrator_v2's copy.
-
-Task 5 BASE (HEAD before impl): a4a0942
-
-Task 5: complete (commits 5a4c7a8 + fix 877cdef, review clean AFTER fix — Spec ✅, Quality Approved).
-  prompts: V2_TURN_INTERPRETER_PROMPT / V2_ACK_PROMPT / V2_STALL_REPLY / V2_NUDGE_REPLY.
-  intent_extractor (ADDITIONS ONLY, v1 byte-unchanged): LLMUnavailable, validate_fields,
-  interpret_turn_v2, write_ack. 10 tests. Suite 9 failed / 629 passed.
-  *** CRITICAL FIXED (my PLAN's bug, caught by review) — write_ack sent PII to the model.
-  V2_ACK_PROMPT interpolated BOTH the raw customer message AND validated fields, so at
-  ASK_EMAIL (raw message IS the email) / ASK_NAME / ASK_PURPOSE, PII went to the Anthropic
-  API every turn. FIX (root, not special-case): dropped the `message` param entirely to match
-  v1's boundary — v1's reply-WORDING path (generate_reply) never receives a raw message; only
-  interpret_turn does, because interpreting requires it. fields now run through the existing
-  _safe_collected. Signature is now write_ack(persona, fields). Plan updated (b55cdaf) incl.
-  Task 8's call site. +3 real containment tests; dead _SLOT_DOCS["intro_ack"] removed.
-  _safe_collected REAL behaviour (reviewer read it): strips email, phone, lead_id + keys
-  ending _asked/_shown/_offered/_sent/_captured/_verified/_referred/_done/_blocked/_reached/
-  _mode/_idx/_flag. Does NOT strip name or purpose.
-  ADJUDICATED: `name` to the model is ACCEPTABLE — v1's generate_reply does exactly this via
-  the same helper; CLAUDE.md's hard rule is scoped to LOGS, not model prompts.
-  >>> FOLLOW-UP TICKET (PRE-EXISTING, affects v1 too — NOT this plan's scope): `purpose` is
-  unredacted free text sent to the model by v1's generate_reply/interpret_turn AND v2's
-  write_ack. A customer can type anything into "what's the hat for?". Consider adding
-  `purpose` to _safe_collected's strip list — but that changes v1 behaviour, so it needs its
-  own regression sweep. Raise at final review.
-
-Task 6 BASE (HEAD before impl): 877cdef
-
-Task 6: complete (commit 4e4dcfb, review clean — Spec ✅, Quality Approved, ZERO findings).
-  directive_for / canvas_directive / public_data_for + _face/_decor_tool helpers derived from
-  the registry. 8 tests. Suite 9 failed / 637 passed (failure COUNT unchanged; 8 of the 9 now
-  fail on v2_reply [Task 7] instead of canvas_directive — expected progress, not regression).
-  Reviewer INDEPENDENTLY verified the FROZEN CONTRACT against the real frontend:
-  directive keys (allowed_tools/target_face/auto_open/instructions/show_done) match
-  chatStore.ts:93-97's parser byte-for-byte; options/continuable/trigger_finalize/progress
-  match parseData (chatStore.ts:73-100); Surface.tsx consumes the camelCase forms unchanged;
-  shape identical to the pre-registry v2_public_data (compared via git show 5c639f5~1).
-  NO frontend file touched (git diff -- 'frontend/*' empty). v1 untouched.
-  auto_open subtlety preserved: directive_for READS step.auto_open from the registry rather
-  than deriving it, so ASK_LOGO_PLACEMENT (None) vs LOGO_ADJUST ("upload") cannot drift —
-  that conflation was a shipped bug (dialog opened before the face was answered -> logo landed
-  on the active face). _decor_tool resolves shape/text and instructions use the RESOLVED tip.
-
-Task 7 BASE (HEAD before impl): 4e4dcfb
-
-Task 7: complete (commit 37cd6a2 + controller Minor-fix ea5abed, review clean — Spec ✅, Approved).
-  reply_for(step, collected, *, persona, intro, ack="") = ack + scripted copy + VERBATIM tip.
-  9 tests (7 + 2 controller-added). Suite 9 failed / 646 passed.
-  Reviewer verified: tip is structurally undroppable (only conditional is the LOGO_ADJUST
-  exclusion); LOGO_ADJUST.ask GENUINELY contains its instructions inline (reviewer read the
-  registry) so the exclusion is justified — NOT a Critical; DECOR_ADJUST uses the RESOLVED
-  tool tip (shape choice never gets the text tip); ask_retry handles missing/None _asked.
-  FORMAT-CRASH RISK CLEARED: admin free text (stores.brand.canvas_intro) is passed AS a
-  format ARGUMENT, never spliced into the template, so literal braces in admin copy cannot
-  KeyError/500 the chat. (Reviewer traced branding.canvas_intro_text -> validated <=600.)
-  CONTROLLER MINOR-FIX (ea5abed): reply_for re-typed "Press Done when you're happy with it.",
-  duplicating DECOR_ADJUST.ask -> silent-drift risk. Now reads step.ask. Added the 2 tests
-  review found missing (LOGO_ADJUST tip-exclusion guard; DECOR_ADJUST==registry copy).
-
-Task 8 BASE (HEAD before impl): ea5abed
-
-Task 8: complete (7b4203d + fix ce7ff27 + controller 6e0f0d1, re-review clean — Spec ✅, Approved).
-  *** THE ENGINE IS LIVE. Suite 1 failed / 658 passed (the 1 = test_v2_e2e, Task 9 rewrites it).
-  orchestrator_v2 turn loop rewritten. Dead keyword path DELETED (controller grep-verified all
-  8 symbols at 0: is_affirmative/is_negative/_apply_v2_fields/_is_done/_face_from/
-  _plausible_name/_NAME_FILLER/_DONE_WORDS) while state_machine.py KEEPS its matchers for v1.
-  LIVE BUG PROVEN FIXED END-TO-END: test_the_live_bug_yes_another_logo_reopens_the_logo_loop
-  passes (chip resolves w/o the model; _apply_another_logo banks + re-seeds; router walks back
-  to ASK_LOGO_PLACEMENT). Chip-tap-zero-LLM test passes.
-  *** IMPORTANT 1 FIXED — update-then-apply order had NO test; reversing it left all 9 green.
-  Added test_filler_is_never_stored_as_a_name. Fixer RAN THE EXPERIMENT: apply-before-update
-  => FAIL ('ok' stored as name); restored => PASS. Order now genuinely pinned.
-  *** IMPORTANT 2 FIXED (USER-APPROVED DESIGN CHANGE) — the chip-nudge hatch could NEVER fire
-  on ask_name/ask_email/ask_purpose (no chips), and ask_name is step 1 => a Haiku outage or a
-  missing ANTHROPIC_API_KEY dead-ended 100% of canvas sessions at "what's your name?", before
-  email capture. _stall's docstring claimed the opposite. FIX: declarative
-  Step.direct_answer: Callable[[str], dict] | None on those 3 steps ONLY — the answer IS the
-  message (NOT a keyword fallback; there are no keywords). name still guarded by
-  _plausible_name; email via leads_service.extract_email regex (v1 already uses it). Reachable
-  ONLY inside except LLMUnavailable. Every other step still stalls. Restores no-key dev/CI.
-  MINOR FIXED: raw email no longer persists in collected (_apply_email pops it; reviewer
-  grep-confirmed ZERO readers of collected["email"] — all consumers read lead["email"]).
-  CONTROLLER FIX (6e0f0d1): narrowed the try to interpretation alone (try/except/else) so a
-  future write_ack raising LLMUnavailable can't silently clobber a successful interpretation.
-  >>> OPEN MINORS FOR FINAL REVIEW:
-    - _direct_purpose has no length cap/guard (unlike _direct_name). Outage + side-question at
-      ASK_PURPOSE stores it verbatim. Same as v1's behaviour; not a regression.
-    - Guard-rejection loops uncounted: filler name / "sam at example dot com" during an outage
-      re-asks forever, no escalation (_fail_count is popped on the success path). Pre-existing
-      shape; adjacent to the "don't dead-end sessions" motivation.
-    - intent_extractor.py:651 logs err=str(exc) on interpret failure. IF an Anthropic SDK error
-      echoes request content, the ASK_EMAIL prompt contains the address => PII in logs (HARD
-      constraint). Low risk, worth a look.
-    - _apply_name guards only the ASK_NAME step, but `name` is in WRITABLE_SLOTS so the
-      interpreter could fill it from a later turn unguarded (e.g. at ASK_PURPOSE).
-    - Kickoff writes content="" for the user row, discarding a non-empty first message from the
-      transcript (harmless today: ChatColumn kicks off with "").
-
-Task 9 BASE (HEAD before impl): 6e0f0d1
-
-Task 9: complete (commit 2748d83 + controller 86448c9, review clean — Spec ✅, Approved).
-  *** SUITE: 660 passed / 0 FAILED. The project's acceptance bar is met.
-  New e2e test_full_v2_walk_using_the_exact_chip_labels: 15 turns through the REAL
-  handle_message, asserting state EVERY turn, driving the EXACT registry chip labels
-  (reviewer verified each string against Chip.label — a typo would have fallen through to the
-  interpreter and passed for the wrong reason). DEVIATION FROM BRIEF (controller-directed,
-  correct): the interpreter raises LLMUnavailable for the WHOLE walk — proving something
-  stronger than the brief intended, that the entire v2 front half completes with NO MODEL
-  (chips by label match + the 3 free-text steps via direct_answer).
-  Guard test reads o2.__file__ and asserts all 7 banned keyword symbols absent.
-  CLAUDE.md documented; reviewer verified EVERY claim against source, incl. that v1 STILL
-  calls is_negative (orchestrator.py:194,232,291,792,938,947,949,951,970,973) — landmine real.
-  CONTROLLER FIX (86448c9): restored the inline directive assertions the rewrite dropped
-  (auto_open None @ASK_LOGO_PLACEMENT vs "upload" @LOGO_ADJUST + non-null directive every
-  turn) — these guarded a SHIPPED Critical and only had unit-level coverage.
-
-=== ALL 9 TASKS COMPLETE. 660 passed / 0 failed. Final whole-branch review next. ===
-
-=== FINAL WHOLE-BRANCH REVIEW (opus) — DONE. Verdict: MERGE SAFE + ENABLE SAFE (after fixes). ===
-Suite: 668 passed / 0 failed (CANVAS_ORCHESTRATOR_V2=false).
-All 7 spec §9 success criteria met (§9.5 met after the drift guards below).
-
-FINAL REVIEW FOUND (all fixed, commits abe1807 + f0e2a44):
-- IMPORTANT 1 (missed by ALL 9 per-task reviews): a TYPED "no" re-asked FOREVER at both decor
-  steps. ASK_ANOTHER_LOGO correctly used `another_logo is not None` (yes AND no), but
-  ASK_ANYTHING_ELSE used `bool(more_decor)` -> a typed decline fills more_decor=False ->
-  bool(False) is False -> router returns the same step forever, 2 Haiku calls per lap,
-  _fail_count popped each success so the nudge never fires. And ASK_ADD_DECOR had NO slot to
-  express a decline (decor_choice is enum text|shape; decor_done was chip-only) -> {} ->
-  re-asks forever. THE "no" CONCEPT WAS IMPLEMENTED TWO WAYS IN ADJACENT STEPS — the exact bug
-  class the refactor exists to kill. Chips worked; only free text broke.
-  BLIND SPOT THAT HID IT: the controller-directed e2e runs the WHOLE walk with the interpreter
-  raising, so every interpreter-path done_when is unexercised end-to-end — the mirror image of
-  the old suite's blind spot. FIX: decor_done added to both steps' slots (now
-  interpreter-writable — reading the customer, not fabricating a terminal state);
-  ASK_ANYTHING_ELSE -> `is not None`; _SLOT_DOCS entry; _apply_anything_else clears decor_done
-  so "add more" beats contradictory model output.
-  ADVERSARIAL CHECK (reviewer): worst case a hallucinated decor_done skips the optional decor
-  loop to ask_quantity. Cannot touch name/quantity/email/purpose/finalize. email_captured is
-  STILL non-writable => FINALIZE_CANVAS invariant unweakened. Correct trade vs an infinite loop.
-- IMPORTANT 2: _SLOT_DOCS + _PROGRESS_PATH are silent 2nd/3rd declaration sites, defeating
-  §9.5 ("adding a step touches one record"). A slot missing from _SLOT_DOCS is silently dropped
-  from the interpreter prompt (`if s in _SLOT_DOCS`) -> model never learns the field exists ->
-  step re-asks forever, no error, no failing test. FIX: registry-generated drift guards, both
-  directions + progress guard (tightened to resolve the anchor's TARGET, closing a hole where
-  an anchor pointing outside _PROGRESS_PATH silently reported "complete").
-- MINOR: log.warning(err=str(exc)) could echo the ASK_EMAIL prompt's address -> PII in logs
-  (HARD constraint). Fixed to type(exc).__name__ in interpret_turn_v2 AND write_ack.
-  *** The first guard test was VACUOUS (pytest caplog; structlog doesn't route into it — it
-  passed with str(exc) restored). Caught by reverting the fix and watching it pass. Rewritten
-  on structlog.testing.capture_logs; proven RED (email visible in the captured event) -> GREEN.
-
-FIXER'S OWN CATCH (material): the review's suggested test used the literal "no, that's
-everything" — which IS the ASK_ANYTHING_ELSE chip label, so resolve_chip matched it and it
-never reached the interpreter; it would have passed PRE-fix for the wrong reason. Swapped to
-"nah, nothing more thanks". Same failure mode as the original sin ("NB: not 'another logo'").
-
->>> REMAINING TICKETS (none block merge or enable):
-  - _direct_purpose has no length cap (outage-only; message unbounded at the route for v1 too).
-  - Guard-rejection loops uncounted (filler name / "sam at example dot com" re-asks forever).
-  - _apply_name guards only ASK_NAME though `name` is in WRITABLE_SLOTS (could be overwritten
-    unguarded from a later turn). Fix: move the guard into validate_fields.
-  - `purpose` unredacted to the model (PRE-EXISTING, affects v1 too; needs its own sweep).
-  - DECOR_ADJUST always targets the front face (_face defaults; no decor-face question).
-  - Kickoff discards a non-empty first message from the transcript.
-  - interpret_turn_v2's `collected` param unused (context-blind interpreter).
-  - v1's is_negative substring bug STILL LIVE (orchestrator.py:194,232,291,792,938,947,949,
-    951,970,973). v2 no longer calls it. Own ticket.
-  - No v2 test exercises REAL Haiku (all mock the interpreter) — residual risk on model output.
+# SDD progress — v2 Canvas Flow Gaps
+
+Plan: docs/superpowers/plans/2026-07-17-v2-canvas-flow-gaps.md
+Spec: docs/superpowers/specs/2026-07-17-v2-canvas-flow-gaps-design.md
+Branch: feat/canvas-v2-flow-gaps
+BRANCH_BASE: 0a9c321c1ff691a542b81d2472a7342c135c0757  (merge-base with master, for final review)
+
+8 tasks. Task 1 (registry capabilities) MUST land first — it changes
+`resolve_chip`'s signature, which every later task's tests call.
+
+Test command: `CANVAS_ORCHESTRATOR_V2=false pytest -q` from `backend/`.
+Baseline: 660 passing.
+
+NOTE: `.superpowers/sdd/` holds stale `task-N-brief.md` / `task-N-report.md`
+files from the PREVIOUS project. This project's artifacts are prefixed
+`gaps-` to avoid collision. The previous project's ledger is archived at
+`progress-2026-07-15-orchestrator-v2.md` — its Task N entries are NOT this
+project's.
+
+FINAL WHOLE-BRANCH REVIEW (opus, 0a9c321..4c912c5): conditionally ready.
+  IMPORTANT (a flaw in the PLAN, not the implementation) — FIXED in d33570c:
+  `ASK_HAS_LOGO.done_when` was `"has_logo" in c` (as the plan mandated), but the
+  load-bearing effect (`logos_done=True`) lives in `_apply_has_logo`, and the
+  orchestrator runs ONLY the current step's apply. The interpreter may volunteer
+  any WRITABLE_SLOT on an earlier turn — so "Hi I'm Sam, no logo, just text"
+  filled has_logo=False, satisfied done_when, the step never became current, its
+  apply never ran, and the text-only customer was marched into the logo loop:
+  the exact gap the step exists to close. Reviewer REPRODUCED it against the
+  real registry. Fix: `done_when=lambda c: c.get("has_logo") is True or not
+  _logos_open(c)` — True needs no side effect so it may skip on the raw slot;
+  False stays unmet until apply has run.
+  GENERALISATION worth remembering: **a step whose `done_when` reads its own raw
+  slot while its `apply` carries bookkeeping is unsafe under reordering.**
+  `another_logo` has the same shape (pre-existing, harmless today). No test
+  covers this class — `test_a_volunteered_answer_is_banked_and_its_step_skipped`
+  uses `quantity`, which has no apply.
+  Reviewer CONFIRMED intact: the lead gate (FINALIZE unreachable without
+  email_captured; `prepare` cannot jump it), interpreter containment (traced
+  that an invented decoration name is read by NOTHING downstream), the no-LLM
+  front half, v1 untouched, `decoration_options` frozen per session, the
+  frontend multiselect + cost caveat plumbing reaching v2, and that the suite
+  was NOT weakened across the branch. The ASK_LOGO_BG/`tool="upload"` coupling
+  was judged "the best-documented thing in the branch" — pinned in 4 places.
+
+TICKETS TO FILE (not merge blockers):
+  1. `ask_decor_placement` leaves `instructions=None`, so the canvas callout
+     falls back to the text tip ("Tap Add text… drag to position it") WHILE the
+     chat asks which face — a customer who follows the callout drops text on the
+     default front face, then DECOR_ADJUST's auto_open adds a SECOND element on
+     the named face. Stray front text flows into the render. `Step.instructions`
+     (added by this branch) is the exact fix. ASK_LOGO_PLACEMENT has the same
+     pre-existing wart. Fixing it also lets the tool<->tip invariant test go
+     back to being uniform (see Minor below).
+  2. **Escalated:** bg-removal WASM matting didn't finish in ~90s (external CDN
+     model download, no timeout). Pre-existing, BUT this branch ships
+     `ask_logo_bg`, whose copy is "tick Remove background… I'll wait" and which
+     pauses the funnel on it — converting a dormant defect into one on the
+     critical path for every logo customer. File LINKED to this work.
+  3. v2 resume mid-design doesn't rehydrate the canvas directive (pre-existing;
+     recorded in CLAUDE.md).
+  4. Invariant note on `Step.apply` re: the generalisation above.
+  5. `uploads.py:48` is a THIRD writer of `collected["has_logo"]` (v1 route).
+     Benign today only because ASK_HAS_LOGO precedes any tool being unlocked.
+
+Minor findings roll-up (hand to the final whole-branch review):
+- T1: `tests/test_orchestrator_v2.py` nudge test comment says `ASK_QUANTITY` is
+  "an unused state" — it is a real registry state; the test works because
+  `cs.by_id` is monkeypatched. Comment misleads.
+- T1: `orchestrator_v2._stall` docstring says "we re-render the chips" without
+  noting they may now be dynamic (`chips_from`). Cosmetic.
+- T2: v1 and v2 now share `collected["has_logo"]` by convention, not enforced
+  isolation. Inert today (flow_mode partitions the engines) but implicit.
+- T4: no directive-level test pins `ASK_DECOR_PLACEMENT`'s `auto_open is None` /
+  `allowed_tools`, the way the logo branch has one — the exact bug class Task 4
+  exists to prevent. **Task 7's e2e asserts it through the real pipeline**, so
+  check it landed there before treating this as open.
+- T6: the `# noqa: PLC0415 cycle` comment on the local import of
+  `_decoration_style_bucket` overstates the risk — reviewer traced the import
+  graph and a top-level import would not cycle today. Harmless + consistent with
+  the file's defensive pattern; comment is just imprecise.
+- T4: `test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool` bundles
+  ASK_LOGO_BG + ASK_DECOR_PLACEMENT under one weaker assertion, dropping the
+  `step.instructions` truthy check for ASK_LOGO_BG. Compensated by
+  `test_ask_logo_bg_keeps_a_tool_allowed_so_the_logo_stays_selectable`.
+
+---
+
+Task 1 BASE (HEAD before impl): 0a9c321
+
+Task 1: complete (commits 12b2f1c..7a9231d, review clean — Spec ✅, Quality
+Approved). Added `Step.chips_from`/`Step.multiselect`, `chips_of()` as the single
+chip read path, `resolve_chip(step, message, collected)` (signature change, all
+callers updated), `_resolve_multi` (comma-joined labels + the UI's `'none'`
+sentinel + None for free text), `public_data_for` multiselect shape. +9 tests.
+  FIX (7a9231d): reviewer caught `_stall` reading `step.chips` directly — a
+  dynamic-chip step would never fire the outage nudge (the exact path the nudge
+  exists to rescue). Now `cs.chips_of(step, collected)`. Reviewer verified the
+  regression test by reverting the fix and watching it fail, then confirmed the
+  only remaining `.chips` read in `app/` is inside `chips_of` itself.
+  NOTE: real baseline is 668 passing, not the 660 the plan quotes from CLAUDE.md.
+  After T1: 676.
+
+Task 2 BASE (HEAD before impl): 7a9231d
+
+Task 2: complete (commit a1afa0f, review clean — Spec ✅, Quality Approved).
+ASK_HAS_LOGO step ("No — text only" sets logos_done -> first-unmet skips the
+whole logo branch), ASK_LOGO_PLACEMENT ask copy de-duplicated, _SLOT_DOCS +
+progress anchor + test helper. 683 passing, 1 EXPECTED failure (test_v2_e2e —
+Task 7 closes it).
+  PLAN WAS WRONG: `ASK_HAS_LOGO = "ask_has_logo"` ALREADY EXISTED at
+  state_machine.py:24 (v1's Q&A flow). A second member with the same value
+  would be an enum ALIAS, so the implementer reused it. Correct call.
+  Reviewer traced the collision and proved it inert: `flow_mode` is an
+  immutable-per-session partition — v1's canvas router (`_canvas_next_goal`)
+  never returns ASK_HAS_LOGO, and `chat.py::_dispatch` keys on flow_mode, not
+  on the state name. So a session resting on ask_has_logo via v1 routing always
+  has flow_mode != "canvas" and never reaches v2. NOTE for Task 6: the same
+  question applies to ASK_DECORATION, which v1 DOES use in the canvas flow —
+  spec §5 already accepts that caveat, but it is a live one, not theoretical.
+  MINOR: v1 and v2 now share `collected["has_logo"]` by convention, not by
+  enforced isolation (inherited from the plan's design).
+  VERIFIED: ASK_LOGO_BG / ASK_DECOR_PLACEMENT do NOT pre-exist (v1's analogue is
+  ASK_REMOVE_BG, a different value) — Tasks 3/4 add genuinely new members.
+
+Task 3 BASE (HEAD before impl): a1afa0f
+
+Task 3: complete (commit ac67314, review clean — Spec ✅, Quality Approved, no
+findings). ASK_LOGO_BG step + `Step.instructions` field + V2_BG_INSTRUCTIONS +
+SLOT_ENUMS/_SLOT_DOCS/progress anchor. 692 passing, 1 EXPECTED failure (e2e).
+  The load-bearing `tool="upload"` was independently re-traced by the reviewer
+  through the real frontend chain (Surface.tsx:41 v2Editing -> :111-113
+  lockPlaced -> nodes.tsx `onClick = locked ? undefined : onSelect` ->
+  SelectedToolbar mounts only when v2Editing) — dropping the tool WOULD make the
+  Remove-background toggle unreachable, and the test pins it.
+  Reviewer audited all 3 modified pre-existing tests: each was tightened, none
+  weakened (registry-order list is now longer/stricter; the tool<->tip invariant
+  test gained a positive assertion for the tool-without-tip case rather than
+  skipping it; the router-path test reflects a real first-unmet shift).
+  Reviewer also checked out a1afa0f and proved the e2e failure pre-dates Task 3
+  (it is Task 2's insertion; Task 7 owns the walk).
+
+Task 4 BASE (HEAD before impl): ac67314
+
+Task 4: complete (commit 565b6b1, review clean — Spec ✅, Quality Approved, 2
+Minors rolled up). ASK_DECOR_PLACEMENT step + `_face(step, collected)` made
+step-aware + `_DECOR_STEPS` tool override + `_apply_anything_else` clears
+decor_face. 706 passing, 1 EXPECTED failure (e2e).
+  LIVE BUG FIXED + reproduced first (`assert 'front' == 'left'`): DECOR_ADJUST
+  set face_target=True while _face read `pending_logo` (None after the logo loop
+  closes) -> text had ALWAYS silently landed on the front of the cap.
+  Reviewer enumerated all 5 face_target=True steps and confirmed each resolves
+  from the right source; confirmed Task 3's `step.instructions or ...` line was
+  NOT regressed when directive_for was rewritten; audited all 4 modified
+  pre-existing tests (all legitimate — the orchestrator one was traced to a real
+  new first-unmet precondition, not a weakened assertion).
+
+Task 5 BASE (HEAD before impl): 565b6b1
+
+Task 5: complete (commit e6f23c7, review clean — Spec ✅, Quality Approved, no
+findings). ASK_LOGO_PLACEMENT.ask_retry ("Where should this one go…", reads
+correctly both as a re-ask AND as the next logo) + V2_TOOL_TIPS["text"] reflowed
+onto two lines. Copy-only; no pre-existing test touched. 708 passing, 1 EXPECTED
+failure (e2e).
+
+Task 6 BASE (HEAD before impl): e6f23c7
+
+Task 6: complete (commit a1f5f30, review clean — Spec ✅, Quality Approved, 1
+Minor rolled up). ASK_DECORATION step (DB-backed dynamic chips, multiselect) +
+`Step.prepare` + `_prepare_decoration`/`_apply_decoration`/`_decoration_chips` +
+orchestrator prepare-then-re-resolve + _SLOT_DOCS + _PROGRESS_PATH (7->8).
+717 passing, 1 EXPECTED failure (e2e).
+  Reviewer verified in source (not from the report): the prepare/re-resolve
+  ordering; that a store with no methods / a missing store / a DB error all
+  auto-skip the step rather than dead-ending the funnel before email capture;
+  that the exact-token filter is the real interpreter guard and an invented
+  method cannot set `decoration_type`; that decoration_done/_options/_type all
+  stayed OUT of WRITABLE_SLOTS; that no duplicate enum member was added and v1's
+  orchestrator.py is imported-from, not modified. Frontend needed no change —
+  ChatColumn's multiselect UI (built for v1) is already format-compatible.
+  Reviewer judged all 5 modified pre-existing tests individually: all
+  legitimate. Notably seeding `decoration_done=True` in
+  `test_finalize_unreachable_without_email_captured` STRENGTHENS it — without it
+  the test would pass for the wrong reason (stopping at ASK_DECORATION rather
+  than proving the email gate).
+
+Task 7 BASE (HEAD before impl): a1f5f30
+
+Task 7: complete (commit 1185042, review clean — Spec ✅, Quality Approved, no
+findings). e2e walk updated for all 4 new steps. **SUITE FULLY GREEN: 718
+passed, 0 failed** (independently re-run by the reviewer). Test-only change; no
+production code touched.
+  Reviewer cross-checked EVERY chip string in the walk against the registry's
+  actual `Chip(...)` literals (the near-miss failure mode this test exists to
+  catch), confirmed the LLMUnavailable monkeypatch still covers the whole walk
+  (proving the front half needs no model at all), and confirmed the walk order
+  is derived from REGISTRY rather than hand-picked.
+  CLOSES the T4 Minor: ASK_DECOR_PLACEMENT now asserts `auto_open is None`
+  through the real pipeline.
+
+Task 8 BASE (HEAD before impl): 1185042
+
+Task 8: complete (commit 4c912c5 — CLAUDE.md). VERIFIED IN A REAL BROWSER +
+against the real backend/DB (customise flow; user said to skip blank — a
+separate orchestrator is planned for it).
+  PROVEN (the spec's central claim): at `ask_logo_bg` the just-placed logo is
+  STILL SELECTED (transform handles visible, not locked) and the "Remove
+  background" checkbox IS present and tickable, with the new
+  V2_BG_INSTRUCTIONS banner above it. The directive really is
+  tools=['upload'] auto_open=None. No frontend change was needed — claim held.
+  Also proven live: ask_has_logo asked; 2nd logo says "Where should this one
+  go" (not the verbatim repeat); "Yes, another logo" reads as ANOTHER;
+  ask_decor_placement asked BEFORE the text tool opens; decor_adjust
+  target_face=back (the named face — the always-front bug, fixed); the size/
+  colour tip on its own line; ask_decoration multi-select populated from the
+  store's 4 real DB rows; progress 8 steps, steady through both loops.
+  Final collected: logos=[{face:back,bg:removed},{face:left,bg:none}],
+  decor_face=back, decoration_types=[Embroidery,Patch],
+  decoration_type=embroidery (first choice drove the render bucket).
+  TESTING NOTE: LOGO_ADJUST's auto_open fires a NATIVE file dialog that blocks
+  browser automation. Route around it: drive that one step server-side via
+  `curl POST /chat/{id}`, then let the browser send the next message — it lands
+  on ask_logo_bg (auto_open=None) with no dialog. Place a logo without the
+  picker by dispatching a File onto the hidden input via javascript_tool.
+  NEW PRE-EXISTING FINDINGS (not caused by this work — for the final review /
+  user):
+  1. Resuming a v2 canvas session mid-design via `?session=<token>` does NOT
+     rehydrate the `canvas` directive -> isV2 false -> v1's whole-rail lock +
+     "Design locked in — finishing up" over a live design. Recorded in CLAUDE.md.
+  2. The bg-removal WASM matting did not complete in ~90s on this host (✂ busy
+     badge persists; @imgly IS installed in the container, so it is the runtime
+     CDN model download, which has no timeout). This change now actively directs
+     customers to that toggle, so the latency matters more than before.
