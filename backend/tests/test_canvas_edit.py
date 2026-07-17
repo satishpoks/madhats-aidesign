@@ -3,6 +3,7 @@ no LLM, no Supabase. The model picks intent; this module does the arithmetic."""
 import pytest
 
 from app.services.conversation import canvas_edit as ce
+from app.services.conversation import intent_extractor as ie
 
 
 def _design():
@@ -110,3 +111,42 @@ def test_resolve_ops_never_mutates_the_design_it_is_given():
     d = _design()
     ce.resolve_ops([{"op": "move", "element_id": "logo1", "direction": "up", "amount": "large"}], d)
     assert d["faces"]["front"][0]["y"] == 0.4
+
+
+@pytest.mark.asyncio
+async def test_interpret_returns_closed_vocab_ops(monkeypatch):
+    async def fake(_prompt, **kw):
+        return '{"ops": [{"op": "move", "element_id": "logo1", "direction": "up", "amount": "small"}]}'
+    monkeypatch.setattr(ie, "_complete", fake)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    ops = await ie.interpret_canvas_edit("move the logo up a bit", ce.inventory(_design()))
+    assert ops == [{"op": "move", "element_id": "logo1", "direction": "up", "amount": "small"}]
+
+
+@pytest.mark.asyncio
+async def test_interpret_returns_empty_for_a_render_level_request(monkeypatch):
+    async def fake(_prompt, **kw):
+        return '{"ops": []}'
+    monkeypatch.setattr(ie, "_complete", fake)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    assert await ie.interpret_canvas_edit("make the embroidery thicker",
+                                          ce.inventory(_design())) == []
+
+
+@pytest.mark.asyncio
+async def test_interpret_raises_when_haiku_is_down(monkeypatch):
+    monkeypatch.setattr(ie, "_has_llm", False)
+    with pytest.raises(ie.LLMUnavailable):
+        await ie.interpret_canvas_edit("move it up", ce.inventory(_design()))
+
+
+@pytest.mark.asyncio
+async def test_interpret_never_logs_the_customers_words(monkeypatch, caplog):
+    async def boom(_prompt, **kw):
+        raise RuntimeError("upstream 500")
+    monkeypatch.setattr(ie, "_complete", boom)
+    monkeypatch.setattr(ie, "_has_llm", True)
+    with pytest.raises(ie.LLMUnavailable):
+        await ie.interpret_canvas_edit("move my secret text SHIBBOLETH up",
+                                       ce.inventory(_design()))
+    assert "SHIBBOLETH" not in caplog.text

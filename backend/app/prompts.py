@@ -1121,3 +1121,34 @@ We understood: {fields}
 
 Reply with the sentence only.
 """
+
+# Refine on the canvas: read the customer's change into a CLOSED vocabulary.
+# The model never emits a coordinate — canvas_edit.resolve_ops does the maths.
+# An empty list is a real answer: it means "the canvas can't express this",
+# which routes to the refuse path rather than a render.
+CANVAS_EDIT_PROMPT = """The customer has a cap design and wants to change it.
+Here is every element currently on the design:
+
+{inventory}
+
+The customer says: "{message}"
+
+Return JSON: {{"ops": [...]}} — one op per change they asked for.
+Each op MUST use an `element_id` from the list above. Never invent an id.
+
+Allowed ops (use EXACTLY these shapes, no other fields, no numbers):
+- {{"op": "move", "element_id": "…", "direction": "up|down|left|right", "amount": "small|medium|large"}}
+- {{"op": "resize", "element_id": "…", "direction": "bigger|smaller", "amount": "small|medium|large"}}
+- {{"op": "rotate", "element_id": "…", "direction": "clockwise|anticlockwise", "amount": "small|medium|large"}}
+- {{"op": "recolour", "element_id": "…", "colour": "a plain colour name or #rrggbb"}}
+- {{"op": "font", "element_id": "…", "font": "font family name"}}
+- {{"op": "curve", "element_id": "…", "direction": "up|down|none"}}
+- {{"op": "set_text", "element_id": "…", "text": "the new wording"}}
+- {{"op": "delete", "element_id": "…"}}
+
+Return {{"ops": []}} if they are asking for something the LAYOUT cannot express —
+how the decoration is made or finished ("thicker embroidery", "make it pop",
+"less shiny", "different material"), or anything not about the elements listed.
+Do NOT force an unrelated request into an op.
+
+JSON only."""
