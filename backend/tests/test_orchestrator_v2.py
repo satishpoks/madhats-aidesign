@@ -219,3 +219,92 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     res = await o2.handle_message("s1", "for the team")
     assert res["state"] == S.QUOTE_REQUESTED.value
     assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
+
+
+@pytest.mark.asyncio
+async def test_filler_is_never_stored_as_a_name(monkeypatch):
+    """Pins the load-bearing update-then-apply order in handle_message.
+
+    _apply_name POPS an implausible name that collected.update(fields) already
+    wrote. If apply ever runs before the merge, the pop is a no-op and "ok"
+    becomes the customer's name (the bug fixed in 44e8eda).
+    """
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    store["session"]["collected"] = {"flow_mode": "canvas"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"name": "ok"})
+    res = await o2.handle_message("s1", "ok")
+    assert store["session"]["collected"].get("name") is None
+    assert res["state"] == S.ASK_NAME.value          # re-asks
+
+
+@pytest.mark.asyncio
+async def test_a_real_name_is_accepted(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    store["session"]["collected"] = {"flow_mode": "canvas"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"name": "Sam"})
+    res = await o2.handle_message("s1", "Sam")
+    assert store["session"]["collected"]["name"] == "Sam"
+    assert res["state"] == S.SHOW_INTRO.value
+
+
+@pytest.mark.asyncio
+async def test_ask_name_survives_an_outage_via_direct_answer(monkeypatch):
+    # The whole funnel dies at step 1 without this: ask_name has no chips, so the
+    # nudge cannot fire, and every session would stall forever.
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    store["session"]["collected"] = {"flow_mode": "canvas"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "Sam")
+    assert store["session"]["collected"]["name"] == "Sam"
+    assert res["state"] == S.SHOW_INTRO.value
+
+
+@pytest.mark.asyncio
+async def test_direct_answer_still_rejects_filler_in_an_outage(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    store["session"]["collected"] = {"flow_mode": "canvas"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "ok")
+    assert store["session"]["collected"].get("name") is None
+    assert res["state"] == S.ASK_NAME.value
+
+
+@pytest.mark.asyncio
+async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "logos_done": True, "decor_done": True, "quantity": 50,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, e: ("lead-1", True))
+    res = await o2.handle_message("s1", "sam@example.com")
+    assert store["session"]["collected"]["email_captured"] is True
+    assert res["state"] == S.ASK_PURPOSE.value
+
+
+@pytest.mark.asyncio
+async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
+    # Unchanged behaviour: no direct_answer -> stall, guess nothing.
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "pending_logo": {"face": "front", "placed": True},
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "go on then")
+    assert res["state"] == S.ASK_ANOTHER_LOGO.value
+    assert res["reply"] == prompts.V2_STALL_REPLY

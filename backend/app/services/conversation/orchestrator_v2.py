@@ -67,10 +67,15 @@ async def handle_message(session_id: str, message: str) -> dict:
         # stall. No keyword fallback — a wrong field corrupts the design.
         try:
             fields = await ie.interpret_turn_v2(step, message, collected)
+            ack = await ie.write_ack(persona, fields)
         except ie.LLMUnavailable:
-            return await _stall(sb, session_id, collected, step, state_before,
-                                message)
-        ack = await ie.write_ack(persona, fields)
+            if step.direct_answer is None:
+                return await _stall(sb, session_id, collected, step, state_before,
+                                    message)
+            # The answer IS the message for this step — resolve it deterministically
+            # rather than stranding the session. Still validated, still guarded by
+            # the step's apply. No ack: the model is down.
+            fields = ie.validate_fields(step.direct_answer(message))
     elif fields is None:
         fields = {}                       # ack-only step (show_intro)
 
@@ -105,10 +110,12 @@ async def handle_message(session_id: str, message: str) -> dict:
 async def _stall(sb, session_id, collected, step, state_before, message) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
-    After two consecutive failures, re-render the chips and nudge — chips are
-    deterministic, so a full outage degrades the bot to a tap-through wizard
-    instead of stranding a pre-email-capture session (a lost lead). Nothing is
-    guessed; a closed question is asked.
+    Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — those
+    (ask_name, ask_email, ask_purpose) resolve the message directly during an
+    outage instead of ever landing here. For the remaining chip-bearing steps,
+    after `_NUDGE_AFTER` consecutive failures we re-render the chips and nudge —
+    chips are deterministic, so this degrades the bot to a tap-through wizard.
+    Nothing is guessed; a closed question is asked.
     """
     fails = int(collected.get("_fail_count") or 0) + 1
     collected["_fail_count"] = fails

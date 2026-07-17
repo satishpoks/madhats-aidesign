@@ -44,6 +44,11 @@ class Step:
     chips: tuple[Chip, ...] = ()
     slots: tuple[str, ...] = ()                # what THIS step asks for; () = ack-only
     apply: Callable[[dict, dict, dict], None] | None = None   # (collected, fields, session)
+    # Used ONLY when the interpreter is unavailable. For these steps the answer
+    # IS the message — no interpretation, no keywords, no guessing. Without it a
+    # Haiku outage dead-ends every session at step 1 (ask_name has no chips, so
+    # the chip-nudge escape hatch cannot fire).
+    direct_answer: Callable[[str], dict] | None = None
     tool: str | None = None
     tip: str | None = None
     continuable: bool = False
@@ -160,6 +165,28 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
         c["lead_id"] = lead_id
     if ok:
         c["email_captured"] = True
+    c.pop("email", None)   # the lead owns the address; don't persist it here too
+
+
+# --- direct answers ------------------------------------------------------------
+# Used ONLY when the interpreter is unavailable (see Step.direct_answer). For
+# these three steps the answer IS the message — no interpretation needed, and
+# none of these is a keyword fallback: there is nothing to match against a
+# keyword list, just the raw message assigned to the one slot the step asks
+# for. Each result still passes through validate_fields and the step's own
+# apply/done_when, so no guardrail is bypassed.
+
+def _direct_name(message: str) -> dict:
+    return {"name": message}          # _apply_name still guards plausibility
+
+
+def _direct_purpose(message: str) -> dict:
+    return {"purpose": message.strip()}
+
+
+def _direct_email(message: str) -> dict:
+    email = leads_service.extract_email(message)
+    return {"email": email} if email else {}
 
 
 REGISTRY: tuple[Step, ...] = (
@@ -169,6 +196,7 @@ REGISTRY: tuple[Step, ...] = (
         ask_retry=prompts.V2_ASK_NAME_RETRY,
         slots=("name",),
         apply=_apply_name,                     # rejects filler — "ok" is not a name.
+        direct_answer=_direct_name,
         done_when=lambda c: bool(c.get("name")),
     ),
     Step(
@@ -274,6 +302,7 @@ REGISTRY: tuple[Step, ...] = (
         ask="What's the best email to send your design preview to?",
         slots=("email",),
         apply=_apply_email,
+        direct_answer=_direct_email,
         # `email_captured` is set ONLY by _apply_email after a real
         # capture_lead_and_verify, and is not a writable slot — so the
         # interpreter cannot fake it and FINALIZE_CANVAS cannot be reached
@@ -284,6 +313,7 @@ REGISTRY: tuple[Step, ...] = (
         id=S.ASK_PURPOSE,
         ask="Last thing — if you don't mind me asking, what's the hat for?",
         slots=("purpose",),
+        direct_answer=_direct_purpose,
         done_when=lambda c: bool(c.get("purpose")),
     ),
     Step(
