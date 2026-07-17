@@ -32,6 +32,8 @@ export interface CanvasElement {
   stroke?: string
   strokeWidth?: number
   filled?: boolean
+  /** v2 flow: a locked layer can't be moved/resized/selected. */
+  locked?: boolean
 }
 
 export interface Colourway { name: string; hex: string }
@@ -67,6 +69,11 @@ interface CanvasState {
   setDrawColour: (c: string) => void
   setDrawWidth: (w: number) => void
   addDrawing: (points: number[]) => void
+  lockAll: () => void
+  /** v2: lock every currently-unlocked element (across all faces). Since each
+   *  step adds an element then locks, "lock all unlocked" == "lock the one
+   *  just placed" without needing to track which element that was. */
+  lockPlaced: () => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
   /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
@@ -181,6 +188,20 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     // selectable/movable — while drawMode is on, CanvasStage disables layer
     // listening and no element (including this one) can be clicked.
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id, drawMode: false }
+  }),
+
+  lockAll: () => set(s => {
+    const faces = { ...s.faces }
+    for (const f of FACES) faces[f] = faces[f].map(e => ({ ...e, locked: true }))
+    return { faces, selectedId: null }
+  }),
+
+  lockPlaced: () => set(s => {
+    const faces = { ...s.faces }
+    for (const f of FACES) {
+      faces[f] = faces[f].map(e => (e.locked ? e : { ...e, locked: true }))
+    }
+    return { faces, selectedId: null }
   }),
 
   reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,

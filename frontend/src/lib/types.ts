@@ -115,6 +115,7 @@ export interface Brand {
   header_bg?: string
   header_text?: string
   menu_items?: MenuItem[]
+  canvas_intro?: string
 }
 
 /** Response shape for GET /storefront — store name, persona name, and brand config. */

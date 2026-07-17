@@ -1,259 +1,409 @@
-# SDD progress — Canvas Design Studio Phase 1
-Plan: docs/superpowers/plans/2026-07-13-canvas-design-studio-phase1.md
-Branch: feat/canvas-design-studio
-BRANCH_BASE: 364002f2de350d8349c9b54fe8eb3c91d5945137  (master 364002f — merge-base for final review)
-Plan+spec commits: d222c8e (spec), cf4fec2 (plan)
-Note: 9 pre-existing uncommitted master files ride in the working tree; task commits use targeted `git add` so they never enter feature commits.
+# SDD progress — Step-by-Step Canvas Orchestrator (v2)
 
-Task 1 BASE (HEAD before impl): cf4fec2
+Plan: docs/superpowers/plans/2026-07-15-step-by-step-canvas-orchestrator-v2.md
+Spec: docs/superpowers/specs/2026-07-15-step-by-step-canvas-orchestrator-v2-design.md
+Branch: feat/canvas-orchestrator-v2
+BRANCH_BASE: 8773c16dd17bbe2532908bc79b61073842cf18a8  (master 8773c16 — merge-base for final review)
 
-(tasks not yet started)
+Note: pre-existing bg-removal WIP committed on master as 8773c16 (user-approved)
+so v2 task commits stay clean. Working tree clean at branch start.
 
-Task 1: complete (commit 2581ec6, verified directly by controller — trivial verbatim-from-brief additive nullable migration; applied via supabase db reset, column confirmed jsonb/nullable). DEVIATION: file numbered 20260713000002 (000001 taken by existing generation_view_images migration) — functionally identical.
-WIP CHECKPOINT: committed 9 pre-existing multiview files as 90550b6 (user-approved) so canvas commits stay clean. Working tree now clean.
+15 tasks total (7 backend, 7 frontend, 1 e2e/regression).
 
-Task 2 BASE (HEAD before impl): 90550b6
+Task 1 BASE (HEAD before impl): 36cc1ba (ledger-reset commit; the recorded 8773c16 was pre-ledger)
 
-Task 2: complete (commit 09c4244, review clean — Spec ✅, Quality Approved, no Crit/Imp). canvas_to_elements() pure builder + 3 tests (RED→GREEN). Reviewer independently confirmed element-key contract against live prompt_builder (element_view round-trip, _first_with, build_params).
-  Minor (final review): text elements omit remove_bg key + fontSize:0 drops size (functionally inert vs _first_with); tests cover only front/left legs (back/right/multi-element/empty-input untested).
+Task 1: complete (commit 5932bbc, review clean — Spec ✅, Quality Approved, no findings). CANVAS_ORCHESTRATOR_V2 bool flag in config.py + .env.example + 2 tests.
 
-Task 3 BASE (HEAD before impl): 09c4244
+Task 2 BASE (HEAD before impl): 5932bbc
 
-Task 3: complete (commit 3da46a1, review clean — Spec ✅, Quality Approved, no Crit/Imp/Minor). layout_guide_url added to abstract generate + StubAdapter + _GeminiAdapter (flash/pro subclass, no override). Reviewer confirmed _fetch_bytes reuse by direct file read; append order correct (after ref/prior/uploaded, before prompt). Full suite 392.
-  Note: real adapters live in app/services/image/adapters/ (stub.py, gemini_base.py) — NOT gemini.py. Task 4/6 should target those paths.
+Task 2: complete (commit 775c22f, review clean — Spec ✅, Quality Approved, no findings). 8 additive enum members + state_machine_v2 (advance_state_v2/progress_v2/MAX_LOGOS/V2_STATES) + 7 tests. Reviewer independently confirmed enum edit additive-only + v1 advance_state untouched + no ordinal-dependent enum use in repo.
 
-Task 4 BASE (HEAD before impl): 3da46a1
+Task 3 BASE (HEAD before impl): 775c22f
 
-Task 4: complete (commit 7f8a295, review clean — Spec ✅, Quality Approved, no Crit/Imp). Canvas branch in _run_generation: front-only AI render w/ signed layout_guide; non-front faces spliced from canvas_layouts (skip PRIMARY_VIEW, after failure gate). Non-canvas path verified byte-unchanged by direct file read. Full suite 393. Deviation: added generate_signed_url mock in test (matches test_multiview.py) — reviewer confirmed it can't mask the back-reuse assertion.
-  Minor (final review): (a) test's fake_render_view discards kwargs so it doesn't assert layout_guide_url reaches the front render (wiring correct by inspection) — cheap harden: capture kwargs + assert layout_guide_url=="signed:uploads/front.png". (b) cache_key omits layout_guide_url → two canvas designs with identical elements/prompt but different pixel layout can cache-collide on front render (inherited pattern, mirrors prior_design_url gap).
+Task 3: complete (commit 04d4497 + fix 165e86a, review clean after fix — Spec ✅, Quality Approved). canvas_directive/v2_public_data/v2_reply + V2_TOOL_TIPS/V2_DEFAULT_INTRO + 14 tests.
+  FIX: reviewer caught brief self-contradiction — canvas_directive must lock tools at BOTH ASK_ANYTHING_ELSE AND ASK_QUANTITY (impl had dropped ASK_QUANTITY, test wrongly asserted None). Fixed + test corrected. Controller-verified fix diff directly.
+  MINOR (for final review): v2_reply `persona` param unused (signature parity); DECOR_ADJUST target_face reuses _logo_face (no decor_face field — matches plan).
+  TEST-INFRA NOTE (for Task 4/6/15): backend has NO conftest.py; orchestrator tests use an inline _FakeSB/_FakeTable (see tests/test_conversation_smart.py ~L40-90) + monkeypatch <module>.get_supabase. The plan's "add conftest fixtures" is WRONG — use the _FakeSB pattern. For v2: also monkeypatch orchestrator_v2._can_start_design and orchestrator_v2.leads_service.capture_lead_and_verify; leave store_id off the fake session so get_store is skipped; v2_reply is deterministic (no generate_reply monkeypatch needed).
 
-Task 5 BASE (HEAD before impl): 7f8a295
+Task 4 BASE (HEAD before impl): 165e86a
 
-Task 5: complete (commits e5b2a6d + fix ffc2c7e, review clean after fix — Spec ✅, Quality Approved). 3 canvas routes (create/layouts/finalize) + models/canvas.py + CANVAS_DESIGN enum. Reviewer independently confirmed capture_lead_and_verify(session,collected,email) call shape + email_captured→advance_state(GENERATING)→VERIFY_EMAIL wiring against live source. Full suite 401.
-  3 Important findings FIXED (ffc2c7e): faces/files length-mismatch→400, invalid-face→400, +5 tests (hat_type create leg, 400-neither, 413 oversized, 415 bad mime, mismatch). Canvas routes file 8/8.
-  ⚠️ CARRY TO FRONTEND (Task 11/12): finalize returns data:{} (verbatim per brief) — NO trigger_generation flag. ChatPanel's generation effect ALSO fires on chatState==='generating', so hydrating chatStore to state 'generating' still triggers startGeneration. Confirm this in Task 11/12 wiring.
-  Minor (final review): partial-upload orphans earlier files in storage if a later file fails validation; finalize returns raw dict not response_model=ChatResponse.
+Task 4: complete (commit a925d27 + fix 3f6306c, review + controller-verified fix). orchestrator_v2.handle_message (front half + tail handoff) + 6 tests, suite 542.
+  IMPORTANT FIX (reviewer-caught PLAN GAP): v2 dispatches every canvas turn but only owns the front half — the shared interactive tail (OFFER_REFINE, refine loop, QUOTE_REQUESTED, upsell) had no v2 routing → dead-end even on happy-path refine. Fixed: `_V2_OWNED` set; `if current not in _V2_OWNED: return await _v1.handle_message(...)` delegates tail turns to v1 (reuses all v1 tail logic incl. canvas quote). Daily-cap reroute now speaks GENERATION_BLOCKED_ASIDE + CANVAS_QUOTE_ASK + quote chips; next turn delegates. Controller-verified guard placement + 2 new tests (delegation, reroute).
+  Also removed unused `_apply_generation_gate` import + dropped always-False `email_retry` return (Minors).
+  NOTE: this delegation is the mechanism that makes "reuse the existing tail" actually work for interactive tail states. Task 5 route-dispatch (by flow_mode) is unaffected — v2 delegates internally by state.
 
-Task 6 BASE (HEAD before impl): ffc2c7e
+Task 5 BASE (HEAD before impl): 3f6306c
 
-Task 6: complete (commit ac1bb69, controller-verified — canvasStore test 4/4, full file read, matches brief). NOTE: implementer did correct work but FAILED to commit + returned a garbled report (mentioned a phantom "Monitor notification"); controller finished the handoff by committing. Deviation (reasonable, accepted): addText omits default colour '#ffffff' so untouched text serialises uncoloured (team decides); Task 9 TextNode + Task 10 SelectedToolbar already fall back to #ffffff for display, so no break. konva ^10.3.0 + react-konva ^18.2.16.
+Task 5: complete (commit 4093721, review clean — Spec ✅, Quality Approved). chat.py _dispatch: canvas+flag→v2 else v1; poll routes untouched; flag-off skips DB. 2 dispatch tests + existing route test green.
+  MINOR (for final review): no test for flag-ON + non-canvas → v1 (logic correct, untested); _dispatch DB lookup has no try/except (SessionNotFound caught at handler; acceptable).
 
-Task 7 BASE (HEAD before impl): ac1bb69
+Task 6 BASE (HEAD before impl): 4093721
 
-Task 7: complete (commit 3d6ae69, controller-verified — trivial pure helper verbatim from brief, both dataUrlToFile + flattenStage present, test 1/1). haiku implementer committed correctly this time (explicit commit instruction worked).
+Task 6: complete (commit 2224a85, review clean — Spec ✅, Quality Approved). finalize_canvas v2 branch (flag-gated) → state=generating + trigger_generation, skips deco outro, no lead capture. Reused test_canvas_routes.py harness; flag-off regression (test_finalize_routes_to_decoration) confirmed; suite 545.
+  MINOR (final review): v2 branch reply "Perfect — generating…" hardcoded, not from v2_reply (v2_reply has no GENERATING entry) — matches brief.
+  NOTE: once Task 7 lands the real branding.canvas_intro_text, orchestrator_v2's defensive try/except import picks it up automatically.
 
-Task 8 BASE (HEAD before impl): 3d6ae69
+Task 7: complete (commit 723b760, review clean — Spec ✅, Quality Approved). branding.canvas_intro_text + validate_brand canvas_intro validation (≤600); NOT in public_brand. Admin PATCH read-merge already runs validate_brand (no route change). 4 tests + 23 brand tests.
+  MINOR (final review): no explicit test for ""/whitespace canvas_intro (logic correct via .strip()).
 
-Task 8: complete (commit f3daecc, controller-verified — 3 fns present (createCanvasSession/uploadCanvasLayouts/finalizeCanvas) + CanvasLayoutsResponse type, tsc clean, scoped 2 files). No unit test (tsc-gated per brief).
+=== BACKEND COMPLETE (Tasks 1-7). Frontend next (8-14). ===
 
-Task 9 BASE (HEAD before impl): f3daecc
+Task 8 BASE (HEAD before impl): 723b760
 
-Task 9: complete (commit ba826e5, controller-verified — TextNode+ImageNode exported, crossOrigin='anonymous' present (taint-safety), tsc clean, single scoped file). No unit test (jsdom-canvas, justified in brief).
+Task 8: complete (commit cd9a69c, review clean — Spec ✅, Quality Approved). canvasStore locked?:boolean + lockAll (clears selection) / unlockAll; FACES-iterated immutable spreads; 2 tests.
 
-Task 10 BASE (HEAD before impl): ba826e5
+Task 9 BASE (HEAD before impl): cd9a69c
 
-Task 10: complete (commit 3c80317, controller-verified — CanvasStage+ToolRail+SelectedToolbar, crossOrigin present in CanvasStage, tsc clean, scoped 3 files). No unit test (per brief). Full-suite run timed out at 2min (known Windows tinypool slowness; new components untested + not yet imported so cannot affect existing tests — Task 13 verifies suite properly).
+Task 9: complete (commit 952cf62, review clean — Spec ✅, Quality Approved; reviewer re-ran focused suite 4/4 + tsc clean). All 4 node types (Text/Image/Shape/Drawing) guard draggable/onClick/onTap/Transformer on !!el.locked. Real behavioral test (Konva .fire('click') + .draggable() + Transformer presence) for Text+Image, locked+unlocked. bg-removal badge intact. jsdom needed getContext stub in test. Full vitest run stalls (documented Windows tinypool flake) — targeted runs used.
 
-Task 11 BASE (HEAD before impl): 3c80317
+Task 10: complete (commit 66a6b48, review clean — Spec ✅, Quality Approved). ToolRail allowedTools Set gating + highlightTool (ring+animate-pulse); legacy `locked` fallback when allowedTools undefined; Draw/colourway/render unchanged. 7 tests (6 old + 1 new), tsc clean.
+  MINOR (final review): hi() applies highlight regardless of allowedTools membership (Surface always passes the single allowed tool, so non-issue in practice).
 
-Task 11: complete (commits a6cf062 + fix 3291260 + fix 95590a8, review clean after fixes — Spec ✅, Quality Approved). DesignStudio shell + face tabs + see-it-rendered (flatten→upload→finalize→hydrate handoff to ChatPanel). Handoff verified: hydrate([], 'generating', {}) sets chatState='generating' (ChatPanel fires generation on that) + kickoffDone=true (no greeting).
-  CRITICAL FIXED (3291260): rAF-x2 didn't wait for async image loads → stale/blank/missing-logo exports for non-active faces. Fix: new imageCache.ts (shared HTMLImageElement cache) + CanvasStage/ImageNode read cache synchronously when complete + index.tsx preloads all decorated-face image URLs before the flatten loop. crossOrigin preserved.
-  IMPORTANT FIXED (95590a8): loadImage clobbered concurrent same-url callers (handler reassignment on shared Image → first caller's promise hung, could blank the active face). Fix: inflight Promise dedup map; onload/onerror delete inflight (failures retryable). tsc clean.
-  Minor (final review): imageCache Map unbounded (no eviction — session-scoped, low risk); CanvasStage lazy-init comment slightly overstates sync guarantee (effect, not initializer, carries face-switch sync — no code change).
-
-Task 12 BASE (HEAD before impl): 95590a8
-
-Task 12: complete (commit 3d58d0c, controller-verified — focused tests sessionStore 15/15 + BlankHatPicker 4/4, tsc clean, App branch order canvas→session→blank correct). NOTE: implementer did correct code + TDD but stalled waiting on a background full-suite run and didn't commit; controller ran focused tests + committed. Incidental: BlankHatPicker.test.tsx updated (mocked old startBlankSession→startCanvasBlankSession). startSession/startBlankSession retained for resume.
-  PENDING: manual browser E2E (Task 12 Step 7 — needs Docker+browser): canvas taint check on toDataURL, finalize 200, ChatPanel handoff, design reveal. NOT yet run.
-
-Task 13 (controller-run): full-suite regression + CLAUDE.md.
-
-Task 13: complete (commit d4c9f25 CLAUDE.md). VERIFICATION: backend pytest 401 passed; frontend vitest 177 passed / 2 failed (pre-existing adminQuotes Router-context — confirmed NOT a canvas regression) + 1 tinypool Worker-exit flake (known Windows). CLAUDE.md canvas bullet + counts (401/177).
-
-ALL 13 TASKS COMPLETE. Feature commits: 2581ec6(migration) 09c4244(describe) 3da46a1(provider) 7f8a295(gen) e5b2a6d+ffc2c7e(routes) ac1bb69(store) 3d6ae69(flatten) f3daecc(api) ba826e5(nodes) 3c80317(stage/rail) a6cf062+3291260+95590a8(studio+fixes) 3d58d0c(routing) d4c9f25(docs). Plus WIP checkpoint 90550b6.
-PENDING: manual browser E2E (Task 12 Step 7) — not run (needs Docker+browser).
-Ready for final whole-branch review.
-
-FINAL REVIEW (opus, whole-branch cf4fec2..d4c9f25, WIP 90550b6 excluded): Ready to merge = YES, no Critical. Customise flow traced end-to-end and holds; hard constraint upheld (real photo first, layout guide additive); logo-asset-reaches-model seam CONFIRMED holds (uploadLogo sets uploaded_asset_path before finalize; view_has_logo gates crisp 2nd image; element.assetUrl is audit-only). _public_data degrades gracefully on canvas_design state (no crash).
-  IMPORTANT #1 FIXED (8bf9c10): cache_key omitted layout guide → identical-elements/different-layout collision served wrong render + discarded layout guide. Fix folds canvas_layouts[view] path into the key input (model-facing view_prompt untouched; non-canvas keys proven byte-identical). Full suite 403; regression sweep 71.
-  IMPORTANT #2 (OPEN — user decision): blank-flow cap colour unreachable in canvas path. BlankHatPicker calls startCanvasBlankSession w/o colour; DesignStudio hardcodes colourways=[]; canvas_to_elements ignores canvas_design["colourway"]; flow_mode='canvas' uses customise IMAGE_GEN_PROMPT (not _BLANK), so blank customers get uncoloured blank. Spec wanted a colour swatch row; plan never wired it. Fix-now vs Phase-1.1 ticket — ASKED USER.
-  IMPORTANT #3 (OPEN — runtime verify): canvas taint/CORS on blank flow — /media proxy + Supabase signed URLs must send Access-Control-Allow-Origin or loadImage rejects → "See it rendered" fails for blank sessions. Needs manual E2E (Docker+browser). Customise flow lower risk (Shopify CDN/placehold.co permissively CORS'd). ASKED USER.
-  NEW Minor (ticket): multi-logo front loses crisp art (each /uploads/logo overwrites uploaded_asset_path; only last logo's crisp asset passed as 2nd image; non-front unaffected — reuse flattened PNG).
-  Minors → ticket (per opus triage): Task2 text remove_bg/fontSize:0/partial test legs; Task4 fake_render_view kwargs assert; Task5 partial-upload orphan + finalize response_model; Task11 imageCache eviction + comment.
-
-LIVE E2E (customise flow, real docker stack, browser): PASS. Canvas loads (Shopify CDN bg via crossOrigin, no taint); add-text + SelectedToolbar + face tabs work; "See it rendered" → email modal → flatten (NO SecurityError) → POST /sessions/canvas 200 → /canvas-layouts 200 (OPTIONS preflight 200) → /canvas-finalize 200 → hydrate handoff to ChatPanel → generation "Creating your design…" → VERIFY_EMAIL (Ricardo verification message). Important #3 (CORS/taint) RESOLVED for customise (Shopify CDN sends CORS headers). Blank-flow /media CORS still to verify after Task 14.
-E2E-CAUGHT BUG FIXED: POST /sessions/canvas 503 — entry_path defaulted None but design_sessions.entry_path is NOT NULL (Task 5 mocked supabase, missed it). Fixed model default → "canvas_first" + regression test. Canvas routes 9/9.
-
-TASK 14 (blank colour, user-approved fix-now for final-review Important #2): COMPLETE.
-  14a backend (commit 138d2c3): create_canvas_session hat_type leg sets collected["canvas_blank"]=True; finalize maps canvas_design["colourway"]→collected["hat_colour"]; prompt_builder._render_template treats canvas_blank as blank → IMAGE_GEN_PROMPT_BLANK recolour. Full suite 406. is_canvas gate + customise leg untouched.
-  14b frontend (commit 1b8075f, controller-finished — subagent stalled on bg suite): sessionStore.blankColourways from hatType.colours; DesignStudio sources swatch row; CanvasStage multiply-tint Rect when colourway set. sessionStore test 16/16, tsc clean. Customise sets no colourway → no swatch/tint.
-IMPORTANT #3 (CORS/taint) RESOLVED for BOTH flows: customise via live E2E (Shopify CDN); blank via /media CORS probe (ACAO=http://localhost:5173 present) + media.py streams bytes inline (Response(content=...), NOT a redirect) → Konva crossOrigin image gets ACAO → no taint. Blank UI flow not driven (no active hat type seeded locally) but the sole taint risk is confirmed safe by direct evidence.
-Docs commit: 36b19bc (backend 406 / frontend 178).
-
-FEATURE COMPLETE. All 13 plan tasks + Task 14 (blank colour) + 2 E2E-caught/review fixes done, reviewed, verified. Final review = ready to merge (all Important addressed). Remaining = deferred Minors (ticket list above) + optional: drive blank UI once a hat type is seeded.
-
-============================================================
-NEW PLAN: Split-Screen Customise Studio (canvas left + chat right)
-Plan: docs/superpowers/plans/2026-07-13-customise-studio-split-screen.md
-Branch: feat/canvas-design-studio | BASE before Task 1: c077bb4
-Tasks: SS-1 ChatColumn · SS-2 DesignStudioSurface · SS-3 CustomiseStudio+App · SS-4 manual E2E
-============================================================
-
-SS-1: complete (commit de84c73, review clean — spec PASS, no findings). ChatColumn extracted, no auto-kickoff verified, ChatPanel untouched. 5/5 tests, build clean.
-SS-2 BASE (HEAD before impl): de84c73
-
-SS-2: complete (commit 4164690, review clean — spec PASS). DesignStudioSurface created, email modal removed, doRender hydrates in place (no nav), finalize no-email. index.tsx deleted. Build intentionally red (App.tsx-only). 
-SS-3 BASE (HEAD before impl): 4164690
-
-SS-3: complete (commit 03e5454, review clean — spec PASS). CustomiseStudio shell + App wiring; build GREEN. Full suite: 2 failed/190 passed — the 2 are pre-existing adminQuotes (Router context, unrelated) + known tinypool Windows worker-exit flake. New tests (ChatColumn 5 + CustomiseStudio 2) pass. No regressions.
-ALL 3 SS CODE TASKS COMPLETE. Commits: de84c73(ChatColumn) 4164690(Surface) 03e5454(CustomiseStudio+App). Base c077bb4. Next: final whole-branch review over c077bb4..03e5454, then manual E2E (SS-4).
-
-FINAL REVIEW (opus, whole-branch c077bb4..03e5454): Ready to merge = WITH FIXES. All binding constraints hold (ChatPanel untouched, hydrate-not-kickoff, no-email finalize, branch order). 
-  IMPORTANT #1 FIXED (297bbc7): "See it rendered" button stuck on "Rendering..." forever after success — Surface no longer unmounts (hydrate-in-place), rendering only reset in catch. Fix: terminal `rendered` state set on success; ToolRail shows disabled "Rendered ✓". New ToolRail.test.tsx (3) + focused CustomiseStudio/ChatColumn all green (10), build clean. Trivial #3 (stale imageCache comment) fixed same commit.
-  MINOR #2 (DEFERRED ticket): ChatColumn has dead locals (designReleased/awaitingVerification/RELEASED_STATES/genStatus/productRef) copied from ChatPanel that fed the omitted ProductViewer. designReleased/awaitingVerification were plan-MANDATED to keep; leaving all for the spec §4.2 orchestration-rewrite reconciliation. Not blocking.
-CODE COMPLETE + reviewed. Remaining: SS-4 manual browser E2E (needs Docker+stack+seeded product).
-
-SS-4 MANUAL E2E (live docker stack, browser, customise flow product 1111...): PASS.
-  - Split screen renders: header "A Frame Flex Cap > Design"; LEFT face thumbnails + canvas + tool rail; RIGHT ChatColumn (Ricardo/Online + empty-state hint "Design your cap on the left...").
-  - Add text -> element on front face + SelectedToolbar + thumbnail "1" badge.
-  - See it rendered -> flatten (NO taint/SecurityError, generation ran) -> layouts -> finalize(no email) -> hydrate IN PLACE, NO navigation (URL/screen unchanged).
-  - Render button reached terminal "Rendered ✓" (disabled) — final-review Important #1 fix CONFIRMED live (was the stuck-"Rendering…" bug).
-  - Chat came alive in right panel: "Generating your design..." -> advanced to inline ASK_EMAIL ("Just need your email address...") confirming no-email finalize + ASK_EMAIL fallback (spec §4.1).
-  - Console: no errors/exceptions.
-FEATURE COMPLETE: SS-1..3 code + final-review fix (297bbc7) + SS-4 E2E all done, reviewed, verified. Commits: de84c73 4164690 03e5454 297bbc7. Ready to finish branch.
-
-============================================================
-NEW PLAN: Canvas Photorealistic Multi-Angle Rendering
-Plan: docs/superpowers/plans/2026-07-13-canvas-photoreal-multiangle.md
-Spec: docs/superpowers/specs/2026-07-13-canvas-photoreal-multiangle-design.md
-Branch: feat/canvas-design-studio | BRANCH_BASE (final review): 20bc2b8 (first commit of this plan's work; spec/plan commits 20bc2b8..eb03d36)
-Tasks: PM-1 canvas_describe enrichment · PM-2 render every decorated face · PM-3 full-suite verify
-Task PM-1 BASE (HEAD before impl): eb03d36
-============================================================
-
-Task PM-1: complete (commit 6d75a36, review clean — Spec ✅, Quality ✅, no findings). canvas_describe text branch: curve→style:"curved", dropped fontSize px emission. 7/7 test_canvas_describe pass. Reviewer confirmed prompt_builder._element_line degrades gracefully on missing size key + renders "curved style".
-
-Task PM-2 BASE (HEAD before impl): 6d75a36
-
-Task PM-2: complete (commit f52afba, review clean — Spec ✅, Quality ✅, no findings; reviewer independently re-ran suites 55 passed inc. both cache-key regressions). Canvas branch → render_views(collected); flat-PNG reuse splice deleted; canvas_layouts kept (still read by _one for layout guide); docstring/comment refreshed. is_edit/else branches byte-unchanged. Rewritten test asserts both faces reach provider, no view_images entry is a raw uploads/*.png path, each render got its signed layout guide + correct ref angle. Full suite 415.
-  Non-blocking obs (reviewer): elif is_canvas / else now have identical body (kept separate for the canvas comment) — intentional per plan, no change.
-
-Task PM-3 (controller-run): full-suite regression.
-
-Task PM-3: complete (controller-run). Full backend suite: 415 passed, 0 failed (40.4s). Optional Step 2 (live prompt-preview) skipped — needs a live session/Docker.
-
-ALL 3 TASKS COMPLETE. Feature commits: 6d75a36(canvas_describe) f52afba(multi-angle render). Plan/spec: 20bc2b8(spec) eb03d36(plan). Ready for final whole-branch review over 20bc2b8..f52afba.
-
-FINAL REVIEW (opus, whole-branch 20bc2b8..f52afba): READY to merge — no Critical/Important. Traced canvas path end-to-end; real product photo is conditioning FIRST image for EVERY per-view render (reference_image_url_for_view never empty — falls back to front); two-face design both reach model with own layout guide + ref angle + scoped elements (back decoration cannot leak to front); undecorated non-front faces never render (render_views = front+decorated only; frontend flattens only non-empty faces); no PII logging change; non-canvas + edit paths byte-unchanged; canvas_describe curve/size edit only touches canvas text branch. Focused suites 24 passed; full suite 415.
-  Minor TICKET #1 (informational, correct): canvas EDIT turns now carry forward REAL prev renders via prev_views instead of overwriting non-front faces with flat PNGs (old splice was is_canvas-gated, ran on canvas edits too). Correct feature consequence; NON-canvas edit path untouched.
-  Minor TICKET #2 (data-quality follow-up): for a SYNCED product with few images, catalogue_sync._map_views sets left/right/back = front image → decorating the back AI-renders back decoration onto a front-angle cap. Still a real product photo (constraint holds) + within accepted model-variability trade-off, but worse than the old flat mock for that case. Follow-up: ensure real per-angle photos for canvas-enabled synced products (blank sessions already carry all 4 real angles; unaffected).
-
-============================================================
-NEW PLAN: Canvas Background Removal + Freehand Draw Tool
-Plan: docs/superpowers/plans/2026-07-13-canvas-bgremove-drawtool.md
-Spec: docs/superpowers/specs/2026-07-13-canvas-bgremove-drawtool-design.md
-Branch: feat/canvas-design-studio | BRANCH_BASE (final review): first commit of this plan work
-Tasks: BD-1 store foundations · BD-2 bg removal · BD-3 draw tool · BD-4 backend describe · BD-5 verify+docs
-============================================================
-Task BD-1 BASE (HEAD before impl): eb0a858
-
-Task BD-1: complete (commit f4ae7b8, review clean — Spec ✅, Quality ✅, no findings). canvasStore: drawing type + points + originalAssetUrl, drawMode/drawColour/drawWidth + setters, addDrawing (active face, current colour/width, selects), reset clears draw-mode. 11/11 canvasStore tests. Reviewer confirmed all el.type consumers are if-chains (no exhaustive switch) so union add is non-breaking.
-
-Task BD-2 BASE (HEAD before impl): f4ae7b8
-
-Task BD-2: complete (commit 9b36fa5, review clean — Spec ✅, Quality ✅). NOTE: implementer stalled on a bg run + wrote a WRONG report (stale multi-view content); controller verified the ACTUAL code by direct file read + ran build/tests (tsc clean, imgly code-split into separate ort async chunk; 13/13 focused tests) then committed the handoff. bgRemove.ts (removeBackgroundToFile dynamic-import + toggleBackground re-uploads on BOTH ON/OFF, records originalAssetUrl on ON, restores on OFF) + SelectedToolbar BgRemoveToggle (busy/disabled/failed, no half-apply on error) + drawing stroke-colour branch. Reviewer confirmed both toggle dirs re-upload (uploaded_asset_path tracks toggle), dynamic import, error never calls update().
-  Minor TICKET: OFF-toggle does fetch(originalAssetUrl) directly — if uploadLogo asset_url is a TTL-signed URL that expired mid-session, restore fails with generic "Failed — try again" (pre-existing: the canvas element already uses asset_url for display). Low risk; consider /media proxy or longer TTL.
-
-Task BD-3 BASE (HEAD before impl): 9b36fa5
-
-Task BD-3: complete (impl 70a7a02 + fix bd657cb, review clean after fix — Spec ✅, Quality ✅). DrawingNode (Konva Line in draggable Group, move+delete, no Transformer) + CanvasStage draw-mode pointer handling (down/move/up, listening={!drawMode}, live stroke, commit ≥2 pts) + ToolRail Draw toggle + colour/thickness bar + FaceThumbnails drawing render. Build tsc-clean; store 11/11.
-  Fix bd657cb (1 Important + 2 Minor from review): (a) e.evt.preventDefault() in onDown/onMove gated to drawMode (mobile touchmove no longer scrolls) — controller-verified guards sit after !drawMode early-returns; (b) useEffect clears in-progress stroke on activeFace change (no stale-coords wrong-face commit); (c) dropped dead useRef import.
-  Minor TICKET (deferred, not fixed): no window-level mouseup fallback — releasing the pointer outside the stage silently discards the in-progress stroke (data loss, not corruption).
-
-Task BD-4 BASE (HEAD before impl): bd657cb
-
-Task BD-4: complete (commit e601c61, review clean — Spec ✅, Quality ✅, no findings). canvas_describe drawing branch in _element (elif before else/logo → type:graphic + content "a hand-drawn line[ in <colour>]" + colour=stroke) + _describe. placement_zone inherited from FACE_ZONE at top (→ correct face routing via element_view). 8/8 describe tests. Reviewer confirmed no coords in description text (raw geometry only in out["canvas"] structured sub-dict, same as text/shape).
-
-Task BD-5 (controller-run): full-suite verify + CLAUDE.md.
-
-Task BD-5: complete (commit for CLAUDE.md). VERIFICATION: backend pytest 416 passed (+1 describe test). Frontend build tsc-clean; focused suites 13/13 (canvasStore 11 + bgRemove 2). Frontend delta +4 tests (canvasStore 9→11, new bgRemove +2) → 185 passing; full vitest run produced no output (known Windows tinypool flake per ledger) so count derived from deterministic focused-run delta. CLAUDE.md canvas bullet (bg removal + draw tool) + counts (416/185) + deferred tickets noted.
-
-ALL 5 BD TASKS COMPLETE. Feature commits: f4ae7b8(store) 9b36fa5(bg removal) 70a7a02+bd657cb(draw tool+fix) e601c61(backend describe) + CLAUDE.md. Ready for final whole-branch review over 9b36fa5^..HEAD (this plan work).
-
-FINAL REVIEW (opus, whole-branch eb0a858..27f315d, 6 commits): READY to merge — no Critical/Important. Traced BG-removal seam end-to-end: bgRemove.ts uploadLogo → uploads.py sets collected["uploaded_asset_path"]+has_logo → generate.py reads it as signed 2nd conditioning image → transparent asset genuinely reaches Gemini (NOT cosmetic). imgly is the ONLY dynamic import (code-split, no eager load). Drawing→graphic w/ placement_zone from FACE_ZONE, no coords in text; test asserts it. Backend change is ONLY the additive canvas_describe drawing branch — generate/prompt_builder/render_views untouched (no multi-angle regression). Draw-tool pointer handling traced: ≥2-pt commit, stroke cleared on face switch (no leak), onMove guarded, listening gate, renders on stage+thumbnails+drag round-trip. Backend 416; frontend build tsc-clean + focused 13/13.
-  Minor TICKETS (non-blocking, deferred): (1) DrawingNode ignores isSelected → selected stroke has no on-canvas selection affordance (only toolbar signals it) — UX inconsistency vs text/image/shape. (2) bgRemove OFF leaves originalAssetUrl populated (harmless stale field; re-toggle still resolves correctly). (3) single tap in draw mode (<4 pts) silently discarded — cannot place a dot (acceptable for a pen).
-
-FEATURE COMPLETE (bg removal + draw tool). All 5 BD tasks + final review done. Commits: f4ae7b8 9b36fa5 70a7a02 bd657cb e601c61 27f315d. Ready to finish branch. PENDING: manual browser E2E (needs Docker + imgly installed in container) — not run.
-
-CORRECTION: full frontend vitest run completed — 196 passed / 2 failed (pre-existing adminQuotes) / 202 total. Earlier derived 185 was off a stale 181 baseline; CLAUDE.md corrected to 196.
-
-============================================================
-NEW PLAN: Chat-Gated Canvas Flow (intro Q&A + decoration + notes)
-Plan: docs/superpowers/plans/2026-07-13-chat-gated-canvas-flow.md
-Spec: docs/superpowers/specs/2026-07-13-chat-gated-canvas-flow-design.md
-Branch: feat/canvas-design-studio | BRANCH_BASE (final review): f3de2cb (HEAD before any impl; spec=prior, plan=f3de2cb)
-Tasks: 1 deco-table · 2 deco-service · 3 deco-routes · 4 state-machine · 5 goal-planner · 6 prompts · 7 orchestrator · 8 finalize · 9 fe-api/store · 10 ChatColumn · 11 Surface/ToolRail · 12 admin-view · 13 verify
-Task 1 BASE (HEAD before impl): f3de2cb
-
-Task 1: complete (commit 3efeaf6, controller-verified — verbatim additive migration + seed; db reset ran, 4 rows Embroidery/Print/Patch/Vinyl confirmed). Seed insert placed after store insert.
-
-Task 2 BASE (HEAD before impl): 3efeaf6
-
-Task 2: complete (commit cc0cf05, controller-verified — verbatim service+models, TDD RED/GREEN, 2/2 pass, matches graphics pattern).
-
-Task 3 BASE (HEAD before impl): cc0cf05
-
-Task 3: complete (impl cd4b888 + fix efbcde6, review clean after fix — Spec OK, Quality Approved). Customer GET /decoration-types (active-only, {id,name}) + admin CRUD (require_admin router-dep + require_store per-route = BOTH gates verified). Registered in main.py. 7 passed.
-  Important FIXED (efbcde6): delete_type now store-scoped (was id-only → cross-tenant delete). +inverse-gate test. Minor left: duplicate fn name list_decoration_types across two modules (harmless).
-  TICKET (pre-existing, out of scope): graphics.delete_graphic has the same id-only unscoped delete.
-
-Task 4 BASE (HEAD before impl): efbcde6
-
-Task 4: complete (commit bd711fe, review clean — Spec OK, Quality Approved, no findings). Additive-only: ASK_DECORATION/ASK_NOTES enum, TRANSITIONS, CANVAS_DESIGN wait-branch (before default fallthrough), QUESTION_FIELD→_done flags, canvas _progress_path early-return (7 steps). 26/26 pass, non-canvas untouched (33 insertions, 0 deletions).
-
-Task 5 BASE (HEAD before impl): bd711fe
-
-Task 5: complete (commit b5a7dc2, controller-verified — guard is first stmt in next_goal; _canvas_next_goal order correct; GATE_STATES +CANVAS_DESIGN/ASK_DECORATION/ASK_NOTES; 45 insertions 0 deletions; 28/28 pass).
-
-Task 6 BASE (HEAD before impl): b5a7dc2
-
-Task 6: complete (commit 175848d, controller-verified — 6 keys (canvas_design/ask_decoration/ask_notes in both CANNED_REPLIES + STATE_PROMPTS), single-file additive 27 insertions, import ok).
-
-Task 7 BASE (HEAD before impl): 175848d
-
-Task 7: complete (impl ec4f6b2 + fix af4046b, review clean after fix — Spec OK, Quality Approved). _apply_canvas_outro (decoration multi-select + notes), wired into handle_message elif chain, CONFIRM_BRIEF skip AND-gated to canvas only, _state_public_data branches. Impl regression sweep 100 / full suite 433.
-  2 Important FIXED (af4046b): (1) substring match "Print" in "Screen Print" → now exact comma-token match; (2) chosen[0] catalogue-order → now customer-order (style bucket from true first choice). Minor FIXED: dropped redundant "generate" substring (covered by _DONE_ELEMENTS_RE). +order/exact test. 6 passed.
-
-Task 8 BASE (HEAD before impl): af4046b
-
-Task 8: complete (commit 3214931, review clean — Spec OK, Quality Approved, no blocking). create_canvas_session state greeting; finalize sets canvas_finalized + loads active decoration_options + routes to ask_decoration + returns {reply,state,data:{options,multiselect,selected,progress}}; lead-capture removed; non-canvas routes untouched. Canvas routes 9/9, full suite 434.
-  Reviewer ⚠️ RESOLVED (controller cross-task): email now captured in chat intro at SAVE_PROGRESS_EMAIL (goal planner routes name→email_prompt_shown), so email_captured is set before GENERATING → VERIFY_EMAIL. No orphaned finalize dependency.
-
-Task 9 BASE (HEAD before impl): 3214931
-
-Task 9: complete (commit a6120a1, controller-verified — getDecorationTypes in api.ts; chatStore parseData multiselect+selected, interface, initial+reset defaults; 4/4 test, tsc clean).
-
-Task 10 BASE (HEAD before impl): a6120a1
-
-Task 10: complete (commit 01ea8d7, review clean — Spec OK, Quality Approved, no findings). ChatColumn canvas kickoff (guard sessionId+messagesLen0+!kickoffDone, double-layered vs StrictMode via store guard), decoration multi-select (toggle/Continue/cost-caveat>1, submit join(", ")/none, re-seed from selected), single-select guarded !multiselect; ask_notes chip free via existing row. Replaced old "does NOT kickoff" test → "DOES kickoff". Controller-confirmed canvas tests 12/12. Reviewer note (pre-existing, non-block): seed() does not reset multiselect/selected.
-
-Task 11 BASE (HEAD before impl): 01ea8d7
-
-Task 11: complete (commit e6b03ce, controller-verified + controller-committed — implementer stalled on a bg run and did NOT commit; controller confirmed code by direct read, ran ToolRail 4/4 + tsc clean, committed handoff). Surface: unlocked=chatState===canvas_design, isIntro overlay vs outro overlay in a relative container over the working area, disabled={!unlocked} to ToolRail, doRender guard (!sessionId||rendering). ToolRail: disabled prop + label "Done designing"/"Saving…"/"Design saved ✓".
-
-Task 12 BASE (HEAD before impl): e6b03ce
-
-Task 12: complete (commit 8b2206d, controller-verified — 3 adminApi fns pass storeKey as 3rd arg (X-Store-Key + X-Admin-Secret), AdminDecorationType iface, DecorationTypesView (mirrors GraphicsView), route decoration-types, nav "Decorations"; 179 insertions additive; test 1/1, tsc clean).
-
-ALL 12 CODE TASKS COMPLETE. Task 13 (controller-run): full-suite verify + in-browser smoke + CLAUDE.md.
-
-Task 13: complete (docs commit 3b5b95f). VERIFICATION: backend pytest 434 passed 0 failed. Frontend vitest FULL run 203 passed / 2 failed (pre-existing adminQuotes Router-context — NOT a regression) + 1 tinypool Worker-exit flake (known Windows). Focused canvas suites all green (chatStore 4, ChatColumn 6, CustomiseStudio 2, ToolRail 4, DecorationTypesView 1). CLAUDE.md chat-gated-canvas bullet + counts (434/203).
-  PENDING: in-browser E2E smoke (Steps 3-5 — needs Docker stack + Mailpit + browser): intro lock overlay → email verify send → unlock at canvas_design → Done designing → ask_decoration multi-select+caveat → ask_notes → generate → verify. Not run (chrome-devtools MCP disconnected).
-
-ALL 13 TASKS CODE-COMPLETE. Feature commits: 3efeaf6(deco-table) cc0cf05(deco-svc) cd4b888+efbcde6(deco-routes) bd711fe(state-machine) b5a7dc2(goal-planner) 175848d(prompts) ec4f6b2+af4046b(orchestrator) 3214931(finalize) a6120a1(fe-api/store) 01ea8d7(ChatColumn) e6b03ce(Surface/ToolRail) 8b2206d(admin-view) + CLAUDE.md. Ready for final whole-branch review over f3de2cb..HEAD.
-
-FINAL REVIEW (opus, whole-branch f3de2cb..3b5b95f, 15 commits): Ready to merge = WITH FIXES (now applied). Backend routing/gating/decoration-matching/tenant-scoped-delete/email-gating all correct + well-tested; non-canvas flows provably untouched (flow_mode gates verified; ChatColumn kickoff canvas-scoped via App.tsx). Reviewer traced intro (SAVE_PROGRESS_EMAIL not a gate → planner walks name→email→purpose→qty→canvas_design; email captured 4b) + outro (finalize→ask_decoration→ask_notes→generating→verify) end-to-end.
-  2 Important FIXED (b1f9106): (1) Surface doRender hydrate([],...) wiped the intro thread AND dropped res.reply (decoration question never shown) → new chatStore.applyResponse appends reply + applies state/data without wiping; Surface uses it. (2) empty decoration_options soft-locked ask_decoration (no chips, no Continue) → ChatColumn renders multiselect block whenever multiselect (chips only if options>0, Continue always). +2 tests. 16 passed (3 files), tsc clean.
-  Minor TICKETS (deferred): admin Decorations view has no active-toggle/reorder (create=active, delete only); duplicate-name add throws raw 500 (unique idx) — catch → 409; canvas_design copy overpromises "describe here" (typing at CANVAS_DESIGN rests, only Done designing advances).
-
-FEATURE COMPLETE. All 13 tasks + final-review fix done, reviewed, verified. Commits: 3efeaf6 cc0cf05 cd4b888 efbcde6 bd711fe b5a7dc2 175848d ec4f6b2 af4046b 3214931 a6120a1 01ea8d7 e6b03ce 8b2206d + CLAUDE.md + b1f9106(final-fix). Backend 434, frontend 203+2 fixes. PENDING: manual in-browser E2E (Docker + browser; chrome-devtools MCP disconnected this session).
+Task 11: complete (commit 24b4a21, review clean — Spec ✅, Quality Approved). chatStore parseData: canvasDirective (snake→camel, defensive) + triggerFinalize; all 4 add-sites (interface/parseData/defaults/reset); no-stick proven by test. 3 new + 2 existing tests, tsc clean.
+
+Task 12: complete (commit direct by controller — 6-line pure constant module toolInstructions.ts, tsc clean, no test needed). TOOL_INSTRUCTIONS record (upload/text/shape).
+
+Task 13 BASE (HEAD before impl): d9bea1f (toolInstructions)
+
+Task 13: complete (commit 7943e06 + fix 473cab3, review clean after fix — Spec ✅, Quality Approved). Surface reacts to canvasDirective+triggerFinalize: face switch, allowedTools/highlightTool→ToolRail, instruction callout, Done button (posts "done"), auto-open dialog, triggerFinalize→doRender() once (ref-guard). v1 legacy gating byte-identical (isV2 false). Impl also fixed render-button-bypass (rendered={isV2?true:rendered}).
+  IMPORTANT FIX (reviewer-confirmed): SelectedToolbar was gated on `unlocked` (never true in v2) → font/size/colour controls unreachable despite instructions promising them. Fixed → `{(unlocked || isV2) && <SelectedToolbar/>}` + regression test. Controller-verified.
+  MINOR (FINAL REVIEW — decide): ToolRail Draw toggle + cap-colour swatches gated on `locked` only, so always ENABLED in v2 regardless of the step's allowedTools (a v2 customer can freehand-draw / change cap colour during e.g. a logo-upload step). Pre-existing gating, off-spec for strict one-tool-at-a-time. Not fixed (scope). SelectedToolbar edit controls also always available once an element is selected in v2 (acceptable — needed for editing).
+
+Task 14 BASE (HEAD before impl): 473cab3
+
+Task 14: complete (commit a2b651a, review clean — Spec ✅, Quality Approved). Brand.canvas_intro?:string in types.ts; BrandingView textarea via setField('canvas_intro'), maxLength 600, aria-label. Mirrored co-located BrandingView.test.tsx harness. 1 new + 3 existing pass, tsc clean.
+  MINOR (final): new test in __tests__/brandingCanvasIntro.test.tsx while component's other tests are co-located BrandingView.test.tsx (harmless split).
+
+Task 15 BASE (HEAD before impl): a2b651a
+
+Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved). Genuine 12-turn e2e walk through real handle_message (asserts state EVERY turn, no weakening); _FakeSB + monkeypatched capture_lead_and_verify/_can_start_design. REGRESSION: backend full suite 550 pass (flag-off = v1 intact); frontend targeted 22 pass; tsc clean.
+
+=== ALL 15 TASKS COMPLETE. Final whole-branch review DONE (opus). Verdict: merge safe (v1 byte-identical verified seam-by-seam), ENABLING not safe until fixes. ===
+
+WIRE-UP (user reported v2 not live on the current flow):
+  1. ROOT CAUSE: CANVAS_ORCHESTRATOR_V2 was in .env.example but NOT in the actual .env → default false
+     → every canvas session still routed to v1. Added `CANVAS_ORCHESTRATOR_V2=true` to .env (gitignored,
+     local config, not committed) + `docker compose up -d --force-recreate backend` (env is read only at
+     container start). Verified in-container: settings.canvas_orchestrator_v2 = True.
+  2. REAL CODE GAP FIXED: v2 states emitting NO directive (show_intro/ask_another_logo/ask_add_decor)
+     made the frontend treat the turn as v1 (isV2 = canvasDirective !== null) → v1 whole-rail gating +
+     status strip reading "Design locked in — finishing up in the chat" MID-DESIGN, and tool locking
+     only worked by coincidence of the legacy gate. Now EVERY V2_OWNED state emits a directive (tool
+     steps hand over one tool; all others lock all tools). V2_OWNED moved to state_machine_v2 as single
+     source of truth (orchestrator_v2 imports it). Backend 555 passed (+1 new coverage test).
+  LIVE-VERIFIED against the running API (not just tests):
+     canvas: ''→ask_name[tools=[]] → 'Sam'→show_intro[tools=[]] → 'continue'→ask_logo_placement
+     [tools=['upload'] face=front open=None] → 'Back'→logo_adjust[face=BACK open=upload done=True]
+     → 'done'→ask_another_logo[tools=[]] → 'no'→ask_add_decor[tools=[]]  ✓ (Critical face fix proven live)
+     v1 isolation with flag ON: non-canvas session → ask_name→ask_purpose, no canvas key ✓
+
+FIX WAVE COMPLETE (commits 318821f backend / 62c01c5 frontend / b856a70 CLAUDE.md).
+All 6 Critical+Important findings + cheap minors fixed. CONTROLLER-VERIFIED independently:
+backend pytest 554 passed; frontend targeted 26/26 (7 files); tsc --noEmit clean.
+Fixes: auto_open moved ASK_LOGO_PLACEMENT→LOGO_ADJUST (+ effect ordering, logo_face reset per loop);
+_is_done negation-guarded + word-boundary regex (+ bg question removed from copy); lockPlaced() wired to
+postDone (unlockAll deleted as dead); ToolRail railGated disables Draw+cap-colour in v2; finalize retry
+(finalizeStarted reset + "Try again" button); CLAUDE.md documented.
+NOT covered by a test: the "Try again" button path (needs a real canvas 2D backend/toDataURL that jsdom
+lacks here) — verified by inspection + tsc.
+
+FINAL REVIEW FINDINGS (all fixed above):
+- CRITICAL 1: logo lands on WRONG FACE for any answer but Front. ASK_LOGO_PLACEMENT emits auto_open:"upload" so the file dialog opens BEFORE the face is answered; addImage appends to activeFace (=front default). Loop 2 pre-lands on previous logo's face. PLAN BUG (spec conflated ask-face + open-tool in one step). e2e only ever answered "Front" → missed.
+- IMPORTANT 2: _is_done matches substrings + ignores is_negative → "no, not done yet"/"isn't good"/"not ready" all read as Done; also LOGO_ADJUST asks "background removed?" but only tests _is_done → "yes, remove the background" = Done, bg never removed.
+- IMPORTANT 3: spec's "Done locks the layer" NEVER WIRED — lockAll only called at triggerFinalize; unlockAll zero prod callers. Tasks 8/9 primitives unused by Task 13.
+- IMPORTANT 4: ToolRail Draw + cap-colour gated on `locked` only → always enabled in v2, violating allowed_tools:[] ("all locked") at ASK_ANYTHING_ELSE/ASK_QUANTITY.
+- IMPORTANT 5: failed finalize = unrecoverable dead end (finalizeStarted ref never reset, triggerFinalize dep unchanged, render button disabled).
+- IMPORTANT 6: CLAUDE.md not updated (parallel orchestrator behind env flag = load-bearing fact for next agent).
+- MINORS: toolInstructions.ts dead (copy lives in prompts.V2_TOOL_TIPS — good deviation, delete orphan); Task-7 try/except import scaffolding now swallows real ImportErrors; unused `log`/`email_retry`; ASK_ADD_DECOR ambiguous free text silently skips decor loop + decor_choice not reset per loop; ASK_EMAIL shared v2/v1-tail invariant needs comment; v2_reply persona unused; DECOR_ADJUST reuses _logo_face; sessions.py hardcoded reply; _dispatch extra round-trip/no try-except; hi() membership; canvas_intro ""/ws test; test file split; branding.py docstring drift.
+- Flag-flip migration note: flipping the flag strands in-flight v1 canvas sessions at canvas_design (they'd skip the deco/notes outro). Staged-rollout caveat.
+
+MINOR findings roll-up for final review to triage:
+- T3: v2_reply `persona` param unused; DECOR_ADJUST target_face reuses _logo_face (no decor_face field).
+- T4: (fixed) delegation + honest reroute.
+- T5: no test for flag-ON + non-canvas → v1; _dispatch DB lookup no try/except.
+- T6: v2 finalize reply hardcoded (not from v2_reply).
+- T7: no explicit ""/whitespace canvas_intro test.
+- T10: hi() highlights regardless of allowedTools membership (Surface always passes single allowed tool).
+- T13 (DECIDE): ToolRail Draw toggle + cap-colour swatches always ENABLED in v2 (gated on `locked`=false, not allowedTools) — a v2 customer can freehand-draw / recolour cap during any step. Off-spec for strict one-tool-at-a-time.
+- T14: brandingCanvasIntro test in __tests__/ while other BrandingView tests co-located (harmless split).
+Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
+Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
+
+================================================================================
+=== NEW PLAN (2026-07-17): LLM-Assisted Canvas Orchestration (step registry) ===
+================================================================================
+
+Plan: docs/superpowers/plans/2026-07-17-llm-assisted-canvas-orchestration.md
+Spec: docs/superpowers/specs/2026-07-17-llm-assisted-canvas-orchestration-design.md
+Branch: feat/canvas-orchestrator-v2
+BRANCH_BASE (merge-base w/ master): 8773c16  (unchanged from the previous plan)
+
+WHY: live session e4c2f3de stalled at ask_email with quantity 0 — customer asked
+3x for a second logo, was marched to email. Root cause: state_machine.is_negative
+matches by SUBSTRING and "aNOther" contains "no", so v2's OWN chip label
+"Yes, another logo" read as a decline. Logo loop + MAX_LOGOS=4 were dead code.
+Generalisation: v1 is interpreter-first; v2 regressed to keywords for
+understanding, and the chip label + its matcher were declared in 2 places with
+nothing forcing agreement.
+
+9 tasks. Registry -> router -> chip resolution -> apply hooks -> interpreter ->
+UI surface -> reply assembly -> turn loop -> cleanup/e2e/docs.
+
+PRE-FLIGHT (before Task 1):
+  - Committed the previous session's uncommitted fix wave as 44e8eda (name
+    capture/V2_ASK_NAME, goal_planner ASK_CHANGE_METHOD gate, Surface
+    directive-anchored lockPlaced + read-only stage). Plan DEPENDS on
+    prompts.V2_ASK_NAME/_RETRY which existed only in that working tree.
+  - PLAN GAP FOUND+FIXED: plan dropped _plausible_name -> regressed "ok became
+    a name". Now ported into canvas_steps as ASK_NAME's apply (Task 4) + tests.
+  - TEST BASELINE: repo-root .env sets CANVAS_ORCHESTRATOR_V2=true -> 3
+    PRE-EXISTING failures (test_flag_defaults_false, test_finalize_routes_to
+    _decoration, test_chat_post_resolves_body_not_422). ALWAYS run
+    `cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q`. Baseline 559 passed
+    at 44e8eda. Do NOT "fix" those 3.
+  - Hoisted satisfy/seed_for into tests/canvas_step_helpers.py (was mandated as
+    verbatim dup in 2 files).
+  Plan fixes committed as (see git log after 44e8eda).
+
+SPEC DEVIATION (approved, in plan): §4.6 gate=True NOT implemented — first-unmet
+routing makes it a no-op (never returns a step after ANY unmet step). Invariant
+(no FINALIZE_CANVAS without email_captured) holds by construction: ask_email
+precedes finalize, done_when reads email_captured, only _apply_email sets it, and
+it is NOT in WRITABLE_SLOTS. Asserted by test in Task 2.
+
+Task 1 BASE (HEAD before impl): see git log — the plan-fix commit.
+
+Task 1: complete (commits b45225e + ca094cc, review clean — Spec ✅, Quality Approved).
+  canvas_steps.py: Chip/Step frozen dataclasses, REGISTRY (12 steps in flow order),
+  MAX_LOGOS=4, by_id, WRITABLE_SLOTS (union of step.slots), SLOT_ENUMS. 7 tests.
+  Reviewer independently confirmed: v1 untouched (no v1 file in diff); WRITABLE_SLOTS
+  really is the union with no bookkeeping key leaking in; logo-loop done_when correct
+  for all 3 phases (none/mid/closed).
+  CONTROLLER FIX: dropped unused `dataclasses.field` import (F401, my plan's bug) — ca094cc.
+  BASELINE CORRECTION: real baseline is 562 passed w/ CANVAS_ORCHESTRATOR_V2=false
+  (my "559" was the flag-ON passed count; 559+3failed=562). After Task 1: 569. Plan updated.
+  MINOR (final review): test_ask_email_precedes_finalize is implied by the exact-order
+  test (redundant, harmless). MAX_LOGOS declared in BOTH canvas_steps and state_machine_v2
+  — Task 2 re-exports from canvas_steps, which resolves it; verify at Task 2 review.
+
+Task 2 BASE (HEAD before impl): ca094cc
+
+Task 2: complete (commit 5c639f5, review clean — Spec ✅, Quality Approved, ZERO findings).
+  state_machine_v2 rewritten as a generic engine: next_step (first-unmet), V2_OWNED,
+  progress_for/progress_v2, MAX_LOGOS+Step RE-EXPORTED from canvas_steps (no drift).
+  New tests/canvas_step_helpers.py (satisfy/seed_for) — shared with Task 4, do NOT dup.
+  14 tests. Suite: 9 failed / 556 passed.
+  PLAN GAP FOUND BY IMPLEMENTER (correctly reported BLOCKED, did not commit a red route):
+    app/api/routes/sessions.py:269 imports progress_v2 and calls it with GENERATING (a
+    TAIL state, no registry step). Plan named only orchestrator_v2 + chat.py as consumers.
+    FIX: progress moved Task 6 -> Task 2; progress_v2 keeps its exact signature;
+    sessions.py UNTOUCHED. Plan updated (d5e41ae). Route test now green.
+  THE 9 EXPECTED FAILURES (Tasks 6/8 restore): test_orchestrator_v2 x8 + test_v2_e2e::
+    test_full_front_half_walk — AttributeError on v2_reply/canvas_directive/v2_public_data/
+    advance_state_v2 from orchestrator_v2.py:198/:216. NO v1 or other route test fails.
+  Reviewer independently verified: satisfy() does NOT shortcut via decor_done, so the
+  12-step walk really asserts every step; finalize-without-email test proves the invariant
+  genuinely (not incidentally); sessions.py byte-unmodified; v1 untouched.
+  COVERAGE GAP TO WATCH (Task 8/9): old test_decor_ambiguous_reply_reasks_instead_of_skipping
+    was deleted with the rewrite and has NO direct successor. New equivalent = "interpreter
+    returns {} -> decor step re-asks". Add it in Task 8 or flag at final review.
+  MAX_LOGOS cap has no test until Task 4 (test_logo_loop_stops_at_max_logos...) — verify there.
+  CONTROLLER: deleted a stale plan note (L557) that described the OLD buggy _satisfy.
+
+Task 3 BASE (HEAD before impl): 5c639f5
+
+Task 3: complete (commit e741c75, review clean — Spec ✅, Quality Approved, ZERO findings).
+  resolve_chip(step, message) -> dict | None in state_machine_v2 (+20 lines). Exact match
+  strip+casefold, CURRENT step's chips only, returns dict(chip.fields) COPY, None (not {})
+  when not a chip. 24 new tests (19 registry-generated chip round-trips + 5 named), 31 in
+  test_canvas_steps.py. Suite: 9 failed / 580 passed (same 9; no regressions).
+  Reviewer INDEPENDENTLY recounted chips in the registry (4+1+2+3+1+2+6=19) — matched the
+  report exactly; confirmed _all_chips() walks REGISTRY dynamically at collection time, so a
+  chip added later is covered the moment it's declared. Copy-not-reference test proven real.
+  REVIEWER CAVEAT (correct, already planned): resolve_chip is NOT yet wired into
+  orchestrator_v2 — these tests prove the function in isolation. The LIVE bug is only proven
+  fixed end-to-end by Task 8's test_the_live_bug_yes_another_logo_reopens_the_logo_loop.
+
+Task 4 BASE (HEAD before impl): e741c75
+
+Task 4: complete (commit a4a0942, review clean — Spec ✅, Quality Approved, ZERO findings).
+  7 apply hooks on canvas_steps + _plausible_name/_NAME_FILLER ported verbatim from
+  orchestrator_v2 (44e8eda). 39 new tests; test_canvas_steps.py at 70. Suite 9 failed/619 passed.
+  Reviewer HAND-TRACED _apply_another_logo for all 4 cases (yes-reopens / no-closes /
+  yes-at-cap-closes-at-exactly-4-never-5 / empty-pending-appends-no-junk) and confirmed the
+  loop tests assert the ROUTER WALKS BACK (next_step is ASK_LOGO_PLACEMENT), not dict shape.
+  Confirmed _apply_name POPS (test seeds c={"name": filler} first, mirroring Task 8's
+  update-then-apply order — so the pop is proven load-bearing); _apply_email sets
+  email_captured only on ok=True (the sole mechanism gating FINALIZE_CANVAS); no PII logged;
+  seed_for imported from canvas_step_helpers (not duplicated); v1 untouched.
+  EXPECTED DUP (Task 8 removes): _plausible_name/_NAME_FILLER now in BOTH canvas_steps and
+  orchestrator_v2 — byte-identical (reviewer verified). Task 8 deletes orchestrator_v2's copy.
+
+Task 5 BASE (HEAD before impl): a4a0942
+
+Task 5: complete (commits 5a4c7a8 + fix 877cdef, review clean AFTER fix — Spec ✅, Quality Approved).
+  prompts: V2_TURN_INTERPRETER_PROMPT / V2_ACK_PROMPT / V2_STALL_REPLY / V2_NUDGE_REPLY.
+  intent_extractor (ADDITIONS ONLY, v1 byte-unchanged): LLMUnavailable, validate_fields,
+  interpret_turn_v2, write_ack. 10 tests. Suite 9 failed / 629 passed.
+  *** CRITICAL FIXED (my PLAN's bug, caught by review) — write_ack sent PII to the model.
+  V2_ACK_PROMPT interpolated BOTH the raw customer message AND validated fields, so at
+  ASK_EMAIL (raw message IS the email) / ASK_NAME / ASK_PURPOSE, PII went to the Anthropic
+  API every turn. FIX (root, not special-case): dropped the `message` param entirely to match
+  v1's boundary — v1's reply-WORDING path (generate_reply) never receives a raw message; only
+  interpret_turn does, because interpreting requires it. fields now run through the existing
+  _safe_collected. Signature is now write_ack(persona, fields). Plan updated (b55cdaf) incl.
+  Task 8's call site. +3 real containment tests; dead _SLOT_DOCS["intro_ack"] removed.
+  _safe_collected REAL behaviour (reviewer read it): strips email, phone, lead_id + keys
+  ending _asked/_shown/_offered/_sent/_captured/_verified/_referred/_done/_blocked/_reached/
+  _mode/_idx/_flag. Does NOT strip name or purpose.
+  ADJUDICATED: `name` to the model is ACCEPTABLE — v1's generate_reply does exactly this via
+  the same helper; CLAUDE.md's hard rule is scoped to LOGS, not model prompts.
+  >>> FOLLOW-UP TICKET (PRE-EXISTING, affects v1 too — NOT this plan's scope): `purpose` is
+  unredacted free text sent to the model by v1's generate_reply/interpret_turn AND v2's
+  write_ack. A customer can type anything into "what's the hat for?". Consider adding
+  `purpose` to _safe_collected's strip list — but that changes v1 behaviour, so it needs its
+  own regression sweep. Raise at final review.
+
+Task 6 BASE (HEAD before impl): 877cdef
+
+Task 6: complete (commit 4e4dcfb, review clean — Spec ✅, Quality Approved, ZERO findings).
+  directive_for / canvas_directive / public_data_for + _face/_decor_tool helpers derived from
+  the registry. 8 tests. Suite 9 failed / 637 passed (failure COUNT unchanged; 8 of the 9 now
+  fail on v2_reply [Task 7] instead of canvas_directive — expected progress, not regression).
+  Reviewer INDEPENDENTLY verified the FROZEN CONTRACT against the real frontend:
+  directive keys (allowed_tools/target_face/auto_open/instructions/show_done) match
+  chatStore.ts:93-97's parser byte-for-byte; options/continuable/trigger_finalize/progress
+  match parseData (chatStore.ts:73-100); Surface.tsx consumes the camelCase forms unchanged;
+  shape identical to the pre-registry v2_public_data (compared via git show 5c639f5~1).
+  NO frontend file touched (git diff -- 'frontend/*' empty). v1 untouched.
+  auto_open subtlety preserved: directive_for READS step.auto_open from the registry rather
+  than deriving it, so ASK_LOGO_PLACEMENT (None) vs LOGO_ADJUST ("upload") cannot drift —
+  that conflation was a shipped bug (dialog opened before the face was answered -> logo landed
+  on the active face). _decor_tool resolves shape/text and instructions use the RESOLVED tip.
+
+Task 7 BASE (HEAD before impl): 4e4dcfb
+
+Task 7: complete (commit 37cd6a2 + controller Minor-fix ea5abed, review clean — Spec ✅, Approved).
+  reply_for(step, collected, *, persona, intro, ack="") = ack + scripted copy + VERBATIM tip.
+  9 tests (7 + 2 controller-added). Suite 9 failed / 646 passed.
+  Reviewer verified: tip is structurally undroppable (only conditional is the LOGO_ADJUST
+  exclusion); LOGO_ADJUST.ask GENUINELY contains its instructions inline (reviewer read the
+  registry) so the exclusion is justified — NOT a Critical; DECOR_ADJUST uses the RESOLVED
+  tool tip (shape choice never gets the text tip); ask_retry handles missing/None _asked.
+  FORMAT-CRASH RISK CLEARED: admin free text (stores.brand.canvas_intro) is passed AS a
+  format ARGUMENT, never spliced into the template, so literal braces in admin copy cannot
+  KeyError/500 the chat. (Reviewer traced branding.canvas_intro_text -> validated <=600.)
+  CONTROLLER MINOR-FIX (ea5abed): reply_for re-typed "Press Done when you're happy with it.",
+  duplicating DECOR_ADJUST.ask -> silent-drift risk. Now reads step.ask. Added the 2 tests
+  review found missing (LOGO_ADJUST tip-exclusion guard; DECOR_ADJUST==registry copy).
+
+Task 8 BASE (HEAD before impl): ea5abed
+
+Task 8: complete (7b4203d + fix ce7ff27 + controller 6e0f0d1, re-review clean — Spec ✅, Approved).
+  *** THE ENGINE IS LIVE. Suite 1 failed / 658 passed (the 1 = test_v2_e2e, Task 9 rewrites it).
+  orchestrator_v2 turn loop rewritten. Dead keyword path DELETED (controller grep-verified all
+  8 symbols at 0: is_affirmative/is_negative/_apply_v2_fields/_is_done/_face_from/
+  _plausible_name/_NAME_FILLER/_DONE_WORDS) while state_machine.py KEEPS its matchers for v1.
+  LIVE BUG PROVEN FIXED END-TO-END: test_the_live_bug_yes_another_logo_reopens_the_logo_loop
+  passes (chip resolves w/o the model; _apply_another_logo banks + re-seeds; router walks back
+  to ASK_LOGO_PLACEMENT). Chip-tap-zero-LLM test passes.
+  *** IMPORTANT 1 FIXED — update-then-apply order had NO test; reversing it left all 9 green.
+  Added test_filler_is_never_stored_as_a_name. Fixer RAN THE EXPERIMENT: apply-before-update
+  => FAIL ('ok' stored as name); restored => PASS. Order now genuinely pinned.
+  *** IMPORTANT 2 FIXED (USER-APPROVED DESIGN CHANGE) — the chip-nudge hatch could NEVER fire
+  on ask_name/ask_email/ask_purpose (no chips), and ask_name is step 1 => a Haiku outage or a
+  missing ANTHROPIC_API_KEY dead-ended 100% of canvas sessions at "what's your name?", before
+  email capture. _stall's docstring claimed the opposite. FIX: declarative
+  Step.direct_answer: Callable[[str], dict] | None on those 3 steps ONLY — the answer IS the
+  message (NOT a keyword fallback; there are no keywords). name still guarded by
+  _plausible_name; email via leads_service.extract_email regex (v1 already uses it). Reachable
+  ONLY inside except LLMUnavailable. Every other step still stalls. Restores no-key dev/CI.
+  MINOR FIXED: raw email no longer persists in collected (_apply_email pops it; reviewer
+  grep-confirmed ZERO readers of collected["email"] — all consumers read lead["email"]).
+  CONTROLLER FIX (6e0f0d1): narrowed the try to interpretation alone (try/except/else) so a
+  future write_ack raising LLMUnavailable can't silently clobber a successful interpretation.
+  >>> OPEN MINORS FOR FINAL REVIEW:
+    - _direct_purpose has no length cap/guard (unlike _direct_name). Outage + side-question at
+      ASK_PURPOSE stores it verbatim. Same as v1's behaviour; not a regression.
+    - Guard-rejection loops uncounted: filler name / "sam at example dot com" during an outage
+      re-asks forever, no escalation (_fail_count is popped on the success path). Pre-existing
+      shape; adjacent to the "don't dead-end sessions" motivation.
+    - intent_extractor.py:651 logs err=str(exc) on interpret failure. IF an Anthropic SDK error
+      echoes request content, the ASK_EMAIL prompt contains the address => PII in logs (HARD
+      constraint). Low risk, worth a look.
+    - _apply_name guards only the ASK_NAME step, but `name` is in WRITABLE_SLOTS so the
+      interpreter could fill it from a later turn unguarded (e.g. at ASK_PURPOSE).
+    - Kickoff writes content="" for the user row, discarding a non-empty first message from the
+      transcript (harmless today: ChatColumn kicks off with "").
+
+Task 9 BASE (HEAD before impl): 6e0f0d1
+
+Task 9: complete (commit 2748d83 + controller 86448c9, review clean — Spec ✅, Approved).
+  *** SUITE: 660 passed / 0 FAILED. The project's acceptance bar is met.
+  New e2e test_full_v2_walk_using_the_exact_chip_labels: 15 turns through the REAL
+  handle_message, asserting state EVERY turn, driving the EXACT registry chip labels
+  (reviewer verified each string against Chip.label — a typo would have fallen through to the
+  interpreter and passed for the wrong reason). DEVIATION FROM BRIEF (controller-directed,
+  correct): the interpreter raises LLMUnavailable for the WHOLE walk — proving something
+  stronger than the brief intended, that the entire v2 front half completes with NO MODEL
+  (chips by label match + the 3 free-text steps via direct_answer).
+  Guard test reads o2.__file__ and asserts all 7 banned keyword symbols absent.
+  CLAUDE.md documented; reviewer verified EVERY claim against source, incl. that v1 STILL
+  calls is_negative (orchestrator.py:194,232,291,792,938,947,949,951,970,973) — landmine real.
+  CONTROLLER FIX (86448c9): restored the inline directive assertions the rewrite dropped
+  (auto_open None @ASK_LOGO_PLACEMENT vs "upload" @LOGO_ADJUST + non-null directive every
+  turn) — these guarded a SHIPPED Critical and only had unit-level coverage.
+
+=== ALL 9 TASKS COMPLETE. 660 passed / 0 failed. Final whole-branch review next. ===
+
+=== FINAL WHOLE-BRANCH REVIEW (opus) — DONE. Verdict: MERGE SAFE + ENABLE SAFE (after fixes). ===
+Suite: 668 passed / 0 failed (CANVAS_ORCHESTRATOR_V2=false).
+All 7 spec §9 success criteria met (§9.5 met after the drift guards below).
+
+FINAL REVIEW FOUND (all fixed, commits abe1807 + f0e2a44):
+- IMPORTANT 1 (missed by ALL 9 per-task reviews): a TYPED "no" re-asked FOREVER at both decor
+  steps. ASK_ANOTHER_LOGO correctly used `another_logo is not None` (yes AND no), but
+  ASK_ANYTHING_ELSE used `bool(more_decor)` -> a typed decline fills more_decor=False ->
+  bool(False) is False -> router returns the same step forever, 2 Haiku calls per lap,
+  _fail_count popped each success so the nudge never fires. And ASK_ADD_DECOR had NO slot to
+  express a decline (decor_choice is enum text|shape; decor_done was chip-only) -> {} ->
+  re-asks forever. THE "no" CONCEPT WAS IMPLEMENTED TWO WAYS IN ADJACENT STEPS — the exact bug
+  class the refactor exists to kill. Chips worked; only free text broke.
+  BLIND SPOT THAT HID IT: the controller-directed e2e runs the WHOLE walk with the interpreter
+  raising, so every interpreter-path done_when is unexercised end-to-end — the mirror image of
+  the old suite's blind spot. FIX: decor_done added to both steps' slots (now
+  interpreter-writable — reading the customer, not fabricating a terminal state);
+  ASK_ANYTHING_ELSE -> `is not None`; _SLOT_DOCS entry; _apply_anything_else clears decor_done
+  so "add more" beats contradictory model output.
+  ADVERSARIAL CHECK (reviewer): worst case a hallucinated decor_done skips the optional decor
+  loop to ask_quantity. Cannot touch name/quantity/email/purpose/finalize. email_captured is
+  STILL non-writable => FINALIZE_CANVAS invariant unweakened. Correct trade vs an infinite loop.
+- IMPORTANT 2: _SLOT_DOCS + _PROGRESS_PATH are silent 2nd/3rd declaration sites, defeating
+  §9.5 ("adding a step touches one record"). A slot missing from _SLOT_DOCS is silently dropped
+  from the interpreter prompt (`if s in _SLOT_DOCS`) -> model never learns the field exists ->
+  step re-asks forever, no error, no failing test. FIX: registry-generated drift guards, both
+  directions + progress guard (tightened to resolve the anchor's TARGET, closing a hole where
+  an anchor pointing outside _PROGRESS_PATH silently reported "complete").
+- MINOR: log.warning(err=str(exc)) could echo the ASK_EMAIL prompt's address -> PII in logs
+  (HARD constraint). Fixed to type(exc).__name__ in interpret_turn_v2 AND write_ack.
+  *** The first guard test was VACUOUS (pytest caplog; structlog doesn't route into it — it
+  passed with str(exc) restored). Caught by reverting the fix and watching it pass. Rewritten
+  on structlog.testing.capture_logs; proven RED (email visible in the captured event) -> GREEN.
+
+FIXER'S OWN CATCH (material): the review's suggested test used the literal "no, that's
+everything" — which IS the ASK_ANYTHING_ELSE chip label, so resolve_chip matched it and it
+never reached the interpreter; it would have passed PRE-fix for the wrong reason. Swapped to
+"nah, nothing more thanks". Same failure mode as the original sin ("NB: not 'another logo'").
+
+>>> REMAINING TICKETS (none block merge or enable):
+  - _direct_purpose has no length cap (outage-only; message unbounded at the route for v1 too).
+  - Guard-rejection loops uncounted (filler name / "sam at example dot com" re-asks forever).
+  - _apply_name guards only ASK_NAME though `name` is in WRITABLE_SLOTS (could be overwritten
+    unguarded from a later turn). Fix: move the guard into validate_fields.
+  - `purpose` unredacted to the model (PRE-EXISTING, affects v1 too; needs its own sweep).
+  - DECOR_ADJUST always targets the front face (_face defaults; no decor-face question).
+  - Kickoff discards a non-empty first message from the transcript.
+  - interpret_turn_v2's `collected` param unused (context-blind interpreter).
+  - v1's is_negative substring bug STILL LIVE (orchestrator.py:194,232,291,792,938,947,949,
+    951,970,973). v2 no longer calls it. Own ticket.
+  - No v2 test exercises REAL Haiku (all mock the interpreter) — residual risk on model output.

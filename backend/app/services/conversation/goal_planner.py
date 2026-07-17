@@ -24,6 +24,14 @@ GATE_STATES: frozenset[S] = frozenset(
         S.COMPOSITE_PREVIEW,
         S.CONFIRM_BRIEF,
         S.CANVAS_DESIGN,
+        # Post-design branch ("rework on the canvas" vs "describe the change"),
+        # resolved by advance_state's ASK_CHANGE_METHOD branch. It belongs here
+        # with the other gates: the planner only knows the FORWARD
+        # questionnaire, so routing this state through it looked at a finished
+        # questionnaire and answered with a questionnaire state — the canvas
+        # never reopened, and a v2 session (which never sets v1's
+        # `email_prompt_shown` sentinel) was re-asked for its verified email.
+        S.ASK_CHANGE_METHOD,
         S.ASK_DECORATION,
         S.ASK_NOTES,
         S.GENERATING,

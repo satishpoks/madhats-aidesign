@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from app.api.deps import limiter
 from app.config import settings
+from app.db import get_supabase
 from app.models.message import (
     ChatRequest,
     ChatResponse,
@@ -16,10 +17,25 @@ from app.services.conversation.orchestrator import (
     check_verification,
     handle_message,
 )
+from app.services.conversation.orchestrator_v2 import (
+    handle_message as handle_message_v2,
+)
 from app.services.moderation import ModerationError, check_text
 
 router = APIRouter(tags=["chat"])
 log = structlog.get_logger()
+
+
+async def _dispatch(session_id: str, message: str) -> dict:
+    """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else)."""
+    if settings.canvas_orchestrator_v2:
+        sb = get_supabase()
+        res = sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
+        if res.data:
+            collected = res.data[0].get("collected") or {}
+            if collected.get("flow_mode") == "canvas":
+                return await handle_message_v2(session_id, message)
+    return await handle_message(session_id, message)
 
 
 @router.post("/chat/{session_id}", response_model=ChatResponse)
@@ -31,7 +47,7 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
-        result = await handle_message(session_id, body.message)
+        result = await _dispatch(session_id, body.message)
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
 

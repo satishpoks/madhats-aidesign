@@ -135,6 +135,19 @@ export function BrandingView() {
         ))}
       </div>
 
+      {/* Canvas intro */}
+      <label className="flex flex-col gap-1 rounded-xl border border-[#e0e1ea] bg-white p-4 text-[12px] text-[#6b6b80]">
+        <span className="text-sm text-textMuted">Canvas intro (shown after the customer's name)</span>
+        <textarea
+          aria-label="Canvas intro"
+          maxLength={600}
+          value={brand.canvas_intro ?? ''}
+          onChange={e => setField('canvas_intro', e.target.value)}
+          className="mt-1 w-full rounded-lg border border-[#e0e1ea] bg-white px-3 py-2 text-sm"
+          rows={4}
+        />
+      </label>
+
       {/* Menu */}
       <div className="flex flex-col gap-2 rounded-xl border border-[#e0e1ea] bg-white p-4">
         <div className="flex items-center justify-between">

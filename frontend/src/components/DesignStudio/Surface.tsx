@@ -23,6 +23,24 @@ export function DesignStudioSurface() {
   const introStates = ['', 'greeting', 'ask_name', 'save_progress_email', 'ask_purpose', 'ask_quantity']
   const isIntro = introStates.includes(chatState)
 
+  const canvasDirective = useChatStore(s => s.canvasDirective)
+  const triggerFinalize = useChatStore(s => s.triggerFinalize)
+
+  // v2 = a canvas directive is present (the chat orchestrator is driving the
+  // canvas turn-by-turn). Fall back to the legacy whole-rail gating
+  // (chatState === 'canvas_design') when there is no directive (v1).
+  const isV2 = canvasDirective !== null
+  const allowedTools = isV2 ? new Set(canvasDirective!.allowedTools as ('upload' | 'text' | 'shape')[]) : undefined
+  const highlightTool = isV2 && canvasDirective!.allowedTools.length === 1
+    ? (canvasDirective!.allowedTools[0] as 'upload' | 'text' | 'shape')
+    : null
+  // v2: a step that hands over no tool is a chat question, not an editing step
+  // — the stage and the element toolbar must be read-only for it. Previously
+  // both were hardcoded open for every v2 turn (`isV2 ? false : !unlocked`),
+  // so a placed element stayed draggable through the wrap-up questions.
+  const v2Editing = isV2 && canvasDirective!.allowedTools.length > 0
+  const stageLocked = isV2 ? !v2Editing : !unlocked
+
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
   const addText = useCanvasStore(s => s.addText)
@@ -30,6 +48,8 @@ export function DesignStudioSurface() {
   const addShape = useCanvasStore(s => s.addShape)
   const setFaceImages = useCanvasStore(s => s.setFaceImages)
   const toCanvasDesign = useCanvasStore(s => s.toCanvasDesign)
+  const lockAll = useCanvasStore(s => s.lockAll)
+  const lockPlaced = useCanvasStore(s => s.lockPlaced)
 
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -57,6 +77,62 @@ export function DesignStudioSurface() {
   useEffect(() => {
     if (unlocked) setRendered(false)
   }, [unlocked])
+
+  // v2: switch to the directive's target face as the chat walks through steps.
+  // This effect is declared BEFORE the auto-open effect below and React runs
+  // a component's passive effects in declaration order within one commit, so
+  // `setActiveFace` (synchronous, via the zustand store) is guaranteed to
+  // have applied before the auto-open effect reads `activeFace` (e.g.
+  // `addImage` appends to whatever face is currently active).
+  useEffect(() => {
+    if (canvasDirective?.targetFace) setActiveFace(canvasDirective.targetFace as Face)
+  }, [canvasDirective?.targetFace, setActiveFace])
+
+  // v2: auto-open the requested tool dialog once per directive change. Also
+  // depends on targetFace (not just autoOpen) so it re-evaluates in lockstep
+  // with the face-switch effect above whenever the directive changes either
+  // field — belt-and-braces on top of the declaration-order guarantee, and
+  // documents the ordering dependency between the two effects.
+  useEffect(() => {
+    if (canvasDirective?.autoOpen === 'upload') fileRef.current?.click()
+    if (canvasDirective?.autoOpen === 'shape') setGraphicsOpen(true)
+    if (canvasDirective?.autoOpen === 'text') addText('Your text')
+  }, [canvasDirective?.autoOpen, canvasDirective?.targetFace, addText])
+
+  // v2: lock whatever was just placed as soon as the flow leaves an editing
+  // step. Anchoring this to the DIRECTIVE rather than to the Done button is
+  // what makes it correct for every way the customer can answer: the canvas
+  // Done button, the chat's "Done" chip, or typing "done". The chip calls
+  // sendMessage directly and never went through postDone/lockPlaced, so the
+  // chat replied "Locked that in" while the logo stayed draggable.
+  // `v2Editing` (not `showDone`) is the trigger because ASK_LOGO_PLACEMENT
+  // hands over the upload tool without a Done button — it's still an editing
+  // step. Idempotent: leaving a non-editing step has nothing new to lock.
+  useEffect(() => {
+    if (isV2 && !v2Editing) lockPlaced()
+  }, [isV2, v2Editing, lockPlaced])
+
+  // v2: when the chat says finalize, lock every placed element (freezing the
+  // canvas for the multi-face export loop in doRender) and flatten + finalize
+  // exactly like the v1 render. Guard so a re-render never double-fires.
+  const finalizeStarted = useRef(false)
+  useEffect(() => {
+    if (triggerFinalize && !finalizeStarted.current) {
+      finalizeStarted.current = true
+      lockAll()
+      void doRender()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [triggerFinalize])
+
+  function postDone() {
+    // Spec: "Done" locks the just-placed layer in as the flow advances. Each
+    // step adds then locks, so "lock every still-unlocked element" is
+    // equivalent to "lock the element just placed in this step".
+    lockPlaced()
+    const sid = useSessionStore.getState().sessionId
+    if (sid) void useChatStore.getState().sendMessage(sid, 'done')
+  }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -141,25 +217,43 @@ export function DesignStudioSurface() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setRendering(false)
+      // A failed finalize must be retryable: without resetting this guard,
+      // `triggerFinalize` never changes (it's already true from the chat
+      // reaching FINALIZE_CANVAS) so the effect above would never fire
+      // doRender() again, and the v2 render button is permanently disabled
+      // (`rendered={isV2 ? true : rendered}`) — leaving no way back in.
+      finalizeStarted.current = false
     }
   }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {error && (
-        <div role="alert" className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {error}
+        <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => void doRender()}
+            className="flex-shrink-0 rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100">
+            Try again
+          </button>
         </div>
       )}
 
       {/* Slim, non-blocking status strip — replaces the old full-panel blur.
           The canvas stays fully visible; when locked the tools are simply
-          disabled (ToolRail/CanvasStage `locked`) so nothing can be modified. */}
-      {!unlocked && (
+          disabled (ToolRail/CanvasStage `locked`) so nothing can be modified.
+          v1 only — v2 sessions show the directive instruction callout instead. */}
+      {!isV2 && !unlocked && (
         <div className="mx-4 mt-3 rounded-lg border border-border bg-surfaceAlt/60 px-4 py-2 text-center text-xs text-textMuted">
           {isIntro
             ? 'Answer the questions on the right to unlock your design tools →'
             : 'Design locked in — finishing up in the chat ✓'}
+        </div>
+      )}
+
+      {/* v2: the chat orchestrator's current instruction for this turn. */}
+      {canvasDirective?.instructions && (
+        <div className="mx-4 mt-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-2 text-sm text-textPrimary">
+          {canvasDirective.instructions}
         </div>
       )}
 
@@ -171,16 +265,32 @@ export function DesignStudioSurface() {
 
         {/* Centre — canvas + contextual toolbar */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          <CanvasStage stageRef={stageRef} locked={!unlocked} />
-          {unlocked && <SelectedToolbar />}
+          <CanvasStage stageRef={stageRef} locked={stageLocked} />
+          {/* v2 mounts the toolbar on its editing steps: the instruction copy
+              tells the customer to change font/size/colour "in the toolbar
+              under the cap". It no-ops (returns null) until an element is
+              selected, so it only surfaces once they pick a placed element —
+              exactly when needed. On a no-tool step it stays out entirely. */}
+          {(isV2 ? v2Editing : unlocked) && <SelectedToolbar />}
+          {canvasDirective?.showDone && (
+            <button onClick={postDone}
+              className="px-6 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold">
+              Done
+            </button>
+          )}
         </div>
 
         {/* Right rail — tools + render */}
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
-            colourways={colourways} onRender={() => void doRender()} rendering={rendering} rendered={rendered}
-            locked={!unlocked} />
+            colourways={colourways} onRender={() => void doRender()} rendering={rendering}
+            // v2: finalize is chat-driven (`triggerFinalize`), not a manual click —
+            // force this legacy render button inert ("Design saved ✓", disabled)
+            // so it can't be used to jump ahead of the directive walkthrough.
+            rendered={isV2 ? true : rendered}
+            locked={isV2 ? false : !unlocked}
+            allowedTools={allowedTools} highlightTool={highlightTool} />
         </div>
       </div>
 

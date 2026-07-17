@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     studio_base_url: str = "http://localhost:5173"
     chatbot_persona_name: str = "Ricardo"
 
+    # --- Orchestrator selection ---
+    # When true, canvas sessions (flow_mode == "canvas") are handled by the
+    # step-by-step v2 orchestrator. Every other session and the false case use
+    # the v1 orchestrator, unchanged. Global flag; canvas-only in scope.
+    canvas_orchestrator_v2: bool = False
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]

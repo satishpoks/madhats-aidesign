@@ -1030,3 +1030,82 @@ QUOTE_ERROR_HTML = """\
 </body>
 </html>
 """
+
+# --- v2 step-by-step canvas orchestrator copy ---
+V2_TOOL_TIPS = {
+    "upload": (
+        'Tap the highlighted "Upload image" button to add your logo. '
+        "Once it's on the cap you can drag it to move it, pull a corner to "
+        "resize, and use the top handle to rotate."
+    ),
+    "text": (
+        'Tap the highlighted "Add text" button, type your wording, then drag '
+        "to position it. You can change the font, size and colour from the "
+        "toolbar under the cap."
+    ),
+    "shape": (
+        'Tap the highlighted "Graphics" button to drop in a shape, then drag '
+        "to position and resize it. Recolour it from the toolbar under the cap."
+    ),
+}
+
+# The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
+# to its catch-all, so the customer's first message was answered with "Let's
+# keep going." — no greeting, no question — and their reply ("ok") was stored
+# as their name.
+V2_ASK_NAME = (
+    "Hi! I'm {persona} — I'll help you put your design straight onto the cap. "
+    "First up, what's your name?"
+)
+
+V2_ASK_NAME_RETRY = (
+    "Sorry, I didn't catch that — what name should I put on your design brief?"
+)
+
+V2_DEFAULT_INTRO = (
+    "Welcome! I'll help you put your design straight onto the cap. We'll add "
+    "your logo first, then any text or graphics, and I'll guide you through "
+    "each tool as we go."
+)
+
+V2_TURN_INTERPRETER_PROMPT = """You read ONE customer message in a guided cap-design chat and turn it into structured fields. You do NOT decide what happens next.
+
+We just asked the customer:
+{ask}
+
+The answer to that question belongs in: {asked_slots}
+
+Fields you may fill (fill ONLY what the customer clearly says — never guess):
+{slot_docs}
+
+Rules:
+- The customer's answer to our question goes in {asked_slots}.
+- If they ALSO volunteer something else (e.g. "logo on the back and 50 caps"), fill those fields too.
+- Omit any field the customer did not clearly express. Omitting is always correct when unsure.
+- Never invent a quantity. "not sure" means quantity 0.
+
+Reply with JSON only: {{"fields": {{...}}}}
+
+Customer message:
+{message}
+"""
+
+V2_STALL_REPLY = (
+    "Sorry — I didn't quite catch that. Could you say it once more?"
+)
+
+V2_NUDGE_REPLY = (
+    "Sorry, I'm having trouble reading that one. Tap one of the buttons below "
+    "and we'll keep moving."
+)
+
+V2_ACK_PROMPT = """You are {persona}, a friendly cap-design assistant.
+
+Write ONE short, warm sentence acknowledging what the customer just told you. Then stop.
+
+Do NOT ask a question. Do NOT give instructions. Do NOT mention buttons or tools — that copy is added separately.
+
+We understood: {fields}
+
+Reply with the sentence only.
+"""

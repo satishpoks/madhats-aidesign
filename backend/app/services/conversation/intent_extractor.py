@@ -576,3 +576,111 @@ async def interpret_turn(
     )
     data = _parse_json(await _complete(prompt, max_tokens=400))
     return _normalize_interpretation(data, allowed_targets)
+
+
+# ---------------------------------------------------------------------------
+# v2 step-by-step canvas orchestrator: the LLM fills slots, it never routes.
+# See canvas_steps.py / state_machine_v2.py for the deterministic router that
+# owns "what happens next" — this module only turns free text into fields.
+# ---------------------------------------------------------------------------
+
+
+class LLMUnavailable(RuntimeError):
+    """Haiku is unreachable (no key, or the call failed).
+
+    v2 has no keyword fallback by design: a wrong field corrupts the design, so
+    the turn stalls rather than guessing. See orchestrator_v2.
+    """
+
+
+def validate_fields(raw: dict) -> dict:
+    """Keep only declared, well-typed slots. The containment boundary: a
+    hallucinated or internal key can never reach `collected`."""
+    from app.services.conversation import canvas_steps as cs  # noqa: PLC0415 cycle
+
+    out: dict = {}
+    for key, val in (raw or {}).items():
+        if key not in cs.WRITABLE_SLOTS:
+            continue
+        allowed = cs.SLOT_ENUMS.get(key)
+        if allowed is not None:
+            if isinstance(val, str) and val.lower() in allowed:
+                out[key] = val.lower()
+            continue
+        if key == "quantity":
+            try:
+                out[key] = int(val)
+            except (TypeError, ValueError):
+                pass
+            continue
+        out[key] = val
+    return out
+
+
+_SLOT_DOCS: dict[str, str] = {
+    "name": "name (string) — the customer's first name",
+    "logo_face": "logo_face (one of: front, back, left, right)",
+    "logo_placed": "logo_placed (bool) — true when they say the logo looks right / they're done",
+    "another_logo": "another_logo (bool) — true if they want to add ANOTHER logo",
+    "decor_choice": "decor_choice (one of: text, shape)",
+    "decor_placed": "decor_placed (bool) — true when they're happy with it",
+    "more_decor": "more_decor (bool) — true if they want to add something else",
+    "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
+    "quantity": "quantity (integer) — how many caps; 0 means not sure",
+    "email": "email (string)",
+    "purpose": "purpose (string) — what the hat is for",
+}
+
+
+async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
+    """Structured fields from one free-text turn. Raises LLMUnavailable rather
+    than guessing — v2 stalls instead of falling back to keywords."""
+    from app.services.conversation import canvas_steps as cs  # noqa: PLC0415 cycle
+
+    if not _has_llm:
+        raise LLMUnavailable("no anthropic api key")
+    prompt = prompts.V2_TURN_INTERPRETER_PROMPT.format(
+        ask=step.ask,
+        asked_slots=", ".join(step.slots) or "(nothing)",
+        slot_docs="\n".join(f"- {_SLOT_DOCS[s]}" for s in sorted(cs.WRITABLE_SLOTS)
+                            if s in _SLOT_DOCS),
+        message=message,
+    )
+    try:
+        raw = await _complete(prompt, max_tokens=300)
+    except Exception as exc:  # noqa: BLE001 — any SDK error is "unavailable"
+        # err=type(exc).__name__, not str(exc): at ASK_EMAIL the prompt carries
+        # the customer's email address, and some SDK errors stringify request
+        # content — str(exc) could leak it into the logs (hard PII rule).
+        log.warning("v2_interpret_failed", err=type(exc).__name__)
+        raise LLMUnavailable(str(exc)) from exc
+    return validate_fields(_parse_json(raw).get("fields") or {})
+
+
+async def write_ack(persona: str, fields: dict) -> str:
+    """One warm sentence acknowledging the turn, or "" if unavailable.
+
+    Best-effort by design: the instructions are concatenated from the registry
+    afterwards, so an outage makes the bot terse, never uninstructive.
+
+    Deliberately takes NO raw customer message. v1's reply-wording path
+    (`generate_reply`) never sees one either — only `interpret_turn` does,
+    because interpreting requires it. At ASK_EMAIL the raw message IS the email
+    address, so passing it here would send PII to the model on every turn. The
+    validated `fields` carry the substance the ack needs, and
+    `_safe_collected` strips `email`/`phone` from them.
+    """
+    if not _has_llm:
+        return ""
+    safe = _safe_collected(fields)
+    if not safe:
+        return ""                      # nothing non-PII to acknowledge
+    try:
+        text = await _complete(
+            prompts.V2_ACK_PROMPT.format(persona=persona, fields=json.dumps(safe)),
+            max_tokens=80,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("v2_ack_failed", err=type(exc).__name__)
+        return ""
+    return _strip_meta_preamble(repair_mojibake(text)).strip()
