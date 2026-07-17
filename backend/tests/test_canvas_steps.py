@@ -16,7 +16,7 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
-        S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
+        S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
 
 
@@ -384,3 +384,102 @@ def test_logo_bg_is_skipped_when_there_is_no_logo():
     c = {"name": "Sam", "intro_ack": True, "has_logo": False,
          "logos_done": True, "pending_logo": None}
     assert cs.by_id(S.ASK_LOGO_BG).done_when(c)
+
+
+def _quantity_done() -> dict:
+    return {"name": "Sam", "intro_ack": True, "has_logo": False,
+            "logos_done": True, "pending_logo": None, "decor_done": True,
+            "quantity": 50}
+
+
+def test_decoration_is_asked_after_quantity_and_before_email():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    assert v2.next_step(c).id is S.ASK_DECORATION
+
+
+def test_decoration_chips_come_from_the_stores_active_methods():
+    c = {"decoration_options": ["Embroidery", "Screen Print"]}
+    labels = [ch.label for ch in cs.chips_of(cs.by_id(S.ASK_DECORATION), c)]
+    assert labels == ["Embroidery", "Screen Print"]
+
+
+def test_choosing_decorations_sets_the_brief_and_the_render_style_bucket():
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = v2.resolve_chip(step, "Embroidery, Screen Print", c)
+    c.update(fields)
+    step.apply(c, fields, {})
+
+    assert c["decoration_types"] == ["Embroidery", "Screen Print"]
+    # The customer's FIRST choice drives the render style.
+    assert c["decoration_type"] == "embroidery"
+    assert "Decoration method: Embroidery, Screen Print" in c["brief_notes"]
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_decoration_names_not_offered_by_the_store_never_reach_the_brief():
+    """decoration_types is store-dynamic so it cannot go in SLOT_ENUMS — this
+    filter IS the interpreter guard."""
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = {"decoration_types": ["Sublimation", "Embroidery"]}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["decoration_types"] == ["Embroidery"]
+
+
+def test_a_decoration_answer_as_a_bare_string_is_still_filtered():
+    """The interpreter may return a string rather than a list."""
+    c = _quantity_done()
+    c["decoration_options"] = ["Embroidery", "Screen Print"]
+    step = cs.by_id(S.ASK_DECORATION)
+    fields = {"decoration_types": "Screen Print"}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert c["decoration_types"] == ["Screen Print"]
+    assert c["decoration_type"] == "print"
+
+
+def test_prepare_loads_the_stores_active_methods_once(monkeypatch):
+    calls = []
+
+    def _fake(store_id, active_only=False):
+        calls.append(store_id)
+        return [{"name": "Embroidery"}, {"name": "Vinyl"}]
+
+    monkeypatch.setattr("app.services.decoration_types.list_types", _fake)
+    c = _quantity_done()
+    step = cs.by_id(S.ASK_DECORATION)
+    step.prepare(c, {"id": "store-1"})
+    assert c["decoration_options"] == ["Embroidery", "Vinyl"]
+
+    step.prepare(c, {"id": "store-1"})          # already loaded
+    assert calls == ["store-1"]
+
+
+def test_a_store_with_no_decoration_methods_skips_the_step(monkeypatch):
+    """No options means no chips and no way to answer — that would dead-end the
+    funnel just before the email step."""
+    monkeypatch.setattr("app.services.decoration_types.list_types",
+                        lambda *a, **k: [])
+    c = _quantity_done()
+    step = cs.by_id(S.ASK_DECORATION)
+    step.prepare(c, {"id": "store-1"})
+    assert step.done_when(c)
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_prepare_survives_a_missing_store():
+    c = _quantity_done()
+    cs.by_id(S.ASK_DECORATION).prepare(c, None)
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_decoration_bookkeeping_is_not_interpreter_writable():
+    assert "decoration_types" in cs.WRITABLE_SLOTS
+    assert "decoration_done" not in cs.WRITABLE_SLOTS
+    assert "decoration_options" not in cs.WRITABLE_SLOTS
+    assert "decoration_type" not in cs.WRITABLE_SLOTS   # the render-style bucket

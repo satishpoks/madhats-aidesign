@@ -630,6 +630,7 @@ _SLOT_DOCS: dict[str, str] = {
     "more_decor": "more_decor (bool) — true if they want to add something else",
     "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
     "quantity": "quantity (integer) — how many caps; 0 means not sure",
+    "decoration_types": "decoration_types (list of strings) — decoration methods they chose, copied EXACTLY from the options offered in the question",
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
 }

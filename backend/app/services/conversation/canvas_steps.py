@@ -64,6 +64,12 @@ class Step:
     # (ChatColumn.submitDeco:274), so resolution stays an identity lookup on the
     # closed set we shipped — just one per token instead of one per message.
     multiselect: bool = False
+    # Impure setup run before the step is rendered: loads store-scoped data the
+    # step's chips need. Declared on the record — the alternative is an
+    # `if next_.id is ASK_DECORATION` branch in the orchestrator, which is the
+    # per-state switch this registry exists to avoid. May satisfy its own step
+    # (see _prepare_decoration), so the orchestrator re-resolves after it runs.
+    prepare: Callable[[dict, dict | None], None] | None = None
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -200,6 +206,71 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
     if ok:
         c["email_captured"] = True
     c.pop("email", None)   # the lead owns the address; don't persist it here too
+
+
+def _decoration_chips(c: dict) -> tuple[Chip, ...]:
+    """One chip per method the store actually offers (loaded by _prepare_decoration)."""
+    return tuple(Chip(name, {"decoration_types": [name]})
+                 for name in (c.get("decoration_options") or []))
+
+
+def _prepare_decoration(c: dict, store: dict | None) -> None:
+    """Load the store's active decoration methods before the step renders.
+
+    A store with none configured would leave the step with no chips and no way
+    to answer, dead-ending the funnel one step before the email — so mark it
+    done and let first-unmet skip it. Same for a store we can't read: the
+    decoration method is a nice-to-have on the brief, never worth losing a lead.
+    """
+    if "decoration_options" not in c:
+        from app.services import decoration_types as deco_svc  # noqa: PLC0415 cycle
+
+        opts: list[str] = []
+        if store and store.get("id"):
+            try:
+                opts = [t["name"] for t in
+                        deco_svc.list_types(store["id"], active_only=True)]
+            except Exception:  # noqa: BLE001 — never lose the lead over this
+                opts = []
+        c["decoration_options"] = opts
+    if not c["decoration_options"]:
+        c["decoration_done"] = True
+
+
+def _apply_decoration(c: dict, f: dict, s: dict) -> None:
+    """Filter the answer to what the store actually offers, then set the brief.
+
+    This filter IS the interpreter guard: `decoration_types` is store-dynamic,
+    so it cannot live in SLOT_ENUMS. An invented method yields nothing and never
+    reaches the brief. Exact token match (not substring) so a shorter name can't
+    match inside a longer one — "Print" inside "Screen Print".
+    """
+    if "decoration_types" not in f:
+        return
+    raw = f["decoration_types"]
+    if isinstance(raw, str):
+        raw = raw.split(",")            # the interpreter may return a bare string
+    if not isinstance(raw, list):
+        raw = []
+    offered = {str(o).casefold(): o for o in (c.get("decoration_options") or [])}
+    chosen: list[str] = []
+    for tok in raw:
+        opt = offered.get(str(tok).strip().casefold())
+        if opt and opt not in chosen:
+            chosen.append(opt)
+
+    c["decoration_types"] = chosen
+    c["decoration_done"] = True
+    if chosen:
+        c.setdefault("brief_notes", []).append(
+            f"Decoration method: {', '.join(chosen)}"
+        )
+        # v1's mapping, imported rather than re-typed: one keyword table, one
+        # behaviour. Local import — orchestrator imports this module's siblings.
+        from app.services.conversation.orchestrator import (  # noqa: PLC0415 cycle
+            _decoration_style_bucket,
+        )
+        c["decoration_type"] = _decoration_style_bucket(chosen[0])
 
 
 # --- direct answers ------------------------------------------------------------
@@ -384,6 +455,20 @@ REGISTRY: tuple[Step, ...] = (
         # code gated on `quantity not in (None, "")` while the parser fell back
         # to 0, so ANY input advanced and the re-ask branch was dead code.
         done_when=lambda c: "quantity" in c,
+    ),
+    Step(
+        id=S.ASK_DECORATION,
+        # No cost caveat here: ChatColumn already renders "each extra decoration
+        # adds to the cost" when 2+ are selected, so saying it again duplicates
+        # it on screen.
+        ask=("How would you like this decorated? Pick as many as apply — our "
+             "team will confirm what suits your artwork best."),
+        chips_from=_decoration_chips,
+        multiselect=True,
+        slots=("decoration_types",),
+        prepare=_prepare_decoration,
+        apply=_apply_decoration,
+        done_when=lambda c: bool(c.get("decoration_done")),
     ),
     Step(
         id=S.ASK_EMAIL,

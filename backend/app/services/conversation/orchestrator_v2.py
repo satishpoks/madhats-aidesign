@@ -94,6 +94,13 @@ async def handle_message(session_id: str, message: str) -> dict:
         asked.append(step.id.value)
 
     next_ = v2.next_step(collected)
+    if next_.prepare:
+        # Load whatever the step needs to render (store-scoped chips). prepare
+        # may SATISFY its own step — a store with no decoration methods
+        # configured — so re-resolve. One pass is enough: only one step declares
+        # prepare, and a satisfied step routes forward to steps that don't.
+        next_.prepare(collected, store)
+        next_ = v2.next_step(collected)
 
     if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
         # Honesty gate: the customer is capped, so pose the quote ask instead of

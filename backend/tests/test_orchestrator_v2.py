@@ -184,7 +184,7 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
     res = await o2.handle_message("s1", "no thanks, and I need 50 caps")
     assert store["session"]["collected"]["quantity"] == 50
     assert res["state"] == S.ASK_EMAIL.value        # ask_quantity skipped
-    assert res["data"]["progress"]["total"] == 7
+    assert res["data"]["progress"]["total"] == 8
 
 
 @pytest.mark.asyncio

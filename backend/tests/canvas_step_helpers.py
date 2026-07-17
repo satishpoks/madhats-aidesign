@@ -44,6 +44,8 @@ def satisfy(c: dict, step) -> None:
         c["decor_done"] = True
     elif step.id is S.ASK_QUANTITY:
         c["quantity"] = 12
+    elif step.id is S.ASK_DECORATION:
+        c["decoration_done"] = True
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
     elif step.id is S.ASK_PURPOSE:

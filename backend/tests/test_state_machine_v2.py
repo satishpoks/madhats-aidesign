@@ -49,7 +49,8 @@ def test_logos_done_falls_through_to_decor():
 
 def test_quantity_zero_counts_as_answered():
     # "Not sure" -> 0 is a real answer; presence, not truthiness.
-    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True, quantity=0)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              quantity=0, decoration_done=True)
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
@@ -61,13 +62,13 @@ def test_missing_quantity_re_asks():
 def test_finalize_unreachable_without_email_captured():
     # The load-bearing invariant. Every earlier slot filled, email not captured.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              quantity=50, purpose="team caps", email="sam@example.com")
+              quantity=50, decoration_done=True, purpose="team caps", email="sam@example.com")
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              quantity=50, email_captured=True, purpose="team caps")
+              quantity=50, decoration_done=True, email_captured=True, purpose="team caps")
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
