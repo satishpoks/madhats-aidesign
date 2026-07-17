@@ -1,6 +1,8 @@
 import pytest
 
 from app import prompts
+from app.services.conversation import canvas_steps as cs
+from app.services.conversation import intent_extractor as ie
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation.state_machine import ConversationState as S
 
@@ -55,147 +57,165 @@ def _new_store():
     }
 
 
+def _no_llm(monkeypatch):
+    async def _boom(*a, **k):
+        raise ie.LLMUnavailable("no key")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+
+def _llm_returns(monkeypatch, fields):
+    async def _ok(*a, **k):
+        return dict(fields)
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _ok)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+
 @pytest.mark.asyncio
 async def test_kickoff_greets_and_advances_to_ask_name(monkeypatch):
     store = _new_store()
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
+    _no_llm(monkeypatch)
     res = await o2.handle_message("s1", "")
-
     assert res["state"] == S.ASK_NAME.value
 
 
 @pytest.mark.asyncio
-async def test_name_advances_to_intro_with_admin_text(monkeypatch):
+async def test_the_live_bug_yes_another_logo_reopens_the_logo_loop(monkeypatch):
+    """Regression: the customer tapped the chip three times and was marched to
+    the email question, because "another" contains "no"."""
     store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "pending_logo": {"face": "front", "placed": True},
+    }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
-    await o2.handle_message("s1", "")          # greeting -> ask_name
-    res = await o2.handle_message("s1", "Sam")  # name -> show_intro
-
-    assert res["state"] == S.SHOW_INTRO.value
-    # No store configured (store_id omitted from the fake session), so the
-    # defensive Task-7 fallback returns the module default intro text.
-    assert prompts.V2_DEFAULT_INTRO in res["reply"]
-    assert res["data"]["continuable"] is True
-
-
-@pytest.mark.asyncio
-async def test_logo_placement_emits_upload_directive(monkeypatch):
-    store = _new_store()
-    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
-    await o2.handle_message("s1", "")
-    await o2.handle_message("s1", "Sam")
-    res = await o2.handle_message("s1", "continue")  # intro -> placement
-
+    _no_llm(monkeypatch)                       # a chip must not need the LLM
+    res = await o2.handle_message("s1", "Yes, another logo")
     assert res["state"] == S.ASK_LOGO_PLACEMENT.value
-    assert res["data"]["canvas"]["allowed_tools"] == ["upload"]
+    assert store["session"]["collected"]["logos"] == [{"face": "front", "placed": True}]
 
 
 @pytest.mark.asyncio
-async def test_done_locks_and_advances_to_another_logo(monkeypatch):
+async def test_a_chip_tap_makes_zero_llm_calls(monkeypatch):
     store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "logos_done": True,
+                                     "decor_done": True}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    calls = []
 
-    res = None
-    for m in ("", "Sam", "continue", "Front"):
-        res = await o2.handle_message("s1", m)
-    assert res["state"] == S.LOGO_ADJUST.value
+    async def _spy(*a, **k):
+        calls.append(1)
+        raise AssertionError("chip taps must not call the model")
 
-    res = await o2.handle_message("s1", "done")
-    assert res["state"] == S.ASK_ANOTHER_LOGO.value
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _spy)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+    res = await o2.handle_message("s1", "50-99")
+    assert calls == []
+    assert store["session"]["collected"]["quantity"] == 50
+    assert res["state"] == S.ASK_EMAIL.value
 
 
 @pytest.mark.asyncio
-async def test_tail_state_delegates_to_v1(monkeypatch):
-    # A shared tail state (not in v2's owned set) must hand the turn to v1.
+async def test_free_text_stalls_when_the_model_is_unavailable(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True,
+                                     "pending_logo": {"face": "front", "placed": True}}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "go on then")
+    assert res["state"] == S.ASK_ANOTHER_LOGO.value        # unchanged: nothing guessed
+    assert res["reply"] == prompts.V2_STALL_REPLY
+    assert store["session"]["collected"]["_fail_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_two_failures_nudge_toward_the_chips(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "_fail_count": 1,
+                                     "pending_logo": {"face": "front", "placed": True}}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "go on then")
+    assert res["reply"] == prompts.V2_NUDGE_REPLY
+    assert res["data"]["options"] == ["Yes, another logo", "No, that's it"]
+
+
+@pytest.mark.asyncio
+async def test_a_successful_turn_clears_the_fail_count(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "_fail_count": 1,
+                                     "pending_logo": {"face": "front", "placed": True}}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"another_logo": False})
+    await o2.handle_message("s1", "nah I'm good")
+    assert store["session"]["collected"].get("_fail_count", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
+    """Reordering: filling a later slot early means the router never asks it."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "decor_done": True,
+                                     "pending_logo": {"face": "front", "placed": True}}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"another_logo": False, "quantity": 50})
+    res = await o2.handle_message("s1", "no thanks, and I need 50 caps")
+    assert store["session"]["collected"]["quantity"] == 50
+    assert res["state"] == S.ASK_EMAIL.value        # ask_quantity skipped
+    assert res["data"]["progress"]["total"] == 7
+
+
+@pytest.mark.asyncio
+async def test_a_shared_tail_state_delegates_to_v1(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.OFFER_REFINE.value
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    called = {}
 
-    sentinel = {"reply": "V1", "state": S.OFFER_REFINE.value, "data": {}}
+    async def _v1(sid, msg):
+        called["hit"] = (sid, msg)
+        return {"reply": "v1", "state": S.OFFER_REFINE.value, "data": {}}
 
-    async def _fake_v1(session_id, message):
-        return sentinel
-
-    monkeypatch.setattr(o2._v1, "handle_message", _fake_v1)
-
-    res = await o2.handle_message("s1", "tweak the logo")
-    assert res is sentinel
-
-
-@pytest.mark.asyncio
-async def test_wants_another_logo_clears_logo_face(monkeypatch):
-    # Finding CRITICAL 1 (loop 2 pre-landing): the previous logo's face must
-    # not leak into loop 2's default — `_logo_face` falls back to "front"
-    # once `logo_face` is cleared, so ASK_LOGO_PLACEMENT re-asks cleanly.
-    store = _new_store()
-    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
-    for m in ("", "Sam", "continue", "Back"):
-        await o2.handle_message("s1", m)
-    await o2.handle_message("s1", "done")  # LOGO_ADJUST -> ASK_ANOTHER_LOGO
-    assert store["session"]["collected"]["logo_face"] == "back"
-
-    # NB: not "another logo" — "another" contains "no" as a substring, which
-    # trips the shared `is_negative` substring matcher (pre-existing, out of
-    # scope here); a plain "yes" avoids that false negative.
-    res = await o2.handle_message("s1", "Yes")
-    assert res["state"] == S.ASK_LOGO_PLACEMENT.value
-    assert "logo_face" not in store["session"]["collected"]
-
-
-def test_is_done_rejects_negations():
-    assert o2._is_done("no, not done yet") is False
-    assert o2._is_done("the placement isn't good") is False
-    assert o2._is_done("not ready") is False
-
-
-def test_is_done_accepts_affirmations():
-    assert o2._is_done("done") is True
-    assert o2._is_done("looks good") is True
+    monkeypatch.setattr(o2._v1, "handle_message", _v1)
+    res = await o2.handle_message("s1", "tweak it")
+    assert called["hit"] == ("s1", "tweak it")
+    assert res["reply"] == "v1"
 
 
 @pytest.mark.asyncio
-async def test_daily_cap_reroutes_to_quote_with_honest_copy(monkeypatch):
-    # At the ASK_PURPOSE turn the flow tries to enter FINALIZE_CANVAS; a capped
-    # customer is rerouted to QUOTE_REQUESTED with honest block copy this turn.
+async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_PURPOSE.value
-    store["session"]["collected"] = {"flow_mode": "canvas", "email_captured": True}
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "logos_done": True, "decor_done": True, "quantity": 50,
+        "email_captured": True,
+    }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    monkeypatch.setattr(o2, "_can_start_design", lambda sid: False)
-
-    res = await o2.handle_message("s1", "for our footy club")
-
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
+    _llm_returns(monkeypatch, {"purpose": "team caps"})
+    res = await o2.handle_message("s1", "for the team")
     assert res["state"] == S.QUOTE_REQUESTED.value
-    assert prompts.GENERATION_BLOCKED_ASIDE in res["reply"]
     assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
-
-
-@pytest.mark.asyncio
-async def test_filler_reply_is_not_stored_as_a_name(monkeypatch):
-    # The real session: the kickoff never asked anything (v2_reply had no
-    # ASK_NAME branch), the customer typed "ok", and "ok" became their name —
-    # "Great, ok! Let's add your logo."
-    store = _new_store()
-    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
-    await o2.handle_message("s1", "")           # greeting -> ask_name
-    res = await o2.handle_message("s1", "ok")   # filler, not a name
-
-    assert store["session"]["collected"].get("name") is None
-    assert res["state"] == S.ASK_NAME.value
-
-
-@pytest.mark.asyncio
-async def test_real_name_is_still_accepted(monkeypatch):
-    store = _new_store()
-    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-
-    await o2.handle_message("s1", "")
-    res = await o2.handle_message("s1", "Sam")
-
-    assert store["session"]["collected"]["name"] == "Sam"
-    assert res["state"] == S.SHOW_INTRO.value
