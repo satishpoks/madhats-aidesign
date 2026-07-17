@@ -93,7 +93,7 @@ async def test_the_live_bug_yes_another_logo_reopens_the_logo_loop(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "pending_logo": {"face": "front", "placed": True},
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -108,7 +108,7 @@ async def test_a_chip_tap_makes_zero_llm_calls(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_QUANTITY.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "logos_done": True,
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
                                      "decor_done": True}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     calls = []
@@ -134,7 +134,7 @@ async def test_free_text_stalls_when_the_model_is_unavailable(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True,
+                                     "intro_ack": True, "has_logo": True,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)
@@ -149,7 +149,7 @@ async def test_two_failures_nudge_toward_the_chips(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "_fail_count": 1,
+                                     "intro_ack": True, "has_logo": True, "_fail_count": 1,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)
@@ -163,7 +163,7 @@ async def test_a_successful_turn_clears_the_fail_count(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "_fail_count": 1,
+                                     "intro_ack": True, "has_logo": True, "_fail_count": 1,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"another_logo": False})
@@ -177,7 +177,7 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
-                                     "intro_ack": True, "decor_done": True,
+                                     "intro_ack": True, "has_logo": True, "decor_done": True,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"another_logo": False, "quantity": 50})
@@ -209,7 +209,7 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_PURPOSE.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
         "email_captured": True,
     }
@@ -282,7 +282,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_EMAIL.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -300,7 +300,7 @@ async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "pending_logo": {"face": "front", "placed": True},
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -323,7 +323,7 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
     store["session"]["collected"] = {
-        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_choice": "text", "decor_placed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))

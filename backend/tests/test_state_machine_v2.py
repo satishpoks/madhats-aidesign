@@ -19,53 +19,54 @@ def test_empty_session_asks_name():
 
 def test_name_then_intro_then_logo_face():
     assert v2.next_step(_seed(name="Sam")).id is S.SHOW_INTRO
-    assert v2.next_step(_seed(name="Sam", intro_ack=True)).id is S.ASK_LOGO_PLACEMENT
+    assert v2.next_step(_seed(name="Sam", intro_ack=True)).id is S.ASK_HAS_LOGO
+    assert v2.next_step(_seed(name="Sam", intro_ack=True, has_logo=True)).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_face_answered_moves_to_adjust():
-    c = _seed(name="Sam", intro_ack=True, pending_logo={"face": "back"})
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, pending_logo={"face": "back"})
     assert v2.next_step(c).id is S.LOGO_ADJUST
 
 
 def test_placed_moves_to_another_logo():
-    c = _seed(name="Sam", intro_ack=True, pending_logo={"face": "back", "placed": True})
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, pending_logo={"face": "back", "placed": True})
     assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
 
 
 def test_logo_loop_reopens_placement_when_another_wanted():
     # "yes" clears another_logo and re-seeds pending_logo (Task 4's apply);
     # the router must walk BACK to the face question on its own.
-    c = _seed(name="Sam", intro_ack=True, logos=[{"face": "back", "placed": True}],
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
               pending_logo={})
     assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_logos_done_falls_through_to_decor():
-    c = _seed(name="Sam", intro_ack=True, logos=[{"face": "back", "placed": True}],
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
               pending_logo=None, logos_done=True)
     assert v2.next_step(c).id is S.ASK_ADD_DECOR
 
 
 def test_quantity_zero_counts_as_answered():
     # "Not sure" -> 0 is a real answer; presence, not truthiness.
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True, quantity=0)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True, quantity=0)
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_missing_quantity_re_asks():
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True)
     assert v2.next_step(c).id is S.ASK_QUANTITY
 
 
 def test_finalize_unreachable_without_email_captured():
     # The load-bearing invariant. Every earlier slot filled, email not captured.
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True,
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
               quantity=50, purpose="team caps", email="sam@example.com")
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_finalize_reached_when_everything_done():
-    c = _seed(name="Sam", intro_ack=True, logos_done=True, decor_done=True,
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
               quantity=50, email_captured=True, purpose="team caps")
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
@@ -86,6 +87,8 @@ def test_v2_owned_is_the_registry_plus_greeting():
 
 def test_progress_collapses_loop_steps_onto_their_anchor():
     total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
+    # ASK_HAS_LOGO and ASK_LOGO_PLACEMENT both have progress step 3
+    assert v2.progress_for(cs.by_id(S.ASK_HAS_LOGO)) == {"step": 3, "total": total}
     for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
         assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
     for sid in (S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
@@ -102,7 +105,7 @@ def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
 
 
 def test_tool_steps_hand_over_exactly_one_tool():
-    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), {"pending_logo": {"face": "back"}})
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST), {"has_logo": True, "pending_logo": {"face": "back"}})
     assert d["allowed_tools"] == ["upload"]
     assert d["target_face"] == "back"
     assert d["auto_open"] == "upload"
@@ -112,7 +115,7 @@ def test_tool_steps_hand_over_exactly_one_tool():
 def test_face_question_enables_upload_but_does_not_auto_open_it():
     # Conflating these was a shipped bug: the file dialog opened before the face
     # was answered, so the logo landed on whatever face was already active.
-    d = v2.directive_for(cs.by_id(S.ASK_LOGO_PLACEMENT), {})
+    d = v2.directive_for(cs.by_id(S.ASK_LOGO_PLACEMENT), {"has_logo": True})
     assert d["allowed_tools"] == ["upload"]
     assert d["auto_open"] is None
     assert d["target_face"] == "front"          # default until answered
@@ -160,12 +163,12 @@ def _reply(step_id, collected=None, **kw):
 
 
 def test_reply_appends_the_tool_tip_verbatim():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True})
     assert prompts.V2_TOOL_TIPS["upload"] in out
 
 
 def test_the_ack_can_never_paraphrase_the_tip_away():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"},
+    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True},
                  ack="Nice — the back's a great spot.")
     assert out.startswith("Nice — the back's a great spot.")
     assert prompts.V2_TOOL_TIPS["upload"] in out       # concatenated, not generated
@@ -177,7 +180,7 @@ def test_reply_falls_back_to_bare_copy_without_an_ack():
 
 
 def test_reply_interpolates_name_persona_and_intro():
-    assert "Sam" in _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam"})
+    assert "Sam" in _reply(S.ASK_HAS_LOGO, {"name": "Sam"})
     assert "Ricardo" in _reply(S.ASK_NAME, persona="Ricardo")
     assert "Welcome!" in _reply(S.SHOW_INTRO, intro="Welcome!")
 
@@ -196,7 +199,7 @@ def test_decor_adjust_reply_uses_the_chosen_tool_tip():
 
 
 def test_reply_defaults_the_name_when_unknown():
-    assert "there" in _reply(S.ASK_LOGO_PLACEMENT, {})
+    assert "there" in _reply(S.ASK_HAS_LOGO, {})
 
 
 def test_logo_adjust_does_not_duplicate_its_tip():
@@ -204,7 +207,7 @@ def test_logo_adjust_does_not_duplicate_its_tip():
     # already carries the drag/resize/rotate instructions inline, so appending
     # V2_TOOL_TIPS["upload"] would say it all twice. (The customer still gets the
     # "tap the button" instruction implicitly — this step auto-opens the picker.)
-    out = _reply(S.LOGO_ADJUST, {"name": "Sam"})
+    out = _reply(S.LOGO_ADJUST, {"name": "Sam", "has_logo": True, "pending_logo": {"face": "front"}})
     assert prompts.V2_TOOL_TIPS["upload"] not in out
     assert "drag to move" in out and "Done" in out
 
@@ -213,7 +216,7 @@ def test_decor_adjust_reply_matches_its_registry_copy():
     # Guards the DRY fix: the step's copy is read from the registry, not re-typed
     # in reply_for, so the two can never silently diverge.
     step = cs.by_id(S.DECOR_ADJUST)
-    out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
+    out = _reply(S.DECOR_ADJUST, {"has_logo": True, "logos_done": True, "decor_choice": "shape"})
     assert out == f"{prompts.V2_TOOL_TIPS['shape']} {step.ask}"
 
 

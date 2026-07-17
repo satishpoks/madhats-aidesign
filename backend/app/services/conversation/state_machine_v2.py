@@ -39,6 +39,7 @@ def next_step(collected: dict) -> Step:
 # The customer-facing question steps, in order — the loop/adjust steps collapse
 # onto their loop's anchor so "Step X of N" stays steady during a deep-dive.
 _PROGRESS_ANCHORS: dict[S, S] = {
+    S.ASK_HAS_LOGO: S.ASK_LOGO_PLACEMENT,
     S.LOGO_ADJUST: S.ASK_LOGO_PLACEMENT,
     S.ASK_ANOTHER_LOGO: S.ASK_LOGO_PLACEMENT,
     S.DECOR_ADJUST: S.ASK_ADD_DECOR,

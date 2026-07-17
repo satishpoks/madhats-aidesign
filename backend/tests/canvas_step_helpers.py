@@ -23,6 +23,8 @@ def satisfy(c: dict, step) -> None:
         c["name"] = "Sam"
     elif step.id is S.SHOW_INTRO:
         c["intro_ack"] = True
+    elif step.id is S.ASK_HAS_LOGO:
+        c["has_logo"] = True
     elif step.id is S.ASK_LOGO_PLACEMENT:
         c["pending_logo"] = {"face": "front"}
     elif step.id is S.LOGO_ADJUST:

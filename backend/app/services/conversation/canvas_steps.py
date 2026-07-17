@@ -122,6 +122,19 @@ def _apply_intro(c: dict, f: dict, s: dict) -> None:
     c["intro_ack"] = True
 
 
+def _apply_has_logo(c: dict, f: dict, s: dict) -> None:
+    """A text-only customer closes the logo loop before it opens.
+
+    Every logo step's done_when short-circuits on `not _logos_open(c)`, so
+    setting logos_done here makes first-unmet skip all four by itself — no
+    branch, no back-edge. `has_logo is False` (not falsy) because the slot is
+    absent until answered.
+    """
+    if f.get("has_logo") is False:
+        c["logos_done"] = True
+        c["pending_logo"] = None
+
+
 def _apply_logo_face(c: dict, f: dict, s: dict) -> None:
     face = f.get("logo_face")
     if not face:
@@ -221,9 +234,18 @@ REGISTRY: tuple[Step, ...] = (
         done_when=lambda c: bool(c.get("intro_ack")),
     ),
     Step(
+        id=S.ASK_HAS_LOGO,
+        ask="Great, {name}! Do you have a logo or image you'd like on the cap?",
+        chips=(Chip("Yes, I have a logo", {"has_logo": True}),
+               Chip("No — text only", {"has_logo": False})),
+        slots=("has_logo",),
+        apply=_apply_has_logo,
+        # Presence, not truthiness: False is a real answer.
+        done_when=lambda c: "has_logo" in c,
+    ),
+    Step(
         id=S.ASK_LOGO_PLACEMENT,
-        ask=("Great, {name}! Let's add your logo. Which part of the cap should "
-             "it go on — front, back, left or right?"),
+        ask="Which part of the cap should it go on — front, back, left or right?",
         chips=(Chip("Front", {"logo_face": "front"}),
                Chip("Back", {"logo_face": "back"}),
                Chip("Left", {"logo_face": "left"}),

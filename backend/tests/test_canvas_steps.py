@@ -13,7 +13,7 @@ def test_registry_ids_are_unique_and_are_conversation_states():
 
 def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
-        S.ASK_NAME, S.SHOW_INTRO,
+        S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
@@ -169,7 +169,7 @@ def test_another_logo_yes_banks_the_logo_and_reopens_the_loop():
     assert c["pending_logo"] == {}
     assert "another_logo" not in c            # cleared -> the loop re-asks
     assert not c.get("logos_done")
-    assert v2.next_step(c | {"name": "Sam", "intro_ack": True}).id is S.ASK_LOGO_PLACEMENT
+    assert v2.next_step(c | {"name": "Sam", "intro_ack": True, "has_logo": True}).id is S.ASK_LOGO_PLACEMENT
 
 
 def test_another_logo_no_banks_the_logo_and_closes_the_loop():
@@ -284,3 +284,33 @@ def test_every_asking_step_has_a_progress_position():
         anchor = v2._PROGRESS_ANCHORS.get(step.id, step.id)
         placed = anchor in v2._PROGRESS_PATH
         assert placed, f"{step.id.value} has no progress position"
+
+
+def test_no_logo_skips_the_entire_logo_branch():
+    """has_logo=False sets logos_done, and every logo step's done_when already
+    short-circuits on `not _logos_open(c)` — so first-unmet skips all four with
+    no new routing."""
+    c = {"name": "Sam", "intro_ack": True}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "No — text only", c)
+    assert fields == {"has_logo": False}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_ADD_DECOR
+
+
+def test_has_logo_routes_into_the_logo_loop():
+    c = {"name": "Sam", "intro_ack": True}
+    step = cs.by_id(S.ASK_HAS_LOGO)
+    fields = v2.resolve_chip(step, "Yes, I have a logo", c)
+    assert fields == {"has_logo": True}
+    c.update(fields)
+    step.apply(c, fields, {})
+    assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
+
+
+def test_ask_has_logo_is_satisfied_by_a_false_answer():
+    """Presence, not truthiness — bool(False) is False, which would re-ask
+    forever (the bug already fixed on ASK_ANYTHING_ELSE and ASK_QUANTITY)."""
+    assert cs.by_id(S.ASK_HAS_LOGO).done_when({"has_logo": False})
+    assert not cs.by_id(S.ASK_HAS_LOGO).done_when({})

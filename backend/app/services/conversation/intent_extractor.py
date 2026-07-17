@@ -619,6 +619,7 @@ def validate_fields(raw: dict) -> dict:
 
 _SLOT_DOCS: dict[str, str] = {
     "name": "name (string) — the customer's first name",
+    "has_logo": "has_logo (bool) — true if they have a logo/image to upload, false if they want text only",
     "logo_face": "logo_face (one of: front, back, left, right)",
     "logo_placed": "logo_placed (bool) — true when they say the logo looks right / they're done",
     "another_logo": "another_logo (bool) — true if they want to add ANOTHER logo",
