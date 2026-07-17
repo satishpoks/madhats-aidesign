@@ -337,3 +337,21 @@ Task 8: complete (7b4203d + fix ce7ff27 + controller 6e0f0d1, re-review clean �
       transcript (harmless today: ChatColumn kicks off with "").
 
 Task 9 BASE (HEAD before impl): 6e0f0d1
+
+Task 9: complete (commit 2748d83 + controller 86448c9, review clean — Spec ✅, Approved).
+  *** SUITE: 660 passed / 0 FAILED. The project's acceptance bar is met.
+  New e2e test_full_v2_walk_using_the_exact_chip_labels: 15 turns through the REAL
+  handle_message, asserting state EVERY turn, driving the EXACT registry chip labels
+  (reviewer verified each string against Chip.label — a typo would have fallen through to the
+  interpreter and passed for the wrong reason). DEVIATION FROM BRIEF (controller-directed,
+  correct): the interpreter raises LLMUnavailable for the WHOLE walk — proving something
+  stronger than the brief intended, that the entire v2 front half completes with NO MODEL
+  (chips by label match + the 3 free-text steps via direct_answer).
+  Guard test reads o2.__file__ and asserts all 7 banned keyword symbols absent.
+  CLAUDE.md documented; reviewer verified EVERY claim against source, incl. that v1 STILL
+  calls is_negative (orchestrator.py:194,232,291,792,938,947,949,951,970,973) — landmine real.
+  CONTROLLER FIX (86448c9): restored the inline directive assertions the rewrite dropped
+  (auto_open None @ASK_LOGO_PLACEMENT vs "upload" @LOGO_ADJUST + non-null directive every
+  turn) — these guarded a SHIPPED Critical and only had unit-level coverage.
+
+=== ALL 9 TASKS COMPLETE. 660 passed / 0 failed. Final whole-branch review next. ===
