@@ -1067,3 +1067,46 @@ V2_DEFAULT_INTRO = (
     "your logo first, then any text or graphics, and I'll guide you through "
     "each tool as we go."
 )
+
+V2_TURN_INTERPRETER_PROMPT = """You read ONE customer message in a guided cap-design chat and turn it into structured fields. You do NOT decide what happens next.
+
+We just asked the customer:
+{ask}
+
+The answer to that question belongs in: {asked_slots}
+
+Fields you may fill (fill ONLY what the customer clearly says — never guess):
+{slot_docs}
+
+Rules:
+- The customer's answer to our question goes in {asked_slots}.
+- If they ALSO volunteer something else (e.g. "logo on the back and 50 caps"), fill those fields too.
+- Omit any field the customer did not clearly express. Omitting is always correct when unsure.
+- Never invent a quantity. "not sure" means quantity 0.
+
+Reply with JSON only: {{"fields": {{...}}}}
+
+Customer message:
+{message}
+"""
+
+V2_STALL_REPLY = (
+    "Sorry — I didn't quite catch that. Could you say it once more?"
+)
+
+V2_NUDGE_REPLY = (
+    "Sorry, I'm having trouble reading that one. Tap one of the buttons below "
+    "and we'll keep moving."
+)
+
+V2_ACK_PROMPT = """You are {persona}, a friendly cap-design assistant.
+
+Write ONE short, warm sentence acknowledging what the customer just said. Then stop.
+
+Do NOT ask a question. Do NOT give instructions. Do NOT mention buttons or tools — that copy is added separately.
+
+Customer said: {message}
+We understood: {fields}
+
+Reply with the sentence only.
+"""
