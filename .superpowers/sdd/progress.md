@@ -225,3 +225,18 @@ Task 3: complete (commit e741c75, review clean — Spec ✅, Quality Approved, Z
   fixed end-to-end by Task 8's test_the_live_bug_yes_another_logo_reopens_the_logo_loop.
 
 Task 4 BASE (HEAD before impl): e741c75
+
+Task 4: complete (commit a4a0942, review clean — Spec ✅, Quality Approved, ZERO findings).
+  7 apply hooks on canvas_steps + _plausible_name/_NAME_FILLER ported verbatim from
+  orchestrator_v2 (44e8eda). 39 new tests; test_canvas_steps.py at 70. Suite 9 failed/619 passed.
+  Reviewer HAND-TRACED _apply_another_logo for all 4 cases (yes-reopens / no-closes /
+  yes-at-cap-closes-at-exactly-4-never-5 / empty-pending-appends-no-junk) and confirmed the
+  loop tests assert the ROUTER WALKS BACK (next_step is ASK_LOGO_PLACEMENT), not dict shape.
+  Confirmed _apply_name POPS (test seeds c={"name": filler} first, mirroring Task 8's
+  update-then-apply order — so the pop is proven load-bearing); _apply_email sets
+  email_captured only on ok=True (the sole mechanism gating FINALIZE_CANVAS); no PII logged;
+  seed_for imported from canvas_step_helpers (not duplicated); v1 untouched.
+  EXPECTED DUP (Task 8 removes): _plausible_name/_NAME_FILLER now in BOTH canvas_steps and
+  orchestrator_v2 — byte-identical (reviewer verified). Task 8 deletes orchestrator_v2's copy.
+
+Task 5 BASE (HEAD before impl): a4a0942
