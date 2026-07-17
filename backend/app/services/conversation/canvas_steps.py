@@ -256,7 +256,7 @@ REGISTRY: tuple[Step, ...] = (
         chips=(Chip("Add text", {"decor_choice": "text"}),
                Chip("Add a shape", {"decor_choice": "shape"}),
                Chip("No, nothing else", {"decor_done": True})),
-        slots=("decor_choice",),
+        slots=("decor_choice", "decor_done"),
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("decor_choice")),
     ),
     Step(
@@ -278,9 +278,14 @@ REGISTRY: tuple[Step, ...] = (
         ask="Is that everything, or would you like to add anything else?",
         chips=(Chip("Add something else", {"more_decor": True}),
                Chip("No, that's everything", {"decor_done": True})),
-        slots=("more_decor",),
+        slots=("more_decor", "decor_done"),
         apply=_apply_anything_else,
-        done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("more_decor")),
+        # Presence, not truthiness: "no, that's everything" -> more_decor=False
+        # is a real, satisfying answer (mirrors ASK_ANOTHER_LOGO's `is not
+        # None` check). Truthiness-only gating meant a typed decline could
+        # never satisfy this step — bool(False) is False — so it re-asked
+        # forever; only the chip (which sets decor_done=True) escaped.
+        done_when=lambda c: bool(c.get("decor_done")) or c.get("more_decor") is not None,
     ),
     Step(
         id=S.ASK_QUANTITY,

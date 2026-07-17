@@ -625,6 +625,7 @@ _SLOT_DOCS: dict[str, str] = {
     "decor_choice": "decor_choice (one of: text, shape)",
     "decor_placed": "decor_placed (bool) — true when they're happy with it",
     "more_decor": "more_decor (bool) — true if they want to add something else",
+    "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
     "quantity": "quantity (integer) — how many caps; 0 means not sure",
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
@@ -648,7 +649,10 @@ async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
     try:
         raw = await _complete(prompt, max_tokens=300)
     except Exception as exc:  # noqa: BLE001 — any SDK error is "unavailable"
-        log.warning("v2_interpret_failed", err=str(exc))
+        # err=type(exc).__name__, not str(exc): at ASK_EMAIL the prompt carries
+        # the customer's email address, and some SDK errors stringify request
+        # content — str(exc) could leak it into the logs (hard PII rule).
+        log.warning("v2_interpret_failed", err=type(exc).__name__)
         raise LLMUnavailable(str(exc)) from exc
     return validate_fields(_parse_json(raw).get("fields") or {})
 
@@ -677,6 +681,6 @@ async def write_ack(persona: str, fields: dict) -> str:
             max_tokens=80,
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("v2_ack_failed", err=str(exc))
+        log.warning("v2_ack_failed", err=type(exc).__name__)
         return ""
     return _strip_meta_preamble(repair_mojibake(text)).strip()

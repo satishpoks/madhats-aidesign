@@ -308,3 +308,25 @@ async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
     res = await o2.handle_message("s1", "go on then")
     assert res["state"] == S.ASK_ANOTHER_LOGO.value
     assert res["reply"] == prompts.V2_STALL_REPLY
+
+
+@pytest.mark.asyncio
+async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
+    """Finding 1 (final review), interpreter path end to end: a typed decline
+    must not re-ask ASK_ANYTHING_ELSE forever.
+
+    The message deliberately does NOT match either chip label verbatim (chip
+    matching is case/whitespace-insensitive on the exact label, so a message
+    that happens to equal "No, that's everything" would take the chip path
+    and mask this bug, same as the model-free e2e did).
+    """
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "logos_done": True, "decor_choice": "text", "decor_placed": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"more_decor": False})
+    res = await o2.handle_message("s1", "nah, nothing more thanks")
+    assert res["state"] == S.ASK_QUANTITY.value      # must NOT re-ask itself

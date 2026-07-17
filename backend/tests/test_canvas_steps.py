@@ -27,19 +27,27 @@ def test_ask_email_precedes_finalize():
 
 def test_chips_may_set_slots_plus_trusted_flags_the_llm_cannot():
     # Chips are trusted (we authored the label AND its fields), so they may set
-    # terminal/annotation flags that are deliberately NOT in the interpreter's
-    # writable set — the model must never be able to declare the decor loop over
-    # or fake a "not sure".
-    allowed = cs.WRITABLE_SLOTS | {"decor_done", "quantity_unsure"}
+    # flags beyond the interpreter's writable set. decor_done is writable by
+    # BOTH now (a typed "no more" is just as valid an answer as the chip); only
+    # quantity_unsure stays chip-only — it's an annotation ("Not sure" tapped),
+    # not something the model should ever infer from free text.
+    allowed = cs.WRITABLE_SLOTS | {"quantity_unsure"}
     for step in cs.REGISTRY:
         for chip in step.chips:
             assert set(chip.fields) <= allowed, f"{step.id}: {chip.label}"
 
 
 def test_terminal_flags_are_not_interpreter_writable():
-    assert "decor_done" not in cs.WRITABLE_SLOTS
-    assert "quantity_unsure" not in cs.WRITABLE_SLOTS
+    # email_captured is the sole gate on FINALIZE_CANVAS — it is set ONLY by
+    # _apply_email after a real capture_lead_and_verify, so it must stay out
+    # of WRITABLE_SLOTS or the interpreter could fake a lead into existence.
     assert "email_captured" not in cs.WRITABLE_SLOTS
+    # quantity_unsure is an annotation ("Not sure" chip), not an answer the
+    # customer types, so it stays chip-only too.
+    assert "quantity_unsure" not in cs.WRITABLE_SLOTS
+    # decor_done, by contrast, IS interpreter-writable (see below) — letting
+    # the model record "the customer said no more decoration" is just reading
+    # the customer, same as the already-writable another_logo: False.
 
 
 def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
@@ -207,3 +215,67 @@ def test_email_apply_does_not_capture_when_verification_fails(monkeypatch):
     c = {}
     cs.by_id(S.ASK_EMAIL).apply(c, {"email": "sam@example.com"}, {"id": "s1"})
     assert not c.get("email_captured")         # -> ask_email re-asks itself
+
+
+# --- Finding 1 (final review): a free-text "no" re-asks FOREVER at the two
+# decor steps. Tapping the chip already worked; only typed answers hit this
+# path, which is why the model-free e2e never caught it.
+
+
+def test_typed_no_ends_the_decor_loop():
+    """Free-text decline must satisfy the step. Tapping the chip already worked;
+    only typed answers hit this path, which is why the model-free e2e missed it."""
+    step = cs.by_id(S.ASK_ANYTHING_ELSE)
+    c = {"decor_choice": "text", "decor_placed": True, "more_decor": False}
+    step.apply(c, {"more_decor": False}, {})
+    assert step.done_when(c), "typed 'no, that's everything' must end the loop"
+
+
+def test_typed_no_at_add_decor_is_expressible_and_ends_the_loop():
+    step = cs.by_id(S.ASK_ADD_DECOR)
+    assert "decor_done" in step.slots, "the model needs a way to say 'no decoration'"
+    c = {"decor_done": True}
+    assert step.done_when(c)
+    assert cs.by_id(S.DECOR_ADJUST).done_when(c)
+    assert cs.by_id(S.ASK_ANYTHING_ELSE).done_when(c)
+
+
+def test_decor_done_is_interpreter_writable_but_email_captured_is_not():
+    assert "decor_done" in cs.WRITABLE_SLOTS
+    assert "email_captured" not in cs.WRITABLE_SLOTS   # sole gate on FINALIZE
+    assert "quantity_unsure" not in cs.WRITABLE_SLOTS  # annotation, not an answer
+
+
+# --- Finding 2 (final review): _SLOT_DOCS and _PROGRESS_PATH are silent third
+# declaration sites. A slot/step missing from them fails silently — no error,
+# no other failing test, just a step that re-asks forever or reports "complete"
+# too early.
+
+
+def test_every_writable_slot_is_documented_for_the_interpreter():
+    """_SLOT_DOCS is a second declaration site. A slot missing from it is
+    silently dropped from the interpreter prompt (`if s in _SLOT_DOCS`), so the
+    model never learns the field exists and the step re-asks forever — with no
+    error and no other failing test."""
+    from app.services.conversation import intent_extractor as ie
+
+    undocumented = cs.WRITABLE_SLOTS - set(ie._SLOT_DOCS)
+    assert not undocumented, f"add these to _SLOT_DOCS: {sorted(undocumented)}"
+
+
+def test_slot_docs_has_no_entries_for_slots_that_no_longer_exist():
+    from app.services.conversation import intent_extractor as ie
+
+    assert set(ie._SLOT_DOCS) <= cs.WRITABLE_SLOTS
+
+
+def test_every_asking_step_has_a_progress_position():
+    """_PROGRESS_PATH is a third declaration site: a step absent from both it
+    and _PROGRESS_ANCHORS silently reports "complete" to the customer."""
+    from app.services.conversation import state_machine_v2 as v2
+
+    for step in cs.REGISTRY:
+        if step.id is S.FINALIZE_CANVAS:
+            continue          # terminal: deliberately reports complete
+        placed = step.id in v2._PROGRESS_PATH or step.id in v2._PROGRESS_ANCHORS
+        assert placed, f"{step.id.value} has no progress position"
