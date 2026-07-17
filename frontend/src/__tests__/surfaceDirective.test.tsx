@@ -12,6 +12,7 @@ import { DesignStudioSurface } from '../components/DesignStudio/Surface'
 import { useChatStore } from '../store/chatStore'
 import { useSessionStore } from '../store/sessionStore'
 import { useCanvasStore } from '../store/canvasStore'
+import { finalizeCanvas } from '../lib/api'
 
 // jsdom has no real <canvas> 2D backend (the `canvas` npm package isn't
 // installed here), so `HTMLCanvasElement.getContext('2d')` returns null and a
@@ -144,4 +145,29 @@ test('v2: the stage is read-only on a step that hands over no tools', () => {
 
   // No tools in play -> the element-editing toolbar must not be reachable.
   expect(screen.queryByLabelText('Text content')).not.toBeInTheDocument()
+})
+
+test('a second trigger_finalize re-arms and fires again', async () => {
+  // The refine confirm step fires trigger_finalize a SECOND time. The ref guard
+  // was never re-armed, so the re-render was silently swallowed.
+  vi.mocked(finalizeCanvas).mockClear()
+  useChatStore.setState({
+    chatState: 'generating',
+    canvasDirective: null,
+    triggerFinalize: true,
+  } as never)
+  const { rerender } = render(<DesignStudioSurface />)
+  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+  expect(finalizeCanvas).toHaveBeenCalledTimes(1)
+
+  // Intervening turns: triggerFinalize drops back to false.
+  act(() => { useChatStore.setState({ triggerFinalize: false } as never) })
+  rerender(<DesignStudioSurface />)
+
+  // The refine confirm turn fires it again.
+  act(() => { useChatStore.setState({ triggerFinalize: true } as never) })
+  rerender(<DesignStudioSurface />)
+  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+  expect(finalizeCanvas).toHaveBeenCalledTimes(2)
 })

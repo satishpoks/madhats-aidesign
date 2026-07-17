@@ -398,6 +398,25 @@ def _can_start_design(session_id: str) -> bool:
     return limits.can_start_design(email)
 
 
+def _mark_canvas_rework(current: ConversationState, new_state: ConversationState,
+                         collected: dict) -> None:
+    """Reopen the canvas for a re-render, from either refine route.
+
+    "Rework on the canvas" (ASK_CHANGE_METHOD -> CANVAS_DESIGN) hands the canvas
+    back to the customer; confirming a described edit (CONFIRM_CANVAS_EDIT ->
+    REGENERATING) re-renders the canvas Ricardo just edited. Both need
+    canvas-finalize to re-render instead of re-running the outro questions,
+    which is what `reworking` means to sessions.py.
+    """
+    reopened = (new_state is ConversationState.CANVAS_DESIGN
+                and current is ConversationState.ASK_CHANGE_METHOD)
+    confirmed = (current is ConversationState.CONFIRM_CANVAS_EDIT
+                 and new_state is ConversationState.REGENERATING)
+    if reopened or confirmed:
+        collected["canvas_finalized"] = False
+        collected["reworking"] = True
+
+
 async def handle_message(session_id: str, message: str) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -515,12 +534,13 @@ async def handle_message(session_id: str, message: str) -> dict:
         else:
             new_state = _route(current, collected, upsell_count)
 
-        # "Rework on the canvas" reopens the canvas for editing: clear the
-        # finalized flag (so the overlay unlocks) and mark the rework so
-        # canvas-finalize re-renders instead of re-running the outro questions.
-        if new_state is ConversationState.CANVAS_DESIGN and current is ConversationState.ASK_CHANGE_METHOD:
-            collected["canvas_finalized"] = False
-            collected["reworking"] = True
+        # Reopen the canvas for a re-render, from either refine route: "Rework
+        # on the canvas" (ASK_CHANGE_METHOD -> CANVAS_DESIGN) hands the canvas
+        # back to the customer; confirming a described edit (CONFIRM_CANVAS_EDIT
+        # -> REGENERATING) re-renders the canvas Ricardo just edited. Both need
+        # canvas-finalize to re-render instead of re-running the outro
+        # questions, which is what `reworking` means to sessions.py.
+        _mark_canvas_rework(current, new_state, collected)
 
         if new_state is ConversationState.UPSELL_PROMPT and collected.get("wants_upsell"):
             upsell_count += 1
@@ -1237,6 +1257,11 @@ def _state_public_data(state: ConversationState, collected: dict) -> dict:
     if state is S.REFINE_CONFIRM:
         return {"options": ["No, that's everything"]}
     if state is S.REGENERATING:
+        # A confirmed canvas edit must re-FLATTEN first: the layout guide has to
+        # match the design Ricardo just changed. doRender -> canvas-finalize ->
+        # sessions.py sees `reworking` and returns trigger_regeneration itself.
+        if collected.get("reworking"):
+            return {"trigger_finalize": True}
         return {"trigger_regeneration": True}
     # Canvas quote ask is a yes/no question (handled below), NOT a tap-through
     # statement — so it must not fall into the statement-only block.

@@ -242,3 +242,27 @@ def test_route_sends_a_confirmed_edit_to_regeneration_not_generation():
     c = {"flow_mode": "canvas", "edit_confirmed": True, "name": "Sam",
          "canvas_finalized": True, "decoration_done": True, "notes_done": True}
     assert o._route(S.CONFIRM_CANVAS_EDIT, c, 0) is S.REGENERATING
+
+
+def test_confirming_reuses_the_rework_path_rather_than_a_parallel_one():
+    # reworking=True is what makes canvas-finalize (sessions.py) re-render and
+    # skip the decoration/notes outro. trigger_finalize makes the frontend
+    # re-flatten the EDITED canvas first, so the layout guide matches.
+    c = {"flow_mode": "canvas", "reworking": True}
+    d = o._public_data(S.REGENERATING, c)
+    assert d.get("trigger_finalize") is True
+    assert d.get("trigger_regeneration") is not True   # finalize drives it, not this
+
+
+def test_a_plain_regeneration_still_triggers_the_render_directly():
+    # Non-rework REGENERATING (the v1 describe->regen path) is unchanged.
+    d = o._public_data(S.REGENERATING, {"flow_mode": "session"})
+    assert d.get("trigger_regeneration") is True
+    assert d.get("trigger_finalize") is not True
+
+
+def test_confirming_marks_the_session_as_reworking():
+    c = {"flow_mode": "canvas", "edit_confirmed": True}
+    o._mark_canvas_rework(S.CONFIRM_CANVAS_EDIT, S.REGENERATING, c)
+    assert c["reworking"] is True
+    assert c["canvas_finalized"] is False
