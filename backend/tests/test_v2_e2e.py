@@ -10,6 +10,7 @@ in this test suite — each test file wires its own fakes).
 """
 import pytest
 
+from app.services.conversation import canvas_steps as cs
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation.state_machine import ConversationState as S
 
@@ -64,43 +65,73 @@ def _new_store():
     }
 
 
+def test_v2_no_longer_uses_the_shared_keyword_matchers():
+    """v1 keeps is_affirmative/is_negative (it still routes on them); v2 must
+    not import them. `is_negative` matches by substring, so "another" reads as
+    "no" — that is what broke the logo loop. Task 8's rewrite also moved the
+    name/done-word/face helpers out of orchestrator_v2 entirely: they either
+    became registry data (canvas_steps.py) or were replaced by the generic
+    first-unmet router (state_machine_v2.py)."""
+    with open(o2.__file__, encoding="utf-8") as fh:
+        text = fh.read()
+    for banned in (
+        "is_affirmative", "is_negative", "_apply_v2_fields", "_is_done",
+        "_face_from", "_plausible_name", "_NAME_FILLER",
+    ):
+        assert banned not in text, f"{banned} still referenced in orchestrator_v2"
+
+
 @pytest.mark.asyncio
-async def test_full_front_half_walk(monkeypatch):
+async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
+    """Drives the exact strings the UI ships. The old e2e hand-picked "yes" to
+    dodge the broken "another" chip and stayed green over the bug; this walk
+    drives "Yes, another logo" for real.
+
+    The interpreter raises LLMUnavailable for the ENTIRE walk (no mid-walk
+    swap) — proving something stronger than a plain e2e: chips resolve by
+    deterministic label match, and the three free-text steps (name/email/
+    purpose) resolve via `Step.direct_answer`, so the whole v2 front half
+    completes with NO model at all.
+    """
     store = _new_store()
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
     monkeypatch.setattr(
-        o2.leads_service, "capture_lead_and_verify", lambda *a, **k: ("lead1", True)
+        cs.leads_service, "capture_lead_and_verify",
+        lambda s, c, e: ("lead-1", True),
     )
-    monkeypatch.setattr(o2, "_can_start_design", lambda sid: True)
 
-    turns = [
-        ("", S.ASK_NAME),
-        ("Sam", S.SHOW_INTRO),
-        ("continue", S.ASK_LOGO_PLACEMENT),
-        ("Back", S.LOGO_ADJUST),
-        ("done", S.ASK_ANOTHER_LOGO),
-        ("no", S.ASK_ADD_DECOR),
-        ("Add text", S.DECOR_ADJUST),
-        ("done", S.ASK_ANYTHING_ELSE),
-        ("no", S.ASK_QUANTITY),
-        ("50-99", S.ASK_EMAIL),
-        ("sam@example.com", S.ASK_PURPOSE),
-        ("Staff caps", S.FINALIZE_CANVAS),
+    async def _boom(*a, **k):
+        raise o2.ie.LLMUnavailable("chips and direct-answer steps need no model")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    walk = [
+        ("",                        S.ASK_NAME),
+        ("Sam",                     S.SHOW_INTRO),
+        ("ok",                      S.ASK_LOGO_PLACEMENT),   # intro ack (no slots)
+        ("Front",                   S.LOGO_ADJUST),
+        ("Done",                    S.ASK_ANOTHER_LOGO),
+        ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
+        ("Back",                    S.LOGO_ADJUST),
+        ("Done",                    S.ASK_ANOTHER_LOGO),
+        ("No, that's it",           S.ASK_ADD_DECOR),
+        ("Add text",                S.DECOR_ADJUST),
+        ("Done",                    S.ASK_ANYTHING_ELSE),
+        ("No, that's everything",   S.ASK_QUANTITY),
+        ("50-99",                   S.ASK_EMAIL),
+        ("sam@example.com",         S.ASK_PURPOSE),
+        ("for the team",            S.FINALIZE_CANVAS),
     ]
 
     res = None
-    for msg, expected in turns:
+    for msg, expected in walk:
         res = await o2.handle_message("s1", msg)
-        assert res["state"] == expected.value, (msg, res["state"])
-        # Regression (CRITICAL 1): the face question must not auto-open the
-        # upload dialog before it's answered …
-        if expected is S.ASK_LOGO_PLACEMENT:
-            assert res["data"]["canvas"]["auto_open"] is None
-        # … and answering a non-front face must land the LOGO_ADJUST
-        # directive on that face, not "front".
-        if expected is S.LOGO_ADJUST:
-            assert res["data"]["canvas"]["target_face"] == "back"
-            assert res["data"]["canvas"]["auto_open"] == "upload"
+        assert res["state"] == expected.value, f"{msg!r} -> {res['state']}"
 
     # The finalize state tells the frontend to flatten + finalize.
     assert res["data"]["trigger_finalize"] is True
+
+    c = store["session"]["collected"]
+    assert len(c["logos"]) == 2
+    assert [l["face"] for l in c["logos"]] == ["front", "back"]
+    assert c["quantity"] == 50
