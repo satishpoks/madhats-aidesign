@@ -352,7 +352,48 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   `MAX_LOGOS`=4. There is **no gate concept**: first-unmet already never
   returns a step after an unmet one, and `FINALIZE_CANVAS` is unreachable
   without `email_captured` because `ask_email` precedes it and only
-  `_apply_email` sets that flag. **Known landmine:** `state_machine.is_negative`
+  `_apply_email` sets that flag.
+  **Flow (2026-07-17), 8 progress steps:** `ask_has_logo` opens the design half
+  — "No — text only" sets `logos_done`, so first-unmet skips the whole logo
+  branch (no branch, no back-edge). Each placed logo is followed by
+  `ask_logo_bg`, which asks whether the background needs removing and points at
+  the **existing** `SelectedToolbar` toggle (no auto-matting). **That step
+  declares `tool="upload"` and it is load-bearing, not decoration:** it keeps
+  frontend `v2Editing` (`allowedTools.length > 0`) true, so the just-placed logo
+  is NOT locked (`Surface.tsx:111-113`) and stays *selectable*
+  (`canvasStore.ts:36`) — the only way the toggle, which renders solely for a
+  selected element, is reachable. Delete the tool and the bot instructs
+  customers to tick a control they physically cannot reach, invisibly from the
+  backend; `test_ask_logo_bg_keeps_a_tool_allowed_so_the_logo_stays_selectable`
+  + the e2e walk pin it. `ask_decor_placement` then asks the face for text/shapes
+  before the tool opens (fixing a live bug: `DECOR_ADJUST` set `face_target=True`
+  while `_face` read `pending_logo`, which is `None` once the logo loop closes —
+  so text had **always** silently landed on the front; `_face(step, collected)`
+  is now step-aware via `_DECOR_STEPS`, and `_apply_anything_else` clears
+  `decor_face` so a second decoration re-asks). After quantity,
+  `ask_decoration` collects the decoration method — a **multi-select of the
+  store's `decoration_types` rows**, whose first choice sets the
+  `decoration_type` render-style bucket the prompt builder reads (v2 never
+  collected it before). It is the registry's only user of three capabilities
+  added for it: `Step.prepare(collected, store)` (loads store-scoped data before
+  the step renders; **may satisfy its own step** — a store with no methods
+  configured, a missing store, or a DB error all auto-skip rather than
+  dead-ending the funnel one step before email capture — so the orchestrator
+  re-resolves `next_step` after it), `Step.chips_from` (chips derived from
+  `collected`; read ONLY via `chips_of`, never `step.chips`), and
+  `Step.multiselect` (the UI comma-joins the labels it was given, or ships the
+  literal `'none'`). `decoration_types` is store-dynamic so it cannot live in
+  `SLOT_ENUMS` — `_apply_decoration`'s exact-token filter against
+  `decoration_options` IS the interpreter guard. `Step.instructions` overrides
+  the tool-keyed `V2_TOOL_TIPS` for a step whose tool is held open for a
+  non-tool reason (`ask_logo_bg`). The cost caveat is NOT in the ask copy —
+  `ChatColumn.tsx:597-600` already renders it when 2+ are selected.
+  **Known gap (pre-existing, not from this work):** resuming a v2 canvas session
+  mid-design via `?session=<token>` does not rehydrate the `canvas` directive,
+  so `isV2` is false and the customer gets v1's whole-rail lock + "Design locked
+  in — finishing up" over a live design. Post-design resume (the preview email's
+  edit link) is unaffected, since the tail states are v1-owned anyway.
+  Spec/plan: `docs/superpowers/{specs,plans}/2026-07-17-v2-canvas-flow-gaps*`. **Known landmine:** `state_machine.is_negative`
   still matches by **substring** ("a**no**ther" contains "no") and **v1 still
   routes on it** — v2 no longer calls it (proven by
   `test_v2_e2e.py::test_v2_no_longer_uses_the_shared_keyword_matchers`, a guard
@@ -361,7 +402,7 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   interpreter raising `LLMUnavailable` for the whole walk — proving the entire
   front half needs no model at all). Spec/plan:
   `docs/superpowers/{specs,plans}/2026-07-17-llm-assisted-canvas-orchestration*`.
-- Tests: backend `pytest` 660 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- Tests: backend `pytest` 718 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 
 ---
