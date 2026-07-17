@@ -128,7 +128,10 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
     so a warm paraphrase cannot drop "tap the highlighted button" and leave the
     customer stuck. Without an ack the reply is simply the scripted copy."""
     if step.id is S.DECOR_ADJUST:
-        body = f"{prompts.V2_TOOL_TIPS[_decor_tool(collected)]} Press Done when you're happy with it."
+        # The tip is resolved at runtime (text vs shape), so it is PREPENDED to
+        # this step's copy rather than appended like every other step. `step.ask`
+        # is used rather than a re-typed literal so the two cannot drift.
+        body = f"{prompts.V2_TOOL_TIPS[_decor_tool(collected)]} {step.ask}"
     else:
         asked = step.ask_retry and step.id.value in (collected.get("_asked") or [])
         body = (step.ask_retry if asked else step.ask).format(

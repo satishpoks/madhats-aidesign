@@ -197,3 +197,21 @@ def test_decor_adjust_reply_uses_the_chosen_tool_tip():
 
 def test_reply_defaults_the_name_when_unknown():
     assert "there" in _reply(S.ASK_LOGO_PLACEMENT, {})
+
+
+def test_logo_adjust_does_not_duplicate_its_tip():
+    # LOGO_ADJUST is the one step excluded from the tip append: its `ask` copy
+    # already carries the drag/resize/rotate instructions inline, so appending
+    # V2_TOOL_TIPS["upload"] would say it all twice. (The customer still gets the
+    # "tap the button" instruction implicitly — this step auto-opens the picker.)
+    out = _reply(S.LOGO_ADJUST, {"name": "Sam"})
+    assert prompts.V2_TOOL_TIPS["upload"] not in out
+    assert "drag to move" in out and "Done" in out
+
+
+def test_decor_adjust_reply_matches_its_registry_copy():
+    # Guards the DRY fix: the step's copy is read from the registry, not re-typed
+    # in reply_for, so the two can never silently diverge.
+    step = cs.by_id(S.DECOR_ADJUST)
+    out = _reply(S.DECOR_ADJUST, {"decor_choice": "shape"})
+    assert out == f"{prompts.V2_TOOL_TIPS['shape']} {step.ask}"
