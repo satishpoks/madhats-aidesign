@@ -65,9 +65,12 @@ async def handle_message(session_id: str, message: str) -> dict:
     if fields is None and step.slots:
         # Free text on a step that asks for something: the model reads it, or we
         # stall. No keyword fallback — a wrong field corrupts the design.
+        # The `try` wraps ONLY the interpretation. write_ack must stay outside it:
+        # it swallows its own failures today, but if it ever raised
+        # LLMUnavailable, catching it here would silently discard a SUCCESSFUL
+        # interpretation and overwrite it with direct_answer (or stall).
         try:
             fields = await ie.interpret_turn_v2(step, message, collected)
-            ack = await ie.write_ack(persona, fields)
         except ie.LLMUnavailable:
             if step.direct_answer is None:
                 return await _stall(sb, session_id, collected, step, state_before,
@@ -76,6 +79,8 @@ async def handle_message(session_id: str, message: str) -> dict:
             # rather than stranding the session. Still validated, still guarded by
             # the step's apply. No ack: the model is down.
             fields = ie.validate_fields(step.direct_answer(message))
+        else:
+            ack = await ie.write_ack(persona, fields)
     elif fields is None:
         fields = {}                       # ack-only step (show_intro)
 
