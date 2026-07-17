@@ -80,7 +80,17 @@ Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved).
 
 === ALL 15 TASKS COMPLETE. Final whole-branch review DONE (opus). Verdict: merge safe (v1 byte-identical verified seam-by-seam), ENABLING not safe until fixes. ===
 
-FINAL REVIEW FINDINGS (fix wave dispatched):
+FIX WAVE COMPLETE (commits 318821f backend / 62c01c5 frontend / b856a70 CLAUDE.md).
+All 6 Critical+Important findings + cheap minors fixed. CONTROLLER-VERIFIED independently:
+backend pytest 554 passed; frontend targeted 26/26 (7 files); tsc --noEmit clean.
+Fixes: auto_open moved ASK_LOGO_PLACEMENT→LOGO_ADJUST (+ effect ordering, logo_face reset per loop);
+_is_done negation-guarded + word-boundary regex (+ bg question removed from copy); lockPlaced() wired to
+postDone (unlockAll deleted as dead); ToolRail railGated disables Draw+cap-colour in v2; finalize retry
+(finalizeStarted reset + "Try again" button); CLAUDE.md documented.
+NOT covered by a test: the "Try again" button path (needs a real canvas 2D backend/toDataURL that jsdom
+lacks here) — verified by inspection + tsc.
+
+FINAL REVIEW FINDINGS (all fixed above):
 - CRITICAL 1: logo lands on WRONG FACE for any answer but Front. ASK_LOGO_PLACEMENT emits auto_open:"upload" so the file dialog opens BEFORE the face is answered; addImage appends to activeFace (=front default). Loop 2 pre-lands on previous logo's face. PLAN BUG (spec conflated ask-face + open-tool in one step). e2e only ever answered "Front" → missed.
 - IMPORTANT 2: _is_done matches substrings + ignores is_negative → "no, not done yet"/"isn't good"/"not ready" all read as Done; also LOGO_ADJUST asks "background removed?" but only tests _is_done → "yes, remove the background" = Done, bg never removed.
 - IMPORTANT 3: spec's "Done locks the layer" NEVER WIRED — lockAll only called at triggerFinalize; unlockAll zero prod callers. Tasks 8/9 primitives unused by Task 13.
