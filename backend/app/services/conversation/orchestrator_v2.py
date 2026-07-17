@@ -124,7 +124,7 @@ async def _stall(sb, session_id, collected, step, state_before, message) -> dict
     """
     fails = int(collected.get("_fail_count") or 0) + 1
     collected["_fail_count"] = fails
-    nudge = fails >= _NUDGE_AFTER and step.chips
+    nudge = fails >= _NUDGE_AFTER and cs.chips_of(step, collected)
     reply = prompts.V2_NUDGE_REPLY if nudge else prompts.V2_STALL_REPLY
     return await _persist(sb, session_id, collected, step, reply, state_before,
                           step.id, user_message=message)

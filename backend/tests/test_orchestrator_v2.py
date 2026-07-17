@@ -330,3 +330,48 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     _llm_returns(monkeypatch, {"more_decor": False})
     res = await o2.handle_message("s1", "nah, nothing more thanks")
     assert res["state"] == S.ASK_QUANTITY.value      # must NOT re-ask itself
+
+
+@pytest.mark.asyncio
+async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypatch):
+    """Regression: a step with chips_from must nudge to chips after _NUDGE_AFTER
+    failures, not stall forever because step.chips is empty.
+
+    The fix routes the nudge check through cs.chips_of(step, collected) instead
+    of reading step.chips directly, so dynamic chips are visible to the nudge.
+    """
+    # Create a test step with chips_from that derives options from collected.
+    # We'll use a fictional "ask_colour" step that offers colour options from
+    # a store-scoped palette.
+    def _colours_from_collected(c: dict) -> tuple[cs.Chip, ...]:
+        colours = c.get("available_colours", ["Red", "Blue", "Green"])
+        return tuple(cs.Chip(colour, {"chosen_colour": colour}) for colour in colours)
+
+    test_step = cs.Step(
+        id=S.ASK_QUANTITY,  # reuse an unused state for this test
+        ask="Pick a colour:",
+        chips=(),  # empty: chips come from chips_from
+        chips_from=_colours_from_collected,
+        slots=("chosen_colour",),
+        done_when=lambda c: bool(c.get("chosen_colour")),
+    )
+
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "available_colours": ["Red", "Blue", "Green"],
+        "_fail_count": 1,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    monkeypatch.setattr(cs, "by_id", lambda state: test_step if state == S.ASK_QUANTITY else None)
+
+    # First failure (after one already): should nudge because fails >= 2
+    res = await o2.handle_message("s1", "something unmatchable")
+
+    # After the fix, nudge should appear
+    assert res["reply"] == prompts.V2_NUDGE_REPLY
+    # The data should contain the options derived from chips_from
+    assert res["data"]["options"] == ["Red", "Blue", "Green"]
+    assert store["session"]["collected"]["_fail_count"] == 2
