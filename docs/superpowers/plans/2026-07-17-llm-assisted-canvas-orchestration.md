@@ -22,7 +22,7 @@
 - **Env flag unchanged:** `settings.canvas_orchestrator_v2` + `flow_mode == "canvas"` still selects v2 in `chat.py::_dispatch`.
 - **A name must stay plausible.** `_plausible_name` / `_NAME_FILLER` (committed in `44e8eda`) exist because *"ok" became a customer's name* in a live session. The interpreter proposes `name`; a deterministic guard must still reject filler. Do not drop this — see Task 4.
 - **Run tests from `backend/`:** `cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q`.
-  **The env override is required.** The repo-root `.env` sets `CANVAS_ORCHESTRATOR_V2=true` for local dev, which makes three *pre-existing* tests fail (`test_config_v2_flag.py::test_flag_defaults_false`, `test_canvas_routes.py::test_finalize_routes_to_decoration`, `test_chat_route.py::test_chat_post_resolves_body_not_422`) — they assert flag-default-off and flag-off routing. With the override: **559 passed** at `44e8eda`. That is the baseline; do not "fix" those three.
+  **The env override is required.** The repo-root `.env` sets `CANVAS_ORCHESTRATOR_V2=true` for local dev, which makes three *pre-existing* tests fail (`test_config_v2_flag.py::test_flag_defaults_false`, `test_canvas_routes.py::test_finalize_routes_to_decoration`, `test_chat_route.py::test_chat_post_resolves_body_not_422`) — they assert flag-default-off and flag-off routing. With the override: **562 passed** at `44e8eda`. That is the baseline; do not "fix" those three.
 
 ## Deviation from the spec (read before Task 1)
 
@@ -2008,7 +2008,7 @@ that sentence and append after the v2 bullet:
 - [ ] **Step 4: Run the full backend suite**
 
 Run: `cd backend && pytest -q`
-Expected: PASS. Baseline before this work was **554 passed** (CLAUDE.md §13). The
+Expected: PASS. Baseline before this work was **562 passed** (with the CANVAS_ORCHESTRATOR_V2=false override). The
 count will differ — the v2 tests were rewritten — but there must be **zero
 failures** and no v1/tail test may regress.
 
