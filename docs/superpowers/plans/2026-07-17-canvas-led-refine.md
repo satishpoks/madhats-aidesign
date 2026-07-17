@@ -1547,3 +1547,9 @@ Pre-existing and orthogonal — recorded in the spec's scope fence:
 - **`wants_changes` is substring keyword matching** (`orchestrator.py:952`): "can you make it pop more?" registers as neither a change request nor a refusal and falls through to `QUOTE_REQUESTED`. It only works because the chips are worded to match.
 - **`canvas_design` is only persisted at finalize** — no mid-design autosave.
 - **`state_machine.py`'s `OFFER_REFINE` branch is a dead duplicate** of the live one in `orchestrator.py:432-443` and lacks its `_can_edit` gate.
+
+---
+
+### Task 9: Edit against the live canvas (added from the final review)
+
+See `.superpowers/sdd/task-9-brief.md`. Root cause: `_apply_canvas_edit` resolves ops against the persisted `canvas_design` (written only at finalize), so the "Not quite" iterate loop recomputes relative nudges from the original geometry and the second nudge no-ops. Fix: the frontend sends its live `canvas_design` on a describe turn; `chat.py` adopts it (scoped to `describe_changes` + canvas) before dispatch — also fixing the ops-ephemeral reload bug.
