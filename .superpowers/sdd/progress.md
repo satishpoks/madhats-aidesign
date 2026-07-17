@@ -78,7 +78,17 @@ Task 15 BASE (HEAD before impl): a2b651a
 
 Task 15: complete (commit 800f773, review clean — Spec ✅, Quality Approved). Genuine 12-turn e2e walk through real handle_message (asserts state EVERY turn, no weakening); _FakeSB + monkeypatched capture_lead_and_verify/_can_start_design. REGRESSION: backend full suite 550 pass (flag-off = v1 intact); frontend targeted 22 pass; tsc clean.
 
-=== ALL 15 TASKS COMPLETE. Final whole-branch review next. ===
+=== ALL 15 TASKS COMPLETE. Final whole-branch review DONE (opus). Verdict: merge safe (v1 byte-identical verified seam-by-seam), ENABLING not safe until fixes. ===
+
+FINAL REVIEW FINDINGS (fix wave dispatched):
+- CRITICAL 1: logo lands on WRONG FACE for any answer but Front. ASK_LOGO_PLACEMENT emits auto_open:"upload" so the file dialog opens BEFORE the face is answered; addImage appends to activeFace (=front default). Loop 2 pre-lands on previous logo's face. PLAN BUG (spec conflated ask-face + open-tool in one step). e2e only ever answered "Front" → missed.
+- IMPORTANT 2: _is_done matches substrings + ignores is_negative → "no, not done yet"/"isn't good"/"not ready" all read as Done; also LOGO_ADJUST asks "background removed?" but only tests _is_done → "yes, remove the background" = Done, bg never removed.
+- IMPORTANT 3: spec's "Done locks the layer" NEVER WIRED — lockAll only called at triggerFinalize; unlockAll zero prod callers. Tasks 8/9 primitives unused by Task 13.
+- IMPORTANT 4: ToolRail Draw + cap-colour gated on `locked` only → always enabled in v2, violating allowed_tools:[] ("all locked") at ASK_ANYTHING_ELSE/ASK_QUANTITY.
+- IMPORTANT 5: failed finalize = unrecoverable dead end (finalizeStarted ref never reset, triggerFinalize dep unchanged, render button disabled).
+- IMPORTANT 6: CLAUDE.md not updated (parallel orchestrator behind env flag = load-bearing fact for next agent).
+- MINORS: toolInstructions.ts dead (copy lives in prompts.V2_TOOL_TIPS — good deviation, delete orphan); Task-7 try/except import scaffolding now swallows real ImportErrors; unused `log`/`email_retry`; ASK_ADD_DECOR ambiguous free text silently skips decor loop + decor_choice not reset per loop; ASK_EMAIL shared v2/v1-tail invariant needs comment; v2_reply persona unused; DECOR_ADJUST reuses _logo_face; sessions.py hardcoded reply; _dispatch extra round-trip/no try-except; hi() membership; canvas_intro ""/ws test; test file split; branding.py docstring drift.
+- Flag-flip migration note: flipping the flag strands in-flight v1 canvas sessions at canvas_design (they'd skip the deco/notes outro). Staged-rollout caveat.
 
 MINOR findings roll-up for final review to triage:
 - T3: v2_reply `persona` param unused; DECOR_ADJUST target_face reuses _logo_face (no decor_face field).
