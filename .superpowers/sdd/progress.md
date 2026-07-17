@@ -128,3 +128,47 @@ MINOR findings roll-up for final review to triage:
 - T14: brandingCanvasIntro test in __tests__/ while other BrandingView tests co-located (harmless split).
 Task 13 NOTE (big integration): Surface.tsx reacts to canvasDirective+triggerFinalize. Heavy component test — reuse the jsdom getContext stub pattern from lockedNode.test.tsx; mount via store setState. isV2 = canvasDirective!==null; null-directive v2 turns fall back to legacy locked (chatState!=='canvas_design' → true) which is fine (tools locked between questions). trigger_finalize → doRender() once (finalizeStarted ref guard).
 Task 9 NOTE: plan's lockedNode test is VACUOUS (asserts onSelect not called after mere render, no click). Instruct implementer to write a BEHAVIORAL test (Konva .fire('click') + .draggable() inspection) for locked AND unlocked. Apply guard to all 4 node types. nodes.tsx already has the bg-removal badge (committed at base) — coexist.
+
+================================================================================
+=== NEW PLAN (2026-07-17): LLM-Assisted Canvas Orchestration (step registry) ===
+================================================================================
+
+Plan: docs/superpowers/plans/2026-07-17-llm-assisted-canvas-orchestration.md
+Spec: docs/superpowers/specs/2026-07-17-llm-assisted-canvas-orchestration-design.md
+Branch: feat/canvas-orchestrator-v2
+BRANCH_BASE (merge-base w/ master): 8773c16  (unchanged from the previous plan)
+
+WHY: live session e4c2f3de stalled at ask_email with quantity 0 — customer asked
+3x for a second logo, was marched to email. Root cause: state_machine.is_negative
+matches by SUBSTRING and "aNOther" contains "no", so v2's OWN chip label
+"Yes, another logo" read as a decline. Logo loop + MAX_LOGOS=4 were dead code.
+Generalisation: v1 is interpreter-first; v2 regressed to keywords for
+understanding, and the chip label + its matcher were declared in 2 places with
+nothing forcing agreement.
+
+9 tasks. Registry -> router -> chip resolution -> apply hooks -> interpreter ->
+UI surface -> reply assembly -> turn loop -> cleanup/e2e/docs.
+
+PRE-FLIGHT (before Task 1):
+  - Committed the previous session's uncommitted fix wave as 44e8eda (name
+    capture/V2_ASK_NAME, goal_planner ASK_CHANGE_METHOD gate, Surface
+    directive-anchored lockPlaced + read-only stage). Plan DEPENDS on
+    prompts.V2_ASK_NAME/_RETRY which existed only in that working tree.
+  - PLAN GAP FOUND+FIXED: plan dropped _plausible_name -> regressed "ok became
+    a name". Now ported into canvas_steps as ASK_NAME's apply (Task 4) + tests.
+  - TEST BASELINE: repo-root .env sets CANVAS_ORCHESTRATOR_V2=true -> 3
+    PRE-EXISTING failures (test_flag_defaults_false, test_finalize_routes_to
+    _decoration, test_chat_post_resolves_body_not_422). ALWAYS run
+    `cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q`. Baseline 559 passed
+    at 44e8eda. Do NOT "fix" those 3.
+  - Hoisted satisfy/seed_for into tests/canvas_step_helpers.py (was mandated as
+    verbatim dup in 2 files).
+  Plan fixes committed as (see git log after 44e8eda).
+
+SPEC DEVIATION (approved, in plan): §4.6 gate=True NOT implemented — first-unmet
+routing makes it a no-op (never returns a step after ANY unmet step). Invariant
+(no FINALIZE_CANVAS without email_captured) holds by construction: ask_email
+precedes finalize, done_when reads email_captured, only _apply_email sets it, and
+it is NOT in WRITABLE_SLOTS. Asserted by test in Task 2.
+
+Task 1 BASE (HEAD before impl): see git log — the plan-fix commit.
