@@ -43,6 +43,7 @@ export function DesignStudioSurface() {
   const setFaceImages = useCanvasStore(s => s.setFaceImages)
   const toCanvasDesign = useCanvasStore(s => s.toCanvasDesign)
   const lockAll = useCanvasStore(s => s.lockAll)
+  const lockPlaced = useCanvasStore(s => s.lockPlaced)
 
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -72,16 +73,25 @@ export function DesignStudioSurface() {
   }, [unlocked])
 
   // v2: switch to the directive's target face as the chat walks through steps.
+  // This effect is declared BEFORE the auto-open effect below and React runs
+  // a component's passive effects in declaration order within one commit, so
+  // `setActiveFace` (synchronous, via the zustand store) is guaranteed to
+  // have applied before the auto-open effect reads `activeFace` (e.g.
+  // `addImage` appends to whatever face is currently active).
   useEffect(() => {
     if (canvasDirective?.targetFace) setActiveFace(canvasDirective.targetFace as Face)
   }, [canvasDirective?.targetFace, setActiveFace])
 
-  // v2: auto-open the requested tool dialog once per directive change.
+  // v2: auto-open the requested tool dialog once per directive change. Also
+  // depends on targetFace (not just autoOpen) so it re-evaluates in lockstep
+  // with the face-switch effect above whenever the directive changes either
+  // field — belt-and-braces on top of the declaration-order guarantee, and
+  // documents the ordering dependency between the two effects.
   useEffect(() => {
     if (canvasDirective?.autoOpen === 'upload') fileRef.current?.click()
     if (canvasDirective?.autoOpen === 'shape') setGraphicsOpen(true)
     if (canvasDirective?.autoOpen === 'text') addText('Your text')
-  }, [canvasDirective?.autoOpen, addText])
+  }, [canvasDirective?.autoOpen, canvasDirective?.targetFace, addText])
 
   // v2: when the chat says finalize, lock every placed element (freezing the
   // canvas for the multi-face export loop in doRender) and flatten + finalize
@@ -97,6 +107,10 @@ export function DesignStudioSurface() {
   }, [triggerFinalize])
 
   function postDone() {
+    // Spec: "Done" locks the just-placed layer in as the flow advances. Each
+    // step adds then locks, so "lock every still-unlocked element" is
+    // equivalent to "lock the element just placed in this step".
+    lockPlaced()
     const sid = useSessionStore.getState().sessionId
     if (sid) void useChatStore.getState().sendMessage(sid, 'done')
   }
@@ -184,14 +198,24 @@ export function DesignStudioSurface() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setRendering(false)
+      // A failed finalize must be retryable: without resetting this guard,
+      // `triggerFinalize` never changes (it's already true from the chat
+      // reaching FINALIZE_CANVAS) so the effect above would never fire
+      // doRender() again, and the v2 render button is permanently disabled
+      // (`rendered={isV2 ? true : rendered}`) — leaving no way back in.
+      finalizeStarted.current = false
     }
   }
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {error && (
-        <div role="alert" className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
-          {error}
+        <div role="alert" className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+          <span>{error}</span>
+          <button onClick={() => void doRender()}
+            className="flex-shrink-0 rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100">
+            Try again
+          </button>
         </div>
       )}
 

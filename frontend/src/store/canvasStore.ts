@@ -70,7 +70,10 @@ interface CanvasState {
   setDrawWidth: (w: number) => void
   addDrawing: (points: number[]) => void
   lockAll: () => void
-  unlockAll: () => void
+  /** v2: lock every currently-unlocked element (across all faces). Since each
+   *  step adds an element then locks, "lock all unlocked" == "lock the one
+   *  just placed" without needing to track which element that was. */
+  lockPlaced: () => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
   /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
@@ -193,10 +196,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { faces, selectedId: null }
   }),
 
-  unlockAll: () => set(s => {
+  lockPlaced: () => set(s => {
     const faces = { ...s.faces }
-    for (const f of FACES) faces[f] = faces[f].map(e => ({ ...e, locked: false }))
-    return { faces }
+    for (const f of FACES) {
+      faces[f] = faces[f].map(e => (e.locked ? e : { ...e, locked: true }))
+    }
+    return { faces, selectedId: null }
   }),
 
   reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,

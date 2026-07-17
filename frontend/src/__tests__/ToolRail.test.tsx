@@ -85,3 +85,31 @@ test('only allowed tool is enabled and highlighted', () => {
   expect(text).toBeDisabled()
   expect(upload.className).toMatch(/animate-pulse|ring-2/)
 })
+
+test('IMPORTANT 4: Draw + cap-colour are disabled in v2 even though neither is a `Tool`', () => {
+  // v2 never lists "draw" or a colourway swatch in allowedTools (they aren't
+  // part of the Tool union at all), so they must be gated on
+  // `allowedTools !== undefined` too — not just `locked` — otherwise they
+  // stay enabled through every v2 step, including ones where the backend's
+  // directive is `allowed_tools: []` ("everything locked").
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked={false}
+      allowedTools={new Set([])} highlightTool={null} />,
+  )
+  expect(screen.getByRole('button', { name: /draw/i })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Red' })).toBeDisabled()
+})
+
+test('v1 (no allowedTools, not locked): Draw + cap-colour stay enabled', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked={false} />,
+  )
+  expect(screen.getByRole('button', { name: /draw/i })).not.toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Red' })).not.toBeDisabled()
+})

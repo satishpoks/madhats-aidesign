@@ -1,5 +1,13 @@
-import { render, screen } from '@testing-library/react'
-import { expect, test, beforeEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
+import { expect, test, vi, beforeEach } from 'vitest'
+
+vi.mock('../lib/api', () => ({
+  sendChat: vi.fn().mockResolvedValue({ reply: 'ok', state: 'ask_another_logo', data: {} }),
+  uploadLogo: vi.fn().mockResolvedValue({ asset_url: 'u', asset_hash: 'h' }),
+  uploadCanvasLayouts: vi.fn().mockResolvedValue(undefined),
+  finalizeCanvas: vi.fn().mockResolvedValue({ reply: 'ok', state: 'generating', data: {} }),
+}))
+
 import { DesignStudioSurface } from '../components/DesignStudio/Surface'
 import { useChatStore } from '../store/chatStore'
 import { useSessionStore } from '../store/sessionStore'
@@ -70,4 +78,24 @@ test('v2: SelectedToolbar mounts so a selected element is editable', () => {
   // SelectedToolbar renders these text controls (stable aria-labels).
   expect(screen.getByLabelText('Text content')).toBeInTheDocument()
   expect(screen.getByLabelText('Font')).toBeInTheDocument()
+})
+
+test('clicking Done locks the just-placed element (IMPORTANT 3)', async () => {
+  useChatStore.setState({
+    chatState: 'logo_adjust',
+    canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Drag to move it', showDone: true },
+  } as never)
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  expect(useCanvasStore.getState().faces.front[0].locked).toBeFalsy()
+
+  render(<DesignStudioSurface />)
+  fireEvent.click(screen.getByRole('button', { name: /^done$/i }))
+
+  // lockPlaced() runs synchronously inside postDone, before the (mocked)
+  // sendMessage network round-trip resolves.
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
+  // Let the mocked sendChat promise's async continuation settle inside an
+  // act() so its state update doesn't land after the test body.
+  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
 })
