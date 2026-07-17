@@ -26,6 +26,30 @@ router = APIRouter(tags=["chat"])
 log = structlog.get_logger()
 
 
+def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> None:
+    """Adopt the frontend's live design as the base for a canvas refine turn.
+
+    `_apply_canvas_edit` resolves ops against the persisted `canvas_design`,
+    which is only written at finalize — so without this, an iterate-again loop
+    ("Not quite" -> "up more") recomputes every nudge from the ORIGINAL geometry
+    and the second relative nudge no-ops. Also makes a mid-confirm reload
+    rehydrate the EDITED canvas. Scoped hard to DESCRIBE_CHANGES on a canvas
+    session so a stray/hostile design on any other turn can't overwrite the work.
+    """
+    if not isinstance(canvas_design, dict) or "faces" not in canvas_design:
+        return
+    sb = get_supabase()
+    res = (sb.table("design_sessions").select("state, flow_mode, collected")
+           .eq("id", session_id).limit(1).execute())
+    if not res.data:
+        return
+    row = res.data[0]
+    flow = row.get("flow_mode") or (row.get("collected") or {}).get("flow_mode")
+    if row.get("state") == "describe_changes" and flow == "canvas":
+        (sb.table("design_sessions").update({"canvas_design": canvas_design})
+         .eq("id", session_id).execute())
+
+
 async def _dispatch(session_id: str, message: str) -> dict:
     """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else)."""
     if settings.canvas_orchestrator_v2:
@@ -46,6 +70,7 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
     except ModerationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    _persist_live_canvas_design(session_id, body.canvas_design)
     try:
         result = await _dispatch(session_id, body.message)
     except SessionNotFound as exc:

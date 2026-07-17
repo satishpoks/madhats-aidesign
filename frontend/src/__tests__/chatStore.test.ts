@@ -60,3 +60,29 @@ test('hydrate never applies canvas_ops — a resume must not re-edit the design'
   })
   expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
 })
+
+describe('sendMessage sends the live canvas_design only at describe_changes', () => {
+  beforeEach(() => {
+    useCanvasStore.getState().reset()
+    useCanvasStore.getState().addImage('logo.png')
+  })
+
+  it('passes the live canvas_design as the 3rd sendChat arg at describe_changes', async () => {
+    useChatStore.setState({ chatState: 'describe_changes' })
+    vi.mocked(sendChat).mockResolvedValue({
+      reply: 'Moved it up.', state: 'confirm_canvas_edit', data: {},
+    } as never)
+    await useChatStore.getState().sendMessage('s1', 'move it up more')
+    const liveDesign = useCanvasStore.getState().toCanvasDesign()
+    expect(sendChat).toHaveBeenCalledWith('s1', 'move it up more', liveDesign)
+  })
+
+  it('sends undefined as the 3rd arg on any other state', async () => {
+    useChatStore.setState({ chatState: 'offer_refine' })
+    vi.mocked(sendChat).mockResolvedValue({
+      reply: 'ok', state: 'offer_refine', data: {},
+    } as never)
+    await useChatStore.getState().sendMessage('s1', 'hello')
+    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', undefined)
+  })
+})

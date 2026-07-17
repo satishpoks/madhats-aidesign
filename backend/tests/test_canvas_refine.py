@@ -266,3 +266,88 @@ def test_confirming_marks_the_session_as_reworking():
     o._mark_canvas_rework(S.CONFIRM_CANVAS_EDIT, S.REGENERATING, c)
     assert c["reworking"] is True
     assert c["canvas_finalized"] is False
+
+
+# --- IMPORTANT 3: the backend edits against the live canvas, not the stale
+# saved one -- _persist_live_canvas_design adopts the frontend's in-memory
+# canvas_design as the base for a describe turn, scoped hard to
+# DESCRIBE_CHANGES on a canvas session. -----------------------------------
+
+
+class _FakeTable:
+    """Minimal fake table chain that records .update() calls."""
+
+    def __init__(self, row, calls):
+        self._row = row
+        self._calls = calls
+        self._pending_update = None
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, *a, **k):
+        return self
+
+    def limit(self, *a, **k):
+        return self
+
+    def update(self, payload):
+        self._pending_update = payload
+        return self
+
+    def execute(self):
+        if self._pending_update is not None:
+            self._calls.append(self._pending_update)
+            return type("R", (), {"data": [self._row]})()
+        return type("R", (), {"data": [self._row]})()
+
+
+class _FakeSB:
+    def __init__(self, row, calls):
+        self._row = row
+        self._calls = calls
+
+    def table(self, name):
+        return _FakeTable(self._row, self._calls)
+
+
+def test_persist_live_canvas_design_adopted_at_describe_changes(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    calls = []
+    row = {"state": "describe_changes", "flow_mode": "canvas", "collected": {}}
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB(row, calls))
+    supplied = _design()
+    chat_route._persist_live_canvas_design("s1", supplied)
+    assert calls == [{"canvas_design": supplied}]
+
+
+def test_persist_live_canvas_design_ignored_off_the_describe_state(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    calls = []
+    row = {"state": "offer_refine", "flow_mode": "canvas", "collected": {}}
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB(row, calls))
+    chat_route._persist_live_canvas_design("s1", _design())
+    assert calls == []
+
+
+def test_persist_live_canvas_design_ignored_for_a_non_canvas_session(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    calls = []
+    row = {"state": "describe_changes", "flow_mode": "session", "collected": {}}
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB(row, calls))
+    chat_route._persist_live_canvas_design("s1", _design())
+    assert calls == []
+
+
+def test_persist_live_canvas_design_malformed_payloads_short_circuit(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    def boom():
+        raise AssertionError("get_supabase must not be called for malformed payloads")
+
+    monkeypatch.setattr(chat_route, "get_supabase", boom)
+    for payload in (None, "nope", {}, {"colourway": None}):
+        chat_route._persist_live_canvas_design("s1", payload)

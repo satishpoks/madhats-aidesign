@@ -8,6 +8,7 @@ import type {
   VerificationPollResponse,
   Storefront,
 } from './types'
+import type { CanvasDesign } from '../store/canvasStore'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
 const STORE_KEY = (import.meta.env.VITE_STORE_KEY as string | undefined) ?? ''
@@ -74,10 +75,10 @@ export function createSession(
   })
 }
 
-export function sendChat(sessionId: string, message: string): Promise<ChatResponse> {
+export function sendChat(sessionId: string, message: string, canvasDesign?: CanvasDesign): Promise<ChatResponse> {
   return request<ChatResponse>(`/chat/${sessionId}`, {
     method: 'POST',
-    body: JSON.stringify({ message }),
+    body: JSON.stringify(canvasDesign ? { message, canvas_design: canvasDesign } : { message }),
   })
 }
 
