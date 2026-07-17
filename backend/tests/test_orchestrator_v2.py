@@ -126,6 +126,38 @@ async def test_tail_state_delegates_to_v1(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_wants_another_logo_clears_logo_face(monkeypatch):
+    # Finding CRITICAL 1 (loop 2 pre-landing): the previous logo's face must
+    # not leak into loop 2's default — `_logo_face` falls back to "front"
+    # once `logo_face` is cleared, so ASK_LOGO_PLACEMENT re-asks cleanly.
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    for m in ("", "Sam", "continue", "Back"):
+        await o2.handle_message("s1", m)
+    await o2.handle_message("s1", "done")  # LOGO_ADJUST -> ASK_ANOTHER_LOGO
+    assert store["session"]["collected"]["logo_face"] == "back"
+
+    # NB: not "another logo" — "another" contains "no" as a substring, which
+    # trips the shared `is_negative` substring matcher (pre-existing, out of
+    # scope here); a plain "yes" avoids that false negative.
+    res = await o2.handle_message("s1", "Yes")
+    assert res["state"] == S.ASK_LOGO_PLACEMENT.value
+    assert "logo_face" not in store["session"]["collected"]
+
+
+def test_is_done_rejects_negations():
+    assert o2._is_done("no, not done yet") is False
+    assert o2._is_done("the placement isn't good") is False
+    assert o2._is_done("not ready") is False
+
+
+def test_is_done_accepts_affirmations():
+    assert o2._is_done("done") is True
+    assert o2._is_done("looks good") is True
+
+
+@pytest.mark.asyncio
 async def test_daily_cap_reroutes_to_quote_with_honest_copy(monkeypatch):
     # At the ASK_PURPOSE turn the flow tries to enter FINALIZE_CANVAS; a capped
     # customer is rerouted to QUOTE_REQUESTED with honest block copy this turn.

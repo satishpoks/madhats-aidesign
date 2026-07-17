@@ -77,7 +77,7 @@ async def test_full_front_half_walk(monkeypatch):
         ("", S.ASK_NAME),
         ("Sam", S.SHOW_INTRO),
         ("continue", S.ASK_LOGO_PLACEMENT),
-        ("Front", S.LOGO_ADJUST),
+        ("Back", S.LOGO_ADJUST),
         ("done", S.ASK_ANOTHER_LOGO),
         ("no", S.ASK_ADD_DECOR),
         ("Add text", S.DECOR_ADJUST),
@@ -92,6 +92,15 @@ async def test_full_front_half_walk(monkeypatch):
     for msg, expected in turns:
         res = await o2.handle_message("s1", msg)
         assert res["state"] == expected.value, (msg, res["state"])
+        # Regression (CRITICAL 1): the face question must not auto-open the
+        # upload dialog before it's answered …
+        if expected is S.ASK_LOGO_PLACEMENT:
+            assert res["data"]["canvas"]["auto_open"] is None
+        # … and answering a non-front face must land the LOGO_ADJUST
+        # directive on that face, not "front".
+        if expected is S.LOGO_ADJUST:
+            assert res["data"]["canvas"]["target_face"] == "back"
+            assert res["data"]["canvas"]["auto_open"] == "upload"
 
     # The finalize state tells the frontend to flatten + finalize.
     assert res["data"]["trigger_finalize"] is True

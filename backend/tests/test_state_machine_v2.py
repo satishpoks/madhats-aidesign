@@ -27,11 +27,22 @@ def test_another_logo_no_goes_to_decor():
 
 
 def test_decor_loop():
-    assert v2.advance_state_v2(S.ASK_ADD_DECOR, {"decor_choice": "text"}) is S.DECOR_ADJUST
-    assert v2.advance_state_v2(S.ASK_ADD_DECOR, {"decor_choice": None}) is S.ASK_QUANTITY
+    assert v2.advance_state_v2(
+        S.ASK_ADD_DECOR, {"decor_choice": "text", "decor_answered": True}
+    ) is S.DECOR_ADJUST
+    assert v2.advance_state_v2(
+        S.ASK_ADD_DECOR, {"decor_choice": None, "decor_answered": True}
+    ) is S.ASK_QUANTITY
     assert v2.advance_state_v2(S.DECOR_ADJUST, {"decor_done": True}) is S.ASK_ANYTHING_ELSE
     assert v2.advance_state_v2(S.ASK_ANYTHING_ELSE, {"wants_more_decor": True}) is S.ASK_ADD_DECOR
     assert v2.advance_state_v2(S.ASK_ANYTHING_ELSE, {"wants_more_decor": False}) is S.ASK_QUANTITY
+
+
+def test_decor_ambiguous_reply_reasks_instead_of_skipping():
+    # An unrecognised free-text reply (decor_answered False) must NOT silently
+    # advance to quantity — it must re-ask.
+    assert v2.advance_state_v2(S.ASK_ADD_DECOR, {}) is S.ASK_ADD_DECOR
+    assert v2.advance_state_v2(S.ASK_ADD_DECOR, {"decor_answered": False}) is S.ASK_ADD_DECOR
 
 
 def test_tail_reorder_quantity_email_purpose_then_finalize():
@@ -47,16 +58,22 @@ def test_progress_counts_v2_path():
 
 
 def test_directive_logo_placement_unlocks_upload_only():
+    # The face question comes FIRST — the upload tool is enabled/highlighted
+    # but must not auto-open before the customer answers which face (Finding
+    # CRITICAL 1: opening early caused addImage to land on the wrong face).
     d = v2.canvas_directive(S.ASK_LOGO_PLACEMENT, {})
     assert d["allowed_tools"] == ["upload"]
-    assert d["auto_open"] == "upload"
+    assert d["auto_open"] is None
     assert d["show_done"] is False
 
 
 def test_directive_logo_adjust_shows_done_and_keeps_upload():
+    # By LOGO_ADJUST the face is answered, so it's safe to switch the canvas
+    # to that face and THEN open the picker.
     d = v2.canvas_directive(S.LOGO_ADJUST, {"logo_face": "back"})
     assert d["show_done"] is True
     assert d["target_face"] == "back"
+    assert d["auto_open"] == "upload"
 
 
 def test_directive_anything_else_locks_all_tools():

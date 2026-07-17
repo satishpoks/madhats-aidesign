@@ -34,6 +34,12 @@ def advance_state_v2(current: S, collected: dict) -> S:
             return S.ASK_LOGO_PLACEMENT
         return S.ASK_ADD_DECOR
     if current is S.ASK_ADD_DECOR:
+        # An ambiguous/unrecognised reply (decor_answered False) must NOT
+        # silently fall through to the quantity step — re-ask instead. Only a
+        # recognised decline ("nothing else") or a recognised type (text/
+        # shape) counts as answered.
+        if not collected.get("decor_answered"):
+            return S.ASK_ADD_DECOR
         return S.DECOR_ADJUST if collected.get("decor_choice") else S.ASK_QUANTITY
     if current is S.DECOR_ADJUST:
         return S.ASK_ANYTHING_ELSE if collected.get("decor_done") else S.DECOR_ADJUST
@@ -82,19 +88,26 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
     """The canvas-control blob for a v2 state, or None when the state drives no
     canvas change (tail/question-only states)."""
     if state is S.ASK_LOGO_PLACEMENT:
-        # The customer is about to pick a face + upload; unlock+open upload.
-        return {
-            "allowed_tools": ["upload"],
-            "target_face": _logo_face(collected),
-            "auto_open": "upload",
-            "instructions": prompts.V2_TOOL_TIPS["upload"],
-            "show_done": False,
-        }
-    if state is S.LOGO_ADJUST:
+        # The customer is about to pick a face; the upload tool is enabled
+        # (highlighted) but must NOT auto-open yet — the file dialog would
+        # open before the face is answered, so `addImage` would land on
+        # whatever face is currently active (defaulting to "front") instead
+        # of the face the customer is about to name.
         return {
             "allowed_tools": ["upload"],
             "target_face": _logo_face(collected),
             "auto_open": None,
+            "instructions": prompts.V2_TOOL_TIPS["upload"],
+            "show_done": False,
+        }
+    if state is S.LOGO_ADJUST:
+        # By now `logo_face` is set from the answer, so `_logo_face` resolves
+        # to the correct face — safe to switch the canvas there and THEN open
+        # the upload picker.
+        return {
+            "allowed_tools": ["upload"],
+            "target_face": _logo_face(collected),
+            "auto_open": "upload",
             "instructions": prompts.V2_TOOL_TIPS["upload"],
             "show_done": True,
         }
@@ -156,9 +169,10 @@ def v2_reply(state: S, collected: dict, persona: str, intro_text: str) -> str:
         )
     if state is S.LOGO_ADJUST:
         return (
-            "Nice — your logo's on the cap. Do you want the background removed? "
-            "You can drag to move it, resize from a corner, or rotate it. "
-            "Press Done when the placement looks right."
+            "Pop your logo on there — I've opened the picker for you. Once "
+            "it's on, drag to move it, pull a corner to resize, or rotate "
+            "it. There's a background-removal toggle in the toolbar if you "
+            "need it. Press Done when the placement looks right."
         )
     if state is S.ASK_ANOTHER_LOGO:
         return "Locked that in. Would you like to add another logo?"

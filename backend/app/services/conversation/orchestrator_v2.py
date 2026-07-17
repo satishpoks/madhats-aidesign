@@ -8,21 +8,14 @@ Selected only when settings.canvas_orchestrator_v2 and flow_mode == "canvas".
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
-
-import structlog
 
 from app import prompts
 from app.config import settings
 from app.db import get_supabase
 from app.services import leads as leads_service
-
-try:
-    from app.services.branding import canvas_intro_text
-except ImportError:  # Task 7 not yet merged
-    def canvas_intro_text(store):  # type: ignore
-        return prompts.V2_DEFAULT_INTRO
-
+from app.services.branding import canvas_intro_text
 from app.services.stores import get_store
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import state_machine_v2 as v2
@@ -37,20 +30,39 @@ from app.services.conversation.state_machine import (
     is_negative,
 )
 
-log = structlog.get_logger()
 S = ConversationState
 
 # States v2 owns (its front half). Every other state is a shared tail state
 # that v1's orchestrator already handles fully (refine loop, quote, upsell) —
 # delegate those turns to v1 so a canvas session isn't stranded post-design.
+#
+# LOAD-BEARING INVARIANT: ASK_EMAIL is claimed by v2 here (not delegated to
+# the shared tail) — that's only safe because v2 guarantees `email_captured`
+# is set via the double opt-in capture inline in `handle_message` below
+# BEFORE `advance_state_v2` is ever allowed to leave ASK_EMAIL, and again
+# before FINALIZE_CANVAS is reached. If ASK_EMAIL is ever removed from this
+# set (delegated to v1 instead), that guarantee no longer holds and a canvas
+# session could reach FINALIZE_CANVAS with no verified lead.
 _V2_OWNED = v2.V2_STATES | {S.GREETING, S.ASK_NAME, S.ASK_QUANTITY, S.ASK_EMAIL, S.ASK_PURPOSE}
 
+# Word-boundary matched (like v1's `_DONE_ELEMENTS_RE` in orchestrator.py) so
+# "good" doesn't match inside another word, and multi-word phrases match as a
+# whole. `is_negative`/the "n't" check run first in `_is_done` so a negated
+# reply ("not ready", "isn't good") never reads as done.
 _DONE_WORDS = ("done", "looks good", "that's it", "thats it", "finished", "ready", "good")
+_DONE_WORDS_RE = re.compile(r"\b(" + "|".join(re.escape(w) for w in _DONE_WORDS) + r")\b")
 
 
 def _is_done(message: str) -> bool:
     low = (message or "").strip().lower()
-    return any(w in low for w in _DONE_WORDS) or is_affirmative(message)
+    # `is_negative` already catches "no"/"not" (substring — "not" contains
+    # "no"); "n't" contractions (e.g. "isn't good") don't contain any
+    # _NEGATIVE keyword as a substring, so check them explicitly.
+    if is_negative(message) or "n't" in low:
+        return False
+    if _DONE_WORDS_RE.search(low):
+        return True
+    return is_affirmative(message)
 
 
 def _face_from(message: str) -> str | None:
@@ -88,14 +100,29 @@ def _apply_v2_fields(state: ConversationState, collected: dict, message: str) ->
     elif state is S.ASK_ANOTHER_LOGO:
         collected["wants_another_logo"] = is_affirmative(message) and not is_negative(message)
         collected["logo_done"] = False  # reset for the next loop iteration
+        if collected["wants_another_logo"]:
+            # Clear the previous logo's face so loop 2 re-asks ASK_LOGO_PLACEMENT
+            # cleanly instead of `_logo_face` defaulting to the prior answer.
+            collected.pop("logo_face", None)
 
     elif state is S.ASK_ADD_DECOR:
+        # Reset per loop entry — a stale decor_choice/decor_answered from a
+        # previous pass through this loop must never leak into this turn's
+        # decision.
+        collected.pop("decor_choice", None)
         if is_negative(message) or "nothing" in low:
             collected["decor_choice"] = None
+            collected["decor_answered"] = True
         elif "text" in low:
             collected["decor_choice"] = "text"
+            collected["decor_answered"] = True
         elif "shape" in low or "graphic" in low:
             collected["decor_choice"] = "shape"
+            collected["decor_answered"] = True
+        else:
+            # Ambiguous/unrecognised free text — do NOT silently decline;
+            # advance_state_v2 re-asks while decor_answered is False.
+            collected["decor_answered"] = False
         collected["decor_done"] = False
 
     elif state is S.DECOR_ADJUST:
@@ -151,7 +178,10 @@ async def handle_message(session_id: str, message: str) -> dict:
         _apply_v2_fields(current, collected, message)
 
         # Email capture needs the full session row (leads.capture_lead_and_verify).
-        email_retry = False
+        # No separate "retry" tracking needed: when capture fails (ok=False),
+        # `email_captured` is simply never set, so `advance_state_v2` below
+        # already re-asks ASK_EMAIL on its own (its ASK_EMAIL branch checks
+        # `collected.get("email_captured")`).
         if current is S.ASK_EMAIL and collected.pop("_pending_email", None):
             email = leads_service.extract_email(message)
             if email:
@@ -160,8 +190,6 @@ async def handle_message(session_id: str, message: str) -> dict:
                     collected["lead_id"] = lead_id
                 if ok:
                     collected["email_captured"] = True
-                else:
-                    email_retry = True
 
         new_state = v2.advance_state_v2(current, collected)
 
@@ -175,9 +203,6 @@ async def handle_message(session_id: str, message: str) -> dict:
             collected["generation_blocked"] = "daily_limit"
             new_state = S.QUOTE_REQUESTED
             capped = True
-
-        if email_retry:
-            new_state = S.ASK_EMAIL
 
         # One-shot flag: mark the intro shown.
         if new_state is S.SHOW_INTRO:
