@@ -409,7 +409,7 @@ def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
     assert v2.next_step(c).id is S.ASK_LOGO_BG
 
     step = cs.by_id(S.ASK_LOGO_BG)
-    fields = v2.resolve_chip(step, "Yes, I've removed it", c)
+    fields = v2.resolve_chip(step, "Yes, I've ticked it", c)
     assert fields == {"logo_bg": "removed"}
     c.update(fields)
     step.apply(c, fields, {})
