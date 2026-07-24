@@ -23,6 +23,7 @@ class StubAdapter(ImageProvider):
         params: GenerationParams,
         prior_design_url: str | None = None,
         layout_guide_url: str | None = None,  # canvas flow — ignored by the stub
+        uploaded_asset_urls: list[str] | None = None,  # ignored by the stub
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required")
