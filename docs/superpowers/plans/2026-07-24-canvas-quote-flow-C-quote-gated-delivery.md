@@ -1121,7 +1121,7 @@ A lean re-enqueue helper returning the `job_id`, plus `POST /admin/quote-request
 - Produces: `generate.enqueue_render_for_session(background, session) -> str`; `POST /admin/quote-requests/{lead_id}/render` → `{"job_id": str}`
 - Consumes: `generate._run_generation`, `prompt_builder.build_params`/`build_prompt`, `require_admin`, `require_store`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_admin_quote_render.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_admin_quote_render.py`:
 ```python
 """POST /admin/quote-requests/{lead_id}/render triggers an on-demand render (C4)."""
 from __future__ import annotations
@@ -1220,12 +1220,12 @@ def test_render_rejects_cross_store(client, monkeypatch):
     assert r.status_code == 404
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (404 route not found / no endpoint).
+- [x] **Step 2:** Run it — expect FAIL (404 route not found / no endpoint).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_quote_render.py -v
 ```
 
-- [ ] **Step 3:** Make `_enqueue_generation` return the job id and add the reusable render helper in `backend/app/api/routes/generate.py`. Change the end of `_enqueue_generation` (~line 630) so the final statement returns `job_id`:
+- [x] **Step 3:** Make `_enqueue_generation` return the job id and add the reusable render helper in `backend/app/api/routes/generate.py`. Change the end of `_enqueue_generation` (~line 630) so the final statement returns `job_id`:
 ```python
     background.add_task(
         _run_generation,
@@ -1254,7 +1254,7 @@ def enqueue_render_for_session(background: BackgroundTasks, session: dict) -> st
 ```
 Also add `BackgroundTasks` to the FastAPI import if not already imported (it is — line 6).
 
-- [ ] **Step 4:** Add the render endpoint in `backend/app/api/routes/admin_leads.py`. Update the imports at the top:
+- [x] **Step 4:** Add the render endpoint in `backend/app/api/routes/admin_leads.py`. Update the imports at the top:
 ```python
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -1293,12 +1293,12 @@ async def render_quote_request(
 ```
 Note: the router-level `dependencies=[Depends(require_admin)]` already gates every route here, so the render endpoint is admin- AND store-gated.
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_quote_render.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/generate.py app/api/routes/admin_leads.py tests/test_admin_quote_render.py && git commit -m "feat(quote): admin render-on-demand endpoint for quote requests (C4)
 

@@ -607,12 +607,13 @@ def _count_stalled(session_id: str) -> int:
     )
 
 
-def _enqueue_generation(background: BackgroundTasks, session: dict, tier: str) -> None:
+def _enqueue_generation(background: BackgroundTasks, session: dict, tier: str) -> str:
     """Insert a fresh 'pending' row for a session and launch the worker.
 
-    A lean re-enqueue used by the watchdog only: it deliberately skips the
-    per-customer caps and moderation `_start_generation` runs — this is a
-    system-initiated retry of an already-validated design, not a new request.
+    A lean re-enqueue used by the watchdog and the admin render-on-demand
+    endpoint: it deliberately skips the per-customer caps and moderation
+    `_start_generation` runs — this is a system- or staff-initiated render of an
+    already-validated design, not a new customer request. Returns the new job_id.
     """
     sb = get_supabase()
     product_ref = session.get("product_ref") or {}
@@ -640,6 +641,16 @@ def _enqueue_generation(background: BackgroundTasks, session: dict, tier: str) -
         collected=collected,
         params=params,
     )
+    return job_id
+
+
+def enqueue_render_for_session(background: BackgroundTasks, session: dict) -> str:
+    """Admin-triggered on-demand render (C4). Reuses the canvas render pipeline
+    with the C6 fix applied. Lean like the watchdog re-enqueue — it deliberately
+    skips the per-customer caps + moderation of _start_generation, because this is
+    an internal, already-validated design, not a new customer request. Returns the
+    new job_id so the admin panel can poll generation status."""
+    return _enqueue_generation(background, session, tier="preview")
 
 
 async def reap_stuck_generations(
