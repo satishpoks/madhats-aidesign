@@ -170,6 +170,8 @@ export function ChatColumn() {
   const sending = useChatStore(s => s.sending)
   const chatError = useChatStore(s => s.chatError)
   const sendMessage = useChatStore(s => s.sendMessage)
+  const canGoBack = useChatStore(s => s.canGoBack)
+  const goBack = useChatStore(s => s.goBack)
   const pollVerification = useChatStore(s => s.pollVerification)
   const advanceRegeneration = useChatStore(s => s.advanceRegeneration)
   const advanceGeneration = useChatStore(s => s.advanceGeneration)
@@ -621,6 +623,18 @@ export function ChatColumn() {
           >
             Open quote form →
           </a>
+        )}
+
+        {/* Correction affordance: undo the last answered step and be re-asked
+            it. Hidden when there's nothing to undo (backend-driven) or while
+            a send is in flight. */}
+        {sessionId && canGoBack && !sending && (
+          <button
+            onClick={() => void goBack(sessionId)}
+            className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
+          >
+            ↩ Back
+          </button>
         )}
 
         {/* Option chip rows */}

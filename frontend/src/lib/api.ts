@@ -87,6 +87,15 @@ export function getSession(token: string): Promise<SessionDetailResponse> {
 }
 
 /**
+ * v2 canvas correction: undo the last answered step and re-ask it.
+ * Dedicated endpoint (not the message endpoint), so it never reaches the
+ * interpreter. No-op (current step re-returned) if there's nothing to undo.
+ */
+export function sendBack(sessionId: string): Promise<ChatResponse> {
+  return request<ChatResponse>(`/chat/${sessionId}/back`, { method: 'POST' })
+}
+
+/**
  * Poll for out-of-band email verification while the chat waits at verify_email.
  * `reply` is null until the customer clicks the emailed link; then it carries
  * Ricardo's confirmation and `state` has advanced.
