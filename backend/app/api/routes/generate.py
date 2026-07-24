@@ -17,7 +17,7 @@ from app.services.image.router import get_provider
 from app.services.moderation import ModerationError, check_text
 from app.services.stores import get_store
 from app.services.watermark import apply_watermark
-from app.storage import generate_signed_url, write_watermarked
+from app.storage import generate_signed_url, path_from_signed_url, write_watermarked
 
 router = APIRouter(tags=["generate"])
 log = structlog.get_logger()
@@ -258,7 +258,7 @@ async def _start_generation(session_id: str, tier: str, background: BackgroundTa
 async def _render_view(
     *, view, provider, job_id, generation_id, session_id, tier,
     prompt, ref_url, uploaded_url, params, key, prior_design_url=None,
-    layout_guide_url=None,
+    layout_guide_url=None, uploaded_urls=None,
 ) -> dict:
     """Render ONE view: cache-check → provider (with retry) → watermark.
 
@@ -304,6 +304,7 @@ async def _render_view(
                     uploaded_asset_url=uploaded_url, params=params,
                     prior_design_url=prior_design_url,
                     layout_guide_url=layout_guide_url,
+                    uploaded_asset_urls=uploaded_urls,
                 ),
                 timeout=GENERATION_CALL_TIMEOUT_SECONDS,
             )
@@ -366,6 +367,27 @@ def _canvas_views_split(collected: dict, product_ref: dict) -> tuple[list[str], 
     kept = [v for v in all_views if _has_genuine_angle(product_ref, v)]
     skipped = [v for v in all_views if v not in kept]
     return kept, skipped
+
+
+def _canvas_view_images(collected: dict, view: str) -> list[str]:
+    """Fetchable URLs for the logo elements on one canvas view, in order.
+
+    Resolution per element: re-sign assetPath; else recover the path from an
+    (expired) signed assetUrl and re-sign; else pass a /media or external http
+    URL through as-is; else skip. Fixes the missing-first / duplicate-across-
+    views bug where every logo view got the single global uploaded_asset_path."""
+    urls: list[str] = []
+    for el in prompt_builder.elements_for_view(collected, view):
+        if el.get("type") != "logo":
+            continue
+        path = el.get("assetPath") or path_from_signed_url(el.get("assetUrl"))
+        if path:
+            urls.append(generate_signed_url(path))
+            continue
+        asset_url = el.get("assetUrl")
+        if asset_url and asset_url.startswith("http"):
+            urls.append(asset_url)
+    return urls
 
 
 async def _run_generation(
@@ -432,8 +454,14 @@ async def _run_generation(
                 ref = prompt_builder.reference_image_url_for_view(product_ref, view)
                 if ref and not ref.startswith("http"):
                     ref = generate_signed_url(ref)
-                # Only the view carrying the uploaded logo gets it as a 2nd image.
-                uploaded = uploaded_url_full if prompt_builder.view_has_logo(collected, view) else None
+                # Canvas: each view gets ITS OWN uploaded image(s). v1 flows keep
+                # the single global uploaded asset gated by view_has_logo.
+                if is_canvas:
+                    view_uploads = _canvas_view_images(collected, view)
+                    uploaded = view_uploads[0] if view_uploads else None
+                else:
+                    view_uploads = None
+                    uploaded = uploaded_url_full if prompt_builder.view_has_logo(collected, view) else None
                 # On an edit, feed this view's PREVIOUS render so the model
                 # refines it rather than re-rendering from scratch.
                 prior = None
@@ -464,6 +492,7 @@ async def _run_generation(
                     session_id=session_id, tier=tier, prompt=view_prompt, ref_url=ref,
                     uploaded_url=uploaded, params=params,
                     key=key, prior_design_url=prior, layout_guide_url=layout_guide,
+                    uploaded_urls=view_uploads,
                 )
             except Exception as exc:  # noqa: BLE001 — never let a build error escape gather
                 return {"ok": False, "view": view, "error": str(exc), "attempts": 0}
