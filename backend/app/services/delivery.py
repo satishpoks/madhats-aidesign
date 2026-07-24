@@ -432,3 +432,81 @@ def backfill_pending(limit: int = 100, max_age_hours: int = 72) -> dict:
     tally = {"scanned": len(rows), "delivered": delivered, "still_pending": still_pending}
     log.info("backfill_complete", **tally)
     return tally
+
+
+def maybe_send_quote_confirmation(session_id: str) -> bool:
+    """Send the customer reference email + sales notification, once. Idempotent.
+
+    Gates (ALL required): a lead exists, email_verified, quote_requested, a
+    reference_code is allocated, and quote_confirmation_sent is False. On success
+    the customer is emailed their reference (no design image) and sales is emailed
+    a summary with every uploaded component attached, then the dedup flag is set.
+
+    This is the quote-gated analogue of maybe_send_preview: the two async tracks
+    (explicit quote request + email verification) converge here, whichever
+    finishes last. Best-effort sends; the flag is set only after the customer
+    email dispatches, so a failed run stays retriable. PII-safe: session/lead ids
+    only.
+    """
+    # Local imports: `components` is only needed here, and `stores` would be a
+    # module-level cycle. `email_service`/`storage` are already module-level.
+    from app.services import components as components_service  # noqa: PLC0415
+    from app.services.stores import get_store  # noqa: PLC0415
+
+    sb = get_supabase()
+    lead = _lead_for_session(session_id)
+    if not lead:
+        return False
+    if not (lead.get("email_verified") and lead.get("quote_requested")):
+        return False
+    if not lead.get("reference_code"):
+        return False
+    if lead.get("quote_confirmation_sent"):
+        return False
+
+    session_res = (
+        sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    )
+    session = session_res.data[0] if session_res.data else {}
+    collected = session.get("collected") or {}
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    brand = (store or {}).get("brand") or {}
+    store_name = (store or {}).get("name") or "MadHats"
+    primary = brand.get("primary_colour") or "#ff5c00"
+
+    customer_ok = email_service.send_quote_reference_email(
+        lead["email"], lead.get("name") or "there", lead["reference_code"],
+        store_name=store_name, primary_colour=primary,
+    )
+
+    # Build component attachments (base64), reusing the download primitive.
+    import base64  # noqa: PLC0415
+
+    attachments: list[dict] = []
+    for comp in components_service.enumerate_components(collected):
+        data = storage.download_asset(comp["path"])
+        if not data:
+            continue
+        attachments.append(
+            {
+                "filename": comp["path"].rsplit("/", 1)[-1],
+                "content": base64.b64encode(data).decode("ascii"),
+                "content_type": "image/png",
+            }
+        )
+    email_service.send_quote_request_to_sales(
+        (store or {}).get("sales_notification_email"),
+        lead["reference_code"], store_name, lead["email"], collected, attachments,
+    )
+
+    if not customer_ok:
+        # Leave the flag unset so a later retry (backfill / re-verify) re-sends.
+        log.warning("quote_reference_email_failed", session_id=session_id)
+        return False
+
+    sb.table("leads").update(
+        {"quote_confirmation_sent": True}
+    ).eq("id", lead["id"]).execute()
+    log.info("quote_confirmation_delivered", session_id=session_id)  # no PII
+    return True

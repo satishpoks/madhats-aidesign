@@ -954,7 +954,7 @@ The idempotent convergence primitive: on `verified AND quote_requested AND not a
 - Produces: `delivery.maybe_send_quote_confirmation(session_id: str) -> bool`
 - Consumes: `leads`(reference_code/email_verified/quote_requested/quote_confirmation_sent), `components.enumerate_components`, `storage.download_asset`, `email.send_quote_reference_email`, `email.send_quote_request_to_sales`, `stores.get_store`
 
-- [ ] **Step 1:** Add the failing tests to `backend/tests/test_delivery_quote_gate.py`:
+- [x] **Step 1:** Add the failing tests to `backend/tests/test_delivery_quote_gate.py`:
 ```python
 def _quote_tables(**over):
     lead = {"id": "lead-1", "session_id": "sess-1", "name": "Ann", "email": "a@b.com",
@@ -1000,12 +1000,12 @@ def test_quote_confirmation_requires_verified_and_requested(monkeypatch):
     assert delivery.maybe_send_quote_confirmation("sess-1") is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no `maybe_send_quote_confirmation`).
+- [x] **Step 2:** Run it — expect FAIL (no `maybe_send_quote_confirmation`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py -k quote_confirmation -v
 ```
 
-- [ ] **Step 3:** Implement `maybe_send_quote_confirmation` in `backend/app/services/delivery.py`, after `backfill_pending` (~line 412). It reuses the module imports already present (`storage`, `get_store` via local import, `components`):
+- [x] **Step 3:** Implement `maybe_send_quote_confirmation` in `backend/app/services/delivery.py`, after `backfill_pending` (~line 412). It reuses the module imports already present (`storage`, `get_store` via local import, `components`):
 ```python
 def maybe_send_quote_confirmation(session_id: str) -> bool:
     """Send the customer reference email + sales notification, once. Idempotent.
@@ -1084,7 +1084,7 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
     return True
 ```
 
-- [ ] **Step 4:** Wire it into verification. In `backend/app/api/routes/leads.py`, inside `confirm_verification`, after the `maybe_send_preview` try/except block (~line 135, before the `if not preview_sent:` resume-email block), add:
+- [x] **Step 4:** Wire it into verification. In `backend/app/api/routes/leads.py`, inside `confirm_verification`, after the `maybe_send_preview` try/except block (~line 135, before the `if not preview_sent:` resume-email block), add:
 ```python
     # Quote-gated flow (C2/C3): the customer never gets the design — email them
     # their tracking reference + notify sales, once. Best-effort, idempotent.
@@ -1094,12 +1094,12 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
         log.error("quote_confirmation_failed", lead_id=lead_id, error_type=type(exc).__name__)
 ```
 
-- [ ] **Step 5:** Run it — expect PASS. Re-run the leads-verify route suite to confirm no regression.
+- [x] **Step 5:** Run it — expect PASS. Re-run the leads-verify route suite to confirm no regression.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py tests/test_leads_verify_route.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/services/delivery.py app/api/routes/leads.py tests/test_delivery_quote_gate.py && git commit -m "feat(quote): maybe_send_quote_confirmation + verification trigger (C2/C3)
 

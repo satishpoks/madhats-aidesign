@@ -103,3 +103,47 @@ def test_send_final_design_still_sends_for_a_normal_session(monkeypatch):
                         lambda lead, path: delivered.append(path) or True)
     assert delivery.send_final_design("sess-1") is True
     assert delivered == ["b"]
+
+
+def _quote_tables(**over):
+    lead = {"id": "lead-1", "session_id": "sess-1", "name": "Ann", "email": "a@b.com",
+            "email_verified": True, "quote_requested": True, "reference_code": "MH-BCDFGH",
+            "quote_confirmation_sent": False, "created_at": "2026-07-24T00:00:00Z"}
+    lead.update(over.get("lead", {}))
+    session = {"id": "sess-1", "store_id": "store-1",
+               "collected": {"quote_requested": True, "quantity": 24,
+                             "uploaded_asset_path": "uploads/logo.png"}}
+    return {"leads": [lead], "design_sessions": [session],
+            "generations": over.get("generations", [])}, lead
+
+
+def test_quote_confirmation_sends_once_and_sets_flag(monkeypatch):
+    tables, lead = _quote_tables()
+    fake = _FakeSB(tables)
+    monkeypatch.setattr(delivery, "get_supabase", lambda: fake)
+    monkeypatch.setattr("app.services.stores.get_store", lambda sid: {
+        "id": "store-1", "name": "MadHats", "brand": {},
+        "sales_notification_email": "sales@store.com"})
+    monkeypatch.setattr(delivery.storage, "download_asset", lambda p: b"BYTES")
+    cust, sales = [], []
+    from app.services import email as email_service
+    monkeypatch.setattr(email_service, "send_quote_reference_email",
+                        lambda *a, **k: cust.append(a) or True)
+    monkeypatch.setattr(email_service, "send_quote_request_to_sales",
+                        lambda *a, **k: sales.append((a, k)) or True)
+
+    assert delivery.maybe_send_quote_confirmation("sess-1") is True
+    assert len(cust) == 1 and len(sales) == 1
+    # components attached to sales
+    assert sales[0][0][5]  # attachments list arg is non-empty
+    assert lead["quote_confirmation_sent"] is True
+    # Second call is a no-op (flag set).
+    assert delivery.maybe_send_quote_confirmation("sess-1") is False
+    assert len(cust) == 1
+
+
+def test_quote_confirmation_requires_verified_and_requested(monkeypatch):
+    tables, _ = _quote_tables(lead={"email_verified": False})
+    fake = _FakeSB(tables)
+    monkeypatch.setattr(delivery, "get_supabase", lambda: fake)
+    assert delivery.maybe_send_quote_confirmation("sess-1") is False
