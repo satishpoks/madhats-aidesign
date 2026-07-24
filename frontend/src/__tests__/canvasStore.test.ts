@@ -23,3 +23,14 @@ describe('canvasStore draw tool', () => {
     expect(useCanvasStore.getState().drawMode).toBe(false)
   })
 })
+
+describe('canvasStore image upload', () => {
+  it('stores assetPath on uploaded images and round-trips it', () => {
+    const s = useCanvasStore.getState()
+    s.reset()
+    s.addImage('http://x/sign/a.png?t=1', 1, 'canvas_front_A.png')
+    const el = useCanvasStore.getState().faces.front[0]
+    expect(el.assetPath).toBe('canvas_front_A.png')
+    expect(useCanvasStore.getState().toCanvasDesign().faces.front[0].assetPath).toBe('canvas_front_A.png')
+  })
+})
