@@ -49,6 +49,7 @@ class ConversationState(str, Enum):
     FINALIZE_CANVAS = "finalize_canvas"
     ASK_DECORATION = "ask_decoration"
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
+    NEEDED_BY = "needed_by"                      # v2 only: "when do you want it by?" (before purpose)
     ASK_NOTES = "ask_notes"
     ASK_CHANGE_METHOD = "ask_change_method"
     CONFIRM_CANVAS_EDIT = "confirm_canvas_edit"   # canvas refine: ops applied, awaiting yes/no

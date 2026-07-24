@@ -50,27 +50,27 @@ No `prompts.py` change: the step's `ask` copy lives inline on the `Step`, exactl
 
 Rationale for ordering: Tasks 2 and 3 reference `S.NEEDED_BY` at import/collection time, so the enum member must exist first.
 
-- [ ] **Step 1 (failing test):** Add an enum-existence test to `backend/tests/test_state_machine_v2.py`:
+- [x] **Step 1 (failing test):** Add an enum-existence test to `backend/tests/test_state_machine_v2.py`:
 
 ```python
 def test_needed_by_enum_member_exists():
     assert S.NEEDED_BY.value == "needed_by"
 ```
 
-- [ ] **Step 2 (run → FAIL):** `pytest tests/test_state_machine_v2.py::test_needed_by_enum_member_exists -v`
+- [x] **Step 2 (run → FAIL):** `pytest tests/test_state_machine_v2.py::test_needed_by_enum_member_exists -v`
   - Expected: `FAILED` — collection/attribute error `AttributeError: NEEDED_BY` (the member does not exist yet).
 
-- [ ] **Step 3 (implement):** In `backend/app/services/conversation/state_machine.py`, add the member inside the v2 additive block, immediately after the `ASK_DECORATION_MIX` line:
+- [x] **Step 3 (implement):** In `backend/app/services/conversation/state_machine.py`, add the member inside the v2 additive block, immediately after the `ASK_DECORATION_MIX` line:
 
 ```python
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
     NEEDED_BY = "needed_by"                      # v2 only: "when do you want it by?" (before purpose)
 ```
 
-- [ ] **Step 4 (run → PASS):** `pytest tests/test_state_machine_v2.py::test_needed_by_enum_member_exists -v`
+- [x] **Step 4 (run → PASS):** `pytest tests/test_state_machine_v2.py::test_needed_by_enum_member_exists -v`
   - Expected: `1 passed`.
 
-- [ ] **Step 5 (commit):**
+- [x] **Step 5 (commit):**
 ```bash
 git add backend/app/services/conversation/state_machine.py backend/tests/test_state_machine_v2.py
 git commit -m "$(cat <<'EOF'

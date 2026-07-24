@@ -401,3 +401,7 @@ def test_a_truthy_correction_to_a_settled_slot_is_still_allowed():
     step = cs.by_id(S.ASK_DECORATION)
     fields = v2.merge_fields(step, {"quantity": 50}, {"quantity": 100})
     assert fields == {"quantity": 100}
+
+
+def test_needed_by_enum_member_exists():
+    assert S.NEEDED_BY.value == "needed_by"
