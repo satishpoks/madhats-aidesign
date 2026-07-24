@@ -6,8 +6,10 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, require_admin_ctx
 from app.main import app
+
+_SUPER_CTX = AdminContext(user_id=None, email=None, is_super=True, allowed_store_ids=None)
 
 
 class _FakeTable:
@@ -23,7 +25,7 @@ class _FakeTable:
 
 @pytest.fixture
 def client(monkeypatch):
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     fake = _FakeTable({"id": "s1", "brand": {"primary_colour": "#111111"}})
     monkeypatch.setattr("app.api.routes.admin_stores.get_supabase", lambda: type("SB", (), {"table": lambda self, n: fake})())
     yield TestClient(app)

@@ -60,7 +60,9 @@ export function QuoteRequestsView() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Quote requests</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Quote requests</h1>
+      </div>
       {error && <ErrorBanner message={error} />}
       <DataTable<QuoteRequest>
         columns={columns}

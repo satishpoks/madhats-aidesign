@@ -50,6 +50,10 @@ class Settings(BaseSettings):
 
     # --- Security ---
     admin_secret: str
+    # Signs admin-user login JWTs. Defaults to admin_secret so existing
+    # deployments need no new config; set a distinct value to decouple them.
+    admin_jwt_secret: str = ""
+    admin_jwt_ttl_seconds: int = 43200  # 12h admin session
     rate_limit_rpm: int = 10
     signed_url_ttl: int = 3600
 
@@ -90,6 +94,11 @@ class Settings(BaseSettings):
     def rate_limit_str(self) -> str:
         """slowapi-format rate string, e.g. '10/minute'."""
         return f"{self.rate_limit_rpm}/minute"
+
+    @property
+    def admin_jwt_signing_key(self) -> str:
+        """Key used to sign/verify admin JWTs — falls back to admin_secret."""
+        return self.admin_jwt_secret or self.admin_secret
 
 
 settings = Settings()  # type: ignore[call-arg]

@@ -12,17 +12,26 @@ from __future__ import annotations
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app import storage
-from app.api.deps import require_admin, require_store
+from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, require_store
 from app.api.routes import generate
 from app.db import get_supabase
 from app.services import components as components_service
 from app.services.stores import get_store
 
-router = APIRouter(tags=["admin-leads"], dependencies=[Depends(require_admin)])
+router = APIRouter(tags=["admin-leads"], dependencies=[Depends(require_admin_ctx)])
+
+
+def _store_id_for_session(session_id: str | None) -> str | None:
+    """Resolve a session's store_id (used to scope cross-store listings)."""
+    if not session_id:
+        return None
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("store_id").eq("id", session_id).limit(1).execute()
+    return res.data[0].get("store_id") if res.data else None
 
 
 @router.get("/admin/quote-requests")
-async def list_quote_requests() -> list[dict]:
+async def list_quote_requests(ctx: AdminContext = Depends(require_admin_ctx)) -> list[dict]:
     sb = get_supabase()
     res = (
         sb.table("leads")
@@ -48,6 +57,8 @@ async def list_quote_requests() -> list[dict]:
             .execute()
         )
         session = sess.data[0] if sess.data else {}
+        if not ctx.is_super and session.get("store_id") not in (ctx.allowed_store_ids or set()):
+            continue
         collected = session.get("collected") or {}
         product_ref = session.get("product_ref") or {}
         # The render endpoint is store-scoped (X-Store-Key) but this listing
@@ -82,7 +93,11 @@ async def list_quote_requests() -> list[dict]:
 
 
 @router.get("/admin/quote-requests/{lead_id}/components")
-async def list_quote_components(lead_id: str, request: Request) -> dict:
+async def list_quote_components(
+    lead_id: str,
+    request: Request,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     """Downloadable component set for a quote request (C5/C7).
 
     Each component is served through the /media proxy (a same-origin, capability-
@@ -94,6 +109,7 @@ async def list_quote_components(lead_id: str, request: Request) -> dict:
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     session_id = lead_res.data[0]["session_id"]
+    assert_store_allowed(ctx, _store_id_for_session(session_id))
 
     sess = sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
     collected = (sess.data[0].get("collected") or {}) if sess.data else {}
@@ -121,12 +137,14 @@ async def render_quote_request(
     lead_id: str,
     background: BackgroundTasks,
     store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
     """Sales-triggered on-demand render for a quote request (C4).
 
     Store-scoped: the lead's session must belong to the X-Store-Key store. Reuses
     the canvas render pipeline (with the C6 fix). Returns the job_id to poll.
     """
+    assert_store_allowed(ctx, store["id"])
     sb = get_supabase()
     lead_res = sb.table("leads").select("*").eq("id", lead_id).limit(1).execute()
     if not lead_res.data:

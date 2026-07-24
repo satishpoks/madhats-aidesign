@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, assert_store_allowed, require_admin, require_admin_ctx
 from app.config import settings
 from app.db import get_supabase
 from app.services import prompt_builder
@@ -26,7 +26,11 @@ _MODEL_BY_TIER = {
 
 
 @router.get("/admin/prompt-preview/{session_id}")
-async def prompt_preview(session_id: str, tier: str = "preview") -> dict:
+async def prompt_preview(
+    session_id: str,
+    tier: str = "preview",
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     if tier not in ("preview", "final"):
         raise HTTPException(status_code=400, detail="tier must be 'preview' or 'final'")
 
@@ -35,6 +39,7 @@ async def prompt_preview(session_id: str, tier: str = "preview") -> dict:
     if not res.data:
         raise HTTPException(status_code=404, detail="Session not found")
     session = res.data[0]
+    assert_store_allowed(ctx, session.get("store_id"))
 
     product_ref = session.get("product_ref") or {}
     collected = session.get("collected") or {}

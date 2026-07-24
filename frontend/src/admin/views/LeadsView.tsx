@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { listSessions, type SessionListItem } from '../adminApi'
 import { StatusBadge } from '../components/StatusBadge'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { StorePicker } from '../StorePicker'
 
 const PAGE = 30
 
@@ -29,17 +30,18 @@ export function LeadsView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [withContactOnly, setWithContactOnly] = useState(false)
+  const [storeId, setStoreId] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     let active = true
     setLoading(true)
-    listSessions(PAGE, offset)
+    listSessions(PAGE, offset, { storeId: storeId ?? undefined })
       .then((page) => { if (active) { setRows(page.items); setTotal(page.total); setError(null) } })
       .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load leads') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [offset])
+  }, [offset, storeId])
 
   const visible = withContactOnly ? rows.filter((r) => r.customer?.email) : rows
   const from = total === 0 ? 0 : offset + 1
@@ -50,6 +52,11 @@ export function LeadsView() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Leads</h1>
         <div className="flex items-center gap-3 text-sm text-gray-600">
+          <StorePicker
+            value={storeId}
+            onChange={(id) => { setStoreId(id); setOffset(0) }}
+            allowAll
+          />
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={withContactOnly} onChange={(e) => setWithContactOnly(e.target.checked)} />
             With contact only

@@ -1,49 +1,68 @@
 import { create } from 'zustand'
 
-const STORAGE_KEY = 'mh_admin_secret'
+const CRED_KEY = 'mh_admin_cred'
+const KIND_KEY = 'mh_admin_kind'
 
-function readStored(): string | null {
+export type CredKind = 'bearer' | 'secret'
+
+export interface Profile {
+  email: string | null
+  is_super: boolean
+  stores: { id: string; name: string; public_key: string }[]
+}
+
+function read(key: string): string | null {
   try {
-    return sessionStorage.getItem(STORAGE_KEY)
+    return sessionStorage.getItem(key)
   } catch {
     return null
   }
 }
 
 interface AdminState {
-  secret: string | null
+  kind: CredKind
+  credential: string | null
+  profile: Profile | null
   authed: boolean
-  login: (secret: string) => void
+  loginWith: (kind: CredKind, credential: string, profile: Profile | null) => void
+  setProfile: (profile: Profile) => void
   logout: () => void
 }
 
 export const useAdminStore = create<AdminState>((set) => {
-  const stored = readStored()
+  const credential = read(CRED_KEY)
+  const kind = (read(KIND_KEY) as CredKind) || 'bearer'
   return {
-    secret: stored,
-    authed: stored !== null,
-    login: (secret: string) => {
+    kind,
+    credential,
+    profile: null,
+    authed: credential !== null,
+    loginWith: (k, cred, profile) => {
       try {
-        sessionStorage.setItem(STORAGE_KEY, secret)
+        sessionStorage.setItem(CRED_KEY, cred)
+        sessionStorage.setItem(KIND_KEY, k)
       } catch {
-        // sessionStorage unavailable — keep in-memory only
+        // in-memory only
       }
-      set({ secret, authed: true })
+      set({ kind: k, credential: cred, profile, authed: true })
     },
+    setProfile: (profile) => set({ profile }),
     logout: () => {
       try {
-        sessionStorage.removeItem(STORAGE_KEY)
+        sessionStorage.removeItem(CRED_KEY)
+        sessionStorage.removeItem(KIND_KEY)
       } catch {
         // ignore
       }
-      set({ secret: null, authed: false })
+      set({ kind: 'bearer', credential: null, profile: null, authed: false })
     },
   }
 })
 
 /** Non-hook accessors for use inside adminApi (outside React render). */
-export function getSecret(): string | null {
-  return useAdminStore.getState().secret
+export function getCredential(): { kind: CredKind; credential: string | null } {
+  const s = useAdminStore.getState()
+  return { kind: s.kind, credential: s.credential }
 }
 
 export function logout(): void {
