@@ -9,16 +9,11 @@ import {
 } from '../adminApi'
 import { DataTable, type Column } from '../components/DataTable'
 import { ErrorBanner } from '../components/ErrorBanner'
-import { StorePicker } from '../StorePicker'
 
 export function QuoteRequestsView() {
   const [rows, setRows] = useState<QuoteRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // The backend list endpoint has no store_id param yet (it already
-  // auto-restricts results to the admin's assigned stores), so this picker is
-  // a scoping affordance only for now.
-  const [storeId, setStoreId] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -67,7 +62,6 @@ export function QuoteRequestsView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Quote requests</h1>
-        <StorePicker value={storeId} onChange={setStoreId} allowAll />
       </div>
       {error && <ErrorBanner message={error} />}
       <DataTable<QuoteRequest>
