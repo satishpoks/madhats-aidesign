@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import AdminContext, require_admin_ctx
+from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx
 from app.db import get_supabase
 from app.models.submission import (
     CreateSubmissionRequest,
@@ -67,14 +67,25 @@ async def list_submissions(ctx: AdminContext = Depends(require_admin_ctx)) -> li
     return rows
 
 
-@router.patch("/admin/submissions/{submission_id}", dependencies=[Depends(require_admin_ctx)])
-async def update_submission(submission_id: str, body: UpdateSubmissionRequest) -> dict:
+@router.patch("/admin/submissions/{submission_id}")
+async def update_submission(
+    submission_id: str,
+    body: UpdateSubmissionRequest,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     sb = get_supabase()
     existing = (
-        sb.table("approval_submissions").select("id").eq("id", submission_id).limit(1).execute()
+        sb.table("approval_submissions")
+        .select("id, session_id")
+        .eq("id", submission_id)
+        .limit(1)
+        .execute()
     )
     if not existing.data:
         raise HTTPException(status_code=404, detail="Submission not found")
+
+    store_id = _store_id_for_submission_session(existing.data[0].get("session_id"))
+    assert_store_allowed(ctx, store_id)
 
     sb.table("approval_submissions").update(
         {

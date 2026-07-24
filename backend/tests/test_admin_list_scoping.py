@@ -196,6 +196,112 @@ def test_list_generations_scopes_before_limit_no_starvation(client, monkeypatch)
     assert "job-store2-new-b" not in job_ids
 
 
+# --- Finding 3: PATCH /admin/submissions/{id} cross-store write (IDOR) -----
+
+
+class _SubResult:
+    def __init__(self, data):
+        self.data = data
+
+
+class _SubQuery:
+    def __init__(self, rows, store, on_update=None):
+        self._rows = rows
+        self._store = store
+        self._on_update = on_update
+        self._update_payload = None
+
+    def select(self, *a, **k):
+        return self
+
+    def update(self, payload):
+        self._update_payload = payload
+        return self
+
+    def eq(self, field, value):
+        self._rows = [r for r in self._rows if r.get(field) == value]
+        return self
+
+    def limit(self, n):
+        self._rows = self._rows[:n]
+        return self
+
+    def execute(self):
+        if self._update_payload is not None and self._on_update:
+            self._on_update(self._rows, self._update_payload)
+        return _SubResult(self._rows)
+
+
+class _FakeSubSB:
+    def __init__(self, submissions, sessions):
+        self._submissions = submissions
+        self._sessions = sessions
+        self.updated = []
+
+    def _record_update(self, rows, payload):
+        for r in rows:
+            self.updated.append((r["id"], payload))
+
+    def table(self, name):
+        if name == "approval_submissions":
+            return _SubQuery(list(self._submissions), self, on_update=self._record_update)
+        if name == "design_sessions":
+            return _SubQuery(list(self._sessions), self)
+        return _SubQuery([], self)
+
+
+def _patch_submissions_sb(monkeypatch, submissions, sessions):
+    from app.api.routes import submissions as submissions_route
+
+    fake = _FakeSubSB(submissions, sessions)
+    monkeypatch.setattr(submissions_route, "get_supabase", lambda: fake)
+    return fake
+
+
+def test_patch_submission_blocks_cross_store_admin(client, monkeypatch):
+    hdr = _bearer_store_admin(monkeypatch, {"store-1"})
+    submissions = [{"id": "sub-1", "session_id": "sess-2"}]
+    sessions = [{"id": "sess-2", "store_id": "store-2"}]
+    fake = _patch_submissions_sb(monkeypatch, submissions, sessions)
+    resp = client.patch(
+        "/admin/submissions/sub-1",
+        headers=hdr,
+        json={"review_status": "approved", "reviewer_notes": "looks good"},
+    )
+    assert resp.status_code == 403
+    assert fake.updated == []
+
+
+def test_patch_submission_allows_own_store_admin(client, monkeypatch):
+    hdr = _bearer_store_admin(monkeypatch, {"store-1"})
+    submissions = [{"id": "sub-1", "session_id": "sess-1"}]
+    sessions = [{"id": "sess-1", "store_id": "store-1"}]
+    fake = _patch_submissions_sb(monkeypatch, submissions, sessions)
+    resp = client.patch(
+        "/admin/submissions/sub-1",
+        headers=hdr,
+        json={"review_status": "approved", "reviewer_notes": "looks good"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"updated": True}
+    assert len(fake.updated) == 1
+    assert fake.updated[0][0] == "sub-1"
+    assert fake.updated[0][1]["review_status"] == "approved"
+
+
+def test_patch_submission_super_admin_bypasses_store_check(client, monkeypatch):
+    submissions = [{"id": "sub-1", "session_id": "sess-2"}]
+    sessions = [{"id": "sess-2", "store_id": "store-2"}]
+    fake = _patch_submissions_sb(monkeypatch, submissions, sessions)
+    resp = client.patch(
+        "/admin/submissions/sub-1",
+        headers={"X-Admin-Secret": "envsecret"},
+        json={"review_status": "rejected", "reviewer_notes": "no"},
+    )
+    assert resp.status_code == 200
+    assert len(fake.updated) == 1
+
+
 def test_list_generations_super_admin_sees_all_stores(client, monkeypatch):
     sessions = [
         {"id": "sess-1", "store_id": "store-1"},
