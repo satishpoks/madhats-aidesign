@@ -42,14 +42,20 @@ def test_logo_loop_reopens_placement_when_another_wanted():
 
 
 def test_logos_done_falls_through_to_decor():
+    # email_captured=True: a placed logo now gates ASK_EMAIL between the logo
+    # loop and the decor loop, so it must be resolved for this test to isolate
+    # what it actually targets — that the logo steps themselves are skipped.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
-              pending_logo=None, logos_done=True)
+              pending_logo=None, logos_done=True, email_captured=True)
     assert v2.next_step(c).id is S.ASK_ADD_DECOR
 
 
 def test_quantity_zero_counts_as_answered():
     # "Not sure" -> 0 is a real answer; presence, not truthiness.
+    # `logos` carries first-element evidence so the email gate doesn't skip
+    # itself (see test_finalize_unreachable_without_email_captured).
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              logos=[{"face": "front", "placed": True}],
               quantity=0, decoration_done=True)
     assert v2.next_step(c).id is S.ASK_EMAIL
 
@@ -59,9 +65,41 @@ def test_missing_quantity_re_asks():
     assert v2.next_step(c).id is S.ASK_QUANTITY
 
 
+def test_email_is_skipped_before_any_element_is_placed():
+    # Right after the intro, no element yet: the email step must not fire.
+    c = _seed(name="Sam", intro_ack=True, has_logo=True)
+    assert v2.next_step(c).id is not S.ASK_EMAIL
+
+
+def test_email_fires_right_after_the_first_logo_is_placed():
+    # First logo placed (pending_logo.placed) + its bg answered -> email is next,
+    # before "add another logo".
+    c = _seed(name="Sam", intro_ack=True, has_logo=True,
+              pending_logo={"face": "front", "placed": True, "bg": "none"})
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_email_fires_right_after_the_first_text_element_on_the_text_only_path():
+    # Text-only: logo loop closed, first decor placed -> email is next.
+    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
+              pending_logo=None, decor_choice="text", decor_placed=True)
+    assert v2.next_step(c).id is S.ASK_EMAIL
+
+
+def test_email_step_is_satisfied_once_captured():
+    c = _seed(name="Sam", intro_ack=True, has_logo=True,
+              pending_logo={"face": "front", "placed": True, "bg": "none"},
+              email_captured=True)
+    assert v2.next_step(c).id is not S.ASK_EMAIL
+
+
 def test_finalize_unreachable_without_email_captured():
     # The load-bearing invariant. Every earlier slot filled, email not captured.
+    # `logos` carries first-element evidence (the email gate rides the first
+    # placement) — has_logo/logos_done alone describe a closed loop, not proof
+    # anything was ever placed in it.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              logos=[{"face": "front", "placed": True}],
               quantity=50, decoration_done=True, purpose="team caps", email="sam@example.com")
     assert v2.next_step(c).id is S.ASK_EMAIL
 
@@ -412,7 +450,7 @@ def test_needed_by_has_a_progress_slot_immediately_before_purpose():
     path = v2._PROGRESS_PATH
     assert S.NEEDED_BY in path
     assert path.index(S.NEEDED_BY) == path.index(S.ASK_PURPOSE) - 1
-    assert len(path) == 9
+    assert len(path) == 8   # email left the path; it rides the design phase now
 
 
 def test_needed_by_is_asked_after_email_and_before_purpose():
@@ -549,9 +587,13 @@ def test_next_step_skips_a_disabled_step():
 def test_next_step_still_blocks_finalize_without_email_under_config():
     # The load-bearing invariant survives reordering: email is locked before
     # finalize, so no config can reach finalize without email_captured.
+    # `logos` carries first-element evidence — without it the email step skips
+    # itself (nothing placed yet) rather than blocking, proving nothing about
+    # the config wiring this test targets.
     cfg = _flow(("ask_purpose", True), ("ask_quantity", True))
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
+         "logos": [{"face": "front", "placed": True}],
          "quantity": 12, "decoration_done": True, "purpose": "team caps"}
     assert v2.next_step(c, cfg).id is S.ASK_EMAIL
 
@@ -564,6 +606,7 @@ def test_no_config_can_reach_finalize_without_email():
     ids = sorted(cs.CONFIGURABLE_STEP_IDS)
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
+         "logos": [{"face": "front", "placed": True}],
          "quantity": 12, "decoration_done": True, "purpose": "team caps",
          "needed_by": "next month"}
     for order in itertools.permutations(ids):

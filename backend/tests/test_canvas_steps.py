@@ -14,10 +14,11 @@ def test_registry_ids_are_unique_and_are_conversation_states():
 def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
-        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
+        S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_EMAIL,
+        S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
-        S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE, S.REQUEST_QUOTE,
+        S.NEEDED_BY, S.ASK_PURPOSE, S.REQUEST_QUOTE,
         S.FINALIZE_CANVAS,
     ]
 
@@ -410,7 +411,7 @@ def test_volunteered_has_logo_true_skips_straight_into_the_logo_loop():
     assert v2.next_step(c).id is S.ASK_LOGO_PLACEMENT
 
 
-def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
+def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_email():
     c = {"name": "Sam", "intro_ack": True, "has_logo": True,
          "pending_logo": {"face": "front", "placed": True}}
     assert v2.next_step(c).id is S.ASK_LOGO_BG
@@ -421,7 +422,9 @@ def test_logo_bg_is_asked_after_the_logo_is_placed_and_before_another_logo():
     c.update(fields)
     step.apply(c, fields, {})
     assert c["pending_logo"]["bg"] == "removed"
-    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+    # The first logo is now placed -> ASK_EMAIL rides right after it, before
+    # ASK_ANOTHER_LOGO.
+    assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_logo_bg_declined_still_satisfies_the_step():
@@ -432,7 +435,7 @@ def test_logo_bg_declined_still_satisfies_the_step():
     assert fields == {"logo_bg": "none"}
     c.update(fields)
     step.apply(c, fields, {})
-    assert v2.next_step(c).id is S.ASK_ANOTHER_LOGO
+    assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_logo_bg_is_skipped_when_there_is_no_logo():
@@ -483,7 +486,10 @@ def test_choosing_one_decoration_sets_the_brief_and_the_render_style_bucket():
     assert c["decoration_types"] == ["Embroidery"]
     assert c["decoration_type"] == "embroidery"
     assert "Decoration method: Embroidery" in c["brief_notes"]
-    assert v2.next_step(c).id is S.ASK_EMAIL       # no mix -> no describe step
+    # no mix -> no describe step; email now rides the design phase (earlier in
+    # the registry) rather than following decoration, so this seed — which has
+    # no first-element evidence — resolves straight through to needed_by.
+    assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_the_mix_chip_routes_to_the_describe_step_and_asks_nothing_else():
@@ -513,7 +519,9 @@ def test_describing_the_mix_records_the_brief_and_a_style_bucket():
     # No single method covers a mix, so the bucket comes from the customer's own
     # words via the same keyword table a single pick uses.
     assert c["decoration_type"] == "embroidery"
-    assert v2.next_step(c).id is S.ASK_EMAIL
+    # Email now rides the design phase (earlier in the registry); this seed has
+    # no first-element evidence, so it resolves straight through to needed_by.
+    assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_the_mix_describe_step_warns_about_cost_too():
@@ -589,20 +597,21 @@ def test_prepare_loads_the_stores_active_methods_once(monkeypatch):
 
 def test_a_store_with_no_decoration_methods_skips_the_step(monkeypatch):
     """No options means no chips and no way to answer — that would dead-end the
-    funnel just before the email step."""
+    funnel just before needed_by (email, now earlier in the registry, has
+    already been asked or skipped by this point)."""
     monkeypatch.setattr("app.services.decoration_types.list_types",
                         lambda *a, **k: [])
     c = _quantity_done()
     step = cs.by_id(S.ASK_DECORATION)
     step.prepare(c, {"id": "store-1"})
     assert step.done_when(c)
-    assert v2.next_step(c).id is S.ASK_EMAIL
+    assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_prepare_survives_a_missing_store():
     c = _quantity_done()
     cs.by_id(S.ASK_DECORATION).prepare(c, None)
-    assert v2.next_step(c).id is S.ASK_EMAIL
+    assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_decoration_bookkeeping_is_not_interpreter_writable():

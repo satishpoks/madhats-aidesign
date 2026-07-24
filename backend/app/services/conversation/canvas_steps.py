@@ -92,6 +92,15 @@ def _logos_open(c: dict) -> bool:
     return not c.get("logos_done")
 
 
+def _has_first_element(c: dict) -> bool:
+    """True once the customer has placed their first design element — a logo
+    (pending placed, or banked into `logos`) or a text/shape (`decor_placed`).
+    Gates the email ask so it rides the first placement, not the intro."""
+    return (bool(c.get("logos"))
+            or bool(_pending(c).get("placed"))
+            or bool(c.get("decor_placed")))
+
+
 # --- apply hooks --------------------------------------------------------------
 # Most steps need no effect — merging the resolved fields into `collected` IS
 # the update. These few need bookkeeping beyond that merge: the logo loop, the
@@ -462,6 +471,20 @@ REGISTRY: tuple[Step, ...] = (
         face_target=True,
     ),
     Step(
+        id=S.ASK_EMAIL,
+        ask=("Love where this is going, {name}! While you keep designing, could "
+             "I grab your email so I can save your progress and send your "
+             "finished design over?"),
+        slots=("email",),
+        apply=_apply_email,
+        direct_answer=_direct_email,
+        # Conditional: skipped until the first element exists, then asked until
+        # captured. `email_captured` is set ONLY by _apply_email (not writable),
+        # so the interpreter can't fake it and FINALIZE stays gated on a real
+        # lead. Same skip-until pattern as ASK_DECORATION_MIX.
+        done_when=lambda c: bool(c.get("email_captured")) or not _has_first_element(c),
+    ),
+    Step(
         id=S.ASK_ANOTHER_LOGO,
         ask="Locked that in. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),
@@ -575,18 +598,6 @@ REGISTRY: tuple[Step, ...] = (
         # Conditional: only asked when the customer actually asked for a mix.
         done_when=lambda c: (not c.get("decoration_mix")
                              or bool(c.get("decoration_mix_note"))),
-    ),
-    Step(
-        id=S.ASK_EMAIL,
-        ask="What's the best email to send your design preview to?",
-        slots=("email",),
-        apply=_apply_email,
-        direct_answer=_direct_email,
-        # `email_captured` is set ONLY by _apply_email after a real
-        # capture_lead_and_verify, and is not a writable slot — so the
-        # interpreter cannot fake it and FINALIZE_CANVAS cannot be reached
-        # without a captured lead.
-        done_when=lambda c: bool(c.get("email_captured")),
     ),
     Step(
         id=S.NEEDED_BY,

@@ -107,8 +107,13 @@ async def test_the_live_bug_yes_another_logo_reopens_the_logo_loop(monkeypatch):
 async def test_a_chip_tap_makes_zero_llm_calls(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_QUANTITY.value
+    # `logos` carries first-element evidence: email now rides the design phase
+    # (earlier in the registry) and gates on it, so without this the router
+    # would skip the email step entirely and this turn would land on
+    # needed_by instead of proving the chip-tap-advances-to-email claim below.
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
                                      "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "logos": [{"face": "front", "placed": True}],
                                      "decor_done": True}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     calls = []
@@ -184,7 +189,7 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
     res = await o2.handle_message("s1", "no thanks, and I need 50 caps")
     assert store["session"]["collected"]["quantity"] == 50
     assert res["state"] == S.ASK_EMAIL.value        # ask_quantity skipped
-    assert res["data"]["progress"]["total"] == 9
+    assert res["data"]["progress"]["total"] == 8    # email left the counted path
 
 
 @pytest.mark.asyncio
@@ -216,8 +221,13 @@ async def test_ask_email_notice_absent_when_capture_fails(monkeypatch):
     re-asks itself, and no false 'link sent' claim is made."""
     store = _new_store()
     store["session"]["state"] = S.ASK_EMAIL.value
+    # `logos` carries first-element evidence: without it, ask_email's own
+    # done_when short-circuits True (nothing placed yet) regardless of
+    # email_captured, so a failed capture would be masked as "step satisfied"
+    # instead of re-asking — the exact behaviour under test here.
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
                                      "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "logos": [{"face": "front", "placed": True}],
                                      "decor_done": True, "quantity": 50}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
@@ -358,7 +368,7 @@ async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
+async def test_typed_no_more_decor_advances_past_the_decor_loop(monkeypatch):
     """Finding 1 (final review), interpreter path end to end: a typed decline
     must not re-ask ASK_ANYTHING_ELSE forever.
 
@@ -366,6 +376,10 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     matching is case/whitespace-insensitive on the exact label, so a message
     that happens to equal "No, that's everything" would take the chip path
     and mask this bug, same as the model-free e2e did).
+
+    The seed's `decor_placed: True` is the customer's first placed element, so
+    once the decor loop closes the router lands on ASK_EMAIL (which now rides
+    the design phase) before ASK_QUANTITY — not on ASK_QUANTITY directly.
     """
     store = _new_store()
     store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
@@ -376,7 +390,7 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"more_decor": False})
     res = await o2.handle_message("s1", "nah, nothing more thanks")
-    assert res["state"] == S.ASK_QUANTITY.value      # must NOT re-ask itself
+    assert res["state"] == S.ASK_EMAIL.value      # must NOT re-ask ASK_ANYTHING_ELSE
 
 
 @pytest.mark.asyncio

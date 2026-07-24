@@ -136,10 +136,14 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     S.ASK_DECORATION_MIX: S.ASK_DECORATION,
     # The explicit submit is the last beat of ASK_PURPOSE, not a numbered step.
     S.REQUEST_QUOTE: S.ASK_PURPOSE,
+    # Email rides the design phase (asked right after the first element is
+    # placed) — it is not a numbered step of its own, so it must not move the
+    # counter backward relative to whatever design step is in progress.
+    S.ASK_EMAIL: S.ASK_LOGO_PLACEMENT,
 }
 _PROGRESS_PATH: list[S] = [
     S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
-    S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE,
+    S.ASK_QUANTITY, S.ASK_DECORATION, S.NEEDED_BY, S.ASK_PURPOSE,
 ]
 
 

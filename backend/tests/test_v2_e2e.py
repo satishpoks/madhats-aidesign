@@ -122,7 +122,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Yes, I have a logo",      S.ASK_LOGO_PLACEMENT),
         ("Front",                   S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
-        ("Yes, remove background",  S.ASK_ANOTHER_LOGO),
+        ("Yes, remove background",  S.ASK_EMAIL),          # first element placed
+        ("sam@example.com",         S.ASK_ANOTHER_LOGO),
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
@@ -133,8 +134,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Done",                    S.ASK_ANYTHING_ELSE),
         ("No, that's everything",   S.ASK_QUANTITY),
         ("50-99",                   S.ASK_DECORATION),
-        ("Embroidery",              S.ASK_EMAIL),          # single-select
-        ("sam@example.com",         S.NEEDED_BY),
+        ("Embroidery",              S.NEEDED_BY),          # single-select; email already captured
         ("ASAP",                    S.ASK_PURPOSE),
         ("for the team",            S.REQUEST_QUOTE),      # quote-gated submit
         ("Request a quote",         S.FINALIZE_CANVAS),
@@ -216,7 +216,12 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     assert res["data"]["progress"] == v2.progress_v2(S.ASK_DECORATION, {})
 
     res = await o2.handle_message("s1", "Embroidered logo, printed text on the back")
-    assert res["state"] == S.ASK_EMAIL.value
+    # This seed never places a design element (text-only, decor_done set
+    # directly) — email rides the design phase now, well before decoration, so
+    # with no first-element evidence it stays skipped and routing lands on
+    # needed_by. Email-after-first-element is covered directly in
+    # test_state_machine_v2.py.
+    assert res["state"] == S.NEEDED_BY.value
 
     c = store["session"]["collected"]
     assert c["decoration_mix_note"] == "Embroidered logo, printed text on the back"
