@@ -188,6 +188,47 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_ask_email_tells_the_customer_a_verification_link_was_sent(monkeypatch):
+    """Regression (session 69902f52): after giving their email the customer was
+    marched straight to the purpose question with no word that a verification
+    link had been sent or why. The reply must name the link and the address."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "decor_done": True, "quantity": 50,
+                                     "decoration_type": "embroidery"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    # _apply_email calls capture_lead_and_verify (which sends the double opt-in
+    # email); stub it to report a successful capture.
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: ("lead-1", True))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+    res = await o2.handle_message("s1", "sam@example.com")
+    assert res["state"] == S.ASK_PURPOSE.value
+    assert "verification link" in res["reply"]
+    assert "sam@example.com" in res["reply"]
+
+
+@pytest.mark.asyncio
+async def test_ask_email_notice_absent_when_capture_fails(monkeypatch):
+    """If the address couldn't be captured, email_captured stays unset, the step
+    re-asks itself, and no false 'link sent' claim is made."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "decor_done": True, "quantity": 50}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: (None, False))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+    res = await o2.handle_message("s1", "sam@example.com")
+    assert res["state"] == S.ASK_EMAIL.value            # re-asks itself
+    assert "verification link" not in res["reply"]
+
+
+@pytest.mark.asyncio
 async def test_a_shared_tail_state_delegates_to_v1(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.OFFER_REFINE.value

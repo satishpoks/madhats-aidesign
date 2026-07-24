@@ -1074,8 +1074,8 @@ V2_BG_INSTRUCTIONS = (
 # keep going." — no greeting, no question — and their reply ("ok") was stored
 # as their name.
 V2_ASK_NAME = (
-    "Hi! I'm {persona} — I'll help you put your design straight onto the cap. "
-    "First up, what's your name?"
+    "Hi! I'm {persona}, your AI design assistant — I'll help you put your "
+    "design straight onto the cap. First up, what's your name?"
 )
 
 V2_ASK_NAME_RETRY = (
@@ -1086,6 +1086,17 @@ V2_DEFAULT_INTRO = (
     "Welcome! I'll help you put your design straight onto the cap. We'll add "
     "your logo first, then any text or graphics, and I'll guide you through "
     "each tool as we go."
+)
+
+# Shown the instant the customer gives their email at ASK_EMAIL. The address is
+# captured with double opt-in, so a verification link goes out immediately —
+# tell the customer it's on the way and why, otherwise it arrives unexplained and
+# they may not click it (clicking is how their finished design reaches their
+# inbox). The address is already in the chat thread (they just typed it), so
+# echoing it here is not new PII — and it is never written to logs.
+V2_EMAIL_VERIFY_NOTICE = (
+    "Thanks! I've just sent a verification link to {email} — tap it to confirm "
+    "your address so we can email your finished design there."
 )
 
 V2_TURN_INTERPRETER_PROMPT = """You read ONE customer message in a guided cap-design chat and turn it into structured fields. You do NOT decide what happens next.

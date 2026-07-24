@@ -121,6 +121,13 @@ async def handle_message(session_id: str, message: str) -> dict:
                               S.QUOTE_REQUESTED, user_message=message, data=data)
 
     reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack)
+    if step.id is S.ASK_EMAIL and collected.get("email_captured"):
+        # The double opt-in verification email just went out (from _apply_email).
+        # Prepend a notice so the customer knows to expect it and why — without
+        # this the link arrives unexplained. `fields` still carries the address
+        # (_apply_email pops it from `collected`, not `fields`).
+        addr = fields.get("email") or "your inbox"
+        reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)} {reply}".strip()
     data = v2.public_data_for(next_, collected)
     if canvas_ops:
         data["canvas_ops"] = canvas_ops

@@ -266,6 +266,49 @@ async def test_generate_reply_repairs_mojibake(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Fix #4 — _normalize_interpretation must never crash on an unhashable field.
+# Regression (session 69902f52 — "Yes, request a quote" showed a fetch error):
+# Haiku returned placement_zone (and could return intent) as a LIST, and
+# `value not in {a_set}` raises TypeError: unhashable type: 'list'. The whole
+# chat turn 500'd. Any non-string/unhashable value must be dropped, not hashed.
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_interpretation_drops_list_placement_zone() -> None:
+    """A list placement_zone must be dropped, not hashed (which crashes)."""
+    out = ie._normalize_interpretation(
+        {"intent": "answer", "fields": {"placement_zone": ["front_panel", "back"]}},
+        allowed_targets=[],
+    )
+    assert "placement_zone" not in out["fields"]
+
+
+def test_normalize_interpretation_drops_list_intent() -> None:
+    """A list (unhashable) intent must fall back to 'answer', not crash."""
+    out = ie._normalize_interpretation(
+        {"intent": ["answer", "revise"], "fields": {}},
+        allowed_targets=[],
+    )
+    assert out["intent"] == "answer"
+
+
+def test_normalize_interpretation_keeps_valid_placement_zone() -> None:
+    out = ie._normalize_interpretation(
+        {"intent": "answer", "fields": {"placement_zone": "front_panel"}},
+        allowed_targets=[],
+    )
+    assert out["fields"]["placement_zone"] == "front_panel"
+
+
+def test_normalize_interpretation_drops_invalid_string_placement_zone() -> None:
+    out = ie._normalize_interpretation(
+        {"intent": "answer", "fields": {"placement_zone": "nonsense"}},
+        allowed_targets=[],
+    )
+    assert "placement_zone" not in out["fields"]
+
+
 @pytest.mark.parametrize(
     "greeting", ["hi", "Hi", "hello", "Hey there", "good morning", "yo", "hiya"]
 )
