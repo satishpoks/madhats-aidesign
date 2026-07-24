@@ -445,9 +445,13 @@ def test_logo_bg_is_skipped_when_there_is_no_logo():
 
 
 def _quantity_done() -> dict:
+    # email_captured=True: every test built on this seed targets a decoration/
+    # mix step, all positioned AFTER ask_email in the registry. Without it,
+    # ask_email (design phase closed, nothing placed) would legitimately
+    # intercept first and the test would prove nothing about its real subject.
     return {"name": "Sam", "intro_ack": True, "has_logo": False,
             "logos_done": True, "pending_logo": None, "decor_done": True,
-            "quantity": 50}
+            "quantity": 50, "email_captured": True}
 
 
 def test_decoration_is_asked_after_quantity_and_before_email():
@@ -486,9 +490,9 @@ def test_choosing_one_decoration_sets_the_brief_and_the_render_style_bucket():
     assert c["decoration_types"] == ["Embroidery"]
     assert c["decoration_type"] == "embroidery"
     assert "Decoration method: Embroidery" in c["brief_notes"]
-    # no mix -> no describe step; email now rides the design phase (earlier in
-    # the registry) rather than following decoration, so this seed — which has
-    # no first-element evidence — resolves straight through to needed_by.
+    # no mix -> no describe step; email_captured=True (seeded by _quantity_done)
+    # already satisfies ask_email, which sits earlier in the registry, so this
+    # resolves straight through to needed_by.
     assert v2.next_step(c).id is S.NEEDED_BY
 
 
@@ -519,8 +523,9 @@ def test_describing_the_mix_records_the_brief_and_a_style_bucket():
     # No single method covers a mix, so the bucket comes from the customer's own
     # words via the same keyword table a single pick uses.
     assert c["decoration_type"] == "embroidery"
-    # Email now rides the design phase (earlier in the registry); this seed has
-    # no first-element evidence, so it resolves straight through to needed_by.
+    # email_captured=True (seeded by _quantity_done) already satisfies
+    # ask_email, which sits earlier in the registry, so this resolves straight
+    # through to needed_by.
     assert v2.next_step(c).id is S.NEEDED_BY
 
 
@@ -597,8 +602,8 @@ def test_prepare_loads_the_stores_active_methods_once(monkeypatch):
 
 def test_a_store_with_no_decoration_methods_skips_the_step(monkeypatch):
     """No options means no chips and no way to answer — that would dead-end the
-    funnel just before needed_by (email, now earlier in the registry, has
-    already been asked or skipped by this point)."""
+    funnel just before needed_by (email_captured=True, seeded by
+    _quantity_done, already satisfies ask_email earlier in the registry)."""
     monkeypatch.setattr("app.services.decoration_types.list_types",
                         lambda *a, **k: [])
     c = _quantity_done()

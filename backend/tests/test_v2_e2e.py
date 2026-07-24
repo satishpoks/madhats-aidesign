@@ -193,9 +193,13 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     direct_answer carries it (it has no chips, so it cannot nudge instead)."""
     store = _new_store()
     store["session"]["state"] = S.ASK_DECORATION.value
+    # email_captured=True: the design phase is already closed (logos_done +
+    # decor_done), so ask_email (earlier in the registry) would otherwise
+    # intercept before the mix chip's own step is reached.
     store["session"]["collected"].update(
         {"name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
-         "pending_logo": None, "decor_done": True, "quantity": 12}
+         "pending_logo": None, "decor_done": True, "quantity": 12,
+         "email_captured": True}
     )
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)

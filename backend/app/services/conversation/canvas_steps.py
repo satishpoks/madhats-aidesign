@@ -101,6 +101,14 @@ def _has_first_element(c: dict) -> bool:
             or bool(c.get("decor_placed")))
 
 
+def _design_phase_done(c: dict) -> bool:
+    """Both design loops closed (logo loop + decor loop). Used as the email
+    backstop: even a customer who placed NOTHING must be asked for their email
+    once the design phase is over, or FINALIZE_CANVAS becomes reachable with no
+    captured lead."""
+    return bool(c.get("logos_done")) and bool(c.get("decor_done"))
+
+
 # --- apply hooks --------------------------------------------------------------
 # Most steps need no effect — merging the resolved fields into `collected` IS
 # the update. These few need bookkeeping beyond that merge: the logo loop, the
@@ -478,11 +486,14 @@ REGISTRY: tuple[Step, ...] = (
         slots=("email",),
         apply=_apply_email,
         direct_answer=_direct_email,
-        # Conditional: skipped until the first element exists, then asked until
-        # captured. `email_captured` is set ONLY by _apply_email (not writable),
-        # so the interpreter can't fake it and FINALIZE stays gated on a real
-        # lead. Same skip-until pattern as ASK_DECORATION_MIX.
-        done_when=lambda c: bool(c.get("email_captured")) or not _has_first_element(c),
+        # Skipped ONLY while the customer is still early in design with nothing
+        # placed. Fires the moment either (a) a first element is placed — the
+        # humble mid-design ask — or (b) the design phase closes with nothing
+        # placed (decline-everything path), so FINALIZE stays unreachable
+        # without a captured lead on EVERY path. `email_captured` is set only by
+        # _apply_email (not writable), so the interpreter can't fake it.
+        done_when=lambda c: bool(c.get("email_captured")) or (
+            not _has_first_element(c) and not _design_phase_done(c)),
     ),
     Step(
         id=S.ASK_ANOTHER_LOGO,
@@ -678,9 +689,9 @@ WRITABLE_SLOTS: frozenset[str] = frozenset(
 # is dependency-LOCKED and never moves: ASK_NAME, SHOW_INTRO, the logo loop, the
 # decor loop (incl. ASK_ANYTHING_ELSE, which re-opens the loop), ASK_DECORATION
 # (prepare-bearing — its store load may satisfy its own step) with its
-# conditional partner ASK_DECORATION_MIX, ASK_EMAIL (must precede finalize, and
-# is what makes FINALIZE_CANVAS unreachable without a captured lead), and
-# FINALIZE_CANVAS itself.
+# conditional partner ASK_DECORATION_MIX, ASK_EMAIL (must precede finalize —
+# its conditional plus the design-phase backstop is what keeps FINALIZE_CANVAS
+# unreachable without a captured lead), and FINALIZE_CANVAS itself.
 #
 # `needed_by` is added by Workstream B. Sourcing the set from REGISTRY by id
 # string means a not-yet-merged needed_by simply drops out here rather than

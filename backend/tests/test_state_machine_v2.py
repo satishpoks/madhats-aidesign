@@ -52,16 +52,17 @@ def test_logos_done_falls_through_to_decor():
 
 def test_quantity_zero_counts_as_answered():
     # "Not sure" -> 0 is a real answer; presence, not truthiness.
-    # `logos` carries first-element evidence so the email gate doesn't skip
-    # itself (see test_finalize_unreachable_without_email_captured).
+    # email_captured=True so ask_email (design phase closed, earlier in the
+    # registry) is not the intercept — this must genuinely exercise "0 is a
+    # real answer" by landing on the step that follows a satisfied quantity.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              logos=[{"face": "front", "placed": True}],
-              quantity=0, decoration_done=True)
-    assert v2.next_step(c).id is S.ASK_EMAIL
+              email_captured=True, quantity=0, decoration_done=True)
+    assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_missing_quantity_re_asks():
-    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True)
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
+              email_captured=True)
     assert v2.next_step(c).id is S.ASK_QUANTITY
 
 
@@ -109,6 +110,15 @@ def test_finalize_reached_when_everything_done():
               quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
               purpose="team caps", quote_requested=True)
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
+
+
+def test_email_fires_when_the_design_phase_closes_with_nothing_placed():
+    # The decline-everything path: no logo, no decoration, nothing placed.
+    # Email must still be asked before finalize — the invariant holds on EVERY path.
+    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
+              pending_logo=None, decor_done=True, quantity=50,
+              decoration_done=True, needed_by="ASAP", purpose="team caps")
+    assert v2.next_step(c).id is S.ASK_EMAIL
 
 
 def test_router_walks_every_step_in_declared_order():
@@ -561,9 +571,13 @@ def test_next_step_default_matches_the_bare_registry_walk():
 def test_next_step_honours_a_reordering_config():
     # With purpose-before-quantity, a session that has answered everything up to
     # the first configurable slot is asked purpose, not quantity.
+    # email_captured=True: the design phase is already closed (logos_done +
+    # decor_done), so ask_email (earlier in the registry) would otherwise
+    # intercept before either configurable slot is reached.
     cfg = _flow(("ask_purpose", True), ("ask_quantity", True))
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
-         "logos_done": True, "pending_logo": None, "decor_done": True}
+         "logos_done": True, "pending_logo": None, "decor_done": True,
+         "email_captured": True}
     assert v2.next_step(c).id is S.ASK_QUANTITY          # default order
     assert v2.next_step(c, cfg).id is S.ASK_PURPOSE      # configured order
 
@@ -604,9 +618,12 @@ def test_no_config_can_reach_finalize_without_email():
     import itertools
 
     ids = sorted(cs.CONFIGURABLE_STEP_IDS)
+    # No fabricated `logos` here on purpose: this is the exhaustive proof, and
+    # must exercise the zero-element (decline-everything) branch — the
+    # design-phase backstop is what keeps email required on that branch, not
+    # first-element evidence.
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
-         "logos": [{"face": "front", "placed": True}],
          "quantity": 12, "decoration_done": True, "purpose": "team caps",
          "needed_by": "next month"}
     for order in itertools.permutations(ids):
