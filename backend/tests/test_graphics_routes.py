@@ -7,16 +7,18 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import require_admin, require_store
+from app.api.deps import AdminContext, require_admin, require_admin_ctx, require_store
 from app.main import app
 
 _STORE = {"id": "s1"}
+_SUPER_CTX = AdminContext(user_id=None, email=None, is_super=True, allowed_store_ids=None)
 
 
 @pytest.fixture
 def client():
     app.dependency_overrides[require_store] = lambda: _STORE
     app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     yield TestClient(app)
     app.dependency_overrides.clear()
 

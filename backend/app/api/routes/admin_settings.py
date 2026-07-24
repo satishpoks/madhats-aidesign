@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, require_admin, require_admin_ctx, require_super
 from app.services import settings_service
 
 router = APIRouter(tags=["admin-settings"], dependencies=[Depends(require_admin)])
@@ -34,11 +34,15 @@ def _out(s: settings_service.StudioSettings) -> SettingsOut:
 
 
 @router.get("/admin/settings", response_model=SettingsOut)
-async def get_settings() -> SettingsOut:
+async def get_settings(ctx: AdminContext = Depends(require_admin_ctx)) -> SettingsOut:
+    require_super(ctx)
     return _out(settings_service.get_settings())
 
 
 @router.patch("/admin/settings", response_model=SettingsOut)
-async def patch_settings(body: SettingsPatch) -> SettingsOut:
+async def patch_settings(
+    body: SettingsPatch, ctx: AdminContext = Depends(require_admin_ctx)
+) -> SettingsOut:
+    require_super(ctx)
     updated = settings_service.update_settings(**body.model_dump(exclude_none=True))
     return _out(updated)

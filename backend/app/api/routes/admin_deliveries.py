@@ -13,12 +13,17 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, require_admin, require_admin_ctx, require_super
 from app.services import delivery
 
 router = APIRouter(tags=["admin-deliveries"], dependencies=[Depends(require_admin)])
 
 
 @router.post("/admin/deliveries/backfill")
-async def backfill_deliveries(limit: int = 100, max_age_hours: int = 72) -> dict:
+async def backfill_deliveries(
+    limit: int = 100,
+    max_age_hours: int = 72,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
+    require_super(ctx)
     return delivery.backfill_pending(limit=limit, max_age_hours=max_age_hours)
