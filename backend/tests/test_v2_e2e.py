@@ -128,7 +128,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("No, that's everything",   S.ASK_QUANTITY),
         ("50-99",                   S.ASK_DECORATION),
         ("Embroidery",              S.ASK_EMAIL),          # single-select
-        ("sam@example.com",         S.ASK_PURPOSE),
+        ("sam@example.com",         S.NEEDED_BY),
+        ("ASAP",                    S.ASK_PURPOSE),
         ("for the team",            S.FINALIZE_CANVAS),
     ]
 
@@ -175,6 +176,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     assert c["decoration_types"] == ["Embroidery"]
     assert c["decoration_type"] == "embroidery"   # the pick drives the style
     assert "decoration_mix" not in c              # no mix -> no describe step
+    assert c["needed_by"] == "ASAP"
 
 
 @pytest.mark.asyncio

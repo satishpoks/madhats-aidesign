@@ -573,6 +573,25 @@ REGISTRY: tuple[Step, ...] = (
         done_when=lambda c: bool(c.get("email_captured")),
     ),
     Step(
+        id=S.NEEDED_BY,
+        ask="When do you need these by?",
+        # Each label carries its own meaning field — a chip cannot disagree with
+        # itself (see the module docstring). The value stored is the bucket
+        # itself; a typed custom date arrives instead via the interpreter filling
+        # the `needed_by` slot (no chip tapped).
+        chips=(Chip("ASAP", {"needed_by": "ASAP"}),
+               Chip("2–4 weeks", {"needed_by": "2–4 weeks"}),
+               Chip("1–2 months", {"needed_by": "1–2 months"}),
+               Chip("Just exploring", {"needed_by": "Just exploring"})),
+        slots=("needed_by",),
+        # Any non-empty answer satisfies it — including the "Just exploring" defer
+        # chip. No apply/direct_answer: chips carry the buckets, the interpreter
+        # parses typed dates, and the value lives in collected["needed_by"] for
+        # Workstream C to surface in the sales quote summary. Free text, so no
+        # SLOT_ENUMS entry (a custom date must pass validate_fields untouched).
+        done_when=lambda c: "needed_by" in c,
+    ),
+    Step(
         id=S.ASK_PURPOSE,
         ask="Last thing — if you don't mind me asking, what's the hat for?",
         slots=("purpose",),

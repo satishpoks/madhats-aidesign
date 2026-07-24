@@ -17,7 +17,7 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
-        S.ASK_EMAIL, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
+        S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
     ]
 
 
@@ -643,3 +643,32 @@ def test_bg_still_marks_the_step_answered():
     c = {"pending_logo": {"face": "front", "placed": True}}
     step.apply(c, {"logo_bg": "removed"}, {})
     assert step.done_when(c) is True
+
+
+def test_needed_by_step_shape():
+    step = cs.by_id(S.NEEDED_BY)
+    assert step is not None
+    assert step.slots == ("needed_by",)
+    assert "needed_by" in cs.WRITABLE_SLOTS
+    assert "needed_by" not in cs.SLOT_ENUMS      # free text: a bucket OR a date
+    assert step.apply is None and step.direct_answer is None
+    assert step.done_when({"needed_by": "ASAP"})
+    assert not step.done_when({})
+    labels = [ch.label for ch in step.chips]
+    assert labels == ["ASAP", "2–4 weeks", "1–2 months", "Just exploring"]
+    for ch in step.chips:
+        assert set(ch.fields) == {"needed_by"}
+
+
+def test_needed_by_sits_immediately_before_purpose_in_the_registry():
+    ids = [s.id for s in cs.REGISTRY]
+    assert ids[ids.index(S.NEEDED_BY) + 1] is S.ASK_PURPOSE
+
+
+def test_a_defer_answer_still_satisfies_needed_by():
+    """"Just exploring" (no firm date) is a valid answer — any non-empty value
+    satisfies the step."""
+    step = cs.by_id(S.NEEDED_BY)
+    fields = v2.resolve_chip(step, "Just exploring", {})
+    assert fields == {"needed_by": "Just exploring"}
+    assert step.done_when(fields)

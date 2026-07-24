@@ -68,7 +68,8 @@ def test_finalize_unreachable_without_email_captured():
 
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              quantity=50, decoration_done=True, email_captured=True, purpose="team caps")
+              quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
+              purpose="team caps")
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
@@ -412,3 +413,12 @@ def test_needed_by_has_a_progress_slot_immediately_before_purpose():
     assert S.NEEDED_BY in path
     assert path.index(S.NEEDED_BY) == path.index(S.ASK_PURPOSE) - 1
     assert len(path) == 9
+
+
+def test_needed_by_is_asked_after_email_and_before_purpose():
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True,
+              decor_done=True, quantity=50, decoration_done=True,
+              email_captured=True)
+    assert v2.next_step(c).id is S.NEEDED_BY
+    c["needed_by"] = "ASAP"
+    assert v2.next_step(c).id is S.ASK_PURPOSE

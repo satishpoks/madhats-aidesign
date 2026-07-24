@@ -205,7 +205,7 @@ async def test_ask_email_tells_the_customer_a_verification_link_was_sent(monkeyp
                         lambda s, c, email: ("lead-1", True))
     _llm_returns(monkeypatch, {"email": "sam@example.com"})
     res = await o2.handle_message("s1", "sam@example.com")
-    assert res["state"] == S.ASK_PURPOSE.value
+    assert res["state"] == S.NEEDED_BY.value
     assert "verification link" in res["reply"]
     assert "sam@example.com" in res["reply"]
 
@@ -252,7 +252,7 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "email_captured": True,
+        "needed_by": "ASAP", "email_captured": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
@@ -332,7 +332,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
                         lambda s, c, e: ("lead-1", True))
     res = await o2.handle_message("s1", "sam@example.com")
     assert store["session"]["collected"]["email_captured"] is True
-    assert res["state"] == S.ASK_PURPOSE.value
+    assert res["state"] == S.NEEDED_BY.value
 
 
 @pytest.mark.asyncio

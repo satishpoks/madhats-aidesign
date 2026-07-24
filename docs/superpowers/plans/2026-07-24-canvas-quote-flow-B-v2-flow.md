@@ -166,7 +166,7 @@ EOF
 - Consumes: `Step`, `Chip` dataclasses; `state_machine_v2.next_step(collected) -> Step`; `resolve_chip(step, message, collected) -> dict | None`.
 - Produces: `cs.by_id(S.NEEDED_BY) -> Step`; `"needed_by"` present in `cs.WRITABLE_SLOTS` (auto-derived from the step's `slots`); routing `ASK_EMAIL -> NEEDED_BY -> ASK_PURPOSE`. No `SLOT_ENUMS` entry (the slot is free text: a chip bucket OR a custom date). No `apply`/`direct_answer`: the chips carry the buckets, the interpreter parses typed dates, and the value lives in `collected["needed_by"]` for Workstream C to surface in the sales quote summary.
 
-- [ ] **Step 1 (failing tests — routing + shape):** Add to `backend/tests/test_state_machine_v2.py`:
+- [x] **Step 1 (failing tests — routing + shape):** Add to `backend/tests/test_state_machine_v2.py`:
 
 ```python
 def test_needed_by_is_asked_after_email_and_before_purpose():
@@ -210,7 +210,7 @@ def test_a_defer_answer_still_satisfies_needed_by():
     assert step.done_when(fields)
 ```
 
-- [ ] **Step 2 (run → FAIL):**
+- [x] **Step 2 (run → FAIL):**
 ```bash
 pytest tests/test_state_machine_v2.py::test_needed_by_is_asked_after_email_and_before_purpose \
        tests/test_canvas_steps.py::test_needed_by_step_shape \
@@ -219,7 +219,7 @@ pytest tests/test_state_machine_v2.py::test_needed_by_is_asked_after_email_and_b
 ```
   - Expected: all `FAILED` — `cs.by_id(S.NEEDED_BY)` is `None` (no registry record), so `.slots`/`.done_when` raise `AttributeError`; routing returns `ASK_PURPOSE`, not `NEEDED_BY`.
 
-- [ ] **Step 3 (implement the Step record):** In `backend/app/services/conversation/canvas_steps.py`, insert this record into the `REGISTRY` tuple immediately **before** the existing `Step(id=S.ASK_PURPOSE, …)` record (and after the `Step(id=S.ASK_EMAIL, …)` record):
+- [x] **Step 3 (implement the Step record):** In `backend/app/services/conversation/canvas_steps.py`, insert this record into the `REGISTRY` tuple immediately **before** the existing `Step(id=S.ASK_PURPOSE, …)` record (and after the `Step(id=S.ASK_EMAIL, …)` record):
 
 ```python
     Step(
@@ -243,20 +243,20 @@ pytest tests/test_state_machine_v2.py::test_needed_by_is_asked_after_email_and_b
     ),
 ```
 
-- [ ] **Step 4 (implement the slot doc):** In `backend/app/services/conversation/intent_extractor.py`, add a `_SLOT_DOCS` entry so the interpreter can fill `needed_by` from free text (place it after the `"quantity"` entry, before `"decoration_types"`):
+- [x] **Step 4 (implement the slot doc):** In `backend/app/services/conversation/intent_extractor.py`, add a `_SLOT_DOCS` entry so the interpreter can fill `needed_by` from free text (place it after the `"quantity"` entry, before `"decoration_types"`):
 
 ```python
     "needed_by": "needed_by (string) — when the customer needs the caps by; a rough timeframe (e.g. 'ASAP', '2-4 weeks', '1-2 months') or a specific date they give. Use 'Just exploring' when there is no firm date",
 ```
 
-- [ ] **Step 5 (implement the test helper):** In `backend/tests/canvas_step_helpers.py`, add a `NEEDED_BY` branch to `satisfy()` immediately **before** the `S.ASK_PURPOSE` branch (so the registry walk and every `seed_for(...)` past this step stay valid):
+- [x] **Step 5 (implement the test helper):** In `backend/tests/canvas_step_helpers.py`, add a `NEEDED_BY` branch to `satisfy()` immediately **before** the `S.ASK_PURPOSE` branch (so the registry walk and every `seed_for(...)` past this step stay valid):
 
 ```python
     elif step.id is S.NEEDED_BY:
         c["needed_by"] = "2-4 weeks"
 ```
 
-- [ ] **Step 6 (run new tests → PASS):**
+- [x] **Step 6 (run new tests → PASS):**
 ```bash
 pytest tests/test_state_machine_v2.py::test_needed_by_is_asked_after_email_and_before_purpose \
        tests/test_canvas_steps.py::test_needed_by_step_shape \
@@ -265,7 +265,7 @@ pytest tests/test_state_machine_v2.py::test_needed_by_is_asked_after_email_and_b
 ```
   - Expected: `4 passed`.
 
-- [ ] **Step 7 (surface the coupled failures):** run the full touched files to see which existing tests the insertion broke:
+- [x] **Step 7 (surface the coupled failures):** run the full touched files to see which existing tests the insertion broke:
 ```bash
 pytest tests/test_canvas_steps.py tests/test_state_machine_v2.py tests/test_orchestrator_v2.py tests/test_v2_e2e.py -q
 ```
@@ -278,13 +278,13 @@ pytest tests/test_canvas_steps.py tests/test_state_machine_v2.py tests/test_orch
     - `test_v2_e2e.py::test_full_v2_walk_using_the_exact_chip_labels` — the walk's email→purpose transition now lands on `NEEDED_BY`.
     - (`test_router_walks_every_step_in_declared_order` and the parametrized `test_every_offered_chip_*` tests should already be GREEN — the `satisfy` helper branch and the auto-enumerated chips cover them.)
 
-- [ ] **Step 8 (update coupled test — registry order):** In `backend/tests/test_canvas_steps.py`, `test_registry_declares_the_v2_flow_in_order`, change the final row of the expected list to insert `S.NEEDED_BY` before `S.ASK_PURPOSE`:
+- [x] **Step 8 (update coupled test — registry order):** In `backend/tests/test_canvas_steps.py`, `test_registry_declares_the_v2_flow_in_order`, change the final row of the expected list to insert `S.NEEDED_BY` before `S.ASK_PURPOSE`:
 
 ```python
         S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
 ```
 
-- [ ] **Step 9 (update coupled test — v2 finalize seed):** In `backend/tests/test_state_machine_v2.py`, `test_finalize_reached_when_everything_done`, add `needed_by="ASAP"` to the seed so `FINALIZE_CANVAS` is reachable:
+- [x] **Step 9 (update coupled test — v2 finalize seed):** In `backend/tests/test_state_machine_v2.py`, `test_finalize_reached_when_everything_done`, add `needed_by="ASAP"` to the seed so `FINALIZE_CANVAS` is reachable:
 
 ```python
 def test_finalize_reached_when_everything_done():
@@ -294,7 +294,7 @@ def test_finalize_reached_when_everything_done():
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 ```
 
-- [ ] **Step 10 (update coupled tests — orchestrator_v2 next-state + capped seed):** In `backend/tests/test_orchestrator_v2.py`:
+- [x] **Step 10 (update coupled tests — orchestrator_v2 next-state + capped seed):** In `backend/tests/test_orchestrator_v2.py`:
 
   In `test_ask_email_tells_the_customer_a_verification_link_was_sent` (~line 208):
 ```python
@@ -315,7 +315,7 @@ def test_finalize_reached_when_everything_done():
     }
 ```
 
-- [ ] **Step 11 (update coupled test — e2e chip-label walk):** In `backend/tests/test_v2_e2e.py`, `test_full_v2_walk_using_the_exact_chip_labels`, replace the tail of the `walk` list so the email answer lands on `NEEDED_BY`, then a chip tap advances to `ASK_PURPOSE`:
+- [x] **Step 11 (update coupled test — e2e chip-label walk):** In `backend/tests/test_v2_e2e.py`, `test_full_v2_walk_using_the_exact_chip_labels`, replace the tail of the `walk` list so the email answer lands on `NEEDED_BY`, then a chip tap advances to `ASK_PURPOSE`:
 
 ```python
         ("50-99",                   S.ASK_DECORATION),
@@ -332,13 +332,13 @@ def test_finalize_reached_when_everything_done():
     assert c["needed_by"] == "ASAP"
 ```
 
-- [ ] **Step 12 (run → PASS):** re-run every touched file:
+- [x] **Step 12 (run → PASS):** re-run every touched file:
 ```bash
 pytest tests/test_canvas_steps.py tests/test_state_machine_v2.py tests/test_orchestrator_v2.py tests/test_v2_e2e.py -q
 ```
   - Expected: all pass (0 failed).
 
-- [ ] **Step 13 (commit):**
+- [x] **Step 13 (commit):**
 ```bash
 git add backend/app/services/conversation/canvas_steps.py \
         backend/app/services/conversation/intent_extractor.py \
