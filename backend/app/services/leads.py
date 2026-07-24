@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -36,6 +37,34 @@ def extract_email(message: str) -> str | None:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Base32 alphabet with the ambiguous glyphs 0/O/1/I removed (24 letters + 8
+# digits = 32 symbols). Customer-facing, so readability over a phone matters.
+_REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def generate_reference_code() -> str:
+    """A short customer-facing tracking reference, e.g. ``MH-7F3K2A``."""
+    return "MH-" + "".join(secrets.choice(_REF_ALPHABET) for _ in range(6))
+
+
+def assign_reference_code(sb, lead_id: str) -> str:
+    """Allocate a unique reference code and persist it on the lead row.
+
+    Collision-checked against ``leads.reference_code`` (unique-indexed). Retries
+    a bounded number of times before giving up — with a 32^6 space a collision is
+    astronomically unlikely, so 10 attempts is ample headroom.
+    """
+    for _ in range(10):
+        code = generate_reference_code()
+        existing = (
+            sb.table("leads").select("id").eq("reference_code", code).limit(1).execute()
+        )
+        if not existing.data:
+            sb.table("leads").update({"reference_code": code}).eq("id", lead_id).execute()
+            return code
+    raise RuntimeError("could not allocate a unique reference code")
 
 
 def send_verification(lead: dict, store: dict | None = None) -> bool:

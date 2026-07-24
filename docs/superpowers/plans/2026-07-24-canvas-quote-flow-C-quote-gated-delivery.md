@@ -73,7 +73,7 @@ Adds the `reference_code` and quote-request columns to `leads`, and the collisio
 - Produces: `leads.generate_reference_code() -> str`, `leads.assign_reference_code(sb, lead_id: str) -> str`
 - Consumes: `app.db.get_supabase` (passed in as `sb`)
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_leads_reference_code.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_leads_reference_code.py`:
 ```python
 """MH-XXXXXX tracking reference generation + collision-checked assignment."""
 from __future__ import annotations
@@ -144,12 +144,12 @@ def test_assign_reference_code_avoids_collision(monkeypatch):
     assert fake.sink == [{"reference_code": "MH-BCDFGH"}]
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (AttributeError: module has no `generate_reference_code`).
+- [x] **Step 2:** Run it — expect FAIL (AttributeError: module has no `generate_reference_code`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 3:** Write the migration `backend/supabase/migrations/20260724000001_leads_reference_code.sql`:
+- [x] **Step 3:** Write the migration `backend/supabase/migrations/20260724000001_leads_reference_code.sql`:
 ```sql
 -- Quote-gated delivery (Workstream C). The customer explicitly requests a quote;
 -- we mint a customer-facing tracking reference (MH-XXXXXX), stop emailing the
@@ -165,7 +165,7 @@ create unique index if not exists idx_leads_reference_code
   on leads(reference_code) where reference_code is not null;
 ```
 
-- [ ] **Step 4:** Implement the generator + assignment in `backend/app/services/leads.py`. Add `import secrets` to the imports (top of file, alphabetically near `import re`), then insert after `hash_token` (~line 39):
+- [x] **Step 4:** Implement the generator + assignment in `backend/app/services/leads.py`. Add `import secrets` to the imports (top of file, alphabetically near `import re`), then insert after `hash_token` (~line 39):
 ```python
 # Base32 alphabet with the ambiguous glyphs 0/O/1/I removed (24 letters + 8
 # digits = 32 symbols). Customer-facing, so readability over a phone matters.
@@ -195,12 +195,12 @@ def assign_reference_code(sb, lead_id: str) -> str:
     raise RuntimeError("could not allocate a unique reference code")
 ```
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/services/leads.py supabase/migrations/20260724000001_leads_reference_code.sql tests/test_leads_reference_code.py && git commit -m "feat(quote): leads.reference_code column + MH-XXXXXX generator (C2)
 
