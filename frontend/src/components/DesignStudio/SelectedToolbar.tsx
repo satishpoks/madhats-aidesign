@@ -125,30 +125,84 @@ export function SelectedToolbar() {
           </button>
         </>
       ))}
-      {/* Universal transform block — rotate / move / (size) for every element. */}
-      <div className="flex items-center gap-1" role="group" aria-label="Rotate">
-        <button onClick={() => rotateBy(-45)} className="px-2 py-1 text-sm border border-border rounded" title="Rotate 45° left" aria-label="Rotate left 45 degrees">⟲</button>
+      <Sep />
+
+      {/* Rotate — curved arrows (⟲/⟳), unmistakably a rotate control and
+          never confusable with Move's straight directional arrows or Layer
+          order's forward/back glyphs below. */}
+      <Group label="Rotate">
+        <button onClick={() => rotateBy(-45)} className={btn} title="Rotate 45° left" aria-label="Rotate left 45 degrees">⟲</button>
         <input type="number" value={Math.round(el.rotation ?? 0)} onChange={e => update(el.id, { rotation: norm360(Number(e.target.value) || 0) })}
-          className="w-14 bg-base border border-border rounded px-1 py-1 text-sm text-textPrimary" aria-label="Rotation degrees" title="Rotation (degrees)" />
-        <button onClick={() => rotateBy(45)} className="px-2 py-1 text-sm border border-border rounded" title="Rotate 45° right" aria-label="Rotate right 45 degrees">⟳</button>
-        <button onClick={() => update(el.id, { rotation: 0 })} className="px-2 py-1 text-xs border border-border rounded" title="Reset rotation" aria-label="Reset rotation">Reset</button>
-      </div>
-      <div className="flex items-center gap-1" role="group" aria-label="Move">
-        <button onClick={() => nudge(0, -NUDGE)} className="px-2 py-1 text-sm border border-border rounded" title="Move up" aria-label="Nudge up">↑</button>
-        <button onClick={() => nudge(0, NUDGE)} className="px-2 py-1 text-sm border border-border rounded" title="Move down" aria-label="Nudge down">↓</button>
-        <button onClick={() => nudge(-NUDGE, 0)} className="px-2 py-1 text-sm border border-border rounded" title="Move left" aria-label="Nudge left">←</button>
-        <button onClick={() => nudge(NUDGE, 0)} className="px-2 py-1 text-sm border border-border rounded" title="Move right" aria-label="Nudge right">→</button>
-      </div>
+          className="w-14 bg-base border border-border rounded px-1 py-1.5 text-sm text-textPrimary"
+          aria-label="Rotation degrees" title="Set an exact rotation in degrees" />
+        <button onClick={() => rotateBy(45)} className={btn} title="Rotate 45° right" aria-label="Rotate right 45 degrees">⟳</button>
+        <button onClick={() => update(el.id, { rotation: 0 })} className={`${btn} text-xs`} title="Reset rotation to 0°" aria-label="Reset rotation">Reset</button>
+      </Group>
+
+      <Sep />
+
+      {/* Move — plain directional arrows, nudging POSITION. Deliberately a
+          different glyph family from Rotate (⟲/⟳) and Layer order (▲▼ below)
+          so the three controls can never be mistaken for each other. */}
+      <Group label="Move">
+        <button onClick={() => nudge(-NUDGE, 0)} className={btn} title="Move left" aria-label="Nudge left">←</button>
+        <button onClick={() => nudge(0, -NUDGE)} className={btn} title="Move up" aria-label="Nudge up">↑</button>
+        <button onClick={() => nudge(0, NUDGE)} className={btn} title="Move down" aria-label="Nudge down">↓</button>
+        <button onClick={() => nudge(NUDGE, 0)} className={btn} title="Move right" aria-label="Nudge right">→</button>
+      </Group>
+
       {canResize && (
-        <div className="flex items-center gap-1" role="group" aria-label="Size">
-          <button onClick={() => resize(1 / SIZE_FACTOR)} className="px-2 py-1 text-sm border border-border rounded" title="Smaller" aria-label="Decrease size">−</button>
-          <button onClick={() => resize(SIZE_FACTOR)} className="px-2 py-1 text-sm border border-border rounded" title="Larger" aria-label="Increase size">+</button>
-        </div>
+        <>
+          <Sep />
+          <Group label="Size">
+            <button onClick={() => resize(1 / SIZE_FACTOR)} className={btn} title="Make smaller" aria-label="Decrease size">−</button>
+            <button onClick={() => resize(SIZE_FACTOR)} className={btn} title="Make larger" aria-label="Increase size">+</button>
+          </Group>
+        </>
       )}
-      <button onClick={() => reorder(el.id, 'up')} className="px-2 py-1 text-sm border border-border rounded" title="Bring forward">↑</button>
-      <button onClick={() => reorder(el.id, 'down')} className="px-2 py-1 text-sm border border-border rounded" title="Send back">↓</button>
-      <button onClick={() => duplicate(el.id)} className="px-2 py-1 text-sm border border-border rounded" title="Duplicate">Duplicate</button>
-      <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded" title="Delete">Delete</button>
+
+      <Sep />
+
+      {/* Layer order — deliberately TEXT + stacked-square glyphs, never the
+          bare ↑/↓ Move already owns (that collision was the confusing-arrows
+          bug this fix corrects). "Forward" = toward the top of the stack (in
+          front of whatever is on top of it); "Back" = toward the bottom —
+          unrelated to on-screen position, which is what Move controls. */}
+      <Group label="Layer order">
+        <button onClick={() => reorder(el.id, 'up')} className={`${btn} text-xs`}
+          title="Bring this element forward, in front of whatever is on top of it" aria-label="Bring forward">▲Fwd</button>
+        <button onClick={() => reorder(el.id, 'down')} className={`${btn} text-xs`}
+          title="Send this element back, behind whatever is under it" aria-label="Send back">▼Back</button>
+      </Group>
+
+      <Sep />
+
+      <Group label="Actions">
+        <button onClick={() => duplicate(el.id)} className={btn} title="Duplicate this element" aria-label="Duplicate">Duplicate</button>
+        <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+          title="Delete this element" aria-label="Delete">Delete</button>
+      </Group>
     </div>
   )
 }
+
+/** Shared small-caption + button-row wrapper for one toolbar section, so every
+ *  group of controls is visually separated and machine-labelled (role="group"
+ *  + aria-label) as well as sighted-labelled (the caption) — and wraps as a
+ *  unit on narrow widths instead of its buttons scattering individually. */
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1" role="group" aria-label={label}>
+      <span className="text-[10px] uppercase tracking-wide text-textMuted leading-none">{label}</span>
+      <div className="flex items-center gap-1">{children}</div>
+    </div>
+  )
+}
+
+/** Vertical divider between toolbar sections (hidden on narrow widths, where
+ *  groups wrap onto their own line and a divider would just look stray). */
+function Sep() {
+  return <div className="hidden sm:block w-px self-stretch bg-border" aria-hidden="true" />
+}
+
+const btn = 'px-2 py-1 text-sm border border-border rounded hover:border-accent transition-colors'

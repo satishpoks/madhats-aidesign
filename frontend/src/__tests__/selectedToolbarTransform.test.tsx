@@ -78,4 +78,61 @@ describe('SelectedToolbar transform controls', () => {
     expect(screen.queryByRole('button', { name: 'Increase size' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Decrease size' })).not.toBeInTheDocument()
   })
+
+  test('layer order uses distinct, non-arrow controls — never confusable with Move (FIX 2)', () => {
+    selectedText()
+    render(<SelectedToolbar />)
+    // Bring forward / Send back exist, are labelled distinctly from the Move
+    // nudge buttons (which own "Nudge up"/"Nudge down"), and are grouped
+    // under their own accessible group.
+    expect(screen.getByRole('group', { name: 'Layer order' })).toBeInTheDocument()
+    const fwd = screen.getByRole('button', { name: 'Bring forward' })
+    const back = screen.getByRole('button', { name: 'Send back' })
+    expect(fwd).toBeInTheDocument()
+    expect(back).toBeInTheDocument()
+    // The regression this guards: Layer order must never render as the same
+    // bare up/down arrow glyphs Move already owns for "Nudge up"/"Nudge down".
+    expect(fwd.textContent).not.toMatch(/^[↑↓←→]$/)
+    expect(back.textContent).not.toMatch(/^[↑↓←→]$/)
+  })
+
+  test('layer order buttons actually reorder the element', () => {
+    const s = useCanvasStore.getState()
+    s.addText('back')
+    const backId = useCanvasStore.getState().faces.front[0].id
+    s.addText('front')
+    const frontId = useCanvasStore.getState().faces.front[1].id
+    s.select(backId)
+    render(<SelectedToolbar />)
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === backId)?.zIndex).toBe(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Bring forward' }))
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === backId)?.zIndex).toBe(1)
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === frontId)?.zIndex).toBe(0)
+  })
+
+  test('Actions group holds Duplicate and Delete, both still functional', () => {
+    const id = selectedText()
+    render(<SelectedToolbar />)
+    expect(screen.getByRole('group', { name: 'Actions' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+    expect(useCanvasStore.getState().faces.front).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0])
+    expect(useCanvasStore.getState().faces.front.length).toBeLessThan(2)
+    void id
+  })
+
+  test('every transform control has a hover tooltip (title attribute)', () => {
+    selectedText()
+    render(<SelectedToolbar />)
+    for (const name of [
+      'Rotate left 45 degrees', 'Rotate right 45 degrees', 'Reset rotation',
+      'Nudge left', 'Nudge right', 'Nudge up', 'Nudge down',
+      'Increase size', 'Decrease size',
+      'Bring forward', 'Send back', 'Duplicate', 'Delete',
+    ]) {
+      const btn = screen.getByRole('button', { name })
+      expect(btn.getAttribute('title')).toBeTruthy()
+    }
+    expect(screen.getByLabelText('Rotation degrees').getAttribute('title')).toBeTruthy()
+  })
 })

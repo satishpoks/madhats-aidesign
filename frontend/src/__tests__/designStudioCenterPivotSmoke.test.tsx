@@ -47,10 +47,12 @@ test('an unlocked, selected, rotated text element mounts through Surface without
 
   expect(() => render(<DesignStudioSurface />)).not.toThrow()
 
-  // The pre-existing transform groups still render (Fix 1 must not disturb them).
+  // Fix 1 + Fix 2 wired together: the redesigned toolbar groups render.
   expect(screen.getByRole('group', { name: 'Rotate' })).toBeInTheDocument()
   expect(screen.getByRole('group', { name: 'Move' })).toBeInTheDocument()
   expect(screen.getByRole('group', { name: 'Size' })).toBeInTheDocument()
+  expect(screen.getByRole('group', { name: 'Layer order' })).toBeInTheDocument()
+  expect(screen.getByRole('group', { name: 'Actions' })).toBeInTheDocument()
 })
 
 test('a rotated shape and a rotated drawing also mount cleanly (all four node types exercised)', () => {
