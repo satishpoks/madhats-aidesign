@@ -605,7 +605,12 @@ REGISTRY: tuple[Step, ...] = (
         # parses typed dates, and the value lives in collected["needed_by"] for
         # Workstream C to surface in the sales quote summary. Free text, so no
         # SLOT_ENUMS entry (a custom date must pass validate_fields untouched).
-        done_when=lambda c: "needed_by" in c,
+        #
+        # TRUTHINESS, not presence (unlike `quantity`, where 0 is a real answer).
+        # `needed_by` has no falsy-real value, so a "" written by the interpreter
+        # on an earlier turn would otherwise satisfy the step and silently skip
+        # the question — losing the timeframe sales needs to quote.
+        done_when=lambda c: bool(c.get("needed_by")),
     ),
     Step(
         id=S.ASK_PURPOSE,

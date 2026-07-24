@@ -492,8 +492,47 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   permanently stalls at canvas `DESCRIBE_CHANGES` (that state ships no chips to
   escape with). Spec/plan:
   `docs/superpowers/{specs,plans}/2026-07-17-canvas-led-refine*`.
-- Tests: backend `pytest` 788 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **Canvas quote-flow batch (2026-07-24) — MERGED BUT NOT LIVE-VERIFIED.** Four
+  workstreams built in parallel: (A) universal rotate/move/size controls in
+  `SelectedToolbar`, plus `canvasStore.unlockAll()` + a `fromCanvasDesign`
+  lock-strip so a refined design is editable again (the unlock call is guarded on
+  "something is actually locked" — calling it unconditionally clears `selectedId`
+  on every mount, which makes the `ask_logo_bg` background-removal toggle
+  unreachable); (B) a `needed_by` registry step between `ASK_EMAIL` and
+  `ASK_PURPOSE`; (C) **quote-gated delivery** — a `REQUEST_QUOTE` step mints
+  `leads.reference_code` (`MH-XXXXXX`), the customer is emailed the REFERENCE
+  ONLY (never the design), sales is notified once with components attached, the
+  render is admin-triggered via `POST /admin/quote-requests/{lead_id}/render`,
+  plus the multi-angle fix (`_map_views` stops fabricating back/left/right
+  aliases; faces with no genuine angle are skipped; per-face prompts carry
+  front-to-back z-order); (D) per-store `brand.canvas_flow` enable/reorder of the
+  safe subset (`ask_quantity`/`needed_by`/`ask_purpose`) through the pure
+  `state_machine_v2.effective_registry`. Merged registry tail is now
+  `ask_email → needed_by → ask_purpose → request_quote → finalize_canvas`.
+  **TWO MIGRATIONS ARE UNAPPLIED** — `20260724000001_leads_reference_code.sql`
+  and `20260724000002_generation_render_notes.sql`. Deploying without them makes
+  every generation-completion UPDATE PostgREST-error and mark the job failed.
+  Nothing in this batch has been exercised against a live stack.
+  Spec/plan: `docs/superpowers/{specs,plans}/2026-07-24-canvas-quote-flow-*`.
+- Tests: backend `pytest` 880 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **Docker down?** Backend tests run fine off the local venv without the stack:
+  `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
+  Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
+- **Agent worktrees are created from stale `master`, not your current branch** —
+  all four agents in the 2026-07-24 batch had to fast-forward themselves onto the
+  work branch. Always check the base before trusting a worktree's results.
+  `.claude/worktrees/` is gitignored; without that a `git add -A` commits each
+  worktree as an embedded-repo gitlink.
+- **Git ref corruption (Windows):** an unclean shutdown can overwrite
+  `.git/refs/heads/<branch>` with NUL bytes → "fatal: your current branch appears
+  to be broken". Objects survive; `git update-ref` fails because it cannot lock an
+  unparseable ref. Recover the tip from `.git/logs/refs/heads/<branch>` or
+  `.git/logs/HEAD`, `rm` the corrupt ref file, then `git update-ref`.
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
+- Open ticket: `BrandingView.FLOW_STEPS` (frontend) mirrors the backend's
+  `CONFIGURABLE_STEP_IDS` by hand. `test_configurable_step_ids_are_exactly_the_safe_subset`
+  fails when the backend set changes, as a reminder — but nothing structurally
+  couples them. Consider serving the list from the admin API.
 
 ---
 

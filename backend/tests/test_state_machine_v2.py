@@ -422,6 +422,22 @@ def test_needed_by_is_asked_after_email_and_before_purpose():
     assert v2.next_step(c).id is S.NEEDED_BY
     c["needed_by"] = "ASAP"
     assert v2.next_step(c).id is S.ASK_PURPOSE
+
+
+def test_needed_by_is_not_satisfied_by_an_empty_answer():
+    """`done_when` must read truthiness, not presence. `quantity` uses presence
+    deliberately because 0 is a real answer — `needed_by` has no such falsy-real
+    value, so an interpreter write of "" on an EARLIER step would otherwise mark
+    the step answered and silently skip the question, losing the timeframe sales
+    needs. The step's own comment already claims "any non-empty answer"."""
+    c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True,
+              decor_done=True, quantity=50, decoration_done=True,
+              email_captured=True, needed_by="")
+    assert v2.next_step(c).id is S.NEEDED_BY
+    c["needed_by"] = None
+    assert v2.next_step(c).id is S.NEEDED_BY
+
+
 # --- Workstream D: config-aware compose (pure, plain dicts) --------------------
 # effective_registry is a pure function of (config, cs.REGISTRY) — no collected,
 # no DB, no LLM — so every case below is a plain-dict unit test.

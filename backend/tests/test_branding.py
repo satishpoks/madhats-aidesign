@@ -98,6 +98,21 @@ def test_configurable_ids_are_sourced_from_the_registry():
     assert ("needed_by" in cs.CONFIGURABLE_STEP_IDS) is ("needed_by" in registry_ids)
 
 
+def test_configurable_step_ids_are_exactly_the_safe_subset():
+    """Drift guard for a coupling nothing else enforces.
+
+    `frontend/src/admin/views/BrandingView.tsx: FLOW_STEPS` mirrors this set BY
+    HAND. Listing an id the backend rejects makes the admin's first save 400;
+    omitting one the backend accepts silently hides a step admins are entitled
+    to configure. If you change this set, update that array in the same commit.
+    """
+    from app.services.conversation import canvas_steps as cs
+
+    assert cs.CONFIGURABLE_STEP_IDS == frozenset(
+        {"ask_quantity", "needed_by", "ask_purpose"}
+    )
+
+
 def test_validate_brand_defaults_enabled_when_omitted():
     cleaned = branding.validate_brand({"canvas_flow": {"steps": [{"id": "ask_quantity"}]}})
     assert cleaned["canvas_flow"]["steps"] == [{"id": "ask_quantity", "enabled": True}]
