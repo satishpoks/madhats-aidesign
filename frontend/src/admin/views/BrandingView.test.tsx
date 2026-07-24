@@ -46,4 +46,38 @@ describe('BrandingView', () => {
     expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
+
+  // --- Workstream D: the "Flow steps" card ------------------------------------
+
+  it('never surfaces a dependency-locked step', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    expect(await screen.findByText('Flow steps')).toBeInTheDocument()
+    // Only the safe subset is offered; email/decoration/finalize are locked.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+    expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument()
+  })
+
+  it('persists a reorder into brand.canvas_flow', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.click(await screen.findByRole('button', { name: /move what is the hat for\? up/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
+    expect(brand.canvas_flow?.steps).toEqual([
+      { id: 'ask_purpose', enabled: true },
+      { id: 'ask_quantity', enabled: true },
+    ])
+  })
+
+  it('persists a disabled step', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.click(await screen.findByRole('checkbox', { name: /what is the hat for\? enabled/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
+    expect(brand.canvas_flow?.steps).toContainEqual({ id: 'ask_purpose', enabled: false })
+  })
 })

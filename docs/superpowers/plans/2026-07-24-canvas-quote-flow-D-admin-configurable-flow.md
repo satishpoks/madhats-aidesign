@@ -648,7 +648,7 @@ Expected: green (the documented 788+ passing baseline, now +new). If anything un
 
 ### Steps
 
-- [ ] **Step 1: Add `canvas_flow` to the `Brand` interface** in `frontend/src/lib/types.ts` (replace the interface body ~lines 112–119):
+- [x] **Step 1: Add `canvas_flow` to the `Brand` interface** in `frontend/src/lib/types.ts` (replace the interface body ~lines 112–119):
 
 ```ts
 /** One configurable step in the v2 canvas flow (V3 admin ordering). */
@@ -670,7 +670,7 @@ export interface Brand {
 }
 ```
 
-- [ ] **Step 2: Add the "Flow steps" card to `BrandingView.tsx`.** First add a label map + helpers near the top of the component body (after `const menu = brand.menu_items ?? []`, ~line 51):
+- [x] **Step 2: Add the "Flow steps" card to `BrandingView.tsx`.** First add a label map + helpers near the top of the component body (after `const menu = brand.menu_items ?? []`, ~line 51):
 
 ```tsx
   // The safe, admin-configurable subset (mirrors backend CONFIGURABLE_STEP_IDS).
@@ -737,7 +737,7 @@ Then insert the card JSX between the Canvas-intro `</label>` and the Menu `<div>
 
 The existing `onSave` already PATCHes `rest` (the whole brand minus `logo_url`), so `canvas_flow` is persisted with no `onSave` change. No frontend `validate()` change is needed (only known step ids and booleans are ever produced by this UI; the server re-validates regardless).
 
-- [ ] **Step 3: Verify the frontend builds and the targeted admin test (if present) passes.**
+- [x] **Step 3: Verify the frontend builds and the targeted admin test (if present) passes.**
 
 ```bash
 cd frontend && npm run build
@@ -745,7 +745,7 @@ cd frontend && npx vitest run src/admin/views/BrandingView.test.tsx
 ```
 Expected: build succeeds; the existing `BrandingView` test (if any) still passes. (Full `vitest run` is a known Windows tinypool flake — keep it targeted.)
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 cd frontend && git add src/lib/types.ts src/admin/views/BrandingView.tsx
