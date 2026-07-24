@@ -14,13 +14,16 @@ interface ToolRailProps {
   /** Canvas is view-only (chat not at canvas_design) — disable every tool so
    *  no modification can be made, without blurring the panel. */
   locked?: boolean
+  /** REWORK_CANVAS: hide the render/"Done designing" button entirely — the
+   *  per-step Done button is the only submit during a rework pass. */
+  hideRender?: boolean
   /** v2: when set, ONLY these tool buttons are enabled. */
   allowedTools?: Set<Tool>
   /** v2: the tool to visually highlight (accent glow + pulse). */
   highlightTool?: Tool | null
 }
 
-export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, allowedTools, highlightTool }: ToolRailProps) {
+export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, hideRender, allowedTools, highlightTool }: ToolRailProps) {
   const colourway = useCanvasStore(s => s.colourway)
   const setColourway = useCanvasStore(s => s.setColourway)
   const drawMode = useCanvasStore(s => s.drawMode)
@@ -94,10 +97,12 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
         </div>
       )}
 
-      <button onClick={onRender} disabled={locked || rendering || rendered}
-        className="mt-auto px-4 py-3 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors">
-        {rendered ? 'Design saved ✓' : rendering ? 'Saving…' : 'Done designing'}
-      </button>
+      {!hideRender && (
+        <button onClick={onRender} disabled={locked || rendering || rendered}
+          className="mt-auto px-4 py-3 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors">
+          {rendered ? 'Design saved ✓' : rendering ? 'Saving…' : 'Done designing'}
+        </button>
+      )}
     </div>
   )
 }

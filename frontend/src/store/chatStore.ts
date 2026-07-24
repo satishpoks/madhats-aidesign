@@ -45,6 +45,9 @@ interface ChatStoreState {
     autoOpen: string | null
     instructions: string | null
     showDone: boolean
+    /** REWORK_CANVAS: the customer reopened a finished design — clear every
+     *  element's locked flag so the whole canvas is editable again. */
+    unlockAll: boolean
   } | null
   /** v2: the frontend should flatten + finalize the canvas now. */
   triggerFinalize: boolean
@@ -97,6 +100,7 @@ function parseData(data: Record<string, unknown>) {
         autoOpen: typeof rawCanvas.auto_open === 'string' ? rawCanvas.auto_open : null,
         instructions: typeof rawCanvas.instructions === 'string' ? rawCanvas.instructions : null,
         showDone: rawCanvas.show_done === true,
+        unlockAll: rawCanvas.unlock_all === true,
       }
     : null
   const triggerFinalize = data.trigger_finalize === true

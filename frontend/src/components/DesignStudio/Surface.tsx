@@ -89,6 +89,16 @@ export function DesignStudioSurface() {
     if (canvasDirective?.targetFace) setActiveFace(canvasDirective.targetFace as Face)
   }, [canvasDirective?.targetFace, setActiveFace])
 
+  // v2: REWORK_CANVAS reopens a finished (locked) design for editing — unlock
+  // every element so it's draggable/selectable again. Distinct from the
+  // triggerFinalize-based re-open effect below (that one fires on the refine
+  // rework path); this one fires directly off the directive so a review-step
+  // "Rework on the canvas" answer unlocks immediately, independent of
+  // triggerFinalize's state.
+  useEffect(() => {
+    if (canvasDirective?.unlockAll) unlockAll()
+  }, [canvasDirective?.unlockAll, unlockAll])
+
   // v2: auto-open the requested tool dialog once per directive change. Also
   // depends on targetFace (not just autoOpen) so it re-evaluates in lockstep
   // with the face-switch effect above whenever the directive changes either
@@ -312,6 +322,10 @@ export function DesignStudioSurface() {
             // so it can't be used to jump ahead of the directive walkthrough.
             rendered={isV2 ? true : rendered}
             locked={isV2 ? false : !unlocked}
+            // REWORK_CANVAS: the per-step Done button is the only submit — the
+            // render/"Done designing" button must not be clickable (it would
+            // finalize -> quote prematurely), so hide it entirely.
+            hideRender={canvasDirective?.unlockAll === true}
             allowedTools={allowedTools} highlightTool={highlightTool} />
         </div>
       </div>
