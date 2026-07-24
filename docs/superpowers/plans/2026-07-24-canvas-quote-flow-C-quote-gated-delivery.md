@@ -221,7 +221,7 @@ Marks the lead `quote_requested`, allocates the reference, and best-effort conve
 - Produces: `leads.record_quote_request(session: dict, collected: dict) -> str | None`
 - Consumes: `leads.assign_reference_code`, `delivery.maybe_send_quote_confirmation` (Task 7; imported lazily so ordering is tolerant)
 
-- [ ] **Step 1:** Add the failing test to `backend/tests/test_leads_reference_code.py`:
+- [x] **Step 1:** Add the failing test to `backend/tests/test_leads_reference_code.py`:
 ```python
 def test_record_quote_request_marks_lead_and_returns_code(monkeypatch):
     rows = [{"id": "lead-1", "session_id": "sess-1", "reference_code": None,
@@ -248,12 +248,12 @@ def test_record_quote_request_no_lead_returns_none(monkeypatch):
     assert leads_service.record_quote_request({"id": "missing"}, {}) is None
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no `record_quote_request`).
+- [x] **Step 2:** Run it — expect FAIL (no `record_quote_request`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -k record_quote_request -v
 ```
 
-- [ ] **Step 3:** Implement `record_quote_request` in `backend/app/services/leads.py`, immediately after `assign_reference_code`:
+- [x] **Step 3:** Implement `record_quote_request` in `backend/app/services/leads.py`, immediately after `assign_reference_code`:
 ```python
 def _latest_lead(sb, session_id: str) -> dict | None:
     res = (
@@ -304,12 +304,12 @@ def record_quote_request(session: dict, collected: dict) -> str | None:
     return code
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. (`maybe_send_quote_confirmation` is monkeypatched in Task 2's tests; the lazy import means the real one lands in Task 7.)
+- [x] **Step 4:** Run it — expect PASS. (`maybe_send_quote_confirmation` is monkeypatched in Task 2's tests; the lazy import means the real one lands in Task 7.)
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/leads.py tests/test_leads_reference_code.py && git commit -m "feat(quote): record_quote_request records + converges the request (C1/C2/C3)
 

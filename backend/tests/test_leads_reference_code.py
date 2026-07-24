@@ -23,6 +23,10 @@ class _Query:
         self._rows = [r for r in self._rows if r.get(field) == value]
         return self
 
+    def order(self, field, desc=False, **k):
+        self._rows = sorted(self._rows, key=lambda r: r.get(field) or "", reverse=desc)
+        return self
+
     def limit(self, n):
         self._rows = self._rows[:n]
         return self
@@ -65,3 +69,29 @@ def test_assign_reference_code_avoids_collision(monkeypatch):
     code = leads_service.assign_reference_code(fake, "lead-1")
     assert code == "MH-BCDFGH"
     assert fake.sink == [{"reference_code": "MH-BCDFGH"}]
+
+
+def test_record_quote_request_marks_lead_and_returns_code(monkeypatch):
+    rows = [{"id": "lead-1", "session_id": "sess-1", "reference_code": None,
+             "created_at": "2026-07-24T00:00:00Z"}]
+    fake = _FakeSB(rows)
+    monkeypatch.setattr(leads_service, "get_supabase", lambda: fake)
+    monkeypatch.setattr(leads_service, "generate_reference_code", lambda: "MH-BCDFGH")
+    # Converge call is best-effort; stub it so this test stays about recording.
+    calls = []
+    import app.services.delivery as delivery
+    monkeypatch.setattr(delivery, "maybe_send_quote_confirmation",
+                        lambda sid: calls.append(sid), raising=False)
+
+    code = leads_service.record_quote_request({"id": "sess-1"}, {})
+    assert code == "MH-BCDFGH"
+    assert rows[0]["reference_code"] == "MH-BCDFGH"
+    assert rows[0]["quote_requested"] is True
+    assert rows[0]["quote_requested_at"]
+    assert calls == ["sess-1"]
+
+
+def test_record_quote_request_no_lead_returns_none(monkeypatch):
+    fake = _FakeSB([])
+    monkeypatch.setattr(leads_service, "get_supabase", lambda: fake)
+    assert leads_service.record_quote_request({"id": "missing"}, {}) is None
