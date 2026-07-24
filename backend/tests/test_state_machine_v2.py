@@ -717,6 +717,24 @@ def test_no_step_back_clears_email_captured_or_quote_requested():
         assert "quote_requested" not in step.back_clears
 
 
+def test_back_is_off_once_the_quote_is_committed():
+    # A finalize_canvas-shaped collected — everything answered, quote already
+    # submitted. quote_requested IS REQUEST_QUOTE's writable done_when slot,
+    # so without the terminal-flag shield Back would target REQUEST_QUOTE and
+    # let the customer re-submit -> duplicate sales email.
+    c = seed_for(cs.REGISTRY[-1])
+    assert c["quote_requested"] is True
+    assert v2.last_answered_step(c) is None
+
+
+def test_last_answered_never_clears_a_terminal_flag():
+    assert v2._TERMINAL_FLAGS == frozenset({"email_captured", "quote_requested"})
+    # Concretely: the committed-quote state can never yield a Back target,
+    # since doing so would have to clear the terminal quote_requested flag.
+    c = seed_for(cs.REGISTRY[-1])
+    assert v2.last_answered_step(c) is None
+
+
 def test_no_config_can_reach_finalize_without_email():
     """Exhaustive over every enable/disable+order permutation of the safe
     subset: FINALIZE_CANVAS is unreachable while email_captured is falsy."""

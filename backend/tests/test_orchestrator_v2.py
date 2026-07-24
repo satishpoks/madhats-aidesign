@@ -523,3 +523,20 @@ async def test_back_from_post_decoration_state_undoes_the_decoration_method(monk
     assert collected["decoration_options"] == ["Embroidery", "Screen Print"]
     # Terminal flags are never touched by Back.
     assert collected.get("email_captured") is True
+
+
+@pytest.mark.asyncio
+async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monkeypatch):
+    """Regression (C-1): a committed quote must not be re-submittable via Back.
+    quote_requested is REQUEST_QUOTE's writable done_when slot, so Back must
+    not be able to clear it and re-ask REQUEST_QUOTE."""
+    from tests.canvas_step_helpers import seed_for
+
+    store = _new_store()
+    store["session"]["state"] = S.FINALIZE_CANVAS.value
+    store["session"]["collected"].update(seed_for(cs.REGISTRY[-1]))
+    assert store["session"]["collected"]["quote_requested"] is True
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.FINALIZE_CANVAS.value           # no-op
+    assert store["session"]["collected"]["quote_requested"] is True

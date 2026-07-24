@@ -194,7 +194,8 @@ async def handle_back(session_id: str) -> dict:
         return await _persist(sb, session_id, collected, step, reply,
                               current.value, current, user_message="",
                               data=_public(step, collected, flow_config))
-    for key in (set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears):
+    clear = ((set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears)) - v2._TERMINAL_FLAGS
+    for key in clear:
         collected.pop(key, None)
     nxt = v2.next_step(collected, flow_config)
     reply = v2.reply_for(nxt, collected, persona=persona, intro=intro)

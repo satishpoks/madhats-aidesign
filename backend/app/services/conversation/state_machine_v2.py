@@ -26,6 +26,12 @@ from app.services.conversation.state_machine import ConversationState as S
 # shared tail state v1 owns — orchestrator_v2 delegates those turns to v1.
 V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
+# Commit flags a deliberate Back must NEVER clear: doing so would let the
+# customer un-verify their email or re-submit an already-sent quote (duplicate
+# sales email + second reference). email_captured is already non-writable; this
+# also shields quote_requested, which IS REQUEST_QUOTE's writable done_when slot.
+_TERMINAL_FLAGS: frozenset[str] = frozenset({"email_captured", "quote_requested"})
+
 
 def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     """The fields of one interpreted turn that are safe to bank.
@@ -122,12 +128,16 @@ def last_answered_step(collected: dict, config: dict | None = None) -> Step | No
     """
     reg = effective_registry(config)
     current = next_step(collected, config)
+    if collected.get("quote_requested"):
+        # Once submitted, nothing before it is undoable — Back must be off
+        # (this also prevents a post-submit bounce back to REVIEW_DESIGN).
+        return None
     writable = cs.WRITABLE_SLOTS
     target: Step | None = None
     for step in reg:
         if step.id is current.id:
             break
-        clears = (set(step.slots) & writable) | set(step.back_clears)
+        clears = ((set(step.slots) & writable) | set(step.back_clears)) - _TERMINAL_FLAGS
         probe = {k: v for k, v in collected.items() if k not in clears}
         if not step.done_when(probe):
             target = step
