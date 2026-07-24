@@ -79,3 +79,23 @@ describe('chatStore advanceRegeneration', () => {
     expect(useChatStore.getState().chatState).toBe('')
   })
 })
+
+describe('chatStore sendMessage blank-turn guard', () => {
+  beforeEach(() => {
+    useChatStore.getState().reset()
+    vi.resetAllMocks()
+  })
+
+  it.each(['', '   ', '\n\t'])('drops a blank turn (%j) — no API call, no message', async (blank) => {
+    await useChatStore.getState().sendMessage('s1', blank)
+    expect(api.sendChat).not.toHaveBeenCalled()
+    expect(useChatStore.getState().messages).toEqual([])
+    expect(useChatStore.getState().sending).toBe(false)
+  })
+
+  it('still sends a real turn', async () => {
+    vi.mocked(api.sendChat).mockResolvedValue({ reply: 'hi', state: 'ask_name', data: {} } as never)
+    await useChatStore.getState().sendMessage('s1', 'Satish')
+    expect(api.sendChat).toHaveBeenCalledWith('s1', 'Satish', undefined)
+  })
+})

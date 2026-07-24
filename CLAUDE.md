@@ -509,12 +509,34 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   safe subset (`ask_quantity`/`needed_by`/`ask_purpose`) through the pure
   `state_machine_v2.effective_registry`. Merged registry tail is now
   `ask_email → needed_by → ask_purpose → request_quote → finalize_canvas`.
-  **TWO MIGRATIONS ARE UNAPPLIED** — `20260724000001_leads_reference_code.sql`
-  and `20260724000002_generation_render_notes.sql`. Deploying without them makes
-  every generation-completion UPDATE PostgREST-error and mark the job failed.
-  Nothing in this batch has been exercised against a live stack.
+  Both batch migrations (`20260724000001_leads_reference_code.sql`,
+  `20260724000002_generation_render_notes.sql`) are now **APPLIED on the hosted
+  Supabase** — verified directly (all four `leads` quote columns +
+  `generations.render_notes` exist; a bogus column still errors `42703`). The
+  earlier "UNAPPLIED — would PostgREST-error every generation-completion UPDATE"
+  warning is resolved; leaving the history here in case a fresh env needs them.
   Spec/plan: `docs/superpowers/{specs,plans}/2026-07-24-canvas-quote-flow-*`.
-- Tests: backend `pytest` 880 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **Canvas v2 empty-turn dead-loop — FIXED (2026-07-24).** A live session was
+  found stuck in a loop back at `ask_name` despite the customer completing
+  name → logo → background-removal → email verification; 15 prior sessions in an
+  hour showed the same fingerprint (customer reloading because the funnel was
+  unfinishable). Root cause: an empty/whitespace `""` user turn at a
+  non-`GREETING` v2 step matched no chip and fell through to
+  `intent_extractor.interpret_turn_v2`, which — handed no real input but the full
+  slot list — returned well-typed-but-spurious slot values; first-unmet routing
+  then walked the conversation BACKWARD, twice all the way to `ask_name` (with
+  `name` wiped). Only the `GREETING` kickoff (`chatStore.kickoff` →
+  `sendChat(id, "")`) legitimately sends `""`. Fixed at BOTH layers (defense in
+  depth): (backend) `orchestrator_v2.handle_message` now no-ops a blank turn —
+  re-renders the current step, ingesting nothing, before the chip/interpreter
+  logic; (frontend) `chatStore.sendMessage` drops a blank/whitespace turn at the
+  single choke point every user message flows through (chips, typed input,
+  `done`/`ok`/`none`, uploads), so no UI path can emit one. The exact UI handler
+  that emitted the stray `""` was not isolated from the data alone, but the
+  choke-point guard neutralises the whole class regardless. Regression tests:
+  `test_orchestrator_v2.py::test_empty_turn_is_a_noop_and_never_reaches_the_interpreter`
+  (backend), `chatStore.test.ts` "blank-turn guard" (frontend).
+- Tests: backend `pytest` 954 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
