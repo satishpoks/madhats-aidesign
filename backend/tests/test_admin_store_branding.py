@@ -108,3 +108,50 @@ def test_get_store_admin_returns_proxied_logo_url(monkeypatch):
         assert row["brand"]["logo_url"] == "uploads/x.png"
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Workstream D: canvas_flow rides the existing brand PATCH ------------------
+# No route change is expected: validate_brand already validates canvas_flow and
+# the PATCH already read-merges. These tests prove the composition, and are the
+# alarm that fires if either half regresses.
+
+def test_patch_accepts_and_merges_canvas_flow(monkeypatch):
+    """A canvas_flow PATCH must validate, and must merge without wiping the
+    existing logo_url (the same read-merge guarantee colours rely on)."""
+    app.dependency_overrides[require_admin] = lambda: None
+    row = {"id": "s1", "slug": "acme", "name": "Acme",
+           "brand": {"logo_url": "uploads/x.png", "primary_colour": "#111"}}
+    fake = _FakeTable(row)
+    monkeypatch.setattr(
+        "app.api.routes.admin_stores.get_supabase",
+        lambda: type("SB", (), {"table": lambda self, name: fake})(),
+    )
+    client = TestClient(app)
+    try:
+        r = client.patch(
+            "/admin/stores/s1",
+            json={"brand": {"canvas_flow": {"steps": [
+                {"id": "ask_purpose", "enabled": False},
+                {"id": "ask_quantity", "enabled": True},
+            ]}}},
+            headers={"X-Admin-Secret": "z"},
+        )
+        assert r.status_code == 200
+        brand = r.json()["brand"]
+        assert brand["canvas_flow"]["steps"] == [
+            {"id": "ask_purpose", "enabled": False},
+            {"id": "ask_quantity", "enabled": True},
+        ]
+        assert brand["logo_url"] == "uploads/x.png"      # merge, not clobber
+        assert brand["primary_colour"] == "#111"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_patch_rejects_a_locked_step_in_canvas_flow(client):
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"brand": {"canvas_flow": {"steps": [{"id": "ask_email"}]}}},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 400

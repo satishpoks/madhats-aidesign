@@ -562,7 +562,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing persistence tests.** Append to `backend/tests/test_admin_store_branding.py`:
+- [x] **Step 1: Write the failing persistence tests.** Append to `backend/tests/test_admin_store_branding.py`:
 
 ```python
 def test_patch_accepts_and_merges_canvas_flow(monkeypatch):
@@ -607,14 +607,14 @@ def test_patch_rejects_a_locked_step_in_canvas_flow(client):
     assert r.status_code == 400
 ```
 
-- [ ] **Step 2: Run the tests — expect PASS immediately** (no route change: `validate_brand` from Task 1 already validates `canvas_flow`, and the merge is already read-merge). This task's TDD is a *verification* that the existing route composes correctly with Task 1:
+- [x] **Step 2: Run the tests — expect PASS immediately** (no route change: `validate_brand` from Task 1 already validates `canvas_flow`, and the merge is already read-merge). This task's TDD is a *verification* that the existing route composes correctly with Task 1:
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_admin_store_branding.py -q
 ```
 Expected: all tests PASS. **If `test_patch_rejects_a_locked_step_in_canvas_flow` does NOT return 400**, Task 1's validator hook is not wired — return to Task 1 Step 4 before proceeding.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 cd backend && git add tests/test_admin_store_branding.py
@@ -626,7 +626,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 4: Full backend baseline gate.**
+- [x] **Step 4: Full backend baseline gate.**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest -q
