@@ -262,15 +262,17 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "needed_by": "ASAP", "email_captured": True,
+        "needed_by": "ASAP", "email_captured": True, "design_confirmed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
     monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
     _llm_returns(monkeypatch, {"purpose": "team caps"})
     # Quote-gated flow (C1): answering purpose now lands on the explicit
-    # REQUEST_QUOTE submit step; the honesty gate fires on the turn that would
-    # otherwise reach FINALIZE_CANVAS, i.e. after the submit chip.
+    # REQUEST_QUOTE submit step (design_confirmed is pre-seeded so the review
+    # step, workstream B, is already settled and doesn't intercept); the
+    # honesty gate fires on the turn that would otherwise reach
+    # FINALIZE_CANVAS, i.e. after the submit chip.
     res = await o2.handle_message("s1", "for the team")
     assert res["state"] == S.REQUEST_QUOTE.value
     res = await o2.handle_message("s1", "Request a quote")

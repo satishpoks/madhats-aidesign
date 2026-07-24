@@ -39,12 +39,13 @@ def test_request_quote_chip_records_and_stores_reference(monkeypatch):
 
 def test_request_quote_gates_finalize_until_requested():
     # With everything before it satisfied but no quote_requested, first-unmet
-    # rests on REQUEST_QUOTE — never FINALIZE_CANVAS. (needed_by is included so
-    # this stays correct once Workstream B's needed_by step is merged before
-    # purpose — an unused key is harmless if that step isn't present yet.)
+    # rests on REQUEST_QUOTE — never FINALIZE_CANVAS. (needed_by and
+    # design_confirmed are included so this stays correct once Workstream B's
+    # needed_by and pre-submit review steps are merged before REQUEST_QUOTE —
+    # an unused key is harmless if a step isn't present yet.)
     done = {"name": "Ann", "intro_ack": True, "logos_done": True, "decor_done": True,
             "quantity": 1, "decoration_done": True, "email_captured": True,
-            "needed_by": "ASAP", "purpose": "team"}
+            "needed_by": "ASAP", "purpose": "team", "design_confirmed": True}
     assert sm2.next_step(done).id is S.REQUEST_QUOTE
     done["quote_requested"] = True
     assert sm2.next_step(done).id is S.FINALIZE_CANVAS

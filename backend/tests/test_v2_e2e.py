@@ -136,7 +136,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("50-99",                   S.ASK_DECORATION),
         ("Embroidery",              S.NEEDED_BY),          # single-select; email already captured
         ("ASAP",                    S.ASK_PURPOSE),
-        ("for the team",            S.REQUEST_QUOTE),      # quote-gated submit
+        ("for the team",            S.REVIEW_DESIGN),      # pre-submit review
+        ("Looks great, send it",    S.REQUEST_QUOTE),      # quote-gated submit
         ("Request a quote",         S.FINALIZE_CANVAS),
     ]
 
@@ -286,7 +287,9 @@ def _at_email_store(brand: dict | None):
     only thing left to route is the configurable tail (purpose).
 
     `needed_by` (workstream B) and `quote_requested` (workstream C) are locked
-    steps that now flank ask_purpose. They are seeded so the helper's stated
+    steps that now flank ask_purpose. `design_confirmed` (the pre-submit
+    review, also workstream B) is a locked step too, sitting between purpose
+    and the quote submit. All three are seeded so the helper's stated
     invariant still holds — otherwise routing stops on one of them and these
     tests would silently stop testing the config wiring at all."""
     store = _new_store()
@@ -296,7 +299,7 @@ def _at_email_store(brand: dict | None):
         "name": "Sam", "intro_ack": True,
         "logos_done": True, "pending_logo": None, "decor_done": True,
         "quantity": 12, "decoration_done": True,
-        "needed_by": "ASAP", "quote_requested": True,
+        "needed_by": "ASAP", "design_confirmed": True, "quote_requested": True,
     })
     return store
 

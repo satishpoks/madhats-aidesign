@@ -47,6 +47,8 @@ class ConversationState(str, Enum):
     DECOR_ADJUST = "decor_adjust"
     ASK_ANYTHING_ELSE = "ask_anything_else"
     FINALIZE_CANVAS = "finalize_canvas"
+    REVIEW_DESIGN = "review_design"       # v2: recheck all views before submit
+    REWORK_CANVAS = "rework_canvas"       # v2: reopened canvas during review rework
     REQUEST_QUOTE = "request_quote"   # v2 quote-gated: explicit submit before finalize
     ASK_DECORATION = "ask_decoration"
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here

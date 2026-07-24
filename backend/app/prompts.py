@@ -1110,6 +1110,14 @@ V2_BG_INSTRUCTIONS = (
     "or untick \"Remove background\" yourself in the toolbar under the cap."
 )
 
+# The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
+# is a sentinel (unlock every tool), not one of the real canvas tools those
+# tips describe.
+V2_REWORK_INSTRUCTIONS = (
+    "Every tool is open again — move, resize, add, or remove anything you "
+    "like, then tap Done when you're happy."
+)
+
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
 # to its catch-all, so the customer's first message was answered with "Let's
 # keep going." — no greeting, no question — and their reply ("ok") was stored

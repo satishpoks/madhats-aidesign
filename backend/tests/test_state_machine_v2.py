@@ -108,7 +108,7 @@ def test_finalize_unreachable_without_email_captured():
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
               quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
-              purpose="team caps", quote_requested=True)
+              purpose="team caps", design_confirmed=True, quote_requested=True)
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
@@ -121,11 +121,48 @@ def test_email_fires_when_the_design_phase_closes_with_nothing_placed():
     assert v2.next_step(c).id is S.ASK_EMAIL
 
 
+def _seed_at_review(**over):
+    c = _seed(name="Sam", intro_ack=True, has_logo=True,
+              pending_logo={"face": "front", "placed": True, "bg": "none"},
+              logos_done=True, decor_done=True, quantity=50, decoration_done=True,
+              email_captured=True, needed_by="ASAP", purpose="team caps")
+    c.update(over)
+    return c
+
+
+def test_review_is_asked_after_purpose():
+    assert v2.next_step(_seed_at_review()).id is S.REVIEW_DESIGN
+
+
+def test_confirming_review_advances_to_request_quote():
+    assert v2.next_step(_seed_at_review(design_confirmed=True)).id is S.REQUEST_QUOTE
+
+
+def test_rework_routes_to_the_canvas_rework_step():
+    assert v2.next_step(_seed_at_review(design_rework=True)).id is S.REWORK_CANVAS
+
+
+def test_finishing_rework_returns_to_review():
+    # design_rework cleared, not yet confirmed -> back to REVIEW_DESIGN.
+    assert v2.next_step(_seed_at_review(design_rework=False)).id is S.REVIEW_DESIGN
+
+
 def test_router_walks_every_step_in_declared_order():
     # Exhaustive order guarantee: satisfying each step in turn must yield the
     # next one, and never a step positioned after an unmet one.
+    #
+    # REWORK_CANVAS is the one loop-only step: it is reached solely via
+    # design_rework=True at REVIEW_DESIGN, and its own "Done" answer loops BACK
+    # to REVIEW_DESIGN rather than continuing forward — so on the straight-
+    # through (confirm) path this walk takes, REVIEW_DESIGN's satisfy() already
+    # leaves REWORK_CANVAS's own done_when trivially true and it is never the
+    # current unmet step. The loop itself is covered by
+    # test_rework_routes_to_the_canvas_rework_step and
+    # test_finishing_rework_returns_to_review.
     c = _seed()
     for step in cs.REGISTRY:
+        if step.id is S.REWORK_CANVAS:
+            continue
         assert v2.next_step(c).id is step.id, f"expected {step.id}"
         satisfy(c, step)
 
@@ -561,8 +598,14 @@ def test_effective_registry_ignores_duplicate_ids():
 
 def test_next_step_default_matches_the_bare_registry_walk():
     # The baseline guarantee: next_step(collected) with no config is unchanged.
+    # REWORK_CANVAS is skipped here for the same reason as
+    # test_router_walks_every_step_in_declared_order: it's loop-only, and
+    # REVIEW_DESIGN's satisfy() (confirm, not rework) already leaves it
+    # trivially done.
     c = {"flow_mode": "canvas"}
     for step in cs.REGISTRY:
+        if step.id is S.REWORK_CANVAS:
+            continue
         assert v2.next_step(c).id is step.id
         assert v2.next_step(c, None).id is step.id
         satisfy(c, step)
@@ -593,7 +636,7 @@ def test_next_step_skips_a_disabled_step():
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
          "quantity": 12, "decoration_done": True, "email_captured": True,
-         "needed_by": "ASAP", "quote_requested": True}
+         "needed_by": "ASAP", "design_confirmed": True, "quote_requested": True}
     assert v2.next_step(c).id is S.ASK_PURPOSE           # asked by default
     assert v2.next_step(c, cfg).id is S.FINALIZE_CANVAS  # skipped when disabled
 

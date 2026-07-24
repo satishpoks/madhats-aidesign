@@ -18,7 +18,8 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
-        S.NEEDED_BY, S.ASK_PURPOSE, S.REQUEST_QUOTE,
+        S.NEEDED_BY, S.ASK_PURPOSE, S.REVIEW_DESIGN, S.REWORK_CANVAS,
+        S.REQUEST_QUOTE,
         S.FINALIZE_CANVAS,
     ]
 
@@ -55,9 +56,9 @@ def test_terminal_flags_are_not_interpreter_writable():
 
 def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
     for step in cs.REGISTRY:
-        # ASK_LOGO_BG and ASK_DECOR_PLACEMENT have tools but use instructions or
-        # runtime-resolved tips instead of step.tip.
-        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT):
+        # ASK_LOGO_BG, ASK_DECOR_PLACEMENT and REWORK_CANVAS have tools but use
+        # instructions or runtime-resolved tips instead of step.tip.
+        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT, S.REWORK_CANVAS):
             assert step.tool and not step.tip
         else:
             assert bool(step.tool) == bool(step.tip), step.id

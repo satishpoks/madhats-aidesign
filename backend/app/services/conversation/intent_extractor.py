@@ -641,6 +641,8 @@ _SLOT_DOCS: dict[str, str] = {
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
     "quote_requested": "quote_requested (bool) — true if they want to send the design to the team for a quote",
+    "design_confirmed": "design_confirmed (bool) — true if they're happy with the finished design and ready to submit it",
+    "design_rework": "design_rework (bool) — true if they want to go back and change something on the design before submitting",
 }
 
 

@@ -343,6 +343,15 @@ def _apply_decoration_mix(c: dict, f: dict, s: dict) -> None:
     c["decoration_type"] = _decoration_style_bucket(note)
 
 
+def _apply_review(c: dict, f: dict, s: dict) -> None:
+    """Confirm ends the review; rework reopens the canvas. Tapping rework must
+    clear any prior confirm; the two flags are mutually exclusive per turn."""
+    if f.get("design_confirmed"):
+        c.pop("design_rework", None)
+    elif f.get("design_rework"):
+        c.pop("design_confirmed", None)
+
+
 def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
     """Record the explicit quote request and stash the reference for on-screen.
 
@@ -640,6 +649,33 @@ REGISTRY: tuple[Step, ...] = (
         slots=("purpose",),
         direct_answer=_direct_purpose,
         done_when=lambda c: bool(c.get("purpose")),
+    ),
+    Step(
+        id=S.REVIEW_DESIGN,
+        ask=("Before I send this to our team, {name} — take a moment to look "
+             "over your design across all the views. Happy with it, or would "
+             "you like to rework anything?"),
+        chips=(Chip("Looks great, send it", {"design_confirmed": True}),
+               Chip("I'd like to rework it", {"design_rework": True})),
+        slots=("design_confirmed", "design_rework"),
+        apply=_apply_review,
+        # Satisfied while reworking so first-unmet moves to REWORK_CANVAS; only a
+        # real confirm satisfies it for good.
+        done_when=lambda c: bool(c.get("design_confirmed") or c.get("design_rework")),
+    ),
+    Step(
+        id=S.REWORK_CANVAS,
+        ask=("Go ahead — tweak anything you like on the canvas, then press Done "
+             "and I'll bring you back to the review."),
+        chips=(Chip("Done", {"design_rework": False}),),
+        slots=("design_rework",),
+        # Unmet only while reworking. `design_rework` is this step's own slot, so
+        # clearing it (truthy->falsy) is the allowed answer per merge_fields.
+        done_when=lambda c: not c.get("design_rework"),
+        tool="rework",                         # sentinel: unlock-all directive (B2)
+        tip=None,                              # no single-tool tip applies here
+        instructions=prompts.V2_REWORK_INSTRUCTIONS,
+        show_done=True,
     ),
     Step(
         id=S.REQUEST_QUOTE,
