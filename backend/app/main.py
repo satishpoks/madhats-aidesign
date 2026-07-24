@@ -27,6 +27,7 @@ from app.api.routes import (
     admin_prompt,
     admin_settings,
     admin_stores,
+    admin_users,
     chat,
     composite,
     decoration_types,
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
         admin_hat_types.router,
         admin_graphics.router,
         admin_auth.router,
+        admin_users.router,
     ):
         app.include_router(router)
 
