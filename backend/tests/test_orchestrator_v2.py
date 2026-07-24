@@ -440,3 +440,72 @@ async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypat
     # The data should contain the options derived from chips_from
     assert res["data"]["options"] == ["Red", "Blue", "Green"]
     assert store["session"]["collected"]["_fail_count"] == 2
+
+
+# --- handle_back: undo the last answer and re-ask it (Task C2) ----------------
+
+@pytest.mark.asyncio
+async def test_back_clears_the_last_answer_and_re_asks(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_DECORATION.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 50, "email_captured": True,
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_QUANTITY.value          # re-asked
+    assert "quantity" not in store["session"]["collected"]  # answer cleared
+
+
+@pytest.mark.asyncio
+async def test_back_at_the_start_is_a_no_op(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_NAME.value
+
+
+def test_public_data_carries_can_go_back():
+    # A mid-flow step can go back; the very first cannot.
+    from app.services.conversation import state_machine_v2 as v2
+
+    d_mid = o2._public(cs.by_id(S.ASK_QUANTITY),
+                       {"name": "Sam", "intro_ack": True, "decor_placed": True,
+                        "logos_done": True, "pending_logo": None,
+                        "decor_done": True, "email_captured": True})
+    assert d_mid["can_go_back"] is True
+
+    d_start = o2._public(cs.by_id(S.ASK_NAME), {})
+    assert d_start["can_go_back"] is False
+
+
+@pytest.mark.asyncio
+async def test_back_from_post_decoration_state_undoes_the_decoration_method(monkeypatch):
+    """Amendment: Back must also be able to undo the decoration-method choice
+    (a derived-flag step, not a plain writable-slot step) via back_clears."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 50, "email_captured": True,
+        # decoration_options mirrors what `_prepare_decoration` would already
+        # have loaded on the original forward pass — Back does not (and must
+        # not) clear it, only the answer flags derived from it.
+        "decoration_options": ["Embroidery", "Screen Print"],
+        "decoration_types": ["Embroidery"], "decoration_done": True,
+        "decoration_type": "embroidery",
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_DECORATION.value
+    collected = store["session"]["collected"]
+    assert "decoration_done" not in collected
+    assert "decoration_types" not in collected
+    assert "decoration_type" not in collected
+    assert collected["decoration_options"] == ["Embroidery", "Screen Print"]
+    # Terminal flags are never touched by Back.
+    assert collected.get("email_captured") is True

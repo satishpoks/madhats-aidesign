@@ -18,6 +18,7 @@ from app.services.conversation.orchestrator import (
     handle_message,
 )
 from app.services.conversation.orchestrator_v2 import (
+    handle_back as handle_back_v2,
     handle_message as handle_message_v2,
 )
 from app.services.moderation import ModerationError, check_text
@@ -77,6 +78,15 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
 
+    return ChatResponse(**result)
+
+
+@router.post("/chat/{session_id}/back", response_model=ChatResponse)
+async def chat_back(session_id: str) -> ChatResponse:
+    try:
+        result = await handle_back_v2(session_id)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
     return ChatResponse(**result)
 
 

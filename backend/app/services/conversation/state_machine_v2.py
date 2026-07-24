@@ -110,12 +110,15 @@ def effective_registry(config: dict | None) -> tuple[Step, ...]:
 
 def last_answered_step(collected: dict, config: dict | None = None) -> Step | None:
     """The step a `Back` should re-open: the highest-index answered step,
-    before the current unmet one, whose WRITABLE slots — when cleared — flip
-    its done_when back to False. Pure; no side effects.
+    before the current unmet one, whose WRITABLE slots (plus its own
+    `back_clears`) — when cleared — flip its done_when back to False. Pure;
+    no side effects.
 
-    A step whose done_when stays True after clearing its own writable slots
-    (e.g. ASK_EMAIL, satisfied by the non-writable email_captured) is skipped
-    — Back can't un-answer it, so it is never offered as a target.
+    A step whose done_when stays True after clearing that set (e.g. ASK_EMAIL,
+    satisfied by the non-writable email_captured, which no step's back_clears
+    may name) is skipped — Back can't un-answer it, so it is never offered as
+    a target. `back_clears` is what makes a derived-flag step like
+    ASK_DECORATION (gated on `decoration_done`, not a slot) detectable here.
     """
     reg = effective_registry(config)
     current = next_step(collected, config)
@@ -124,8 +127,8 @@ def last_answered_step(collected: dict, config: dict | None = None) -> Step | No
     for step in reg:
         if step.id is current.id:
             break
-        probe = {k: v for k, v in collected.items()
-                 if k not in (set(step.slots) & writable)}
+        clears = (set(step.slots) & writable) | set(step.back_clears)
+        probe = {k: v for k, v in collected.items() if k not in clears}
         if not step.done_when(probe):
             target = step
     return target

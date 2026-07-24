@@ -695,6 +695,28 @@ def test_last_answered_never_targets_ask_email():
     assert tgt is None or tgt.id is not S.ASK_EMAIL
 
 
+def test_last_answered_step_can_target_ask_decoration_when_past_it():
+    # Decoration answered; current unmet is a later step (needed_by). Back must
+    # be able to reach ASK_DECORATION to undo the method choice, via
+    # `back_clears` — its writable slots alone (decoration_types/mix) don't
+    # flip done_when, since it also reads the derived `decoration_done` flag.
+    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
+              pending_logo=None, decor_done=True, decor_placed=True,
+              quantity=50, email_captured=True,
+              decoration_types=["Embroidery"], decoration_done=True,
+              decoration_type="embroidery")
+    assert v2.next_step(c).id is S.NEEDED_BY
+    assert v2.last_answered_step(c).id is S.ASK_DECORATION
+
+
+def test_no_step_back_clears_email_captured_or_quote_requested():
+    """Guard: Back must never be able to un-verify email or un-submit a quote.
+    These terminal flags must not appear in ANY step's back_clears."""
+    for step in cs.REGISTRY:
+        assert "email_captured" not in step.back_clears
+        assert "quote_requested" not in step.back_clears
+
+
 def test_no_config_can_reach_finalize_without_email():
     """Exhaustive over every enable/disable+order permutation of the safe
     subset: FINALIZE_CANVAS is unreachable while email_captured is falsy."""

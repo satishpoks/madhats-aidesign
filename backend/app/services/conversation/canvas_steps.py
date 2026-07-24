@@ -76,6 +76,15 @@ class Step:
     # record for the same reason as `prepare`: the alternative is an
     # `if step.id is ASK_LOGO_BG` branch in the orchestrator.
     ops: Callable[[dict, dict], list[dict]] | None = None
+    # Extra keys (beyond `slots`) a deliberate Back gesture may clear to
+    # re-open this step. Needed for steps that gate on a derived flag rather
+    # than a writable slot directly — e.g. ASK_DECORATION reads
+    # `decoration_done` (set by `_apply_decoration`, not a slot itself), so
+    # clearing only its writable slots never flips its done_when.
+    # `email_captured`/`quote_requested` and any other terminal flag must
+    # NEVER appear here — Back must not be able to un-verify email or
+    # un-submit a quote. See test_no_step_back_clears_email_captured_or_quote_requested.
+    back_clears: tuple[str, ...] = ()
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -598,6 +607,12 @@ REGISTRY: tuple[Step, ...] = (
         apply=_apply_decoration,
         # A mix IS an answer to this step; ASK_DECORATION_MIX asks what it is.
         done_when=lambda c: bool(c.get("decoration_done") or c.get("decoration_mix")),
+        # `decoration_done`/`decoration_type` are derived flags `_apply_decoration`
+        # sets, not writable slots — Back needs to clear them too, or re-opening
+        # this step via `last_answered_step`/`handle_back` would never flip
+        # done_when back to False. `decoration_options` (store-loaded by
+        # `prepare`) is deliberately NOT cleared — it isn't an answer.
+        back_clears=("decoration_done", "decoration_type"),
     ),
     Step(
         id=S.ASK_DECORATION_MIX,

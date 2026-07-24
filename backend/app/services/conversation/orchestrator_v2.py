@@ -31,6 +31,18 @@ from app.services.conversation.state_machine import ConversationState as S
 _NUDGE_AFTER = 2
 
 
+def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
+    """`v2.public_data_for` plus `can_go_back` — whether `Back` currently has
+    anywhere to go. Used everywhere a v2 turn's `data` is built, so the
+    frontend always knows whether to offer the affordance. `config` is the
+    store's canvas_flow (if any) — threaded through so can_go_back is
+    computed over the SAME config-composed registry `next_step` just routed
+    on, not silently the default registry."""
+    data = v2.public_data_for(step, collected)
+    data["can_go_back"] = v2.last_answered_step(collected, config) is not None
+    return data
+
+
 async def handle_message(session_id: str, message: str) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -133,11 +145,45 @@ async def handle_message(session_id: str, message: str) -> dict:
         # (_apply_email pops it from `collected`, not `fields`).
         addr = fields.get("email") or "your inbox"
         reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)} {reply}".strip()
-    data = v2.public_data_for(next_, collected)
+    data = _public(next_, collected, flow_config)
     if canvas_ops:
         data["canvas_ops"] = canvas_ops
     return await _persist(sb, session_id, collected, next_, reply, state_before,
                           next_.id, user_message=message, data=data)
+
+
+async def handle_back(session_id: str) -> dict:
+    """Undo the last answer: clear the last-answered step's writable slots
+    (plus its own `back_clears`) and re-ask it. One level per call; the
+    frontend can call it repeatedly. No interpreter — this is the single
+    legitimate slot-clearing gesture."""
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+    current = S(session["state"])
+    if current not in v2.V2_OWNED:
+        return await _v1.handle_message(session_id, "")   # not a v2 turn; no-op-ish
+    collected: dict = session.get("collected") or {}
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+    intro = canvas_intro_text(store)
+
+    target = v2.last_answered_step(collected)
+    if target is None:
+        step = cs.by_id(current)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        return await _persist(sb, session_id, collected, step, reply,
+                              current.value, current, user_message="",
+                              data=_public(step, collected))
+    for key in (set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears):
+        collected.pop(key, None)
+    nxt = v2.next_step(collected)
+    reply = v2.reply_for(nxt, collected, persona=persona, intro=intro)
+    return await _persist(sb, session_id, collected, nxt, reply,
+                          current.value, nxt.id, user_message="",
+                          data=_public(nxt, collected))
 
 
 async def _stall(sb, session_id, collected, step, state_before, message) -> dict:
@@ -176,5 +222,5 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
          "state_before": state_before, "state_after": new_state.value},
     ]).execute()
     if data is None:
-        data = v2.public_data_for(step, collected) if step else {}
+        data = _public(step, collected) if step else {}
     return {"reply": reply, "state": new_state.value, "data": data}
