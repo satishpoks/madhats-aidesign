@@ -26,6 +26,7 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "5173:5173"
+    env_file: .env
     environment:
       # Vite bakes this into the bundle at container start. The BROWSER (on the
       # host / public internet) must be able to reach the backend at this URL.
