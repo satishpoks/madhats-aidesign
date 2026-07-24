@@ -667,6 +667,34 @@ def test_next_step_still_blocks_finalize_without_email_under_config():
     assert v2.next_step(c, cfg).id is S.ASK_EMAIL
 
 
+
+# --- last_answered_step: the pure helper for the "Back" affordance ------------
+
+def test_last_answered_is_none_at_the_very_start():
+    assert v2.last_answered_step(_seed()) is None
+
+
+def test_last_answered_is_the_previous_question_step():
+    # Answered up to quantity; the step before the current unmet one is quantity.
+    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
+              pending_logo=None, decor_done=True, quantity=50,
+              decor_placed=True, email_captured=True)
+    # current unmet is ASK_DECORATION; last answered is ASK_QUANTITY.
+    assert v2.next_step(c).id is S.ASK_DECORATION
+    assert v2.last_answered_step(c).id is S.ASK_QUANTITY
+
+
+def test_last_answered_never_targets_ask_email():
+    # email_captured is not a writable slot, so clearing ASK_EMAIL's writable
+    # slots (email — already absent) cannot un-answer it: it is never a target.
+    c = _seed(name="Sam", intro_ack=True, has_logo=True,
+              pending_logo={"face": "front", "placed": True, "bg": "none"},
+              email_captured=True, logos_done=True, decor_done=True, quantity=12,
+              decor_placed=True)
+    tgt = v2.last_answered_step(c)
+    assert tgt is None or tgt.id is not S.ASK_EMAIL
+
+
 def test_no_config_can_reach_finalize_without_email():
     """Exhaustive over every enable/disable+order permutation of the safe
     subset: FINALIZE_CANVAS is unreachable while email_captured is falsy."""

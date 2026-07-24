@@ -108,6 +108,29 @@ def effective_registry(config: dict | None) -> tuple[Step, ...]:
     return tuple(s for s in result if s is not None)
 
 
+def last_answered_step(collected: dict, config: dict | None = None) -> Step | None:
+    """The step a `Back` should re-open: the highest-index answered step,
+    before the current unmet one, whose WRITABLE slots — when cleared — flip
+    its done_when back to False. Pure; no side effects.
+
+    A step whose done_when stays True after clearing its own writable slots
+    (e.g. ASK_EMAIL, satisfied by the non-writable email_captured) is skipped
+    — Back can't un-answer it, so it is never offered as a target.
+    """
+    reg = effective_registry(config)
+    current = next_step(collected, config)
+    writable = cs.WRITABLE_SLOTS
+    target: Step | None = None
+    for step in reg:
+        if step.id is current.id:
+            break
+        probe = {k: v for k, v in collected.items()
+                 if k not in (set(step.slots) & writable)}
+        if not step.done_when(probe):
+            target = step
+    return target
+
+
 def next_step(collected: dict, config: dict | None = None) -> Step:
     """The first step whose done_when is False, over the config-composed
     registry. FINALIZE_CANVAS is terminal (done_when is always False) and is
