@@ -199,9 +199,13 @@ def directive_for(step: Step, collected: dict) -> dict:
     explicitly. A null directive means "not a v2 turn" and makes the frontend
     fall back to v1's whole-rail gating + status strip — which showed "Design
     locked in — finishing up" mid-design."""
+    if step.id is S.REWORK_CANVAS:
+        return {"allowed_tools": ["upload", "text", "shape"], "target_face": None,
+                "auto_open": None, "instructions": prompts.V2_REWORK_INSTRUCTIONS,
+                "show_done": True, "unlock_all": True}
     if step.tool is None:
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
-                "instructions": None, "show_done": False}
+                "instructions": None, "show_done": False, "unlock_all": False}
     tool = _decor_tool(collected) if step.id in _DECOR_STEPS else step.tool
     return {
         "allowed_tools": [tool],
@@ -209,6 +213,7 @@ def directive_for(step: Step, collected: dict) -> dict:
         "auto_open": tool if step.auto_open else None,
         "instructions": step.instructions or prompts.V2_TOOL_TIPS[tool],
         "show_done": step.show_done,
+        "unlock_all": False,
     }
 
 

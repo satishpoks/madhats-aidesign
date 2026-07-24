@@ -14,6 +14,7 @@ from app.services.conversation import canvas_steps as cs
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
+from tests.canvas_step_helpers import seed_for
 
 
 class _FakeTable:
@@ -280,6 +281,22 @@ async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
     res = await o2.handle_message("s1", "I'd need them by the 15th of next month")
     assert res["state"] == S.ASK_PURPOSE.value
     assert store["session"]["collected"]["needed_by"] == "the 15th of next month"
+@pytest.mark.asyncio
+async def test_rework_canvas_done_chip_routes_back_to_review_design(monkeypatch):
+    """Driving the REWORK_CANVAS "Done" chip through the REAL pipeline must
+    clear design_rework and land back on REVIEW_DESIGN (B2's persist/directive
+    plumbing exists so this loop can complete)."""
+    store = _new_store()
+    store["session"]["state"] = S.REWORK_CANVAS.value
+    store["session"]["collected"] = seed_for(cs.by_id(S.REWORK_CANVAS))
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    out = await o2.handle_message("s1", "Done")
+
+    assert out["state"] == S.REVIEW_DESIGN.value
+    assert store["session"]["collected"]["design_rework"] is False
+
+
 # --- Workstream D: the store's canvas_flow reaches the router -----------------
 
 def _at_email_store(brand: dict | None):

@@ -342,6 +342,27 @@ def test_persist_live_canvas_design_ignored_for_a_non_canvas_session(monkeypatch
     assert calls == []
 
 
+def test_persist_live_canvas_design_adopted_at_rework_canvas(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    calls = []
+    row = {"state": "rework_canvas", "flow_mode": "canvas", "collected": {}}
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB(row, calls))
+    supplied = _design()
+    chat_route._persist_live_canvas_design("s1", supplied)
+    assert calls == [{"canvas_design": supplied}]
+
+
+def test_persist_live_canvas_design_ignored_for_a_non_canvas_session_at_rework(monkeypatch):
+    from app.api.routes import chat as chat_route
+
+    calls = []
+    row = {"state": "rework_canvas", "flow_mode": "session", "collected": {}}
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB(row, calls))
+    chat_route._persist_live_canvas_design("s1", _design())
+    assert calls == []
+
+
 def test_persist_live_canvas_design_malformed_payloads_short_circuit(monkeypatch):
     from app.api.routes import chat as chat_route
 

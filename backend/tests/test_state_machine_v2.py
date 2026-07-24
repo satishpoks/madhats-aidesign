@@ -224,6 +224,18 @@ def test_decor_directive_follows_the_chosen_tool():
     assert v2.directive_for(cs.by_id(S.DECOR_ADJUST), {"decor_choice": "text"})["allowed_tools"] == ["text"]
 
 
+def test_rework_directive_unlocks_all_tools():
+    d = v2.directive_for(cs.by_id(S.REWORK_CANVAS), {"design_rework": True})
+    assert set(d["allowed_tools"]) == {"upload", "text", "shape"}
+    assert d["show_done"] is True
+    assert d["unlock_all"] is True
+
+
+def test_non_rework_directive_does_not_unlock_all():
+    d = v2.directive_for(cs.by_id(S.ASK_QUANTITY), {})
+    assert d["unlock_all"] is False
+
+
 def test_canvas_directive_is_none_for_a_shared_tail_state():
     assert v2.canvas_directive(S.OFFER_REFINE, {}) is None
 

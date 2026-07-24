@@ -33,8 +33,9 @@ def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> 
     which is only written at finalize — so without this, an iterate-again loop
     ("Not quite" -> "up more") recomputes every nudge from the ORIGINAL geometry
     and the second relative nudge no-ops. Also makes a mid-confirm reload
-    rehydrate the EDITED canvas. Scoped hard to DESCRIBE_CHANGES on a canvas
-    session so a stray/hostile design on any other turn can't overwrite the work.
+    rehydrate the EDITED canvas. Scoped hard to DESCRIBE_CHANGES and
+    REWORK_CANVAS (the v2 unlock-all rework turn) on a canvas session so a
+    stray/hostile design on any other turn can't overwrite the work.
     """
     if not isinstance(canvas_design, dict) or "faces" not in canvas_design:
         return
@@ -45,7 +46,7 @@ def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> 
         return
     row = res.data[0]
     flow = row.get("flow_mode") or (row.get("collected") or {}).get("flow_mode")
-    if row.get("state") == "describe_changes" and flow == "canvas":
+    if row.get("state") in ("describe_changes", "rework_canvas") and flow == "canvas":
         (sb.table("design_sessions").update({"canvas_design": canvas_design})
          .eq("id", session_id).execute())
 
