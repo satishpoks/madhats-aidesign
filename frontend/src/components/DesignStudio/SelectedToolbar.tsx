@@ -13,6 +13,28 @@ export function SelectedToolbar() {
   const el = faces[activeFace].find(e => e.id === selectedId)
   if (!el) return null
 
+  // --- Universal transform helpers (rotate / move / size) ---
+  const NUDGE = 0.02
+  const SIZE_FACTOR = 1.1
+  const clamp01 = (v: number) => Math.min(1, Math.max(0, v))
+  const norm360 = (deg: number) => ((deg % 360) + 360) % 360
+  const rotateBy = (delta: number) => update(el.id, { rotation: norm360((el.rotation ?? 0) + delta) })
+  const nudge = (dx: number, dy: number) =>
+    update(el.id, { x: clamp01((el.x ?? 0) + dx), y: clamp01((el.y ?? 0) + dy) })
+  const resize = (factor: number) => {
+    if (el.type === 'text') {
+      update(el.id, { fontSize: Math.max(8, Math.round((el.fontSize ?? 36) * factor)) })
+    } else {
+      update(el.id, {
+        width: clamp01((el.width ?? 0.2) * factor),
+        height: clamp01((el.height ?? 0.2) * factor),
+      })
+    }
+  }
+  // Drawings have no width/height (geometry lives in `points`), matching their
+  // rotate-only on-canvas Transformer — so size is not offered for them.
+  const canResize = el.type !== 'drawing'
+
   return (
     <div className="flex flex-wrap items-center gap-2 p-3 bg-surface border border-border rounded-xl">
       {el.type === 'text' && (
@@ -103,6 +125,26 @@ export function SelectedToolbar() {
           </button>
         </>
       ))}
+      {/* Universal transform block — rotate / move / (size) for every element. */}
+      <div className="flex items-center gap-1" role="group" aria-label="Rotate">
+        <button onClick={() => rotateBy(-45)} className="px-2 py-1 text-sm border border-border rounded" title="Rotate 45° left" aria-label="Rotate left 45 degrees">⟲</button>
+        <input type="number" value={Math.round(el.rotation ?? 0)} onChange={e => update(el.id, { rotation: norm360(Number(e.target.value) || 0) })}
+          className="w-14 bg-base border border-border rounded px-1 py-1 text-sm text-textPrimary" aria-label="Rotation degrees" title="Rotation (degrees)" />
+        <button onClick={() => rotateBy(45)} className="px-2 py-1 text-sm border border-border rounded" title="Rotate 45° right" aria-label="Rotate right 45 degrees">⟳</button>
+        <button onClick={() => update(el.id, { rotation: 0 })} className="px-2 py-1 text-xs border border-border rounded" title="Reset rotation" aria-label="Reset rotation">Reset</button>
+      </div>
+      <div className="flex items-center gap-1" role="group" aria-label="Move">
+        <button onClick={() => nudge(0, -NUDGE)} className="px-2 py-1 text-sm border border-border rounded" title="Move up" aria-label="Nudge up">↑</button>
+        <button onClick={() => nudge(0, NUDGE)} className="px-2 py-1 text-sm border border-border rounded" title="Move down" aria-label="Nudge down">↓</button>
+        <button onClick={() => nudge(-NUDGE, 0)} className="px-2 py-1 text-sm border border-border rounded" title="Move left" aria-label="Nudge left">←</button>
+        <button onClick={() => nudge(NUDGE, 0)} className="px-2 py-1 text-sm border border-border rounded" title="Move right" aria-label="Nudge right">→</button>
+      </div>
+      {canResize && (
+        <div className="flex items-center gap-1" role="group" aria-label="Size">
+          <button onClick={() => resize(1 / SIZE_FACTOR)} className="px-2 py-1 text-sm border border-border rounded" title="Smaller" aria-label="Decrease size">−</button>
+          <button onClick={() => resize(SIZE_FACTOR)} className="px-2 py-1 text-sm border border-border rounded" title="Larger" aria-label="Increase size">+</button>
+        </div>
+      )}
       <button onClick={() => reorder(el.id, 'up')} className="px-2 py-1 text-sm border border-border rounded" title="Bring forward">↑</button>
       <button onClick={() => reorder(el.id, 'down')} className="px-2 py-1 text-sm border border-border rounded" title="Send back">↓</button>
       <button onClick={() => duplicate(el.id)} className="px-2 py-1 text-sm border border-border rounded" title="Duplicate">Duplicate</button>

@@ -332,7 +332,7 @@ Per-type capability (from the spec):
 | shape | yes | yes | yes (`width`/`height`) |
 | drawing | yes | yes | no |
 
-- [ ] **Step 1 — Write the failing transform test.** Create `frontend/src/__tests__/selectedToolbarTransform.test.tsx`:
+- [x] **Step 1 — Write the failing transform test.** Create `frontend/src/__tests__/selectedToolbarTransform.test.tsx`:
 ```tsx
 import { beforeEach, describe, expect, test } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -417,13 +417,13 @@ describe('SelectedToolbar transform controls', () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/selectedToolbarTransform.test.tsx
 ```
 Expected: FAIL — none of the transform buttons/inputs exist yet.
 
-- [ ] **Step 3 — Add transform helpers + the JSX block.** In `frontend/src/components/DesignStudio/SelectedToolbar.tsx`, after the `const el = ...; if (!el) return null` guard (line 13–14) and before the `return (`, add the helper constants/functions:
+- [x] **Step 3 — Add transform helpers + the JSX block.** In `frontend/src/components/DesignStudio/SelectedToolbar.tsx`, after the `const el = ...; if (!el) return null` guard (line 13–14) and before the `return (`, add the helper constants/functions:
 ```tsx
   const el = faces[activeFace].find(e => e.id === selectedId)
   if (!el) return null
@@ -451,7 +451,7 @@ Expected: FAIL — none of the transform buttons/inputs exist yet.
   const canResize = el.type !== 'drawing'
 ```
 
-- [ ] **Step 4 — Insert the transform JSX before the reorder/duplicate/delete buttons.** In the same file, immediately before the line `<button onClick={() => reorder(el.id, 'up')} ...>` (~line 106), insert:
+- [x] **Step 4 — Insert the transform JSX before the reorder/duplicate/delete buttons.** In the same file, immediately before the line `<button onClick={() => reorder(el.id, 'up')} ...>` (~line 106), insert:
 ```tsx
       {/* Universal transform block — rotate / move / (size) for every element. */}
       <div className="flex items-center gap-1" role="group" aria-label="Rotate">
@@ -475,19 +475,19 @@ Expected: FAIL — none of the transform buttons/inputs exist yet.
       )}
 ```
 
-- [ ] **Step 5 — Run the transform test (expected PASS).**
+- [x] **Step 5 — Run the transform test (expected PASS).**
 ```
 npx vitest run src/__tests__/selectedToolbarTransform.test.tsx
 ```
 Expected: PASS (6 tests).
 
-- [ ] **Step 6 — Guard the Surface directive suite (SelectedToolbar mounts inside it).**
+- [x] **Step 6 — Guard the Surface directive suite (SelectedToolbar mounts inside it).**
 ```
 npx vitest run src/__tests__/surfaceDirective.test.tsx
 ```
 Expected: PASS (6 tests) — the toolbar's `Text content` / `Font` aria-labels are unchanged; the transform block is additive.
 
-- [ ] **Step 7 — Commit.**
+- [x] **Step 7 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/SelectedToolbar.tsx frontend/src/__tests__/selectedToolbarTransform.test.tsx
 git commit -m "feat(canvas): universal rotate/move/size transform controls (A1)"
