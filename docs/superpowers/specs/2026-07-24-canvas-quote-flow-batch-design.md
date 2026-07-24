@@ -308,13 +308,18 @@ or a new small config blob), admin Branding/flow view.
 
 Scope is **toggle + reorder of a curated safe subset only**:
 
-- A fixed set of **independent, reorderable/optional steps** — e.g. `purpose`,
-  `needed_by`, `quantity`, `decoration`, `anything_else`. Admin can enable/disable
-  each and reorder within this subset, per store.
+- The **safe subset is exactly the three genuinely independent steps** whose slots
+  no other step's `done_when` reads: `quantity`, `needed_by`, `purpose`. Admin can
+  enable/disable each and reorder them among their own slots, per store.
+  (Refinement from planning: `decoration` and `anything_else` were considered but
+  **excluded** — `decoration` is `prepare`-bearing [loads the store's decoration
+  types] and `anything_else` is coupled to the decoration/decor loop, so neither is
+  safely reorderable.)
 - **Dependency-locked steps stay fixed and non-reorderable:** `name`, the intro,
-  the logo loop, `email`, `prepare`-bearing steps (`decoration`'s store load), and
-  `finalize` (email must precede finalize; the logo loop is self-contained;
-  `prepare` steps load store data). These are never moved or disabled by admin.
+  the logo loop, `email`, the `REQUEST_QUOTE` submit, `prepare`-bearing steps
+  (`decoration`'s store load), `anything_else`, and `finalize` (email must precede
+  finalize; the logo loop is self-contained; `prepare` steps load store data).
+  These are never moved or disabled by admin.
 - Persist a per-store ordering + on/off map. The first-unmet engine reads the
   registry **through** this config (compose the effective step list: locked steps
   in their fixed positions, configurable steps ordered/filtered per config). Pure
