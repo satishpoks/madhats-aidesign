@@ -46,6 +46,10 @@ async def handle_message(session_id: str, message: str) -> dict:
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
+    # The store's admin-configured step order/on-off for the safe subset (V3).
+    # None for an unconfigured store, which makes the router walk cs.REGISTRY
+    # unchanged. Validated on the way in by branding._validate_canvas_flow.
+    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
     state_before = current.value
 
     if current is S.GREETING:
@@ -99,14 +103,15 @@ async def handle_message(session_id: str, message: str) -> dict:
     if step.id.value not in asked:
         asked.append(step.id.value)
 
-    next_ = v2.next_step(collected)
+    next_ = v2.next_step(collected, flow_config)
     if next_.prepare:
         # Load whatever the step needs to render (store-scoped chips). prepare
         # may SATISFY its own step — a store with no decoration methods
-        # configured — so re-resolve. One pass is enough: only one step declares
-        # prepare, and a satisfied step routes forward to steps that don't.
+        # configured — so re-resolve under the SAME config. One pass is enough:
+        # only one step declares prepare, and a satisfied step routes forward to
+        # steps that don't.
         next_.prepare(collected, store)
-        next_ = v2.next_step(collected)
+        next_ = v2.next_step(collected, flow_config)
 
     if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
         # Honesty gate: the customer is capped, so pose the quote ask instead of

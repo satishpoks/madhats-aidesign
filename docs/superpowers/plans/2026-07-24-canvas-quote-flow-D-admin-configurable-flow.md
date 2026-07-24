@@ -451,7 +451,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing orchestrator test.** Append to `backend/tests/test_v2_e2e.py`:
+- [x] **Step 1: Write the failing orchestrator test.** Append to `backend/tests/test_v2_e2e.py`:
 
 ```python
 @pytest.mark.asyncio
@@ -493,14 +493,14 @@ async def test_orchestrator_threads_store_canvas_flow_config(monkeypatch):
 
 > Note: `cs.leads_service` is the `leads as leads_service` import inside `canvas_steps`; `_apply_email` calls it. If the monkeypatch target differs in the real tree, patch `app.services.leads.capture_lead_and_verify` directly.
 
-- [ ] **Step 2: Run the test — expect FAIL** (orchestrator does not read `canvas_flow`; `next_step` is called with only `collected`, so `seen["config"]` is `None` and purpose is asked):
+- [x] **Step 2: Run the test — expect FAIL** (orchestrator does not read `canvas_flow`; `next_step` is called with only `collected`, so `seen["config"]` is `None` and purpose is asked):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_v2_e2e.py::test_orchestrator_threads_store_canvas_flow_config -q
 ```
 Expected: FAIL (`seen["config"]` is `None`, and/or state is `ask_purpose`).
 
-- [ ] **Step 3: Thread the config through `orchestrator_v2.handle_message`.** After the `intro = canvas_intro_text(store)` line (~line 49), add:
+- [x] **Step 3: Thread the config through `orchestrator_v2.handle_message`.** After the `intro = canvas_intro_text(store)` line (~line 49), add:
 
 ```python
     flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
@@ -526,14 +526,14 @@ to:
         next_ = v2.next_step(collected, flow_config)
 ```
 
-- [ ] **Step 4: Run the test — expect PASS:**
+- [x] **Step 4: Run the test — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_v2_e2e.py -q
 ```
 Expected: all `test_v2_e2e.py` tests PASS (the full chip-label walk still passes — it uses no store config, so `flow_config` is `None` and routing is unchanged).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/orchestrator_v2.py tests/test_v2_e2e.py
