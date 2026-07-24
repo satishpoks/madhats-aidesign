@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.api.deps import require_store
@@ -25,6 +26,7 @@ from app.services.products import get_product
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 
 router = APIRouter(tags=["sessions"])
+log = structlog.get_logger()
 
 _VALID_FACES = {"front", "back", "left", "right"}
 
@@ -262,21 +264,48 @@ async def finalize_canvas(
             "data": {"trigger_regeneration": True, "progress": sm_progress(new_state, collected)},
         }
 
-    # v2 step-by-step orchestrator: the design phase already happened in chat,
-    # and name/quantity/email/purpose were captured there. Skip the v1
-    # decoration/notes outro and go straight to generation.
+    # v2 step-by-step orchestrator: the design phase already happened in chat and
+    # the customer explicitly requested a quote (REQUEST_QUOTE) before this. This
+    # is a QUOTE-GATED flow: we do NOT AI-render or email the design to the
+    # customer. Persist the canvas so the render can be produced on-demand from
+    # the admin later (C4), surface the tracking reference on-screen, and end the
+    # customer journey at the reference confirmation. Sales is notified + the
+    # customer emailed the reference via the verification-track converge (C2/C3).
     if settings.canvas_orchestrator_v2:
         from app.services.conversation.state_machine_v2 import progress_v2
 
-        new_state = S.GENERATING
-        reply = "Perfect — generating your design now…"
+        reference = collected.get("reference_code")
+        new_state = S.QUOTE_REQUESTED
+        if reference:
+            reply = (
+                f"All done — your request is in! Your reference is {reference}. "
+                "Our team will be in touch with a quote soon. We've also emailed "
+                "it to you once you confirm your address."
+            )
+        else:
+            reply = (
+                "All done — your request is in! Our team will be in touch with a "
+                "quote soon."
+            )
         sb.table("design_sessions").update(
             {"canvas_design": body.canvas_design, "collected": collected, "state": new_state.value}
         ).eq("id", session_id).execute()
+        # Third convergence point (C2/C3). The canvas — elements, layout guides,
+        # previews — only exists as of this write, and the sales email attaches
+        # them. If the customer already verified, this is the call that actually
+        # sends; otherwise it no-ops and verification sends. Idempotent + best
+        # effort: a send must never fail the finalize the customer is waiting on.
+        try:
+            from app.services import delivery
+
+            delivery.maybe_send_quote_confirmation(session_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error("quote_confirmation_failed_at_finalize",
+                      session_id=session_id, error_type=type(exc).__name__)
         return {
             "reply": reply,
             "state": new_state.value,
-            "data": {"trigger_generation": True, "progress": progress_v2(new_state, collected)},
+            "data": {"reference_code": reference, "progress": progress_v2(new_state, collected)},
         }
 
     active = deco_svc.list_types(store["id"], active_only=True)

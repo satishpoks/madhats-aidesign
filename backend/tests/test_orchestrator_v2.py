@@ -256,8 +256,14 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
+    monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
     _llm_returns(monkeypatch, {"purpose": "team caps"})
+    # Quote-gated flow (C1): answering purpose now lands on the explicit
+    # REQUEST_QUOTE submit step; the honesty gate fires on the turn that would
+    # otherwise reach FINALIZE_CANVAS, i.e. after the submit chip.
     res = await o2.handle_message("s1", "for the team")
+    assert res["state"] == S.REQUEST_QUOTE.value
+    res = await o2.handle_message("s1", "Request a quote")
     assert res["state"] == S.QUOTE_REQUESTED.value
     assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
 

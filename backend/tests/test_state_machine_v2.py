@@ -69,7 +69,7 @@ def test_finalize_unreachable_without_email_captured():
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
               quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
-              purpose="team caps")
+              purpose="team caps", quote_requested=True)
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 

@@ -17,7 +17,8 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
-        S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE, S.FINALIZE_CANVAS,
+        S.ASK_EMAIL, S.NEEDED_BY, S.ASK_PURPOSE, S.REQUEST_QUOTE,
+        S.FINALIZE_CANVAS,
     ]
 
 
@@ -154,9 +155,14 @@ from tests.canvas_step_helpers import seed_for
 @pytest.mark.parametrize(
     "step,chip", _all_chips(), ids=lambda v: getattr(v, "label", getattr(v, "id", ""))
 )
-def test_every_offered_chip_makes_progress(step, chip):
+def test_every_offered_chip_makes_progress(step, chip, monkeypatch):
     """Understanding a chip is not enough — it must also move the flow. This is
     the half of the round-trip test that needs the apply hooks."""
+    # REQUEST_QUOTE's apply writes to `leads` and converges delivery; this test
+    # is about routing, so stub the recording (every other apply is pure).
+    monkeypatch.setattr(
+        cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH",
+    )
     c = seed_for(step)
     assert v2.next_step(c).id is step.id          # precondition: we're on it
     fields = v2.resolve_chip(step, chip.label, c)

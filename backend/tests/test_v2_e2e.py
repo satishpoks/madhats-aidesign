@@ -105,6 +105,12 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         lambda s, c, e: ("lead-1", True),
     )
 
+    # The explicit quote request writes to `leads` + converges delivery; neither
+    # belongs in a routing walk, so stub the recording and keep the reference.
+    monkeypatch.setattr(
+        cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH",
+    )
+
     async def _boom(*a, **k):
         raise o2.ie.LLMUnavailable("chips and direct-answer steps need no model")
     monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
@@ -130,7 +136,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Embroidery",              S.ASK_EMAIL),          # single-select
         ("sam@example.com",         S.NEEDED_BY),
         ("ASAP",                    S.ASK_PURPOSE),
-        ("for the team",            S.FINALIZE_CANVAS),
+        ("for the team",            S.REQUEST_QUOTE),      # quote-gated submit
+        ("Request a quote",         S.FINALIZE_CANVAS),
     ]
 
     res = None

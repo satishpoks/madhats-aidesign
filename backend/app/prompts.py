@@ -800,6 +800,47 @@ Design image (internal, clean): {image_url}
 Please verify the quote and send it directly to the customer.
 """
 
+# Customer-facing reference email — quote-gated flow. NO design image; the
+# customer only ever receives their tracking reference. Rendered inside the
+# BRANDED_EMAIL_HTML shell. Filled with .format(name=, reference_code=).
+QUOTE_REFERENCE_EMAIL_SUBJECT = "We've received your request — your MadHats reference"
+
+QUOTE_REFERENCE_EMAIL_BODY = """Hi {name},
+
+Thanks for your request! We've received your design and our team is on it.
+
+Your reference is: {reference_code}
+
+Quote the reference above if you get in touch. We'll be in contact soon with a
+quote for your caps.
+
+— Ricardo, MadHats AI Design Studio
+"""
+
+# Internal sales notification — an explicit customer quote request. Summary only;
+# the uploaded components ride along as attachments (see email.send_quote_request_to_sales).
+# Filled with .format(reference_code=, store_name=, customer_email=, quantity=,
+# needed_by=, purpose=, decoration=, notes=).
+SALES_QUOTE_REQUEST_EMAIL_SUBJECT = "Quote request {reference_code} — {store_name}"
+
+SALES_QUOTE_REQUEST_EMAIL_BODY = """A customer requested a quote via the AI Design Studio.
+
+Reference: {reference_code}
+Store: {store_name}
+Customer email: {customer_email}
+
+Quantity: {quantity}
+Needed by: {needed_by}
+Purpose: {purpose}
+Decoration method(s): {decoration}
+
+Notes:
+{notes}
+
+All uploaded design components are attached. Prepare and send the quote directly
+to the customer, quoting the reference above.
+"""
+
 GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
 
 # Sent to store ops when a generation fails all automatic retries. Filled with

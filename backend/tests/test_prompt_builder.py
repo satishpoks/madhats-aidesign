@@ -365,3 +365,29 @@ def test_canvas_customise_session_keeps_colour_locked_template():
     prompt = prompt_builder.build_prompt(collected, ref, _params(collected))
     assert "KEEP THE CAP SHAPE EXACTLY, RECOLOUR THE BODY" not in prompt
     assert "Do NOT recolour" in prompt
+
+
+def test_build_view_prompt_injects_front_to_back_zorder():
+    from app.services import prompt_builder
+
+    collected = {
+        "flow_mode": "canvas",
+        "elements": [
+            {"type": "text", "content": "BOTTOM", "placement_zone": "front_panel",
+             "canvas": {"face": "front", "z": 0}},
+            {"type": "logo", "placement_zone": "front_panel",
+             "canvas": {"face": "front", "z": 5}},
+        ],
+    }
+    product_ref = {"reference_image_url": "https://x/front.png"}
+    params = prompt_builder.build_params(collected, "preview")
+    prompt = prompt_builder.build_view_prompt(collected, product_ref, params, "front")
+
+    assert "Layering" in prompt or "overlap" in prompt.lower()
+    # front-most (higher z) is listed before the lower one
+    assert prompt.index("uploaded") < prompt.index("BOTTOM")
+
+
+def test_zorder_note_empty_for_single_element():
+    from app.services import prompt_builder
+    assert prompt_builder._zorder_note([{"type": "text", "content": "x"}]) == ""

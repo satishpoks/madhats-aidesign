@@ -55,6 +55,8 @@ def satisfy(c: dict, step) -> None:
         c["needed_by"] = "2-4 weeks"
     elif step.id is S.ASK_PURPOSE:
         c["purpose"] = "team caps"
+    elif step.id is S.REQUEST_QUOTE:
+        c["quote_requested"] = True
 
 
 def seed_for(step) -> dict:
