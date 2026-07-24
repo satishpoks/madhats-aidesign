@@ -66,6 +66,27 @@ These three are safe to reorder/disable because **no other step's `done_when` re
 
 ---
 
+## Complexity gate — VERDICT (recorded at implementation time, 2026-07-24)
+
+**PASSED. No entanglement. D ships.** Verified against the real registry before
+any code was written:
+
+- The configurable steps occupy registry indices **11 (`ASK_QUANTITY`)** and
+  **15 (`ASK_PURPOSE`)**. `needed_by` is Workstream B's and is absent from this
+  tree, so it drops out of `CONFIGURABLE_STEP_IDS` exactly as the plan intended.
+- Both carry `apply=None prepare=None ops=None chips_from=None tool=None`, and
+  each `done_when` reads only its own slot (`"quantity" in c` /
+  `bool(c.get("purpose"))`). **No other step's `done_when` reads either slot**
+  — confirmed by reading every `done_when` in `REGISTRY`.
+- Registry *order* has exactly one consumer: `state_machine_v2.next_step`
+  (2 call sites, both in `orchestrator_v2`). `V2_OWNED` is a frozenset, so it is
+  order-independent, and `cs.by_id` reads the full `REGISTRY` — which means a
+  session parked on a step an admin later disables is still handled, then routed
+  past it. No locked step had to move, nothing was spliced into a locked index,
+  and no cross-step `done_when` dependency was added.
+
+---
+
 ## Task 1: Config schema + server-side validation
 
 **Files:**
@@ -765,13 +786,13 @@ EOF
 
 ## Final verification
 
-- [ ] **Backend baseline green:**
+- [x] **Backend baseline green:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest -q
 ```
 Expected: all pass (baseline + new tests across `test_branding.py`, `test_state_machine_v2.py`, `test_v2_e2e.py`, `test_admin_store_branding.py`).
 
-- [ ] **Confirm the invariants held throughout (grep sanity):** no locked-step id appears in `CONFIGURABLE_STEP_IDS`; `effective_registry(None) is cs.REGISTRY`; `next_step`'s default arg is `None`. All are asserted by tests above; if any test was skipped, do not claim completion.
+- [x] **Confirm the invariants held throughout (grep sanity):** no locked-step id appears in `CONFIGURABLE_STEP_IDS`; `effective_registry(None) is cs.REGISTRY`; `next_step`'s default arg is `None`. All are asserted by tests above; if any test was skipped, do not claim completion.
 
-- [ ] **Report to orchestrator:** what shipped (config schema + pure compose + orchestrator wiring + admin editor), the narrowed subset decision from the Complexity gate (decoration + anything_else excluded as prepare-bearing / loop-coupled), the documented known gaps (static progress counter; disabled-step slot-packing), and the Workstream B precondition (`needed_by` must be merged for it to be configurable).
+- [x] **Report to orchestrator:** what shipped (config schema + pure compose + orchestrator wiring + admin editor), the narrowed subset decision from the Complexity gate (decoration + anything_else excluded as prepare-bearing / loop-coupled), the documented known gaps (static progress counter; disabled-step slot-packing), and the Workstream B precondition (`needed_by` must be merged for it to be configurable).
