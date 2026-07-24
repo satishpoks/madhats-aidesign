@@ -174,6 +174,37 @@ def _element_line(el: dict) -> str:
     return ", ".join(bits) + _placement_phrase(el) + "."
 
 
+def _element_label(el: dict) -> str:
+    """A short identity for an element, for the layering note."""
+    etype = el.get("type")
+    if etype == "text":
+        return f'text "{el.get("content", "")}"'
+    if etype == "logo":
+        return "the uploaded logo/artwork"
+    return f"graphic: {el.get('content', '')}" if el.get("content") else "a graphic"
+
+
+def _zorder_note(elements: list[dict]) -> str:
+    """An explicit front-to-back stacking order for a face's elements.
+
+    Overlap survived only in the flattened grey layout guide before; on
+    multi-element faces the model misread stacking. This states it in words —
+    front-most (drawn on top) first — so the render respects it (C6.3). Notes
+    (do-not-render) are excluded; fewer than two visible elements needs no order.
+    """
+    visible = [e for e in elements if e.get("type") != "note"]
+    if len(visible) < 2:
+        return ""
+    ordered = sorted(
+        visible, key=lambda e: (e.get("canvas") or {}).get("z", 0), reverse=True
+    )
+    lines = "\n".join(f"  {i}. {_element_label(e)}" for i, e in enumerate(ordered, start=1))
+    return (
+        "Layering / overlap order on this face — front-most (on top) listed first. "
+        "Where elements overlap, the earlier item sits over the later one:\n" + lines
+    )
+
+
 def _brief_context_block(collected: dict) -> str:
     """Render the rich, accumulated design brief (``collected["design_description"]``)
     as extra context for the model.
@@ -375,6 +406,9 @@ def build_view_prompt(
             # hero (regression: session VKV2NBdIYqgtQ_23J0uANA).
             scoped["design_description"] = _brief_without_owned_decorations(collected)
         design_block = _design_block(scoped)
+        zorder = _zorder_note(view_elements)
+        if zorder:
+            design_block = f"{design_block}\n{zorder}"
     else:
         brief = _brief_without_owned_decorations(collected)
         brief_ctx = _brief_context_block({"design_description": brief}) if view == PRIMARY_VIEW else ""

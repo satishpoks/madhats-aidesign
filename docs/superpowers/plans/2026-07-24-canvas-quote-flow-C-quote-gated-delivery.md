@@ -1556,7 +1556,7 @@ Injects a stacking-order sentence into each multi-element face's prompt so overl
 - Produces: `prompt_builder._zorder_note(elements) -> str`
 - Consumes: element `canvas.z`, `type`, `content`
 
-- [ ] **Step 1:** Write the failing test. Add to `backend/tests/test_prompt_builder.py`:
+- [x] **Step 1:** Write the failing test. Add to `backend/tests/test_prompt_builder.py`:
 ```python
 def test_build_view_prompt_injects_front_to_back_zorder():
     from app.services import prompt_builder
@@ -1585,12 +1585,12 @@ def test_zorder_note_empty_for_single_element():
     assert prompt_builder._zorder_note([{"type": "text", "content": "x"}]) == ""
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`_zorder_note` doesn't exist / not injected).
+- [x] **Step 2:** Run it — expect FAIL (`_zorder_note` doesn't exist / not injected).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_prompt_builder.py -k zorder -v
 ```
 
-- [ ] **Step 3:** Add the helpers in `backend/app/services/prompt_builder.py`, immediately after `_element_line` (~line 175):
+- [x] **Step 3:** Add the helpers in `backend/app/services/prompt_builder.py`, immediately after `_element_line` (~line 175):
 ```python
 def _element_label(el: dict) -> str:
     """A short identity for an element, for the layering note."""
@@ -1630,12 +1630,12 @@ Inject the note in `build_view_prompt` — replace the `if view_elements:` branc
             design_block = f"{design_block}\n{zorder}"
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Re-run the full prompt-builder suite.
+- [x] **Step 4:** Run it — expect PASS. Re-run the full prompt-builder suite.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_prompt_builder.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/prompt_builder.py tests/test_prompt_builder.py && git commit -m "fix(gen): inject explicit front-to-back z-order into per-face prompt (C6.3)
 
