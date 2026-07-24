@@ -1656,7 +1656,7 @@ Extends `GET /admin/quote-requests` with the reference, summary fields, latest r
 - Produces: enriched list rows (`reference_code`, `needed_by`, `purpose`, `notes`, `render_status`, `render_notes`); `GET /admin/quote-requests/{lead_id}/components` → `{"components": [{"label", "url"}]}`
 - Consumes: `components.enumerate_components`, `storage.media_url`, latest generation row
 
-- [ ] **Step 1:** Write the failing tests. Add to `backend/tests/test_admin_leads.py` (mirror its existing fake-SB fixture; assert the new fields + endpoint):
+- [x] **Step 1:** Write the failing tests. Add to `backend/tests/test_admin_leads.py` (mirror its existing fake-SB fixture; assert the new fields + endpoint):
 ```python
 def test_quote_requests_include_reference_and_summary(admin_client, seed_quote_lead):
     # seed a quote_confirmed lead with a reference + collected summary
@@ -1695,12 +1695,12 @@ def test_v2_requested_leads_appear_without_quote_confirmed(admin_client, seed_v2
 > ```
 > `seed_quote_lead` seeds `leads` with `quote_confirmed=True`, `reference_code="MH-BCDFGH"`, and a session whose `collected` has `uploaded_asset_path="uploads/logo.png"`, `needed_by`, `purpose`, `quantity`. `seed_v2_requested_lead` seeds a SECOND lead with `quote_confirmed=False`, `quote_requested=True`, `reference_code="MH-REQ222"`. Monkeypatch `admin_leads.get_supabase` and `admin_leads.storage.media_url` (→ `f"/media/{path}"`).
 
-- [ ] **Step 2:** Run it — expect FAIL (fields/endpoint missing).
+- [x] **Step 2:** Run it — expect FAIL (fields/endpoint missing).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_leads.py -k "reference or components" -v
 ```
 
-- [ ] **Step 3:** Enrich the list + add the components endpoint in `backend/app/api/routes/admin_leads.py`. Add imports at the top:
+- [x] **Step 3:** Enrich the list + add the components endpoint in `backend/app/api/routes/admin_leads.py`. Add imports at the top:
 ```python
 from fastapi import Request
 
@@ -1785,17 +1785,17 @@ async def list_quote_components(lead_id: str, request: Request) -> dict:
     return {"components": out}
 ```
 
-- [ ] **Step 4:** Run it — expect PASS.
+- [x] **Step 4:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_leads.py -v
 ```
 
-- [ ] **Step 5:** Run the full backend baseline to confirm no regressions across the workstream.
+- [x] **Step 5:** Run the full backend baseline to confirm no regressions across the workstream.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/admin_leads.py tests/test_admin_leads.py && git commit -m "feat(quote): admin quote-requests reference/summary + components endpoint (C5/C7)
 
