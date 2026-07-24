@@ -632,7 +632,7 @@ A pure enumerator of every uploaded/derived component path for a session, used b
 - Produces: `components.enumerate_components(collected: dict, generation: dict | None = None) -> list[dict]` → each `{"label": str, "path": str}` (storage paths only)
 - Consumes: `collected["uploaded_asset_path"|"canvas_previews"|"canvas_layouts"|"elements"]`, `generation["view_images"]`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_components.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_components.py`:
 ```python
 """Enumerate the uploaded/derived component set for a quote request (C5)."""
 from __future__ import annotations
@@ -671,12 +671,12 @@ def test_enumerate_components_empty_without_render():
     assert components.enumerate_components({}, None) == []
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no module `components`).
+- [x] **Step 2:** Run it — expect FAIL (no module `components`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_components.py -v
 ```
 
-- [ ] **Step 3:** Implement `backend/app/services/components.py`:
+- [x] **Step 3:** Implement `backend/app/services/components.py`:
 ```python
 """Enumerate the complete uploaded/derived component set for a session.
 
@@ -737,12 +737,12 @@ def enumerate_components(collected: dict, generation: dict | None = None) -> lis
     return out
 ```
 
-- [ ] **Step 4:** Run it — expect PASS.
+- [x] **Step 4:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_components.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/components.py tests/test_components.py && git commit -m "feat(quote): enumerate downloadable components per session (C5)
 
