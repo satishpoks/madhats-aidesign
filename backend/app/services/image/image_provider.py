@@ -46,5 +46,6 @@ class ImageProvider(ABC):
         params: GenerationParams,
         prior_design_url: str | None = None,  # previous render to REFINE (edits only)
         layout_guide_url: str | None = None,  # flattened canvas — layout guide (canvas flow)
+        uploaded_asset_urls: list[str] | None = None,  # multiple artworks for one face
     ) -> GenerationResult:
         ...

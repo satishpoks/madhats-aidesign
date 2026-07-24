@@ -50,6 +50,17 @@ _PRIOR_DESIGN_LABEL = (
     "below; keep every other detail identical. It does NOT change the output "
     "shape or aspect ratio — those come only from the FIRST image."
 )
+def _artwork_label(i: int) -> str:
+    """Per-artwork label when a face carries multiple uploaded images. Ordinal-free
+    so each reads correctly; same intent as _SECOND_IMAGE_LABEL."""
+    return (
+        f"ARTWORK {i + 1} — one of the customer's uploaded artworks to apply onto "
+        "the cap as decoration ONLY, at the position shown in the layout guide. Use "
+        "it as a reference; never reproduce it as a separate panel. It does NOT set "
+        "the output shape, size or aspect ratio — those come only from the FIRST image."
+    )
+
+
 _LAYOUT_GUIDE_LABEL = (
     "LAYOUT GUIDE — a flat placement card on a plain NEUTRAL-GREY background "
     "showing ONLY the customer's decorations at the exact position, size, colour "
@@ -215,6 +226,7 @@ class _GeminiAdapter(ImageProvider):
         params: GenerationParams,
         prior_design_url: str | None = None,
         layout_guide_url: str | None = None,
+        uploaded_asset_urls: list[str] | None = None,
     ) -> GenerationResult:
         if not reference_image_url:
             raise ValueError("reference_image_url is required — never generate a cap from scratch")
@@ -254,19 +266,24 @@ class _GeminiAdapter(ImageProvider):
             except httpx.HTTPError:
                 log.warning("prior_design_fetch_failed", tier=self.tier)
 
-        if uploaded_asset_url:
+        # Square each logo (transparently) so its aspect ratio can't bias the
+        # output shape — the output follows the reference cap only. Multiple
+        # artworks (e.g. several uploads on one canvas face) each get their own
+        # numbered label; a single artwork keeps the original SECOND IMAGE label.
+        urls = uploaded_asset_urls or ([uploaded_asset_url] if uploaded_asset_url else [])
+        multi = len(urls) > 1
+        for i, art_url in enumerate(urls):
             try:
-                logo_bytes, logo_mime = await _fetch_bytes(uploaded_asset_url)
-                # Square the logo (transparently) so its aspect ratio can't bias
-                # the output shape — the output follows the reference cap only.
+                logo_bytes, logo_mime = await _fetch_bytes(art_url)
                 squared_logo = _to_square_logo(logo_bytes)
                 if squared_logo is not logo_bytes:
                     logo_bytes, logo_mime = squared_logo, "image/png"
-                contents.append(_SECOND_IMAGE_LABEL)
+                label = _artwork_label(i) if multi else _SECOND_IMAGE_LABEL
+                contents.append(label)
                 contents.append({"mime_type": logo_mime, "data": logo_bytes})
-                payload_parts.append({"type": "text", "text": _SECOND_IMAGE_LABEL})
+                payload_parts.append({"type": "text", "text": label})
                 payload_parts.append(
-                    _image_part(logo_mime, logo_bytes, role="uploaded_asset", source_url=uploaded_asset_url)
+                    _image_part(logo_mime, logo_bytes, role="uploaded_asset", source_url=art_url)
                 )
             except httpx.HTTPError:
                 log.warning("logo_fetch_failed", tier=self.tier)

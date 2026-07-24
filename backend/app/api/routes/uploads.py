@@ -48,7 +48,7 @@ async def upload_logo(session_id: str, file: UploadFile = File(...)) -> dict:
     collected["has_logo"] = True
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()
 
-    return {"asset_url": generate_signed_url(path), "asset_hash": asset_hash}
+    return {"asset_url": generate_signed_url(path), "asset_path": path, "asset_hash": asset_hash}
 
 
 @router.post("/uploads/pin/{session_id}")

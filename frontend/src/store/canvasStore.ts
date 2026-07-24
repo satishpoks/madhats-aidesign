@@ -21,7 +21,7 @@ export interface CanvasElement {
   content?: string; font?: string; colour?: string; fontSize?: number
   /** Text arch: 0 = straight, negative = arch down, positive = arch up. */
   curve?: number
-  assetUrl?: string; removeBg?: boolean
+  assetUrl?: string; assetPath?: string; removeBg?: boolean
   /** Original (pre-background-removal) asset URL, so the toggle is reversible. */
   originalAssetUrl?: string
   /** Freehand drawing: flat list of normalised x,y pairs [x0,y0,x1,y1,…]. */
@@ -57,7 +57,7 @@ interface CanvasState {
   setActiveFace: (f: Face) => void
   addText: (text: string) => void
   /** aspect = naturalWidth / naturalHeight; the element is inserted undistorted. */
-  addImage: (assetUrl: string, aspect?: number) => void
+  addImage: (assetUrl: string, aspect?: number, assetPath?: string) => void
   addShape: (kind: ShapeKind) => void
   updateElement: (id: string, patch: Partial<CanvasElement>) => void
   duplicate: (id: string) => void
@@ -115,7 +115,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
   }),
 
-  addImage: (assetUrl, aspect = 1) => set(s => {
+  addImage: (assetUrl, aspect = 1, assetPath) => set(s => {
     // Fit inside a 0.4×0.4 (normalised) box while preserving the image's aspect
     // ratio, so it inserts undistorted; the stage is square so normalised w/h
     // map directly to the visual ratio. The user can freely resize afterwards.
@@ -125,7 +125,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const height = a >= 1 ? maxN / a : maxN
     const el: CanvasElement = {
       id: uid(), type: 'image', x: 0.5 - width / 2, y: 0.5 - height / 2, width, height,
-      rotation: 0, zIndex: s.faces[s.activeFace].length, assetUrl, removeBg: false,
+      rotation: 0, zIndex: s.faces[s.activeFace].length, assetUrl, assetPath, removeBg: false,
     }
     return { faces: { ...s.faces, [s.activeFace]: [...s.faces[s.activeFace], el] }, selectedId: el.id }
   }),

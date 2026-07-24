@@ -100,26 +100,37 @@ def _element(el: dict, face: str) -> dict:
         out["type"] = "logo"
         out["content"] = "uploaded logo/artwork"
         out["assetUrl"] = el.get("assetUrl")
+        out["assetPath"] = el.get("assetPath")
         out["remove_bg"] = bool(el.get("removeBg"))
     return out
 
 
-def _describe(el: dict, face: str) -> str:
-    where = f"on the {_FACE_LABEL.get(face, face)}"
+def element_label(el: dict, face: str | None = None) -> str:
+    """Human phrase for one element (no placement). Single source of truth for
+    both the prompt description and the admin 360 view."""
     etype = el.get("type")
     if etype == "text":
-        parts = [f'text reading "{el.get("content", "")}"']
-        parts.append(f'in {_text_colour(el.get("colour"))}')
+        parts = [f'text reading "{el.get("content", "")}"', f"in {_text_colour(el.get('colour'))}"]
         if el.get("font"):
             parts.append(f'{el["font"]} font')
-        return f"{', '.join(parts)} {where}"
-    if etype == "drawing":
+        label = ", ".join(parts)
+    elif etype == "drawing":
         colour = el.get("stroke")
-        phrase = f"a hand-drawn line in {colour}" if colour else "a hand-drawn line"
-        return f"{phrase} {where}"
+        label = f"a hand-drawn line in {colour}" if colour else "a hand-drawn line"
+    elif etype == "shape":
+        label = _shape_phrase(el)
+    else:
+        label = "uploaded logo/artwork"
+    if face:
+        return f"{label} on the {_FACE_LABEL.get(face, face)}"
+    return label
+
+
+def _describe(el: dict, face: str) -> str:
+    etype = el.get("type")
     if etype == "shape":
-        return f"a {_shape_phrase(el)} {where}"
-    return f"uploaded logo/artwork {where}"
+        return f"a {_shape_phrase(el)} on the {_FACE_LABEL.get(face, face)}"
+    return element_label(el, face)
 
 
 def canvas_to_elements(canvas_design: dict) -> tuple[list[dict], str]:

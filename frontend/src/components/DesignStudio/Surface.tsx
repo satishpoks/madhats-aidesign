@@ -170,7 +170,7 @@ export function DesignStudioSurface() {
     const file = e.target.files?.[0]
     if (!file || !sessionId) return
     try {
-      const { asset_url } = await uploadLogo(sessionId, file)
+      const { asset_url, asset_path } = await uploadLogo(sessionId, file)
       // Read the image's natural aspect so it inserts undistorted (preserved
       // until the user resizes it themselves). Fall back to square if it can't load.
       let aspect = 1
@@ -178,7 +178,7 @@ export function DesignStudioSurface() {
         const img = await loadImage(asset_url)
         if (img.naturalWidth && img.naturalHeight) aspect = img.naturalWidth / img.naturalHeight
       } catch { /* keep square default */ }
-      addImage(asset_url, aspect)
+      addImage(asset_url, aspect, asset_path)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
     }

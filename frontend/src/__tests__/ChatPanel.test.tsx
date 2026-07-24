@@ -20,6 +20,7 @@ vi.mock('../lib/api', () => ({
   fetchProduct: vi.fn(),
   uploadLogo: vi.fn().mockResolvedValue({
     asset_url: 'https://cdn.example.com/logo.png',
+    asset_path: 'uploads/logo-abc123',
     asset_hash: 'abc123',
   }),
   addPin: vi.fn().mockResolvedValue({ pin_id: 'pin-1' }),
@@ -103,6 +104,7 @@ beforeEach(() => {
   })
   vi.mocked(uploadLogo).mockResolvedValue({
     asset_url: 'https://cdn.example.com/logo.png',
+    asset_path: 'uploads/logo-abc123',
     asset_hash: 'abc123',
   })
   vi.mocked(addPin).mockResolvedValue({ pin_id: 'pin-1' })
@@ -700,7 +702,7 @@ describe('ChatPanel logo upload', () => {
     let resolveUpload!: () => void
     vi.mocked(uploadLogo).mockReturnValue(
       new Promise(res => {
-        resolveUpload = () => res({ asset_url: 'https://cdn.example.com/logo.png', asset_hash: 'abc' })
+        resolveUpload = () => res({ asset_url: 'https://cdn.example.com/logo.png', asset_path: 'uploads/logo-abc', asset_hash: 'abc' })
       }),
     )
 

@@ -309,6 +309,20 @@ export interface SessionLead {
   created_at: string
 }
 
+export interface CanvasFaceElement {
+  kind: 'image' | 'text' | 'graphic' | 'drawing' | 'other'
+  url?: string | null
+  download_name?: string
+  text?: string
+}
+
+export interface CanvasFace {
+  face: string
+  preview_url: string | null
+  layout_url: string | null
+  elements: CanvasFaceElement[]
+}
+
 export interface SessionDetail {
   id: string
   store_id: string | null
@@ -326,6 +340,8 @@ export interface SessionDetail {
   messages: ChatMessage[]
   generations: SessionGeneration[]
   leads: SessionLead[]
+  canvas_design: Record<string, unknown> | null
+  canvas_faces: CanvasFace[]
 }
 
 export interface GenerationLog {

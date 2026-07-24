@@ -17,8 +17,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, require_super
 from app.config import settings
 from app.db import get_supabase
+from app.services import canvas_describe
+from app.services import prompt_builder
 from app.services.products import get_product
-from app.storage import media_url
+from app.storage import media_url, path_from_signed_url
 
 router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin_ctx)])
 
@@ -121,6 +123,55 @@ async def list_sessions(
     return {"items": items, "total": res.count or 0, "limit": limit, "offset": offset}
 
 
+def _resolve_element_media(el: dict, request: Request) -> str | None:
+    """A canvas image element -> a /media proxy URL (or external passthrough).
+    assetPath -> proxy; else recover path from an expired signed assetUrl; else
+    pass through an http/media URL; else None."""
+    path = el.get("assetPath") or path_from_signed_url(el.get("assetUrl"))
+    if path:
+        return media_url(path, str(request.base_url))
+    url = el.get("assetUrl")
+    return url if url and url.startswith("http") else None
+
+
+def _build_canvas_faces(session: dict, request: Request) -> list[dict]:
+    design = session.get("canvas_design") or {}
+    faces_src = design.get("faces") or {}
+    collected = session.get("collected") or {}
+    previews = collected.get("canvas_previews") or {}
+    layouts = collected.get("canvas_layouts") or {}
+    out: list[dict] = []
+    for face in prompt_builder.RENDER_VIEW_ORDER:
+        els_src = sorted(faces_src.get(face) or [], key=lambda e: e.get("zIndex", 0))
+        has_preview = bool(previews.get(face) or layouts.get(face))
+        if not els_src and not has_preview:
+            continue
+        elements: list[dict] = []
+        img_n = 0
+        for el in els_src:
+            if el.get("type") == "image":
+                url = _resolve_element_media(el, request)
+                if not url:
+                    continue
+                img_n += 1
+                elements.append({
+                    "kind": "image",
+                    "url": url,
+                    "download_name": f"{face}-upload-{img_n}.png",
+                    "text": canvas_describe.element_label(el),
+                })
+            else:
+                kind = {"text": "text", "shape": "graphic", "drawing": "drawing"}.get(el.get("type"), "other")
+                elements.append({"kind": kind, "text": canvas_describe.element_label(el)})
+        out.append({
+            "face": face,
+            "preview_url": media_url(previews.get(face), str(request.base_url)),
+            "layout_url": media_url(layouts.get(face), str(request.base_url)),
+            "elements": elements,
+        })
+    return out
+
+
 @router.get("/admin/sessions/{session_id}")
 async def get_session_detail(
     session_id: str,
@@ -189,6 +240,8 @@ async def get_session_detail(
         "messages": msgs.data or [],
         "generations": generations,
         "leads": leads.data or [],
+        "canvas_design": session.get("canvas_design"),
+        "canvas_faces": _build_canvas_faces(session, request),
     }
 
 

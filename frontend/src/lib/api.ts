@@ -132,10 +132,10 @@ export function pollGenerationAdvance(sessionId: string): Promise<VerificationPo
 export function uploadLogo(
   sessionId: string,
   file: File,
-): Promise<{ asset_url: string; asset_hash: string }> {
+): Promise<{ asset_url: string; asset_path: string; asset_hash: string }> {
   const formData = new FormData()
   formData.append('file', file)
-  return request<{ asset_url: string; asset_hash: string }>(`/uploads/logo/${sessionId}`, {
+  return request<{ asset_url: string; asset_path: string; asset_hash: string }>(`/uploads/logo/${sessionId}`, {
     method: 'POST',
     body: formData,
   })
