@@ -93,3 +93,66 @@ def test_proxy_fetch_failure_502(client, monkeypatch):
     resp = client.get(f"/media/{token}")
 
     assert resp.status_code == 502
+
+
+# --- CORS: the proxy is a token-authorised, credential-free PUBLIC endpoint ---
+# It serves <img> tags in emails and the widget embedded on arbitrary Shopify
+# store origins, and is fetched for download from the admin panel on a DIFFERENT
+# port than the backend. It must therefore emit its own Access-Control-Allow-Origin,
+# not rely on the global CORS allow-list (which omits those origins). Display works
+# cross-origin without CORS, but fetch()-based download does not.
+
+
+def _media_app(cfg):
+    """A minimal app mirroring main.py's CORS wiring + the media router."""
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
+
+    from app.api.routes import media
+    from app.main import build_cors_kwargs
+
+    app = FastAPI()
+    app.add_middleware(CORSMiddleware, **build_cors_kwargs(cfg))
+    app.include_router(media.router)
+    return app
+
+
+def _stub_fetch(monkeypatch):
+    from app.api.routes import media
+
+    monkeypatch.setattr(media, "generate_signed_url", lambda p: "http://x/y")
+    monkeypatch.setattr(media, "_fetch_image_bytes", lambda url: b"\x89PNG")
+
+
+def test_proxy_sets_acao_for_origin_not_in_allowlist(monkeypatch):
+    """A locked ALLOWED_ORIGINS list omits the Shopify widget / admin-port origin;
+    the proxy still returns ACAO:* so the browser allows the download fetch."""
+    from app.config import Settings
+
+    _stub_fetch(monkeypatch)
+    app = _media_app(Settings(allowed_origins="https://madhats.com.au"))
+    token = storage.make_media_token("generated/final/x.png")
+
+    resp = TestClient(app).get(
+        f"/media/{token}", headers={"Origin": "https://some-shop.myshopify.com"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get_list("access-control-allow-origin") == ["*"]
+
+
+def test_proxy_acao_not_duplicated_when_global_cors_also_sets_it(monkeypatch):
+    """With the default open CORS the global middleware also emits ACAO; the
+    proxy's own header must not produce a second (browsers reject two ACAOs)."""
+    from app.config import Settings
+
+    _stub_fetch(monkeypatch)
+    app = _media_app(Settings(allowed_origins="*"))
+    token = storage.make_media_token("generated/final/x.png")
+
+    resp = TestClient(app).get(
+        f"/media/{token}", headers={"Origin": "https://some-shop.myshopify.com"}
+    )
+
+    assert resp.status_code == 200
+    assert len(resp.headers.get_list("access-control-allow-origin")) == 1
