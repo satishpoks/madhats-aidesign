@@ -599,14 +599,14 @@ git commit -m "feat(canvas): de-emphasise upload button highlight, keep unlock (
 **Interfaces:**
 - N/A (copy strings).
 
-- [ ] **Step 1 — Record the boundary (no code).** A4 ("uploads read as 'image or logo'") is **backend-owned** and out of scope for this frontend workstream. The Backend agent updates:
+- [x] **Step 1 — Record the boundary (no code).** A4 ("uploads read as 'image or logo'") is **backend-owned** and out of scope for this frontend workstream. The Backend agent updates:
   - `backend/app/prompts.py` — `V2_TOOL_TIPS["upload"]`: "to add your logo" → "to add your image or logo".
   - `backend/app/services/conversation/canvas_steps.py` — step `ask` copy referencing "logo" where a general image is also valid (`LOGO_ADJUST`, `ASK_LOGO_BG`, `ASK_ANOTHER_LOGO` as appropriate).
   - `backend/app/services/conversation/intent_extractor.py` — `_SLOT_DOCS` logo-slot descriptions.
 
-- [ ] **Step 2 — Confirm the frontend button label is already correct.** The on-screen tool button label in `frontend/src/components/DesignStudio/ToolRail.tsx` (line 54) is already the generic **"↑ Upload image"**, and `frontend/src/__tests__/ToolRail.test.tsx` asserts the literal `/upload image/i`. **Do not change the button label** — it stays "Upload image". No frontend code or test change is required for A4.
+- [x] **Step 2 — Confirm the frontend button label is already correct.** The on-screen tool button label in `frontend/src/components/DesignStudio/ToolRail.tsx` (line 54) is already the generic **"↑ Upload image"**, and `frontend/src/__tests__/ToolRail.test.tsx` asserts the literal `/upload image/i`. **Do not change the button label** — it stays "Upload image". No frontend code or test change is required for A4.
 
-- [ ] **Step 3 — No commit (nothing changed in frontend).** If tracking is desired, note the hand-off in the workstream ledger / PR description; do not create an empty frontend commit.
+- [x] **Step 3 — No commit (nothing changed in frontend).** If tracking is desired, note the hand-off in the workstream ledger / PR description; do not create an empty frontend commit.
 
 ---
 
