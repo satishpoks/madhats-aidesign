@@ -328,6 +328,26 @@ def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_hea
     assert row["canvas_design"] == design
 
 
+def test_v2_finalize_converges_the_quote_confirmation(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    """Finalize is the THIRD convergence point for the quote confirmation
+    (C2/C3). The canvas — elements, layout guides, previews — only exists as of
+    this write, and the sales email attaches them; a customer who verified early
+    must get their components-complete email from here, not from the earlier
+    REQUEST_QUOTE converge."""
+    monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
+    calls = []
+    from app.services import delivery
+    monkeypatch.setattr(delivery, "maybe_send_quote_confirmation",
+                        lambda sid: calls.append(sid) or True)
+
+    design = {"faces": {"front": [], "back": [], "left": [], "right": []}}
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": design},
+                    headers=seeded_store_headers)
+    assert r.status_code == 200
+    assert calls == [canvas_session_id]
+
+
 def test_canvas_request_entry_path_defaults_non_null():
     """Regression: design_sessions.entry_path is NOT NULL, so the create request
     must default entry_path to a non-null marker (the mocked-supabase route tests

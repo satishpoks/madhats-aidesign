@@ -3,6 +3,7 @@ from __future__ import annotations
 import secrets
 import uuid
 
+import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.api.deps import require_store
@@ -25,6 +26,7 @@ from app.services.products import get_product
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 
 router = APIRouter(tags=["sessions"])
+log = structlog.get_logger()
 
 _VALID_FACES = {"front", "back", "left", "right"}
 
@@ -288,6 +290,18 @@ async def finalize_canvas(
         sb.table("design_sessions").update(
             {"canvas_design": body.canvas_design, "collected": collected, "state": new_state.value}
         ).eq("id", session_id).execute()
+        # Third convergence point (C2/C3). The canvas — elements, layout guides,
+        # previews — only exists as of this write, and the sales email attaches
+        # them. If the customer already verified, this is the call that actually
+        # sends; otherwise it no-ops and verification sends. Idempotent + best
+        # effort: a send must never fail the finalize the customer is waiting on.
+        try:
+            from app.services import delivery
+
+            delivery.maybe_send_quote_confirmation(session_id)
+        except Exception as exc:  # noqa: BLE001
+            log.error("quote_confirmation_failed_at_finalize",
+                      session_id=session_id, error_type=type(exc).__name__)
         return {
             "reply": reply,
             "state": new_state.value,

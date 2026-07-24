@@ -438,15 +438,21 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
     """Send the customer reference email + sales notification, once. Idempotent.
 
     Gates (ALL required): a lead exists, email_verified, quote_requested, a
-    reference_code is allocated, and quote_confirmation_sent is False. On success
-    the customer is emailed their reference (no design image) and sales is emailed
-    a summary with every uploaded component attached, then the dedup flag is set.
+    reference_code is allocated, the session's canvas has been FINALIZED, and
+    quote_confirmation_sent is False. On success the customer is emailed their
+    reference (no design image) and sales is emailed a summary with every
+    uploaded component attached, then the dedup flag is set.
 
-    This is the quote-gated analogue of maybe_send_preview: the two async tracks
-    (explicit quote request + email verification) converge here, whichever
-    finishes last. Best-effort sends; the flag is set only after the customer
-    email dispatches, so a failed run stays retriable. PII-safe: session/lead ids
-    only.
+    This is the quote-gated analogue of maybe_send_preview: the async tracks
+    (explicit quote request, email verification, canvas finalize) converge here,
+    whichever finishes last — every one of them calls this. The canvas_finalized
+    gate is load-bearing: REQUEST_QUOTE runs BEFORE canvas-finalize persists the
+    elements/layout guides/previews, so a customer who verified early would
+    otherwise trigger the one-and-only sales email with NO components attached,
+    and the dedup flag would stop a better one ever being sent.
+
+    Best-effort sends; the flag is set only after the customer email dispatches,
+    so a failed run stays retriable. PII-safe: session/lead ids only.
     """
     # Local imports: `components` is only needed here, and `stores` would be a
     # module-level cycle. `email_service`/`storage` are already module-level.
@@ -469,6 +475,10 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
     )
     session = session_res.data[0] if session_res.data else {}
     collected = session.get("collected") or {}
+    if not collected.get("canvas_finalized"):
+        # The design isn't persisted yet — sending now would attach nothing and
+        # the dedup flag would make it permanent. The finalize route re-calls us.
+        return False
 
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     brand = (store or {}).get("brand") or {}

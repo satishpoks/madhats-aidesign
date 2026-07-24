@@ -111,7 +111,8 @@ def _quote_tables(**over):
             "quote_confirmation_sent": False, "created_at": "2026-07-24T00:00:00Z"}
     lead.update(over.get("lead", {}))
     session = {"id": "sess-1", "store_id": "store-1",
-               "collected": {"quote_requested": True, "quantity": 24,
+               "collected": {"quote_requested": True, "canvas_finalized": True,
+                             "quantity": 24,
                              "uploaded_asset_path": "uploads/logo.png"}}
     return {"leads": [lead], "design_sessions": [session],
             "generations": over.get("generations", [])}, lead
@@ -147,3 +148,22 @@ def test_quote_confirmation_requires_verified_and_requested(monkeypatch):
     fake = _FakeSB(tables)
     monkeypatch.setattr(delivery, "get_supabase", lambda: fake)
     assert delivery.maybe_send_quote_confirmation("sess-1") is False
+
+
+def test_quote_confirmation_waits_for_the_canvas_to_be_finalized(monkeypatch):
+    """REQUEST_QUOTE happens BEFORE canvas-finalize, so a customer who verifies
+    early would otherwise trigger the one-and-only sales email while the canvas
+    (elements + layout guides + previews) is not yet persisted — sales would get
+    an attachment-less email and, because the send is deduped, never a better
+    one. The send must wait for canvas_finalized."""
+    tables, lead = _quote_tables()
+    tables["design_sessions"][0]["collected"] = {"quote_requested": True}   # not finalized
+    fake = _FakeSB(tables)
+    monkeypatch.setattr(delivery, "get_supabase", lambda: fake)
+    sent = []
+    from app.services import email as email_service
+    monkeypatch.setattr(email_service, "send_quote_reference_email",
+                        lambda *a, **k: sent.append(a) or True)
+    assert delivery.maybe_send_quote_confirmation("sess-1") is False
+    assert sent == []
+    assert lead["quote_confirmation_sent"] is False   # stays retriable
