@@ -234,3 +234,32 @@ async def test_v2_bg_chip_ships_an_op_to_the_canvas(monkeypatch):
         {"target": {"kind": "pending_logo", "face": "front"},
          "patch": {"removeBg": True}}
     ]
+
+
+@pytest.mark.asyncio
+async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
+    """B3 voice path: a dictated/transcribed custom date is free text, so it
+    flows through the interpreter into the needed_by slot — no chip tapped — and
+    advances ASK_PURPOSE. Chip labels from transcribed text are already covered
+    by test_full_v2_walk_using_the_exact_chip_labels."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "quantity": 12,
+        "decoration_done": True, "email_captured": True,
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    async def _fill(step, message, collected):
+        assert step.id is S.NEEDED_BY
+        return {"needed_by": "the 15th of next month"}
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _fill)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+    res = await o2.handle_message("s1", "I'd need them by the 15th of next month")
+    assert res["state"] == S.ASK_PURPOSE.value
+    assert store["session"]["collected"]["needed_by"] == "the 15th of next month"

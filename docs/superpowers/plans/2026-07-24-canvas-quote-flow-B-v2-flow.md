@@ -374,7 +374,7 @@ EOF
 
 B3 is a verification obligation, not a new mechanism: voice answers become text that flows through the interpreter into slots, and chip labels are matched from transcribed text (already covered by Task 3's chip walk). This task adds the free-text half and records the manual voice result.
 
-- [ ] **Step 1 (failing test — interpreter passes a free-text date):** Add to `backend/tests/test_intent_extractor_v2.py`:
+- [x] **Step 1 (failing test — interpreter passes a free-text date):** Add to `backend/tests/test_intent_extractor_v2.py`:
 
 ```python
 def test_validate_passes_a_free_text_needed_by():
@@ -386,10 +386,10 @@ def test_validate_passes_a_free_text_needed_by():
     }
 ```
 
-- [ ] **Step 2 (run → PASS immediately):** `pytest tests/test_intent_extractor_v2.py::test_validate_passes_a_free_text_needed_by -v`
+- [x] **Step 2 (run → PASS immediately):** `pytest tests/test_intent_extractor_v2.py::test_validate_passes_a_free_text_needed_by -v`
   - Expected: `1 passed`. (This test only fails if `needed_by` was never added to `WRITABLE_SLOTS` in Task 3 — running it here is the guard that the slot is genuinely interpreter-writable, not enum-locked.)
 
-- [ ] **Step 3 (failing test — free-text/voice e2e walk):** Add to `backend/tests/test_v2_e2e.py`:
+- [x] **Step 3 (failing test — free-text/voice e2e walk):** Add to `backend/tests/test_v2_e2e.py`:
 
 ```python
 @pytest.mark.asyncio
@@ -421,34 +421,34 @@ async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
     assert store["session"]["collected"]["needed_by"] == "the 15th of next month"
 ```
 
-- [ ] **Step 4 (run → PASS):** `pytest tests/test_v2_e2e.py::test_needed_by_accepts_a_free_text_date_voice_path -v`
+- [x] **Step 4 (run → PASS):** `pytest tests/test_v2_e2e.py::test_needed_by_accepts_a_free_text_date_voice_path -v`
   - Expected: `1 passed`. (Fails only if the `Step` or slot wiring from Task 3 is incomplete — `merge_fields` keeps `needed_by` because it is the current step's own slot, and `next_step` then advances to `ASK_PURPOSE`.)
 
-- [ ] **Step 5 (full-file confirmation):**
+- [x] **Step 5 (full-file confirmation):**
 ```bash
 pytest tests/test_intent_extractor_v2.py tests/test_v2_e2e.py -q
 ```
   - Expected: all pass.
 
-- [ ] **Step 6 (baseline gate — flag off, full suite):** confirm nothing else regressed under the baseline configuration:
+- [x] **Step 6 (baseline gate — flag off, full suite):** confirm nothing else regressed under the baseline configuration:
 ```bash
 CANVAS_ORCHESTRATOR_V2=false pytest -q
 ```
   - Expected: the whole backend suite green (0 failed).
 
-- [ ] **Step 7 (baseline gate — flag on):** the repo-root `.env` defaults `CANVAS_ORCHESTRATOR_V2=true`; run the v2-owning files under it to confirm parity:
+- [x] **Step 7 (baseline gate — flag on):** the repo-root `.env` defaults `CANVAS_ORCHESTRATOR_V2=true`; run the v2-owning files under it to confirm parity:
 ```bash
 pytest tests/test_canvas_steps.py tests/test_state_machine_v2.py tests/test_orchestrator_v2.py tests/test_v2_e2e.py tests/test_intent_extractor_v2.py -q
 ```
   - Expected: all pass.
 
-- [ ] **Step 8 (manual voice pass — no code):** Run a live canvas session (`?mode=blank` or `?product_id=…`) with `CANVAS_ORCHESTRATOR_V2=true` and a valid `ANTHROPIC_API_KEY`. Walk to the "When do you need these by?" step and verify, using voice-dictated (speech-to-text) input:
+- [ ] (NOT DONE — no live stack: Docker not running) **Step 8 (manual voice pass — no code):** Run a live canvas session (`?mode=blank` or `?product_id=…`) with `CANVAS_ORCHESTRATOR_V2=true` and a valid `ANTHROPIC_API_KEY`. Walk to the "When do you need these by?" step and verify, using voice-dictated (speech-to-text) input:
   - Tapping a chip ("ASAP" / "2–4 weeks" / "1–2 months" / "Just exploring") advances to the purpose question and banks `needed_by`.
   - Dictating a custom date ("I need them by the end of March") is transcribed to text, fills `needed_by`, and advances.
   - The "Step X of N" counter reads one higher than before this change (9 total) and stays steady across the step.
   - Record the outcome (pass/fail + notes) in the PR description. This is a checklist item, not an automated test.
 
-- [ ] **Step 9 (commit):**
+- [x] **Step 9 (commit):**
 ```bash
 git add backend/tests/test_intent_extractor_v2.py backend/tests/test_v2_e2e.py
 git commit -m "$(cat <<'EOF'
