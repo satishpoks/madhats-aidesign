@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx
 from app.db import get_supabase
 from app.models.submission import (
     CreateSubmissionRequest,
@@ -15,6 +15,16 @@ from app.models.submission import (
 
 router = APIRouter(tags=["submissions"])
 log = structlog.get_logger()
+
+
+def _store_id_for_submission_session(session_id: str | None) -> str | None:
+    """Resolve a submission's session's store_id (used to scope the cross-store
+    admin listing to a non-super admin's assigned stores)."""
+    if not session_id:
+        return None
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("store_id").eq("id", session_id).limit(1).execute()
+    return res.data[0].get("store_id") if res.data else None
 
 
 @router.post("/submissions", response_model=SubmissionResponse)
@@ -38,8 +48,8 @@ async def create_submission(body: CreateSubmissionRequest) -> SubmissionResponse
     return SubmissionResponse(submission_id=res.data[0]["id"])
 
 
-@router.get("/admin/submissions", dependencies=[Depends(require_admin)])
-async def list_submissions() -> list[dict]:
+@router.get("/admin/submissions")
+async def list_submissions(ctx: AdminContext = Depends(require_admin_ctx)) -> list[dict]:
     sb = get_supabase()
     res = (
         sb.table("approval_submissions")
@@ -47,17 +57,35 @@ async def list_submissions() -> list[dict]:
         .order("created_at", desc=True)
         .execute()
     )
-    return res.data or []
+    rows = res.data or []
+    if not ctx.is_super:
+        allowed = ctx.allowed_store_ids or set()
+        rows = [
+            r for r in rows
+            if _store_id_for_submission_session(r.get("session_id")) in allowed
+        ]
+    return rows
 
 
-@router.patch("/admin/submissions/{submission_id}", dependencies=[Depends(require_admin)])
-async def update_submission(submission_id: str, body: UpdateSubmissionRequest) -> dict:
+@router.patch("/admin/submissions/{submission_id}")
+async def update_submission(
+    submission_id: str,
+    body: UpdateSubmissionRequest,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     sb = get_supabase()
     existing = (
-        sb.table("approval_submissions").select("id").eq("id", submission_id).limit(1).execute()
+        sb.table("approval_submissions")
+        .select("id, session_id")
+        .eq("id", submission_id)
+        .limit(1)
+        .execute()
     )
     if not existing.data:
         raise HTTPException(status_code=404, detail="Submission not found")
+
+    store_id = _store_id_for_submission_session(existing.data[0].get("session_id"))
+    assert_store_allowed(ctx, store_id)
 
     sb.table("approval_submissions").update(
         {

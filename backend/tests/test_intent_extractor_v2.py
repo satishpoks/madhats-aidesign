@@ -135,3 +135,12 @@ async def test_interpret_failure_never_logs_the_exception_text(monkeypatch):
             await ie.interpret_turn_v2(cs.by_id(S.ASK_EMAIL), "sam@example.com", {})
     assert logs, "expected a warning to be emitted"
     assert "sam@example.com" not in repr(logs)
+
+
+def test_validate_passes_a_free_text_needed_by():
+    # needed_by is NOT in SLOT_ENUMS (a custom date is valid), so a free-text
+    # value must pass validate_fields untouched — that is how a dictated date
+    # reaches collected.
+    assert ie.validate_fields({"needed_by": "the 15th of March"}) == {
+        "needed_by": "the 15th of March"
+    }

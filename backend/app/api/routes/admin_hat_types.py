@@ -4,7 +4,7 @@ from __future__ import annotations
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
-from app.api.deps import require_admin, require_store
+from app.api.deps import AdminContext, assert_store_allowed, require_admin, require_admin_ctx, require_store
 from app.models.hat_type import CreateHatTypeRequest, HatTypeAdmin, UpdateHatTypeRequest
 from app.services import hat_types as svc
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
@@ -23,22 +23,36 @@ def _with_view_images(row: dict, base_url: str) -> dict:
 
 
 @router.post("/admin/hat-types", response_model=HatTypeAdmin)
-async def create_hat_type(body: CreateHatTypeRequest, store: dict = Depends(require_store)) -> dict:
+async def create_hat_type(
+    body: CreateHatTypeRequest,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
+    assert_store_allowed(ctx, store["id"])
     payload = body.model_dump()
     payload["colours"] = [c if isinstance(c, dict) else c.model_dump() for c in payload.get("colours", [])]
     return svc.create_hat_type(store["id"], payload)
 
 
 @router.get("/admin/hat-types", response_model=list[HatTypeAdmin])
-async def list_hat_types(request: Request, store: dict = Depends(require_store)) -> list[dict]:
+async def list_hat_types(
+    request: Request,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> list[dict]:
+    assert_store_allowed(ctx, store["id"])
     base = str(request.base_url)
     return [_with_view_images(row, base) for row in svc.list_hat_types(store["id"])]
 
 
 @router.patch("/admin/hat-types/{hat_type_id}", response_model=HatTypeAdmin)
 async def update_hat_type(
-    hat_type_id: str, body: UpdateHatTypeRequest, store: dict = Depends(require_store)
+    hat_type_id: str,
+    body: UpdateHatTypeRequest,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
+    assert_store_allowed(ctx, store["id"])
     patch = {k: v for k, v in body.model_dump().items() if v is not None}
     if "colours" in patch:
         patch["colours"] = [c if isinstance(c, dict) else dict(c) for c in patch["colours"]]
@@ -54,7 +68,12 @@ async def update_hat_type(
 
 
 @router.delete("/admin/hat-types/{hat_type_id}")
-async def delete_hat_type(hat_type_id: str, store: dict = Depends(require_store)) -> dict:
+async def delete_hat_type(
+    hat_type_id: str,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
+    assert_store_allowed(ctx, store["id"])
     row = svc.get_hat_type(hat_type_id, store_id=store["id"])
     if row is None:
         raise HTTPException(status_code=404, detail="Hat type not found")
@@ -69,7 +88,9 @@ async def upload_angle(
     view: str,
     file: UploadFile = File(...),
     store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
+    assert_store_allowed(ctx, store["id"])
     row = svc.get_hat_type(hat_type_id, store_id=store["id"])
     if row is None:
         raise HTTPException(status_code=404, detail="Hat type not found")

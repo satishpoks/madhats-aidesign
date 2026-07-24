@@ -21,11 +21,11 @@ export function StoreHeader({ subtitle }: { subtitle?: string }) {
       {brand.logo_url ? (
         <img src={brand.logo_url} alt={storeName || 'MAD HATS'} className="h-16 w-auto object-contain" />
       ) : (
-        <span className="text-accent font-extrabold text-lg tracking-wide">
+        <span className="font-extrabold text-lg tracking-wide">
           {storeName || 'MAD HATS'}
         </span>
       )}
-      {subtitle && <span className="text-sm opacity-70 truncate">{subtitle}</span>}
+      {subtitle && <span className="text-sm truncate">{subtitle}</span>}
       {menu.length > 0 && (
         <nav className="ml-auto flex items-center gap-4 overflow-x-auto">
           {menu.map((m, i) => (
@@ -34,7 +34,7 @@ export function StoreHeader({ subtitle }: { subtitle?: string }) {
               href={m.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium hover:text-accent whitespace-nowrap"
+              className="text-sm font-medium hover:opacity-70 whitespace-nowrap"
             >
               {m.label}
             </a>

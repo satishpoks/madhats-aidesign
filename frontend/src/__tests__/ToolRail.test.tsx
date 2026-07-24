@@ -77,13 +77,13 @@ test('only allowed tool is enabled and highlighted', () => {
     <ToolRail
       onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
       colourways={[]} onRender={() => {}} rendering={false} rendered={false}
-      allowedTools={new Set(['upload'])} highlightTool="upload" />,
+      allowedTools={new Set(['text'])} highlightTool="text" />,
   )
-  const upload = screen.getByText('↑ Upload image')
   const text = screen.getByText('+ Add text')
-  expect(upload).not.toBeDisabled()
-  expect(text).toBeDisabled()
-  expect(upload.className).toMatch(/animate-pulse|ring-2/)
+  const upload = screen.getByText('↑ Upload image')
+  expect(text).not.toBeDisabled()
+  expect(upload).toBeDisabled()
+  expect(text.className).toMatch(/animate-pulse|ring-2/)
 })
 
 test('IMPORTANT 4: Draw + cap-colour are disabled in v2 even though neither is a `Tool`', () => {

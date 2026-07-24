@@ -76,6 +76,15 @@ class Step:
     # record for the same reason as `prepare`: the alternative is an
     # `if step.id is ASK_LOGO_BG` branch in the orchestrator.
     ops: Callable[[dict, dict], list[dict]] | None = None
+    # Extra keys (beyond `slots`) a deliberate Back gesture may clear to
+    # re-open this step. Needed for steps that gate on a derived flag rather
+    # than a writable slot directly — e.g. ASK_DECORATION reads
+    # `decoration_done` (set by `_apply_decoration`, not a slot itself), so
+    # clearing only its writable slots never flips its done_when.
+    # `email_captured`/`quote_requested` and any other terminal flag must
+    # NEVER appear here — Back must not be able to un-verify email or
+    # un-submit a quote. See test_no_step_back_clears_email_captured_or_quote_requested.
+    back_clears: tuple[str, ...] = ()
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -90,6 +99,23 @@ def _pending(c: dict) -> dict:
 
 def _logos_open(c: dict) -> bool:
     return not c.get("logos_done")
+
+
+def _has_first_element(c: dict) -> bool:
+    """True once the customer has placed their first design element — a logo
+    (pending placed, or banked into `logos`) or a text/shape (`decor_placed`).
+    Gates the email ask so it rides the first placement, not the intro."""
+    return (bool(c.get("logos"))
+            or bool(_pending(c).get("placed"))
+            or bool(c.get("decor_placed")))
+
+
+def _design_phase_done(c: dict) -> bool:
+    """Both design loops closed (logo loop + decor loop). Used as the email
+    backstop: even a customer who placed NOTHING must be asked for their email
+    once the design phase is over, or FINALIZE_CANVAS becomes reachable with no
+    captured lead."""
+    return bool(c.get("logos_done")) and bool(c.get("decor_done"))
 
 
 # --- apply hooks --------------------------------------------------------------
@@ -326,6 +352,31 @@ def _apply_decoration_mix(c: dict, f: dict, s: dict) -> None:
     c["decoration_type"] = _decoration_style_bucket(note)
 
 
+def _apply_review(c: dict, f: dict, s: dict) -> None:
+    """Confirm ends the review; rework reopens the canvas. Tapping rework must
+    clear any prior confirm; the two flags are mutually exclusive per turn."""
+    if f.get("design_confirmed"):
+        c.pop("design_rework", None)
+    elif f.get("design_rework"):
+        c.pop("design_confirmed", None)
+
+
+def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
+    """Record the explicit quote request and stash the reference for on-screen.
+
+    The lead already exists (email was captured at ASK_EMAIL). Recording mints
+    the tracking reference, marks the lead, and best-effort converges with the
+    verification track. `quote_requested` on `collected` is what satisfies
+    done_when; `reference_code` is surfaced to the customer immediately.
+    """
+    if not f.get("quote_requested"):
+        return
+    code = leads_service.record_quote_request(s, c)
+    if code:
+        c["reference_code"] = code
+    c["quote_requested"] = True
+
+
 # --- direct answers ------------------------------------------------------------
 # Used ONLY when the interpreter is unavailable (see Step.direct_answer). For
 # these three steps the answer IS the message — no interpretation needed, and
@@ -446,6 +497,23 @@ REGISTRY: tuple[Step, ...] = (
         face_target=True,
     ),
     Step(
+        id=S.ASK_EMAIL,
+        ask=("Love where this is going, {name}! While you keep designing, could "
+             "I grab your email so I can save your progress and send your "
+             "finished design over?"),
+        slots=("email",),
+        apply=_apply_email,
+        direct_answer=_direct_email,
+        # Skipped ONLY while the customer is still early in design with nothing
+        # placed. Fires the moment either (a) a first element is placed — the
+        # humble mid-design ask — or (b) the design phase closes with nothing
+        # placed (decline-everything path), so FINALIZE stays unreachable
+        # without a captured lead on EVERY path. `email_captured` is set only by
+        # _apply_email (not writable), so the interpreter can't fake it.
+        done_when=lambda c: bool(c.get("email_captured")) or (
+            not _has_first_element(c) and not _design_phase_done(c)),
+    ),
+    Step(
         id=S.ASK_ANOTHER_LOGO,
         ask="Locked that in. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),
@@ -539,6 +607,12 @@ REGISTRY: tuple[Step, ...] = (
         apply=_apply_decoration,
         # A mix IS an answer to this step; ASK_DECORATION_MIX asks what it is.
         done_when=lambda c: bool(c.get("decoration_done") or c.get("decoration_mix")),
+        # `decoration_done`/`decoration_type` are derived flags `_apply_decoration`
+        # sets, not writable slots — Back needs to clear them too, or re-opening
+        # this step via `last_answered_step`/`handle_back` would never flip
+        # done_when back to False. `decoration_options` (store-loaded by
+        # `prepare`) is deliberately NOT cleared — it isn't an answer.
+        back_clears=("decoration_done", "decoration_type"),
     ),
     Step(
         id=S.ASK_DECORATION_MIX,
@@ -561,16 +635,28 @@ REGISTRY: tuple[Step, ...] = (
                              or bool(c.get("decoration_mix_note"))),
     ),
     Step(
-        id=S.ASK_EMAIL,
-        ask="What's the best email to send your design preview to?",
-        slots=("email",),
-        apply=_apply_email,
-        direct_answer=_direct_email,
-        # `email_captured` is set ONLY by _apply_email after a real
-        # capture_lead_and_verify, and is not a writable slot — so the
-        # interpreter cannot fake it and FINALIZE_CANVAS cannot be reached
-        # without a captured lead.
-        done_when=lambda c: bool(c.get("email_captured")),
+        id=S.NEEDED_BY,
+        ask="When do you need these by?",
+        # Each label carries its own meaning field — a chip cannot disagree with
+        # itself (see the module docstring). The value stored is the bucket
+        # itself; a typed custom date arrives instead via the interpreter filling
+        # the `needed_by` slot (no chip tapped).
+        chips=(Chip("ASAP", {"needed_by": "ASAP"}),
+               Chip("2–4 weeks", {"needed_by": "2–4 weeks"}),
+               Chip("1–2 months", {"needed_by": "1–2 months"}),
+               Chip("Just exploring", {"needed_by": "Just exploring"})),
+        slots=("needed_by",),
+        # Any non-empty answer satisfies it — including the "Just exploring" defer
+        # chip. No apply/direct_answer: chips carry the buckets, the interpreter
+        # parses typed dates, and the value lives in collected["needed_by"] for
+        # Workstream C to surface in the sales quote summary. Free text, so no
+        # SLOT_ENUMS entry (a custom date must pass validate_fields untouched).
+        #
+        # TRUTHINESS, not presence (unlike `quantity`, where 0 is a real answer).
+        # `needed_by` has no falsy-real value, so a "" written by the interpreter
+        # on an earlier turn would otherwise satisfy the step and silently skip
+        # the question — losing the timeframe sales needs to quote.
+        done_when=lambda c: bool(c.get("needed_by")),
     ),
     Step(
         id=S.ASK_PURPOSE,
@@ -578,6 +664,42 @@ REGISTRY: tuple[Step, ...] = (
         slots=("purpose",),
         direct_answer=_direct_purpose,
         done_when=lambda c: bool(c.get("purpose")),
+    ),
+    Step(
+        id=S.REVIEW_DESIGN,
+        ask=("Before I send this to our team, {name} — take a moment to look "
+             "over your design across all the views. Happy with it, or would "
+             "you like to rework anything?"),
+        chips=(Chip("Looks great, send it", {"design_confirmed": True}),
+               Chip("I'd like to rework it", {"design_rework": True})),
+        slots=("design_confirmed", "design_rework"),
+        apply=_apply_review,
+        # Satisfied while reworking so first-unmet moves to REWORK_CANVAS; only a
+        # real confirm satisfies it for good.
+        done_when=lambda c: bool(c.get("design_confirmed") or c.get("design_rework")),
+    ),
+    Step(
+        id=S.REWORK_CANVAS,
+        ask=("Go ahead — tweak anything you like on the canvas, then press Done "
+             "and I'll bring you back to the review."),
+        chips=(Chip("Done", {"design_rework": False}),),
+        slots=("design_rework",),
+        # Unmet only while reworking. `design_rework` is this step's own slot, so
+        # clearing it (truthy->falsy) is the allowed answer per merge_fields.
+        done_when=lambda c: not c.get("design_rework"),
+        tool="rework",                         # sentinel: unlock-all directive (B2)
+        tip=None,                              # no single-tool tip applies here
+        instructions=prompts.V2_REWORK_INSTRUCTIONS,
+        show_done=True,
+    ),
+    Step(
+        id=S.REQUEST_QUOTE,
+        ask=("Your design's ready to go, {name}! Tap below to send it to our "
+             "team — they'll put together a quote and get back to you."),
+        chips=(Chip("Request a quote", {"quote_requested": True}),),
+        slots=("quote_requested",),
+        apply=_apply_request_quote,
+        done_when=lambda c: bool(c.get("quote_requested")),
     ),
     Step(
         id=S.FINALIZE_CANVAS,
@@ -608,6 +730,28 @@ def chips_of(step: Step, collected: dict) -> tuple[Chip, ...]:
 # deliberately absent — the interpreter must never write it.
 WRITABLE_SLOTS: frozenset[str] = frozenset(
     s for step in REGISTRY for s in step.slots
+)
+
+# --- V3 admin-configurable flow (Workstream D) --------------------------------
+# The curated SAFE SUBSET: the only steps an admin may reorder/disable per store.
+# Each is genuinely independent — its done_when reads only its OWN slot, it has
+# no apply cross-effect, no prepare, no ops, and it belongs to no loop — so no
+# other step's done_when can break when it moves or is dropped. Everything else
+# is dependency-LOCKED and never moves: ASK_NAME, SHOW_INTRO, the logo loop, the
+# decor loop (incl. ASK_ANYTHING_ELSE, which re-opens the loop), ASK_DECORATION
+# (prepare-bearing — its store load may satisfy its own step) with its
+# conditional partner ASK_DECORATION_MIX, ASK_EMAIL (must precede finalize —
+# its conditional plus the design-phase backstop is what keeps FINALIZE_CANVAS
+# unreachable without a captured lead), and FINALIZE_CANVAS itself.
+#
+# `needed_by` is added by Workstream B. Sourcing the set from REGISTRY by id
+# string means a not-yet-merged needed_by simply drops out here rather than
+# raising at import — and becomes configurable for free once B ships it.
+_CONFIGURABLE_STEP_NAMES: frozenset[str] = frozenset(
+    {"ask_quantity", "needed_by", "ask_purpose"}
+)
+CONFIGURABLE_STEP_IDS: frozenset[str] = frozenset(
+    s.id.value for s in REGISTRY if s.id.value in _CONFIGURABLE_STEP_NAMES
 )
 
 SLOT_ENUMS: dict[str, frozenset[str]] = {

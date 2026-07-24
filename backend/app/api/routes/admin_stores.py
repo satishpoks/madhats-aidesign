@@ -10,7 +10,7 @@ import secrets
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, require_super
 from app.db import get_supabase
 from app.models.store import CreateStoreRequest, StoreResponse, SyncResponse, UpdateStoreRequest
 from app.services.branding import validate_brand
@@ -18,7 +18,7 @@ from app.services.catalogue_sync import sync_store_catalogue
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 from app.storage import media_url, upload_asset
 
-router = APIRouter(tags=["admin-stores"], dependencies=[Depends(require_admin)])
+router = APIRouter(tags=["admin-stores"])
 log = structlog.get_logger()
 
 
@@ -27,7 +27,8 @@ def _gen_public_key(slug: str) -> str:
 
 
 @router.post("/admin/stores", response_model=StoreResponse)
-async def create_store(body: CreateStoreRequest) -> dict:
+async def create_store(body: CreateStoreRequest, ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
+    require_super(ctx)
     sb = get_supabase()
     if sb.table("stores").select("id").eq("slug", body.slug).limit(1).execute().data:
         raise HTTPException(status_code=409, detail="slug already exists")
@@ -50,16 +51,21 @@ async def create_store(body: CreateStoreRequest) -> dict:
 
 
 @router.get("/admin/stores")
-async def list_stores() -> list[dict]:
+async def list_stores(ctx: AdminContext = Depends(require_admin_ctx)) -> list[dict]:
     sb = get_supabase()
     res = sb.table("stores").select(
         "id, slug, name, public_key, shopify_domain, status, created_at"
     ).order("created_at").execute()
-    return res.data or []
+    rows = res.data or []
+    if not ctx.is_super:
+        allowed = ctx.allowed_store_ids or set()
+        rows = [r for r in rows if r["id"] in allowed]
+    return rows
 
 
 @router.post("/admin/stores/{store_id}/sync", response_model=SyncResponse)
-async def sync_store(store_id: str) -> dict:
+async def sync_store(store_id: str, ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
+    assert_store_allowed(ctx, store_id)
     sb = get_supabase()
     res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
     if not res.data:
@@ -76,7 +82,10 @@ async def sync_store(store_id: str) -> dict:
 
 
 @router.get("/admin/stores/{store_id}")
-async def get_store_admin(store_id: str, request: Request) -> dict:
+async def get_store_admin(
+    store_id: str, request: Request, ctx: AdminContext = Depends(require_admin_ctx)
+) -> dict:
+    assert_store_allowed(ctx, store_id)
     sb = get_supabase()
     res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
     if not res.data:
@@ -93,7 +102,10 @@ async def get_store_admin(store_id: str, request: Request) -> dict:
 
 
 @router.patch("/admin/stores/{store_id}")
-async def update_store(store_id: str, body: UpdateStoreRequest) -> dict:
+async def update_store(
+    store_id: str, body: UpdateStoreRequest, ctx: AdminContext = Depends(require_admin_ctx)
+) -> dict:
+    assert_store_allowed(ctx, store_id)
     sb = get_supabase()
     existing_res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
     if not existing_res.data:
@@ -123,8 +135,12 @@ async def update_store(store_id: str, body: UpdateStoreRequest) -> dict:
 
 @router.post("/admin/stores/{store_id}/logo")
 async def upload_store_logo(
-    store_id: str, request: Request, file: UploadFile = File(...)
+    store_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
+    assert_store_allowed(ctx, store_id)
     sb = get_supabase()
     res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
     if not res.data:

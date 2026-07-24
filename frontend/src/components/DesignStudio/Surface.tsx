@@ -50,6 +50,7 @@ export function DesignStudioSurface() {
   const toCanvasDesign = useCanvasStore(s => s.toCanvasDesign)
   const lockAll = useCanvasStore(s => s.lockAll)
   const lockPlaced = useCanvasStore(s => s.lockPlaced)
+  const unlockAll = useCanvasStore(s => s.unlockAll)
 
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -88,6 +89,16 @@ export function DesignStudioSurface() {
     if (canvasDirective?.targetFace) setActiveFace(canvasDirective.targetFace as Face)
   }, [canvasDirective?.targetFace, setActiveFace])
 
+  // v2: REWORK_CANVAS reopens a finished (locked) design for editing — unlock
+  // every element so it's draggable/selectable again. Distinct from the
+  // triggerFinalize-based re-open effect below (that one fires on the refine
+  // rework path); this one fires directly off the directive so a review-step
+  // "Rework on the canvas" answer unlocks immediately, independent of
+  // triggerFinalize's state.
+  useEffect(() => {
+    if (canvasDirective?.unlockAll) unlockAll()
+  }, [canvasDirective?.unlockAll, unlockAll])
+
   // v2: auto-open the requested tool dialog once per directive change. Also
   // depends on targetFace (not just autoOpen) so it re-evaluates in lockstep
   // with the face-switch effect above whenever the directive changes either
@@ -122,6 +133,20 @@ export function DesignStudioSurface() {
       // Without this the ref stays true from the first finalize and the
       // re-render is silently swallowed.
       finalizeStarted.current = false
+      // Rework re-open: the canvas is editable again, but every pre-existing
+      // element is still locked:true from the finalize lockAll(). Nothing else
+      // ever clears it, so refined designs render non-draggable/non-selectable
+      // ("not all layers are unlocked"). Unlock them here.
+      //
+      // Guarded on "something is actually locked" because this branch also runs
+      // on every ordinary mount (deps are [triggerFinalize], which starts
+      // false). unlockAll() clears selectedId, so calling it unconditionally
+      // deselects the element the customer is editing and unmounts
+      // SelectedToolbar with it — which would make the background-removal
+      // toggle unreachable at ask_logo_bg. With the guard it is a true no-op
+      // until a finalize has actually locked the canvas.
+      const locked = FACES.some(f => useCanvasStore.getState().faces[f].some(e => e.locked))
+      if (locked) unlockAll()
       return
     }
     if (!finalizeStarted.current) {
@@ -297,6 +322,10 @@ export function DesignStudioSurface() {
             // so it can't be used to jump ahead of the directive walkthrough.
             rendered={isV2 ? true : rendered}
             locked={isV2 ? false : !unlocked}
+            // REWORK_CANVAS: the per-step Done button is the only submit — the
+            // render/"Done designing" button must not be clickable (it would
+            // finalize -> quote prematurely), so hide it entirely.
+            hideRender={canvasDirective?.unlockAll === true}
             allowedTools={allowedTools} highlightTool={highlightTool} />
         </div>
       </div>

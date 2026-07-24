@@ -47,7 +47,7 @@ function Card({ title, action, children }: { title: string; action?: React.React
   )
 }
 
-export function LeadDetailView() {
+export function SessionDetailView() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [detail, setDetail] = useState<SessionDetail | null>(null)
@@ -61,7 +61,7 @@ export function LeadDetailView() {
     if (!id) return
     getSessionDetail(id)
       .then((d) => { if (active) { setDetail(d); setError(null); setActiveGen(0) } })
-      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load lead') })
+      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load session') })
     return () => { active = false }
   }, [id])
 
@@ -108,8 +108,8 @@ export function LeadDetailView() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
-      <button onClick={() => navigate('/admin/leads')} className="text-sm text-[#6b6b80] hover:text-[#1a1a2e]">
-        ← Back to leads
+      <button onClick={() => navigate('/admin/sessions')} className="text-sm text-[#6b6b80] hover:text-[#1a1a2e]">
+        ← Back to sessions
       </button>
 
       {/* Hero */}
@@ -138,7 +138,7 @@ export function LeadDetailView() {
           <Card title={`AI-generated mockups (${generated.length})`}>
             {generated.length === 0 ? (
               <div className="flex h-56 items-center justify-center rounded-lg bg-[#f8f9fa] text-sm text-[#6b6b80]">
-                No images generated for this lead yet.
+                No images generated for this session yet.
               </div>
             ) : (
               <div className="space-y-3">

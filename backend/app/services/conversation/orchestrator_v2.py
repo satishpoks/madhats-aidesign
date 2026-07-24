@@ -31,6 +31,18 @@ from app.services.conversation.state_machine import ConversationState as S
 _NUDGE_AFTER = 2
 
 
+def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
+    """`v2.public_data_for` plus `can_go_back` — whether `Back` currently has
+    anywhere to go. Used everywhere a v2 turn's `data` is built, so the
+    frontend always knows whether to offer the affordance. `config` is the
+    store's canvas_flow (if any) — threaded through so can_go_back is
+    computed over the SAME config-composed registry `next_step` just routed
+    on, not silently the default registry."""
+    data = v2.public_data_for(step, collected)
+    data["can_go_back"] = v2.last_answered_step(collected, config) is not None
+    return data
+
+
 async def handle_message(session_id: str, message: str) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
@@ -46,6 +58,10 @@ async def handle_message(session_id: str, message: str) -> dict:
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
+    # The store's admin-configured step order/on-off for the safe subset (V3).
+    # None for an unconfigured store, which makes the router walk cs.REGISTRY
+    # unchanged. Validated on the way in by branding._validate_canvas_flow.
+    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
     state_before = current.value
 
     if current is S.GREETING:
@@ -56,7 +72,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         step = cs.by_id(S.ASK_NAME)
         reply = v2.reply_for(step, collected, persona=persona, intro=intro)
         return await _persist(sb, session_id, collected, step, reply,
-                              state_before, S.ASK_NAME, user_message="")
+                              state_before, S.ASK_NAME, user_message="",
+                              config=flow_config)
 
     step = cs.by_id(current)
     ack = ""
@@ -74,7 +91,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         except ie.LLMUnavailable:
             if step.direct_answer is None:
                 return await _stall(sb, session_id, collected, step, state_before,
-                                    message)
+                                    message, config=flow_config)
             # The answer IS the message for this step — resolve it deterministically
             # rather than stranding the session. Still validated, still guarded by
             # the step's apply. No ack: the model is down.
@@ -99,14 +116,15 @@ async def handle_message(session_id: str, message: str) -> dict:
     if step.id.value not in asked:
         asked.append(step.id.value)
 
-    next_ = v2.next_step(collected)
+    next_ = v2.next_step(collected, flow_config)
     if next_.prepare:
         # Load whatever the step needs to render (store-scoped chips). prepare
         # may SATISFY its own step — a store with no decoration methods
-        # configured — so re-resolve. One pass is enough: only one step declares
-        # prepare, and a satisfied step routes forward to steps that don't.
+        # configured — so re-resolve under the SAME config. One pass is enough:
+        # only one step declares prepare, and a satisfied step routes forward to
+        # steps that don't.
         next_.prepare(collected, store)
-        next_ = v2.next_step(collected)
+        next_ = v2.next_step(collected, flow_config)
 
     if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
         # Honesty gate: the customer is capped, so pose the quote ask instead of
@@ -121,14 +139,73 @@ async def handle_message(session_id: str, message: str) -> dict:
                               S.QUOTE_REQUESTED, user_message=message, data=data)
 
     reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack)
-    data = v2.public_data_for(next_, collected)
+    if step.id is S.ASK_EMAIL and collected.get("email_captured"):
+        # The double opt-in verification email just went out (from _apply_email).
+        # Prepend a notice so the customer knows to expect it and why — without
+        # this the link arrives unexplained. `fields` still carries the address
+        # (_apply_email pops it from `collected`, not `fields`).
+        addr = fields.get("email") or "your inbox"
+        reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)} {reply}".strip()
+    data = _public(next_, collected, flow_config)
     if canvas_ops:
         data["canvas_ops"] = canvas_ops
     return await _persist(sb, session_id, collected, next_, reply, state_before,
                           next_.id, user_message=message, data=data)
 
 
-async def _stall(sb, session_id, collected, step, state_before, message) -> dict:
+async def handle_back(session_id: str) -> dict:
+    """Undo the last answer: clear the last-answered step's writable slots
+    (plus its own `back_clears`) and re-ask it. One level per call; the
+    frontend can call it repeatedly. No interpreter — this is the single
+    legitimate slot-clearing gesture."""
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+    current = S(session["state"])
+    if current not in v2.V2_OWNED:
+        return await _v1.handle_message(session_id, "")   # not a v2 turn; no-op-ish
+    collected: dict = session.get("collected") or {}
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+    intro = canvas_intro_text(store)
+    # Same wiring as handle_message: thread the store's configurable-flow
+    # config into the router so Back's routing (and the can_go_back it
+    # reports) is computed over the SAME config-composed registry the forward
+    # flow just used, not silently the default registry.
+    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
+
+    if current is S.GREETING:
+        # Nothing before the very first step to undo — re-render the kickoff,
+        # mirroring handle_message's own GREETING branch. Without this guard
+        # cs.by_id(GREETING) is None (GREETING has no registry Step) and the
+        # no-target branch below crashes on v2.reply_for(None, ...).
+        step = cs.by_id(S.ASK_NAME)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        return await _persist(sb, session_id, collected, step, reply,
+                              current.value, S.ASK_NAME, user_message="",
+                              data=_public(step, collected, flow_config))
+
+    target = v2.last_answered_step(collected, flow_config)
+    if target is None:
+        step = cs.by_id(current)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        return await _persist(sb, session_id, collected, step, reply,
+                              current.value, current, user_message="",
+                              data=_public(step, collected, flow_config))
+    clear = ((set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears)) - v2._TERMINAL_FLAGS
+    for key in clear:
+        collected.pop(key, None)
+    nxt = v2.next_step(collected, flow_config)
+    reply = v2.reply_for(nxt, collected, persona=persona, intro=intro)
+    return await _persist(sb, session_id, collected, nxt, reply,
+                          current.value, nxt.id, user_message="",
+                          data=_public(nxt, collected, flow_config))
+
+
+async def _stall(sb, session_id, collected, step, state_before, message,
+                 *, config: dict | None = None) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
     Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — those
@@ -143,15 +220,19 @@ async def _stall(sb, session_id, collected, step, state_before, message) -> dict
     nudge = fails >= _NUDGE_AFTER and cs.chips_of(step, collected)
     reply = prompts.V2_NUDGE_REPLY if nudge else prompts.V2_STALL_REPLY
     return await _persist(sb, session_id, collected, step, reply, state_before,
-                          step.id, user_message=message)
+                          step.id, user_message=message, config=config)
 
 
 async def _persist(sb, session_id, collected, step, reply, state_before, new_state,
-                   *, user_message: str = "", data: dict | None = None) -> dict:
+                   *, user_message: str = "", data: dict | None = None,
+                   config: dict | None = None) -> dict:
     """Write the state + both chat rows, and shape the response.
 
     `step` is the step the session now RESTS on (None only for the capped
-    QUOTE_REQUESTED handoff, which supplies its own `data`).
+    QUOTE_REQUESTED handoff, which supplies its own `data`). `config` is the
+    store's canvas_flow — only consulted for the `_public` fallback below (an
+    explicit `data=` always wins), so `can_go_back` in that fallback is scoped
+    to the same config-composed registry as the turn that produced it.
     """
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
@@ -164,5 +245,5 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
          "state_before": state_before, "state_after": new_state.value},
     ]).execute()
     if data is None:
-        data = v2.public_data_for(step, collected) if step else {}
+        data = _public(step, collected, config) if step else {}
     return {"reply": reply, "state": new_state.value, "data": data}

@@ -1,5 +1,6 @@
-import { getSecret, logout } from './adminStore'
+import { getCredential, logout } from './adminStore'
 import type { Brand } from '../lib/types'
+import type { Profile } from './adminStore'
 
 const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8000'
 
@@ -61,17 +62,29 @@ export interface UpdateSubmissionBody {
 export interface QuoteRequest {
   lead_id: string
   session_id: string
+  /** The session's store PUBLISHABLE key — the render endpoint is store-scoped. */
+  store_key?: string | null
+  reference_code?: string | null
   name: string | null
   email: string | null
   phone: string | null
   notify_by_phone: boolean
   quote_note: string | null
   quote_confirmed_at: string | null
+  quote_requested?: boolean
   product: string | null
   decoration_type: string | null
   placement_zone: string | null
   quantity: number | null
+  needed_by?: string | null
+  purpose?: string | null
+  notes?: string | null
   share_token: string | null
+}
+
+export interface QuoteComponent {
+  label: string
+  url: string | null
 }
 
 export interface PromptPreview {
@@ -118,13 +131,17 @@ export interface ReapResult {
  * Do not thread this through by default; other admin routes must be unaffected.
  */
 async function request<T>(path: string, init: RequestInit = {}, storeKey?: string): Promise<T> {
-  const secret = getSecret()
-  if (secret === null) {
+  const { kind, credential } = getCredential()
+  if (credential === null) {
     logout()
     throw new ApiError(401, 'Not authenticated')
   }
   const headers = new Headers(init.headers as HeadersInit | undefined)
-  headers.set('X-Admin-Secret', secret)
+  if (kind === 'bearer') {
+    headers.set('Authorization', `Bearer ${credential}`)
+  } else {
+    headers.set('X-Admin-Secret', credential)
+  }
   if (storeKey) {
     headers.set('X-Store-Key', storeKey)
   }
@@ -149,12 +166,15 @@ async function request<T>(path: string, init: RequestInit = {}, storeKey?: strin
   return res.json() as Promise<T>
 }
 
-/** Validate an arbitrary secret WITHOUT mutating the store (used by login). */
-export async function validateSecret(secret: string): Promise<boolean> {
-  const headers = new Headers()
-  headers.set('X-Admin-Secret', secret)
-  const res = await fetch(`${BASE_URL}/admin/stores`, { headers })
-  return res.ok
+/** Build auth headers for the current credential (bearer or secret), plus any extras. */
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const { kind, credential } = getCredential()
+  const h: Record<string, string> = { ...(extra ?? {}) }
+  if (credential) {
+    if (kind === 'bearer') h['Authorization'] = `Bearer ${credential}`
+    else h['X-Admin-Secret'] = credential
+  }
+  return h
 }
 
 export function listStores(): Promise<Store[]> {
@@ -182,6 +202,22 @@ export function updateSubmission(id: string, body: UpdateSubmissionBody): Promis
 
 export function listQuoteRequests(): Promise<QuoteRequest[]> {
   return request<QuoteRequest[]>('/admin/quote-requests')
+}
+
+export function listQuoteComponents(leadId: string): Promise<{ components: QuoteComponent[] }> {
+  return request<{ components: QuoteComponent[] }>(`/admin/quote-requests/${leadId}/components`)
+}
+
+/**
+ * Trigger the on-demand render for a quote request. Store-scoped on the server
+ * (X-Store-Key), so the row's `store_key` must be passed through.
+ */
+export function renderQuoteRequest(leadId: string, storeKey: string): Promise<{ job_id: string }> {
+  return request<{ job_id: string }>(
+    `/admin/quote-requests/${leadId}/render`,
+    { method: 'POST' },
+    storeKey,
+  )
 }
 
 export function promptPreview(sessionId: string, tier: 'preview' | 'final'): Promise<PromptPreview> {
@@ -454,8 +490,8 @@ export async function uploadHatAngle(
   file: File,
   storeKey: string,
 ): Promise<{ blank_view_images: Record<string, string>; view_images: Record<string, string> }> {
-  const secret = getSecret()
-  if (secret === null) {
+  const { credential } = getCredential()
+  if (credential === null) {
     logout()
     throw new ApiError(401, 'Not authenticated')
   }
@@ -463,7 +499,7 @@ export async function uploadHatAngle(
   form.append('file', file)
   const res = await fetch(`${BASE_URL}/admin/hat-types/${id}/angle/${view}`, {
     method: 'POST',
-    headers: { 'X-Admin-Secret': secret, 'X-Store-Key': storeKey },
+    headers: authHeaders({ 'X-Store-Key': storeKey }),
     body: form,
   })
   if (!res.ok) {
@@ -539,8 +575,8 @@ export async function uploadGraphic(
   file: File,
   storeKey: string,
 ): Promise<AdminGraphic> {
-  const secret = getSecret()
-  if (secret === null) {
+  const { credential } = getCredential()
+  if (credential === null) {
     logout()
     throw new ApiError(401, 'Not authenticated')
   }
@@ -550,7 +586,7 @@ export async function uploadGraphic(
   form.append('file', file)
   const res = await fetch(`${BASE_URL}/admin/graphics`, {
     method: 'POST',
-    headers: { 'X-Admin-Secret': secret, 'X-Store-Key': storeKey },
+    headers: authHeaders({ 'X-Store-Key': storeKey }),
     body: form,
   })
   if (!res.ok) {
@@ -590,8 +626,8 @@ export function updateStoreBrand(id: string, brand: Brand): Promise<FullStore> {
 
 /** Upload a store logo (multipart) — like uploadHatAngle/uploadGraphic, the browser sets the boundary. */
 export async function uploadStoreLogo(id: string, file: File): Promise<{ logo_url: string }> {
-  const secret = getSecret()
-  if (secret === null) {
+  const { credential } = getCredential()
+  if (credential === null) {
     logout()
     throw new ApiError(401, 'Not authenticated')
   }
@@ -599,7 +635,7 @@ export async function uploadStoreLogo(id: string, file: File): Promise<{ logo_ur
   form.append('file', file)
   const res = await fetch(`${BASE_URL}/admin/stores/${id}/logo`, {
     method: 'POST',
-    headers: { 'X-Admin-Secret': secret },
+    headers: authHeaders(),
     body: form,
   })
   if (!res.ok) {
@@ -616,4 +652,67 @@ export async function uploadStoreLogo(id: string, file: File): Promise<{ logo_ur
     throw new ApiError(res.status, detail)
   }
   return res.json() as Promise<{ logo_url: string }>
+}
+
+// ---------------------------------------------------------------------------
+// Admin authentication
+// ---------------------------------------------------------------------------
+
+export async function login(email: string, password: string): Promise<{ token: string; profile: Profile }> {
+  const res = await fetch(`${BASE_URL}/admin/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  if (!res.ok) {
+    let detail = 'Invalid email or password'
+    try {
+      const j = (await res.json()) as { detail?: string }
+      detail = j.detail ?? detail
+    } catch {
+      // keep default
+    }
+    throw new ApiError(res.status, detail)
+  }
+  return res.json() as Promise<{ token: string; profile: Profile }>
+}
+
+/** Validate the stored credential and return the current profile (used on load). */
+export function fetchMe(): Promise<Profile> {
+  return request<Profile>('/admin/auth/me')
+}
+
+export function changePassword(current_password: string, new_password: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/admin/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ current_password, new_password }),
+  })
+}
+
+export interface AdminUser {
+  id: string
+  email: string
+  is_super: boolean
+  status: string
+  stores: { id: string; name: string }[]
+}
+
+export function listUsers(): Promise<AdminUser[]> {
+  return request<AdminUser[]>('/admin/users')
+}
+
+export function createUser(body: {
+  email: string; password: string; is_super: boolean; store_ids: string[]
+}): Promise<AdminUser> {
+  return request<AdminUser>('/admin/users', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export function updateUser(id: string, body: {
+  is_super?: boolean; status?: string; password?: string; store_ids?: string[]
+}): Promise<AdminUser> {
+  return request<AdminUser>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
+}
+
+export function deleteUser(id: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/admin/users/${id}`, { method: 'DELETE' })
 }

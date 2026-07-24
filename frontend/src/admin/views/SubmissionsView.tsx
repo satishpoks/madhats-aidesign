@@ -80,7 +80,9 @@ export function SubmissionsView() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-[20px] font-semibold text-[#1a1a2e]">Approval queue</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[20px] font-semibold text-[#1a1a2e]">Approval queue</h1>
+      </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <KpiTile label="Pending" value={kpis.pending} tone="amber" />

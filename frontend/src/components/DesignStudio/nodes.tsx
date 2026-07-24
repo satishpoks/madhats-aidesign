@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useLayoutEffect, useState } from 'react'
 import {
   Text, TextPath, Image as KonvaImage, Transformer, Group,
   Rect, Ellipse, RegularPolygon, Star, Line, Arrow,
@@ -7,6 +7,9 @@ import type Konva from 'konva'
 import { type CanvasElement, LINE_SHAPES } from '../../store/canvasStore'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { ensureFont } from '../../lib/fonts'
+import {
+  boxHalfExtentsPx, centerPosition, topLeftFromCenterPx, drawingBoundsCenter, estimateTextBox,
+} from '../../lib/canvasGeometry'
 
 interface NodeProps {
   el: CanvasElement
@@ -51,10 +54,34 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
 
   const locked = !!el.locked
 
+  // Text auto-sizes to its glyphs, so (unlike shape/image) there's no stored
+  // width/height to pivot around. Seed with a heuristic (matches the curved-
+  // text arc-span estimate) so the very first paint is already close, then
+  // correct it to Konva's real measured bounds once the node is mounted —
+  // this measured box is what offsetX/offsetY (the rotate/resize pivot) uses.
+  const [box, setBox] = useState(() => estimateTextBox(content, fontSize))
+  useLayoutEffect(() => {
+    const node = shapeRef.current
+    if (!node) return
+    const rect = node.getClientRect({ skipTransform: true })
+    if (rect.width && rect.height
+      && (Math.abs(rect.width - box.w) > 0.5 || Math.abs(rect.height - box.h) > 0.5)) {
+      setBox({ w: rect.width, h: rect.height })
+    }
+    // Re-measure whenever the glyphs/layout that determine the box change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, fontSize, fontFamily, curve])
+
+  const halfW = box.w / 2
+  const halfH = box.h / 2
+  const pos = centerPosition(el.x, el.y, halfW, halfH, stageW, stageH)
+
   const common = {
     ref: shapeRef as never,
-    x: el.x * stageW,
-    y: el.y * stageH,
+    x: pos.x,
+    y: pos.y,
+    offsetX: halfW,
+    offsetY: halfH,
     rotation: el.rotation,
     fontSize,
     fontFamily,
@@ -63,10 +90,18 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
     onClick: locked ? undefined : onSelect,
     onTap: locked ? undefined : onSelect,
     onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
-      onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH }),
+      onChange(topLeftFromCenterPx(e.target.x(), e.target.y(), halfW, halfH, stageW, stageH)),
     onTransformEnd: (e: Konva.KonvaEventObject<Event>) => {
       const node = e.target as Konva.Text
-      onChange({ rotation: node.rotation(), fontSize: Math.max(8, fontSize * node.scaleX()) })
+      // A pure rotation (scaleX===1) leaves node.x()/y() unchanged — they're
+      // the pivot — so this reproduces the original x/y exactly; a resize
+      // (which changes fontSize, hence the box, next render) recomputes the
+      // top-left from the CURRENT half-extents so the centre stays fixed.
+      onChange({
+        rotation: node.rotation(),
+        fontSize: Math.max(8, fontSize * node.scaleX()),
+        ...topLeftFromCenterPx(node.x(), node.y(), halfW, halfH, stageW, stageH),
+      })
       node.scaleX(1); node.scaleY(1)
     },
   }
@@ -89,6 +124,7 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
           ref={trRef as never}
           enabledAnchors={['top-left', 'top-right', 'bottom-left', 'bottom-right']}
           rotateEnabled
+          centeredScaling
         />
       )}
     </Group>
@@ -153,39 +189,47 @@ export function ShapePrimitive({ el, lw, lh, listening = true, strokeScale = 1 }
 export function ShapeNode({ el, stageW, stageH, isSelected, onSelect, onChange }: NodeProps) {
   const { shapeRef, trRef } = useTransformer(isSelected)
   const locked = !!el.locked
-  const lw = el.width * stageW
-  const lh = el.height * stageH
+  const { halfW, halfH } = boxHalfExtentsPx(el.width, el.height, stageW, stageH)
+  const lw = halfW * 2
+  const lh = halfH * 2
+  const pos = centerPosition(el.x, el.y, halfW, halfH, stageW, stageH)
   return (
     <Group>
       <Group
         ref={shapeRef as never}
-        x={el.x * stageW}
-        y={el.y * stageH}
+        x={pos.x}
+        y={pos.y}
+        offsetX={halfW}
+        offsetY={halfH}
         rotation={el.rotation}
         draggable={!locked}
         onClick={locked ? undefined : onSelect}
         onTap={locked ? undefined : onSelect}
-        onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
+        onDragEnd={e => onChange(topLeftFromCenterPx(e.target.x(), e.target.y(), halfW, halfH, stageW, stageH))}
         onTransformEnd={e => {
           const node = e.target as Konva.Group
+          const newW = Math.max(0.02, el.width * node.scaleX())
+          const newH = Math.max(0.02, el.height * node.scaleY())
+          const newHalf = boxHalfExtentsPx(newW, newH, stageW, stageH)
           onChange({
             rotation: node.rotation(),
-            width: Math.max(0.02, el.width * node.scaleX()),
-            height: Math.max(0.02, el.height * node.scaleY()),
+            width: newW,
+            height: newH,
+            ...topLeftFromCenterPx(node.x(), node.y(), newHalf.halfW, newHalf.halfH, stageW, stageH),
           })
           node.scaleX(1); node.scaleY(1)
         }}
       >
         <ShapePrimitive el={el} lw={lw} lh={lh} />
       </Group>
-      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled />}
+      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled centeredScaling />}
     </Group>
   )
 }
 
 /** Quadratic-bezier arc path for curved text, sized to the text's rough width. */
 export function curvePath(content: string, fontSize: number, curve: number): string {
-  const w = Math.max(fontSize, content.length * fontSize * 0.55)
+  const w = estimateTextBox(content, fontSize).w
   const bend = (curve / 100) * (w / 2)
   return `M 0 0 Q ${w / 2} ${-bend} ${w} 0`
 }
@@ -207,40 +251,49 @@ export function ImageNode({ el, stageW, stageH, isSelected, onSelect, onChange }
       }).catch(() => { /* leave imgRef unset; nothing to paint */ })
     }
   }
+  const { halfW, halfH } = boxHalfExtentsPx(el.width, el.height, stageW, stageH)
+  const pos = centerPosition(el.x, el.y, halfW, halfH, stageW, stageH)
   return (
     <Group>
       <KonvaImage
         ref={shapeRef as never}
         image={imgRef.current ?? undefined}
-        x={el.x * stageW}
-        y={el.y * stageH}
-        width={el.width * stageW}
-        height={el.height * stageH}
+        x={pos.x}
+        y={pos.y}
+        width={halfW * 2}
+        height={halfH * 2}
+        offsetX={halfW}
+        offsetY={halfH}
         rotation={el.rotation}
         draggable={!locked}
         onClick={locked ? undefined : onSelect}
         onTap={locked ? undefined : onSelect}
-        onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
+        onDragEnd={e => onChange(topLeftFromCenterPx(e.target.x(), e.target.y(), halfW, halfH, stageW, stageH))}
         onTransformEnd={e => {
           const node = e.target as Konva.Image
+          const newW = (node.width() * node.scaleX()) / stageW
+          const newH = (node.height() * node.scaleY()) / stageH
+          const newHalf = boxHalfExtentsPx(newW, newH, stageW, stageH)
           onChange({
             rotation: node.rotation(),
-            width: (node.width() * node.scaleX()) / stageW,
-            height: (node.height() * node.scaleY()) / stageH,
+            width: newW,
+            height: newH,
+            ...topLeftFromCenterPx(node.x(), node.y(), newHalf.halfW, newHalf.halfH, stageW, stageH),
           })
           node.scaleX(1); node.scaleY(1)
         }}
       />
       {el.removeBg && (
-        // Small "background will be removed" badge. name="export-hide" so it is
-        // NEVER baked into any export (layout guide OR the WYSIWYG preview);
-        // listening=false so it never steals clicks from the image beneath it.
+        // Small "background will be removed" badge, pinned at the image's
+        // top-left corner. name="export-hide" so it is NEVER baked into any
+        // export (layout guide OR the WYSIWYG preview); listening=false so it
+        // never steals clicks from the image beneath it.
         <Group name="export-hide" listening={false} x={el.x * stageW} y={el.y * stageH}>
           <Ellipse x={11} y={11} radiusX={10} radiusY={10} fill="#111827" opacity={0.85} />
           <Text x={3} y={5} width={16} align="center" text="✂" fontSize={11} fill="#ffffff" />
         </Group>
       )}
-      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled />}
+      {isSelected && !locked && <Transformer ref={trRef as never} rotateEnabled centeredScaling />}
     </Group>
   )
 }
@@ -250,22 +303,32 @@ export function DrawingNode({ el, stageW, stageH, isSelected, onSelect, onChange
   const locked = !!el.locked
   const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * stageW : p * stageH))
   const sw = (el.strokeWidth ?? 0.01) * stageW
+  // A drawing has no stored width/height — its stroke's own bounding-box
+  // centre stands in for "the box" this pivots around.
+  const { cx, cy } = drawingBoundsCenter(pts)
+  const pos = centerPosition(el.x, el.y, cx, cy, stageW, stageH)
   return (
     <Group>
       <Group
         ref={shapeRef as never}
-        x={el.x * stageW}
-        y={el.y * stageH}
+        x={pos.x}
+        y={pos.y}
+        offsetX={cx}
+        offsetY={cy}
         rotation={el.rotation}
         draggable={!locked}
         onClick={locked ? undefined : onSelect}
         onTap={locked ? undefined : onSelect}
-        onDragEnd={e => onChange({ x: e.target.x() / stageW, y: e.target.y() / stageH })}
+        onDragEnd={e => onChange(topLeftFromCenterPx(e.target.x(), e.target.y(), cx, cy, stageW, stageH))}
         onTransformEnd={e => {
-          // Rotate-only transformer: Konva rotates around the stroke's bbox
-          // centre by adjusting x/y + rotation together, so persist all three.
+          // Rotate-only transformer (resize disabled): the pivot is the
+          // stroke's own bbox centre, so a pure rotation leaves x/y
+          // unchanged — still recomputed defensively from node.x()/y().
           const node = e.target as Konva.Group
-          onChange({ x: node.x() / stageW, y: node.y() / stageH, rotation: node.rotation() })
+          onChange({
+            rotation: node.rotation(),
+            ...topLeftFromCenterPx(node.x(), node.y(), cx, cy, stageW, stageH),
+          })
           node.scaleX(1); node.scaleY(1)
         }}
       >

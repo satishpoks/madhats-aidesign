@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { RequireAuth } from './RequireAuth'
 import { AdminLayout } from './AdminLayout'
 import { AdminLogin } from './AdminLogin'
@@ -13,10 +14,45 @@ import { GraphicsView } from './views/GraphicsView'
 import { BrandingView } from './views/BrandingView'
 import { DecorationTypesView } from './views/DecorationTypesView'
 import { OpsView } from './views/OpsView'
-import { LeadsView } from './views/LeadsView'
-import { LeadDetailView } from './views/LeadDetailView'
+import { SessionsView } from './views/SessionsView'
+import { SessionDetailView } from './views/SessionDetailView'
 import { DiagnosticsView } from './views/DiagnosticsView'
 import { SettingsView } from './views/SettingsView'
+import { UsersView } from './views/UsersView'
+import { ChangePasswordView } from './views/ChangePasswordView'
+import { useAdminStore } from './adminStore'
+import { fetchMe } from './adminApi'
+
+// Legacy /admin/leads/:id → /admin/sessions/:id (preserve the id for bookmarks)
+function LegacyLeadRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/admin/sessions/${id}`} replace />
+}
+
+function useHydrateProfile() {
+  const credential = useAdminStore((s) => s.credential)
+  const profile = useAdminStore((s) => s.profile)
+  const setProfile = useAdminStore((s) => s.setProfile)
+  const logout = useAdminStore((s) => s.logout)
+  const [ready, setReady] = useState(profile !== null || credential === null)
+  useEffect(() => {
+    if (credential && !profile) {
+      fetchMe().then(setProfile).catch(() => logout()).finally(() => setReady(true))
+    } else {
+      setReady(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [credential, profile])
+  return ready
+}
+
+function HydratedLayout() {
+  const ready = useHydrateProfile()
+  if (!ready) {
+    return <div className="p-8 text-sm text-gray-500">Loading…</div>
+  }
+  return <AdminLayout />
+}
 
 export default function AdminApp() {
   return (
@@ -27,7 +63,7 @@ export default function AdminApp() {
           path="/admin"
           element={
             <RequireAuth>
-              <AdminLayout />
+              <HydratedLayout />
             </RequireAuth>
           }
         >
@@ -35,8 +71,11 @@ export default function AdminApp() {
           <Route path="submissions" element={<SubmissionsView />} />
           <Route path="submissions/:id" element={<SubmissionDetailView />} />
           <Route path="quote-requests" element={<QuoteRequestsView />} />
-          <Route path="leads" element={<LeadsView />} />
-          <Route path="leads/:id" element={<LeadDetailView />} />
+          <Route path="sessions" element={<SessionsView />} />
+          <Route path="sessions/:id" element={<SessionDetailView />} />
+          {/* Legacy /admin/leads paths → redirect to the renamed Sessions route */}
+          <Route path="leads" element={<Navigate to="/admin/sessions" replace />} />
+          <Route path="leads/:id" element={<LegacyLeadRedirect />} />
           <Route path="diagnostics" element={<DiagnosticsView />} />
           <Route path="stores" element={<StoresView />} />
           <Route path="branding" element={<BrandingView />} />
@@ -47,6 +86,8 @@ export default function AdminApp() {
           <Route path="decoration-types" element={<DecorationTypesView />} />
           <Route path="ops" element={<OpsView />} />
           <Route path="settings" element={<SettingsView />} />
+          <Route path="users" element={<UsersView />} />
+          <Route path="change-password" element={<ChangePasswordView />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -5,9 +5,13 @@ services:
       - "8000:8000"
     env_file: .env
     environment:
-      # Inside a container, the local Supabase stack (run on the host via
-      # `supabase start`) is reachable via host.docker.internal, not 127.0.0.1.
-      SUPABASE_URL: http://host.docker.internal:54321
+      # SUPABASE_URL follows the project-root .env (e.g. a hosted project like
+      # https://<ref>.supabase.co). It falls back to host.docker.internal:54321
+      # for the LOCAL stack — inside a container the host-run `supabase start`
+      # is reachable via host.docker.internal, not 127.0.0.1. The keys in .env
+      # MUST belong to whichever project this URL points at, or PostgREST rejects
+      # the JWT (PGRST301 "no suitable key").
+      SUPABASE_URL: ${SUPABASE_URL:-http://host.docker.internal:54321}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -31,7 +35,7 @@ services:
       #  - Server: set VITE_API_BASE_URL in the project-root .env to the PUBLIC
       #    backend URL, e.g. http://madhats.getaiconsult.com.au:8000, then
       #    `docker compose up -d --force-recreate frontend`.
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://111.118.194.148:8000}
       VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.

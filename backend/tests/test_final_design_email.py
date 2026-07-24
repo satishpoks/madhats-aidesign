@@ -1,4 +1,37 @@
+import pytest
+
 from app.services import delivery
+
+
+class _NoRows:
+    """A supabase stub whose every query returns nothing.
+
+    `send_final_design` now opens with the quote gate (C2), which reads the
+    session's `collected`. These tests are about the regeneration logic, so the
+    session simply isn't found -> not quote-gated -> the original path runs.
+    """
+
+    data: list = []
+
+    def table(self, name):
+        return self
+
+    def select(self, *a, **k):
+        return self
+
+    def eq(self, *a, **k):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def execute(self):
+        return self
+
+
+@pytest.fixture(autouse=True)
+def _no_db(monkeypatch):
+    monkeypatch.setattr(delivery, "get_supabase", lambda: _NoRows())
 
 
 def test_send_final_design_skips_when_no_regeneration(monkeypatch):

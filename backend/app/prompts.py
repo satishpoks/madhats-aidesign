@@ -800,6 +800,47 @@ Design image (internal, clean): {image_url}
 Please verify the quote and send it directly to the customer.
 """
 
+# Customer-facing reference email — quote-gated flow. NO design image; the
+# customer only ever receives their tracking reference. Rendered inside the
+# BRANDED_EMAIL_HTML shell. Filled with .format(name=, reference_code=).
+QUOTE_REFERENCE_EMAIL_SUBJECT = "We've received your request — your MadHats reference"
+
+QUOTE_REFERENCE_EMAIL_BODY = """Hi {name},
+
+Thanks for your request! We've received your design and our team is on it.
+
+Your reference is: {reference_code}
+
+Quote the reference above if you get in touch. We'll be in contact soon with a
+quote for your caps.
+
+— Ricardo, MadHats AI Design Studio
+"""
+
+# Internal sales notification — an explicit customer quote request. Summary only;
+# the uploaded components ride along as attachments (see email.send_quote_request_to_sales).
+# Filled with .format(reference_code=, store_name=, customer_email=, quantity=,
+# needed_by=, purpose=, decoration=, notes=).
+SALES_QUOTE_REQUEST_EMAIL_SUBJECT = "Quote request {reference_code} — {store_name}"
+
+SALES_QUOTE_REQUEST_EMAIL_BODY = """A customer requested a quote via the AI Design Studio.
+
+Reference: {reference_code}
+Store: {store_name}
+Customer email: {customer_email}
+
+Quantity: {quantity}
+Needed by: {needed_by}
+Purpose: {purpose}
+Decoration method(s): {decoration}
+
+Notes:
+{notes}
+
+All uploaded design components are attached. Prepare and send the quote directly
+to the customer, quoting the reference above.
+"""
+
 GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
 
 # Sent to store ops when a generation fails all automatic retries. Filled with
@@ -1069,13 +1110,21 @@ V2_BG_INSTRUCTIONS = (
     "or untick \"Remove background\" yourself in the toolbar under the cap."
 )
 
+# The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
+# is a sentinel (unlock every tool), not one of the real canvas tools those
+# tips describe.
+V2_REWORK_INSTRUCTIONS = (
+    "Every tool is open again — move, resize, add, or remove anything you "
+    "like, then tap Done when you're happy."
+)
+
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
 # to its catch-all, so the customer's first message was answered with "Let's
 # keep going." — no greeting, no question — and their reply ("ok") was stored
 # as their name.
 V2_ASK_NAME = (
-    "Hi! I'm {persona} — I'll help you put your design straight onto the cap. "
-    "First up, what's your name?"
+    "Hi! I'm {persona}, your AI design assistant — I'll help you put your "
+    "design straight onto the cap. First up, what's your name?"
 )
 
 V2_ASK_NAME_RETRY = (
@@ -1086,6 +1135,17 @@ V2_DEFAULT_INTRO = (
     "Welcome! I'll help you put your design straight onto the cap. We'll add "
     "your logo first, then any text or graphics, and I'll guide you through "
     "each tool as we go."
+)
+
+# Shown the instant the customer gives their email at ASK_EMAIL. The address is
+# captured with double opt-in, so a verification link goes out immediately —
+# tell the customer it's on the way and why, otherwise it arrives unexplained and
+# they may not click it (clicking is how their finished design reaches their
+# inbox). The address is already in the chat thread (they just typed it), so
+# echoing it here is not new PII — and it is never written to logs.
+V2_EMAIL_VERIFY_NOTICE = (
+    "Thanks! I've just sent a verification link to {email} — tap it to confirm "
+    "your address so we can email your finished design there."
 )
 
 V2_TURN_INTERPRETER_PROMPT = """You read ONE customer message in a guided cap-design chat and turn it into structured fields. You do NOT decide what happens next.

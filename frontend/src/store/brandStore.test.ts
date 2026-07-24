@@ -19,5 +19,21 @@ describe('applyBrandVars', () => {
   it('no-ops for unset fields (keeps Tailwind fallbacks)', () => {
     applyBrandVars({})
     expect(document.documentElement.style.getPropertyValue('--brand-primary')).toBe('')
+    expect(document.documentElement.style.getPropertyValue('--brand-header-text')).toBe('')
+  })
+
+  it('derives a legible header text colour when bg is set but text is not', () => {
+    applyBrandVars({ header_bg: '#000000' })
+    expect(document.documentElement.style.getPropertyValue('--brand-header-text')).toBe('#ffffff')
+  })
+
+  it('derives dark header text on a light header bg', () => {
+    applyBrandVars({ header_bg: '#ffffff' })
+    expect(document.documentElement.style.getPropertyValue('--brand-header-text')).toBe('#1A1D29')
+  })
+
+  it('an explicit header_text always wins over the derived colour', () => {
+    applyBrandVars({ header_bg: '#000000', header_text: '#ff0000' })
+    expect(document.documentElement.style.getPropertyValue('--brand-header-text')).toBe('#ff0000')
   })
 })

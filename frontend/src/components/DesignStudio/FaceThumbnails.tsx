@@ -4,6 +4,9 @@ import { useCanvasStore, FACES, type Face, type CanvasElement } from '../../stor
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { STAGE_W } from './CanvasStage'
 import { curvePath, ShapePrimitive } from './nodes'
+import {
+  boxHalfExtentsPx, centerPosition, drawingBoundsCenter, estimateTextBox,
+} from '../../lib/canvasGeometry'
 
 const TW = 64
 const TH = 64
@@ -28,20 +31,36 @@ function useThumbImage(url: string | undefined): HTMLImageElement | null {
   return img
 }
 
-/** One placed element, drawn statically (non-interactive) at thumbnail scale. */
+/**
+ * One placed element, drawn statically (non-interactive) at thumbnail scale.
+ *
+ * Centring mirrors nodes.tsx exactly (offsetX/offsetY = half the box,
+ * positioned at the box centre) — thumbnails never mount a Transformer, but
+ * a rotated element still needs to render at the SAME visual position/
+ * orientation here as on the live canvas (which now pivots at centre), or a
+ * rotated element would visibly diverge between the two. Text uses the
+ * same heuristic box estimate as the live canvas's first-paint fallback —
+ * an approximation is fine here since the thumbnail is a small, read-only
+ * preview, never the layout guide sent to the image model (that comes from
+ * the live Konva stage's real measured text box, via canvasFlatten).
+ */
 function ElementThumb({ el }: { el: CanvasElement }) {
   const img = useThumbImage(el.type === 'image' ? el.assetUrl : undefined)
   if (el.type === 'shape') {
+    const { halfW, halfH } = boxHalfExtentsPx(el.width, el.height, TW, TH)
+    const pos = centerPosition(el.x, el.y, halfW, halfH, TW, TH)
     return (
-      <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
-        <ShapePrimitive el={el} lw={el.width * TW} lh={el.height * TH} listening={false} strokeScale={TW / STAGE_W} />
+      <Group x={pos.x} y={pos.y} offsetX={halfW} offsetY={halfH} rotation={el.rotation}>
+        <ShapePrimitive el={el} lw={halfW * 2} lh={halfH * 2} listening={false} strokeScale={TW / STAGE_W} />
       </Group>
     )
   }
   if (el.type === 'drawing') {
     const pts = (el.points ?? []).map((p, i) => (i % 2 === 0 ? p * TW : p * TH))
+    const { cx, cy } = drawingBoundsCenter(pts)
+    const pos = centerPosition(el.x, el.y, cx, cy, TW, TH)
     return (
-      <Group x={el.x * TW} y={el.y * TH} rotation={el.rotation}>
+      <Group x={pos.x} y={pos.y} offsetX={cx} offsetY={cy} rotation={el.rotation}>
         <Line points={pts} stroke={el.stroke ?? '#111827'} strokeWidth={(el.strokeWidth ?? 0.01) * TW}
           lineCap="round" lineJoin="round" tension={0.5} listening={false} />
       </Group>
@@ -49,19 +68,26 @@ function ElementThumb({ el }: { el: CanvasElement }) {
   }
   if (el.type === 'text') {
     const fontSize = (el.fontSize ?? 36) * SCALE
+    const content = el.content ?? ''
+    const { w, h } = estimateTextBox(content, fontSize)
+    const halfW = w / 2, halfH = h / 2
+    const pos = centerPosition(el.x, el.y, halfW, halfH, TW, TH)
     const common = {
-      x: el.x * TW, y: el.y * TH, rotation: el.rotation,
+      x: pos.x, y: pos.y, offsetX: halfW, offsetY: halfH, rotation: el.rotation,
       fontSize, fontFamily: el.font ?? 'Arial', fill: el.colour ?? '#ffffff', listening: false,
     }
     const curve = el.curve ?? 0
     return curve !== 0
-      ? <TextPath {...common} align="center" text={el.content ?? ''} data={curvePath(el.content ?? '', fontSize, curve)} />
-      : <Text {...common} text={el.content ?? ''} />
+      ? <TextPath {...common} align="center" text={content} data={curvePath(content, fontSize, curve)} />
+      : <Text {...common} text={content} />
   }
   if (!img) return null
+  const { halfW, halfH } = boxHalfExtentsPx(el.width, el.height, TW, TH)
+  const pos = centerPosition(el.x, el.y, halfW, halfH, TW, TH)
   return (
-    <KonvaImage image={img} x={el.x * TW} y={el.y * TH}
-      width={el.width * TW} height={el.height * TH} rotation={el.rotation} listening={false} />
+    <KonvaImage image={img} x={pos.x} y={pos.y}
+      width={halfW * 2} height={halfH * 2} offsetX={halfW} offsetY={halfH}
+      rotation={el.rotation} listening={false} />
   )
 }
 

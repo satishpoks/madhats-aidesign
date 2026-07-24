@@ -18,6 +18,7 @@ from app.services.conversation.orchestrator import (
     handle_message,
 )
 from app.services.conversation.orchestrator_v2 import (
+    handle_back as handle_back_v2,
     handle_message as handle_message_v2,
 )
 from app.services.moderation import ModerationError, check_text
@@ -33,8 +34,9 @@ def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> 
     which is only written at finalize — so without this, an iterate-again loop
     ("Not quite" -> "up more") recomputes every nudge from the ORIGINAL geometry
     and the second relative nudge no-ops. Also makes a mid-confirm reload
-    rehydrate the EDITED canvas. Scoped hard to DESCRIBE_CHANGES on a canvas
-    session so a stray/hostile design on any other turn can't overwrite the work.
+    rehydrate the EDITED canvas. Scoped hard to DESCRIBE_CHANGES and
+    REWORK_CANVAS (the v2 unlock-all rework turn) on a canvas session so a
+    stray/hostile design on any other turn can't overwrite the work.
     """
     if not isinstance(canvas_design, dict) or "faces" not in canvas_design:
         return
@@ -45,7 +47,7 @@ def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> 
         return
     row = res.data[0]
     flow = row.get("flow_mode") or (row.get("collected") or {}).get("flow_mode")
-    if row.get("state") == "describe_changes" and flow == "canvas":
+    if row.get("state") in ("describe_changes", "rework_canvas") and flow == "canvas":
         (sb.table("design_sessions").update({"canvas_design": canvas_design})
          .eq("id", session_id).execute())
 
@@ -76,6 +78,15 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
 
+    return ChatResponse(**result)
+
+
+@router.post("/chat/{session_id}/back", response_model=ChatResponse)
+async def chat_back(session_id: str) -> ChatResponse:
+    try:
+        result = await handle_back_v2(session_id)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="Session not found") from exc
     return ChatResponse(**result)
 
 

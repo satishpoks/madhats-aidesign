@@ -71,3 +71,6 @@ backend/generated/
 
 # ── Graphify output (generated knowledge-graph artifacts) ────────────────────
 graphify-out/
+
+# agent worktrees (transient, created by isolated subagents)
+.claude/worktrees/

@@ -43,7 +43,7 @@
 - Produces: `unlockAll(): void` — sets `locked:false` on every element across all four faces; clears `selectedId` (mirror of `lockAll`).
 - Modifies: `fromCanvasDesign(design)` — hydrated elements come back with `locked` removed (editable), so a serialised `locked:true` never permanently freezes a resumed design.
 
-- [ ] **Step 1 — Write the failing store test.** Create `frontend/src/__tests__/canvasStoreUnlock.test.ts`:
+- [x] **Step 1 — Write the failing store test.** Create `frontend/src/__tests__/canvasStoreUnlock.test.ts`:
 ```ts
 import { beforeEach, expect, test } from 'vitest'
 import { useCanvasStore } from '../store/canvasStore'
@@ -93,13 +93,13 @@ test('fromCanvasDesign strips a persisted locked flag so resumed elements are ed
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/canvasStoreUnlock.test.ts
 ```
 Expected: FAIL — `unlockAll is not a function` and the resumed element still carries `locked:true`.
 
-- [ ] **Step 3 — Add `unlockAll` to the `CanvasState` interface.** In `frontend/src/store/canvasStore.ts`, insert after the `lockPlaced` declaration in the interface (currently ~line 76, right after its doc comment block):
+- [x] **Step 3 — Add `unlockAll` to the `CanvasState` interface.** In `frontend/src/store/canvasStore.ts`, insert after the `lockPlaced` declaration in the interface (currently ~line 76, right after its doc comment block):
 ```ts
   lockPlaced: () => void
   /** Rework/refine re-open: clear locked on every element across all faces so
@@ -107,7 +107,7 @@ Expected: FAIL — `unlockAll is not a function` and the resumed element still c
   unlockAll: () => void
 ```
 
-- [ ] **Step 4 — Implement `unlockAll` in the store body.** Insert immediately after the `lockPlaced` implementation (the block ending `}),` at ~line 232):
+- [x] **Step 4 — Implement `unlockAll` in the store body.** Insert immediately after the `lockPlaced` implementation (the block ending `}),` at ~line 232):
 ```ts
   unlockAll: () => set(s => {
     const faces = { ...s.faces }
@@ -116,7 +116,7 @@ Expected: FAIL — `unlockAll is not a function` and the resumed element still c
   }),
 ```
 
-- [ ] **Step 5 — Strip `locked` in `fromCanvasDesign`.** Replace the current `fromCanvasDesign` implementation (~line 243–253):
+- [x] **Step 5 — Strip `locked` in `fromCanvasDesign`.** Replace the current `fromCanvasDesign` implementation (~line 243–253):
 ```ts
   fromCanvasDesign: design => set(() => {
     // Merge onto a full empty-faces base so a partial/legacy blob (missing a
@@ -150,19 +150,19 @@ with:
   }),
 ```
 
-- [ ] **Step 6 — Run the test (expected PASS).**
+- [x] **Step 6 — Run the test (expected PASS).**
 ```
 npx vitest run src/__tests__/canvasStoreUnlock.test.ts
 ```
 Expected: PASS (3 tests).
 
-- [ ] **Step 7 — Guard against regressions in the existing lock test.**
+- [x] **Step 7 — Guard against regressions in the existing lock test.**
 ```
 npx vitest run src/__tests__/canvasStoreLock.test.ts
 ```
 Expected: PASS (3 tests) — `unlockAll`/`fromCanvasDesign` changes don't touch `lockAll`/`lockPlaced`.
 
-- [ ] **Step 8 — Commit.**
+- [x] **Step 8 — Commit.**
 ```
 git add frontend/src/store/canvasStore.ts frontend/src/__tests__/canvasStoreUnlock.test.ts
 git commit -m "feat(canvas): add unlockAll + strip persisted lock in fromCanvasDesign (A2)"
@@ -180,7 +180,7 @@ git commit -m "feat(canvas): add unlockAll + strip persisted lock in fromCanvasD
 - Consumes: `useCanvasStore(s => s.unlockAll)` (Task 1).
 - Produces: on the `!triggerFinalize` re-arm branch (fires when the refine/rework flow drops `triggerFinalize` back to false after a finalize, i.e. the canvas re-opens for editing), `unlockAll()` runs so every pre-existing `locked:true` element becomes draggable/selectable again.
 
-- [ ] **Step 1 — Write the failing Surface test.** Create `frontend/src/__tests__/surfaceRework.test.tsx`:
+- [x] **Step 1 — Write the failing Surface test.** Create `frontend/src/__tests__/surfaceRework.test.tsx`:
 ```tsx
 import { render, act } from '@testing-library/react'
 import { expect, test, vi, beforeEach } from 'vitest'
@@ -251,20 +251,20 @@ test('finalize then rework re-open unlocks every element', async () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/surfaceRework.test.tsx
 ```
 Expected: FAIL — after the `triggerFinalize:false` re-arm the element is still `locked:true` (nothing unlocks it yet).
 
-- [ ] **Step 3 — Add the `unlockAll` selector.** In `frontend/src/components/DesignStudio/Surface.tsx`, alongside the existing lock selectors (~line 51–52):
+- [x] **Step 3 — Add the `unlockAll` selector.** In `frontend/src/components/DesignStudio/Surface.tsx`, alongside the existing lock selectors (~line 51–52):
 ```tsx
   const lockAll = useCanvasStore(s => s.lockAll)
   const lockPlaced = useCanvasStore(s => s.lockPlaced)
   const unlockAll = useCanvasStore(s => s.unlockAll)
 ```
 
-- [ ] **Step 4 — Call `unlockAll()` in the re-arm branch.** In the finalize effect (~line 119–133), replace:
+- [x] **Step 4 — Call `unlockAll()` in the re-arm branch.** In the finalize effect (~line 119–133), replace:
 ```tsx
     if (!triggerFinalize) {
       // Re-arm: the refine confirm step fires trigger_finalize a SECOND time.
@@ -291,21 +291,21 @@ with:
     }
 ```
 
-- [ ] **Step 5 — Add `unlockAll` to the effect's dependency array.** The effect currently has `// eslint-disable-next-line react-hooks/exhaustive-deps` and `}, [triggerFinalize])`. Keep the disable comment (the effect intentionally excludes `doRender`/`lockAll`) — `unlockAll` is a stable zustand action reference, so no dependency change is required and the existing `[triggerFinalize]` array stays as-is. (Do not widen the deps; the guard is deliberately keyed on `triggerFinalize` only.)
+- [x] **Step 5 — Add `unlockAll` to the effect's dependency array.** The effect currently has `// eslint-disable-next-line react-hooks/exhaustive-deps` and `}, [triggerFinalize])`. Keep the disable comment (the effect intentionally excludes `doRender`/`lockAll`) — `unlockAll` is a stable zustand action reference, so no dependency change is required and the existing `[triggerFinalize]` array stays as-is. (Do not widen the deps; the guard is deliberately keyed on `triggerFinalize` only.)
 
-- [ ] **Step 6 — Run the test (expected PASS).**
+- [x] **Step 6 — Run the test (expected PASS).**
 ```
 npx vitest run src/__tests__/surfaceRework.test.tsx
 ```
 Expected: PASS (1 test).
 
-- [ ] **Step 7 — Guard the existing Surface directive suite.**
+- [x] **Step 7 — Guard the existing Surface directive suite.**
 ```
 npx vitest run src/__tests__/surfaceDirective.test.tsx
 ```
 Expected: PASS (6 tests) — the re-arm branch's `unlockAll()` is additive; `a second trigger_finalize re-arms and fires again` still passes (unlockAll runs alongside the ref reset, doRender still fires twice).
 
-- [ ] **Step 8 — Commit.**
+- [x] **Step 8 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/Surface.tsx frontend/src/__tests__/surfaceRework.test.tsx
 git commit -m "fix(canvas): unlock all elements when canvas re-opens for rework (A2)"
@@ -332,7 +332,7 @@ Per-type capability (from the spec):
 | shape | yes | yes | yes (`width`/`height`) |
 | drawing | yes | yes | no |
 
-- [ ] **Step 1 — Write the failing transform test.** Create `frontend/src/__tests__/selectedToolbarTransform.test.tsx`:
+- [x] **Step 1 — Write the failing transform test.** Create `frontend/src/__tests__/selectedToolbarTransform.test.tsx`:
 ```tsx
 import { beforeEach, describe, expect, test } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -417,13 +417,13 @@ describe('SelectedToolbar transform controls', () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/selectedToolbarTransform.test.tsx
 ```
 Expected: FAIL — none of the transform buttons/inputs exist yet.
 
-- [ ] **Step 3 — Add transform helpers + the JSX block.** In `frontend/src/components/DesignStudio/SelectedToolbar.tsx`, after the `const el = ...; if (!el) return null` guard (line 13–14) and before the `return (`, add the helper constants/functions:
+- [x] **Step 3 — Add transform helpers + the JSX block.** In `frontend/src/components/DesignStudio/SelectedToolbar.tsx`, after the `const el = ...; if (!el) return null` guard (line 13–14) and before the `return (`, add the helper constants/functions:
 ```tsx
   const el = faces[activeFace].find(e => e.id === selectedId)
   if (!el) return null
@@ -451,7 +451,7 @@ Expected: FAIL — none of the transform buttons/inputs exist yet.
   const canResize = el.type !== 'drawing'
 ```
 
-- [ ] **Step 4 — Insert the transform JSX before the reorder/duplicate/delete buttons.** In the same file, immediately before the line `<button onClick={() => reorder(el.id, 'up')} ...>` (~line 106), insert:
+- [x] **Step 4 — Insert the transform JSX before the reorder/duplicate/delete buttons.** In the same file, immediately before the line `<button onClick={() => reorder(el.id, 'up')} ...>` (~line 106), insert:
 ```tsx
       {/* Universal transform block — rotate / move / (size) for every element. */}
       <div className="flex items-center gap-1" role="group" aria-label="Rotate">
@@ -475,19 +475,19 @@ Expected: FAIL — none of the transform buttons/inputs exist yet.
       )}
 ```
 
-- [ ] **Step 5 — Run the transform test (expected PASS).**
+- [x] **Step 5 — Run the transform test (expected PASS).**
 ```
 npx vitest run src/__tests__/selectedToolbarTransform.test.tsx
 ```
 Expected: PASS (6 tests).
 
-- [ ] **Step 6 — Guard the Surface directive suite (SelectedToolbar mounts inside it).**
+- [x] **Step 6 — Guard the Surface directive suite (SelectedToolbar mounts inside it).**
 ```
 npx vitest run src/__tests__/surfaceDirective.test.tsx
 ```
 Expected: PASS (6 tests) — the toolbar's `Text content` / `Font` aria-labels are unchanged; the transform block is additive.
 
-- [ ] **Step 7 — Commit.**
+- [x] **Step 7 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/SelectedToolbar.tsx frontend/src/__tests__/selectedToolbarTransform.test.tsx
 git commit -m "feat(canvas): universal rotate/move/size transform controls (A1)"
@@ -506,7 +506,7 @@ git commit -m "feat(canvas): universal rotate/move/size transform controls (A1)"
 - Consumes: existing `allowedTools?: Set<Tool>` and `highlightTool?: Tool | null` props (unchanged).
 - Produces: `upload` never receives the accent ring + pulse classes, even when `highlightTool === 'upload'`. The button stays enabled (`toolDisabled` untouched) so the load-bearing `ask_logo_bg` unlock is preserved. Non-upload highlights (`text`, `shape`) are unaffected.
 
-- [ ] **Step 1 — Write the failing de-highlight test.** Create `frontend/src/__tests__/toolRailUploadHighlight.test.tsx`:
+- [x] **Step 1 — Write the failing de-highlight test.** Create `frontend/src/__tests__/toolRailUploadHighlight.test.tsx`:
 ```tsx
 import { expect, test } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -536,13 +536,13 @@ test('a non-upload tool still highlights (text)', () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/toolRailUploadHighlight.test.tsx
 ```
 Expected: FAIL — the first test fails because `upload` currently gets the `ring-2 … animate-pulse` classes.
 
-- [ ] **Step 3 — Suppress the highlight for `upload` only.** In `frontend/src/components/DesignStudio/ToolRail.tsx`, replace the `hi` helper (~line 38–39):
+- [x] **Step 3 — Suppress the highlight for `upload` only.** In `frontend/src/components/DesignStudio/ToolRail.tsx`, replace the `hi` helper (~line 38–39):
 ```tsx
   const hi = (t: Tool) =>
     highlightTool === t ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse' : ''
@@ -560,7 +560,7 @@ with:
       : ''
 ```
 
-- [ ] **Step 4 — Retarget the existing conflicting test.** In `frontend/src/__tests__/ToolRail.test.tsx`, the test `only allowed tool is enabled and highlighted` (~line 75–87) asserts the `upload` button carries the highlight — now false by design. Replace that test body's tool from `upload` to `text` so the "only allowed tool is enabled + highlighted" intent still holds for a highlightable tool:
+- [x] **Step 4 — Retarget the existing conflicting test.** In `frontend/src/__tests__/ToolRail.test.tsx`, the test `only allowed tool is enabled and highlighted` (~line 75–87) asserts the `upload` button carries the highlight — now false by design. Replace that test body's tool from `upload` to `text` so the "only allowed tool is enabled + highlighted" intent still holds for a highlightable tool:
 ```tsx
 test('only allowed tool is enabled and highlighted', () => {
   render(
@@ -577,13 +577,13 @@ test('only allowed tool is enabled and highlighted', () => {
 })
 ```
 
-- [ ] **Step 5 — Run both ToolRail suites (expected PASS).**
+- [x] **Step 5 — Run both ToolRail suites (expected PASS).**
 ```
 npx vitest run src/__tests__/toolRailUploadHighlight.test.tsx src/__tests__/ToolRail.test.tsx
 ```
 Expected: PASS — new de-highlight suite (2 tests) + the existing ToolRail suite (retargeted test now green, all others unchanged).
 
-- [ ] **Step 6 — Commit.**
+- [x] **Step 6 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/ToolRail.tsx frontend/src/__tests__/toolRailUploadHighlight.test.tsx frontend/src/__tests__/ToolRail.test.tsx
 git commit -m "feat(canvas): de-emphasise upload button highlight, keep unlock (A3)"
@@ -599,14 +599,14 @@ git commit -m "feat(canvas): de-emphasise upload button highlight, keep unlock (
 **Interfaces:**
 - N/A (copy strings).
 
-- [ ] **Step 1 — Record the boundary (no code).** A4 ("uploads read as 'image or logo'") is **backend-owned** and out of scope for this frontend workstream. The Backend agent updates:
+- [x] **Step 1 — Record the boundary (no code).** A4 ("uploads read as 'image or logo'") is **backend-owned** and out of scope for this frontend workstream. The Backend agent updates:
   - `backend/app/prompts.py` — `V2_TOOL_TIPS["upload"]`: "to add your logo" → "to add your image or logo".
   - `backend/app/services/conversation/canvas_steps.py` — step `ask` copy referencing "logo" where a general image is also valid (`LOGO_ADJUST`, `ASK_LOGO_BG`, `ASK_ANOTHER_LOGO` as appropriate).
   - `backend/app/services/conversation/intent_extractor.py` — `_SLOT_DOCS` logo-slot descriptions.
 
-- [ ] **Step 2 — Confirm the frontend button label is already correct.** The on-screen tool button label in `frontend/src/components/DesignStudio/ToolRail.tsx` (line 54) is already the generic **"↑ Upload image"**, and `frontend/src/__tests__/ToolRail.test.tsx` asserts the literal `/upload image/i`. **Do not change the button label** — it stays "Upload image". No frontend code or test change is required for A4.
+- [x] **Step 2 — Confirm the frontend button label is already correct.** The on-screen tool button label in `frontend/src/components/DesignStudio/ToolRail.tsx` (line 54) is already the generic **"↑ Upload image"**, and `frontend/src/__tests__/ToolRail.test.tsx` asserts the literal `/upload image/i`. **Do not change the button label** — it stays "Upload image". No frontend code or test change is required for A4.
 
-- [ ] **Step 3 — No commit (nothing changed in frontend).** If tracking is desired, note the hand-off in the workstream ledger / PR description; do not create an empty frontend commit.
+- [x] **Step 3 — No commit (nothing changed in frontend).** If tracking is desired, note the hand-off in the workstream ledger / PR description; do not create an empty frontend commit.
 
 ---
 

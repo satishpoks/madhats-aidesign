@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -36,6 +37,83 @@ def extract_email(message: str) -> str | None:
 
 def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Base32 alphabet with the ambiguous glyphs 0/O/1/I removed (24 letters + 8
+# digits = 32 symbols). Customer-facing, so readability over a phone matters.
+_REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def generate_reference_code() -> str:
+    """A short customer-facing tracking reference, e.g. ``MH-7F3K2A``."""
+    return "MH-" + "".join(secrets.choice(_REF_ALPHABET) for _ in range(6))
+
+
+def assign_reference_code(sb, lead_id: str) -> str:
+    """Allocate a unique reference code and persist it on the lead row.
+
+    Collision-checked against ``leads.reference_code`` (unique-indexed). Retries
+    a bounded number of times before giving up — with a 32^6 space a collision is
+    astronomically unlikely, so 10 attempts is ample headroom.
+    """
+    for _ in range(10):
+        code = generate_reference_code()
+        existing = (
+            sb.table("leads").select("id").eq("reference_code", code).limit(1).execute()
+        )
+        if not existing.data:
+            sb.table("leads").update({"reference_code": code}).eq("id", lead_id).execute()
+            return code
+    raise RuntimeError("could not allocate a unique reference code")
+
+
+def _latest_lead(sb, session_id: str) -> dict | None:
+    res = (
+        sb.table("leads")
+        .select("*")
+        .eq("session_id", session_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
+def record_quote_request(session: dict, collected: dict) -> str | None:
+    """Record an explicit customer quote request against the session's lead.
+
+    Sets ``quote_requested`` (+ timestamp), allocates a reference code (idempotent
+    — an existing code is reused), and best-effort converges with the async
+    email-verification track: if the email is already verified the customer
+    reference email + sales notification fire now; otherwise they fire when
+    verification completes (see delivery.maybe_send_quote_confirmation). Returns
+    the reference code, or None when no lead exists yet.
+
+    PII-safe: session_id / lead_id only in logs.
+    """
+    sb = get_supabase()
+    session_id = session["id"]
+    lead = _latest_lead(sb, session_id)
+    if not lead:
+        log.warning("record_quote_request_no_lead", session_id=session_id)
+        return None
+
+    code = lead.get("reference_code") or assign_reference_code(sb, lead["id"])
+    sb.table("leads").update(
+        {
+            "quote_requested": True,
+            "quote_requested_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", lead["id"]).execute()
+    log.info("quote_requested", session_id=session_id, lead_id=lead["id"])  # no PII
+
+    try:
+        from app.services import delivery  # noqa: PLC0415 — avoid import cycle
+
+        delivery.maybe_send_quote_confirmation(session_id)
+    except Exception as exc:  # noqa: BLE001 — never fail the request over a side effect
+        log.error("quote_converge_failed", session_id=session_id, error_type=type(exc).__name__)
+    return code
 
 
 def send_verification(lead: dict, store: dict | None = None) -> bool:

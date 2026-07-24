@@ -12,7 +12,7 @@ import { DesignStudioSurface } from '../components/DesignStudio/Surface'
 import { useChatStore } from '../store/chatStore'
 import { useSessionStore } from '../store/sessionStore'
 import { useCanvasStore } from '../store/canvasStore'
-import { finalizeCanvas } from '../lib/api'
+import { finalizeCanvas, sendChat } from '../lib/api'
 
 // jsdom has no real <canvas> 2D backend (the `canvas` npm package isn't
 // installed here), so `HTMLCanvasElement.getContext('2d')` returns null and a
@@ -145,6 +145,43 @@ test('v2: the stage is read-only on a step that hands over no tools', () => {
 
   // No tools in play -> the element-editing toolbar must not be reachable.
   expect(screen.queryByLabelText('Text content')).not.toBeInTheDocument()
+})
+
+test('rework: unlock_all directive unlocks the canvas and Done sends chat, not finalizeCanvas', async () => {
+  // Simulate a finished, locked design being reopened for rework (REWORK_CANVAS).
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().lockAll()
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
+
+  const unlockSpy = vi.spyOn(useCanvasStore.getState(), 'unlockAll')
+
+  useChatStore.setState({
+    chatState: 'rework_canvas',
+    canvasDirective: {
+      allowedTools: ['upload', 'text', 'shape'],
+      targetFace: null,
+      autoOpen: null,
+      instructions: 'Edit your design',
+      showDone: true,
+      unlockAll: true,
+    },
+  } as never)
+
+  render(<DesignStudioSurface />)
+
+  expect(unlockSpy).toHaveBeenCalled()
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(false)
+
+  // The ToolRail render/"Done designing" button must not be the active finalize
+  // path during rework — only the per-step Done button submits.
+  expect(screen.queryByRole('button', { name: /done designing|design saved/i })).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: /^done$/i }))
+  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+  expect(sendChat).toHaveBeenCalledWith('s1', 'done', undefined)
+  expect(finalizeCanvas).not.toHaveBeenCalled()
 })
 
 test('a second trigger_finalize re-arms and fires again', async () => {

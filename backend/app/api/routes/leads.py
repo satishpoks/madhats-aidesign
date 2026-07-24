@@ -133,6 +133,13 @@ async def confirm_verification(token: str) -> HTMLResponse:
     except Exception as exc:  # noqa: BLE001
         log.error("post_verification_actions_failed", lead_id=lead_id, error_type=type(exc).__name__)
 
+    # Quote-gated flow (C2/C3): the customer never gets the design — email them
+    # their tracking reference + notify sales, once. Best-effort, idempotent.
+    try:
+        delivery.maybe_send_quote_confirmation(session_id)
+    except Exception as exc:  # noqa: BLE001
+        log.error("quote_confirmation_failed", lead_id=lead_id, error_type=type(exc).__name__)
+
     # If the preview did NOT go out, the customer verified EARLY — before the
     # design finished generating. Email them a link to resume the session so they
     # can continue if they've closed the chat tab. Fires at most once (guarded by

@@ -73,7 +73,7 @@ Adds the `reference_code` and quote-request columns to `leads`, and the collisio
 - Produces: `leads.generate_reference_code() -> str`, `leads.assign_reference_code(sb, lead_id: str) -> str`
 - Consumes: `app.db.get_supabase` (passed in as `sb`)
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_leads_reference_code.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_leads_reference_code.py`:
 ```python
 """MH-XXXXXX tracking reference generation + collision-checked assignment."""
 from __future__ import annotations
@@ -144,12 +144,12 @@ def test_assign_reference_code_avoids_collision(monkeypatch):
     assert fake.sink == [{"reference_code": "MH-BCDFGH"}]
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (AttributeError: module has no `generate_reference_code`).
+- [x] **Step 2:** Run it — expect FAIL (AttributeError: module has no `generate_reference_code`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 3:** Write the migration `backend/supabase/migrations/20260724000001_leads_reference_code.sql`:
+- [x] **Step 3:** Write the migration `backend/supabase/migrations/20260724000001_leads_reference_code.sql`:
 ```sql
 -- Quote-gated delivery (Workstream C). The customer explicitly requests a quote;
 -- we mint a customer-facing tracking reference (MH-XXXXXX), stop emailing the
@@ -165,7 +165,7 @@ create unique index if not exists idx_leads_reference_code
   on leads(reference_code) where reference_code is not null;
 ```
 
-- [ ] **Step 4:** Implement the generator + assignment in `backend/app/services/leads.py`. Add `import secrets` to the imports (top of file, alphabetically near `import re`), then insert after `hash_token` (~line 39):
+- [x] **Step 4:** Implement the generator + assignment in `backend/app/services/leads.py`. Add `import secrets` to the imports (top of file, alphabetically near `import re`), then insert after `hash_token` (~line 39):
 ```python
 # Base32 alphabet with the ambiguous glyphs 0/O/1/I removed (24 letters + 8
 # digits = 32 symbols). Customer-facing, so readability over a phone matters.
@@ -195,12 +195,12 @@ def assign_reference_code(sb, lead_id: str) -> str:
     raise RuntimeError("could not allocate a unique reference code")
 ```
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/services/leads.py supabase/migrations/20260724000001_leads_reference_code.sql tests/test_leads_reference_code.py && git commit -m "feat(quote): leads.reference_code column + MH-XXXXXX generator (C2)
 
@@ -221,7 +221,7 @@ Marks the lead `quote_requested`, allocates the reference, and best-effort conve
 - Produces: `leads.record_quote_request(session: dict, collected: dict) -> str | None`
 - Consumes: `leads.assign_reference_code`, `delivery.maybe_send_quote_confirmation` (Task 7; imported lazily so ordering is tolerant)
 
-- [ ] **Step 1:** Add the failing test to `backend/tests/test_leads_reference_code.py`:
+- [x] **Step 1:** Add the failing test to `backend/tests/test_leads_reference_code.py`:
 ```python
 def test_record_quote_request_marks_lead_and_returns_code(monkeypatch):
     rows = [{"id": "lead-1", "session_id": "sess-1", "reference_code": None,
@@ -248,12 +248,12 @@ def test_record_quote_request_no_lead_returns_none(monkeypatch):
     assert leads_service.record_quote_request({"id": "missing"}, {}) is None
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no `record_quote_request`).
+- [x] **Step 2:** Run it — expect FAIL (no `record_quote_request`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -k record_quote_request -v
 ```
 
-- [ ] **Step 3:** Implement `record_quote_request` in `backend/app/services/leads.py`, immediately after `assign_reference_code`:
+- [x] **Step 3:** Implement `record_quote_request` in `backend/app/services/leads.py`, immediately after `assign_reference_code`:
 ```python
 def _latest_lead(sb, session_id: str) -> dict | None:
     res = (
@@ -304,12 +304,12 @@ def record_quote_request(session: dict, collected: dict) -> str | None:
     return code
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. (`maybe_send_quote_confirmation` is monkeypatched in Task 2's tests; the lazy import means the real one lands in Task 7.)
+- [x] **Step 4:** Run it — expect PASS. (`maybe_send_quote_confirmation` is monkeypatched in Task 2's tests; the lazy import means the real one lands in Task 7.)
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_leads_reference_code.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/leads.py tests/test_leads_reference_code.py && git commit -m "feat(quote): record_quote_request records + converges the request (C1/C2/C3)
 
@@ -333,7 +333,7 @@ Adds a `REQUEST_QUOTE` registry step (between `ASK_PURPOSE` and `FINALIZE_CANVAS
 - Produces: `ConversationState.REQUEST_QUOTE`; a `Step(id=S.REQUEST_QUOTE, ...)` in `canvas_steps.REGISTRY`
 - Consumes: `leads.record_quote_request`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_request_quote_step.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_request_quote_step.py`:
 ```python
 """C1 — the REQUEST_QUOTE registry step records the request via its apply hook."""
 from __future__ import annotations
@@ -385,17 +385,17 @@ def test_request_quote_gates_finalize_until_requested():
     assert sm2.next_step(done).id is S.FINALIZE_CANVAS
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`AttributeError: REQUEST_QUOTE`).
+- [x] **Step 2:** Run it — expect FAIL (`AttributeError: REQUEST_QUOTE`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_request_quote_step.py -v
 ```
 
-- [ ] **Step 3:** Add the enum member in `backend/app/services/conversation/state_machine.py`, immediately after `FINALIZE_CANVAS = "finalize_canvas"` (~line 49):
+- [x] **Step 3:** Add the enum member in `backend/app/services/conversation/state_machine.py`, immediately after `FINALIZE_CANVAS = "finalize_canvas"` (~line 49):
 ```python
     REQUEST_QUOTE = "request_quote"   # v2 quote-gated: explicit submit before finalize
 ```
 
-- [ ] **Step 4:** Add the apply hook + Step in `backend/app/services/conversation/canvas_steps.py`. Insert `_apply_request_quote` after `_apply_decoration_mix` (~line 327):
+- [x] **Step 4:** Add the apply hook + Step in `backend/app/services/conversation/canvas_steps.py`. Insert `_apply_request_quote` after `_apply_decoration_mix` (~line 327):
 ```python
 def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
     """Record the explicit quote request and stash the reference for on-screen.
@@ -425,13 +425,13 @@ Then insert the Step into `REGISTRY` immediately BEFORE the `FINALIZE_CANVAS` st
     ),
 ```
 
-- [ ] **Step 5:** Add the progress anchor so the step reads as final (no counter growth). In `backend/app/services/conversation/state_machine_v2.py`, add to `_PROGRESS_ANCHORS` (~line 63), after the `ASK_DECORATION_MIX` entry:
+- [x] **Step 5:** Add the progress anchor so the step reads as final (no counter growth). In `backend/app/services/conversation/state_machine_v2.py`, add to `_PROGRESS_ANCHORS` (~line 63), after the `ASK_DECORATION_MIX` entry:
 ```python
     # The explicit submit is the last beat of ASK_PURPOSE, not a numbered step.
     S.REQUEST_QUOTE: S.ASK_PURPOSE,
 ```
 
-- [ ] **Step 6:** Make the v2 finalize stop generating. In `backend/app/api/routes/sessions.py`, replace the `if settings.canvas_orchestrator_v2:` block inside `finalize_canvas` (~lines 268–280) with:
+- [x] **Step 6:** Make the v2 finalize stop generating. In `backend/app/api/routes/sessions.py`, replace the `if settings.canvas_orchestrator_v2:` block inside `finalize_canvas` (~lines 268–280) with:
 ```python
     # v2 step-by-step orchestrator: the design phase already happened in chat and
     # the customer explicitly requested a quote (REQUEST_QUOTE) before this. This
@@ -466,12 +466,12 @@ Then insert the Step into `REGISTRY` immediately BEFORE the `FINALIZE_CANVAS` st
         }
 ```
 
-- [ ] **Step 7:** Run the step test + the v2 e2e + state-machine suites — expect PASS.
+- [x] **Step 7:** Run the step test + the v2 e2e + state-machine suites — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_request_quote_step.py tests/test_state_machine_v2.py tests/test_v2_e2e.py -v
 ```
 
-- [ ] **Step 8:** Commit.
+- [x] **Step 8:** Commit.
 ```bash
 cd backend && git add app/services/conversation/state_machine.py app/services/conversation/canvas_steps.py app/services/conversation/state_machine_v2.py app/api/routes/sessions.py tests/test_request_quote_step.py && git commit -m "feat(quote): explicit Request-a-quote step; finalize stops generating (C1/C4)
 
@@ -492,7 +492,7 @@ Guards `maybe_send_preview` and `send_final_design` to refuse the customer desig
 - Consumes: `design_sessions.collected["quote_requested"]`
 - Produces: (behaviour) `maybe_send_preview` / `send_final_design` return `False` early for quote-gated sessions
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_delivery_quote_gate.py` (reuse the `_Query`/`_FakeSB` shape from `test_delivery.py`):
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_delivery_quote_gate.py` (reuse the `_Query`/`_FakeSB` shape from `test_delivery.py`):
 ```python
 """Quote-gated sessions never receive the design by email (C2)."""
 from __future__ import annotations
@@ -572,12 +572,12 @@ def test_send_final_design_skips_quote_gated(monkeypatch):
     assert delivery.send_final_design("sess-1") is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (the guard doesn't exist; preview/final would proceed).
+- [x] **Step 2:** Run it — expect FAIL (the guard doesn't exist; preview/final would proceed).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py -v
 ```
 
-- [ ] **Step 3:** Add a shared helper + guards in `backend/app/services/delivery.py`. Insert the helper after `_fetch_image_bytes` (~line 94):
+- [x] **Step 3:** Add a shared helper + guards in `backend/app/services/delivery.py`. Insert the helper after `_fetch_image_bytes` (~line 94):
 ```python
 def _is_quote_gated(sb, session_id: str) -> bool:
     """True when the session is the quote-gated canvas flow.
@@ -606,12 +606,12 @@ Add the guard at the top of `send_final_design`, immediately after the docstring
         return False
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Also re-run the existing delivery suite to confirm non-quote flows still send.
+- [x] **Step 4:** Run it — expect PASS. Also re-run the existing delivery suite to confirm non-quote flows still send.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py tests/test_delivery.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/delivery.py tests/test_delivery_quote_gate.py && git commit -m "feat(quote): never email the design for quote-gated sessions (C2)
 
@@ -632,7 +632,7 @@ A pure enumerator of every uploaded/derived component path for a session, used b
 - Produces: `components.enumerate_components(collected: dict, generation: dict | None = None) -> list[dict]` → each `{"label": str, "path": str}` (storage paths only)
 - Consumes: `collected["uploaded_asset_path"|"canvas_previews"|"canvas_layouts"|"elements"]`, `generation["view_images"]`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_components.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_components.py`:
 ```python
 """Enumerate the uploaded/derived component set for a quote request (C5)."""
 from __future__ import annotations
@@ -671,12 +671,12 @@ def test_enumerate_components_empty_without_render():
     assert components.enumerate_components({}, None) == []
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no module `components`).
+- [x] **Step 2:** Run it — expect FAIL (no module `components`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_components.py -v
 ```
 
-- [ ] **Step 3:** Implement `backend/app/services/components.py`:
+- [x] **Step 3:** Implement `backend/app/services/components.py`:
 ```python
 """Enumerate the complete uploaded/derived component set for a session.
 
@@ -737,12 +737,12 @@ def enumerate_components(collected: dict, generation: dict | None = None) -> lis
     return out
 ```
 
-- [ ] **Step 4:** Run it — expect PASS.
+- [x] **Step 4:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_components.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/components.py tests/test_components.py && git commit -m "feat(quote): enumerate downloadable components per session (C5)
 
@@ -764,7 +764,7 @@ Adds the customer reference email (no design image) and the sales quote-request 
 - Produces: `email.send_quote_reference_email(to, name, reference_code, store_name, primary_colour) -> bool`; `email.send_quote_request_to_sales(recipient, reference_code, store_name, customer_email, collected, attachments) -> bool`
 - Consumes: `prompts.QUOTE_REFERENCE_EMAIL_*`, `prompts.SALES_QUOTE_REQUEST_EMAIL_*`, `email._branded`, `email._dispatch`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_quote_emails.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_quote_emails.py`:
 ```python
 """Customer reference email (no image) + sales quote-request email (C2/C3)."""
 from __future__ import annotations
@@ -818,12 +818,12 @@ def test_sales_request_email_no_recipient_returns_false(monkeypatch):
         None, "MH-X", "MadHats", "a@b.com", {}, []) is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (functions don't exist).
+- [x] **Step 2:** Run it — expect FAIL (functions don't exist).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_quote_emails.py -v
 ```
 
-- [ ] **Step 3:** Add the templates in `backend/app/prompts.py`, after `SALES_QUOTE_CONFIRMED_EMAIL_BODY` (~line 801):
+- [x] **Step 3:** Add the templates in `backend/app/prompts.py`, after `SALES_QUOTE_CONFIRMED_EMAIL_BODY` (~line 801):
 ```python
 # Customer-facing reference email — quote-gated flow. NO design image; the
 # customer only ever receives their tracking reference. Rendered inside the
@@ -867,7 +867,7 @@ to the customer, quoting the reference above.
 """
 ```
 
-- [ ] **Step 4:** Add the send functions in `backend/app/services/email.py`, after `send_quote_confirmation_to_sales` (~line 287):
+- [x] **Step 4:** Add the send functions in `backend/app/services/email.py`, after `send_quote_confirmation_to_sales` (~line 287):
 ```python
 def send_quote_reference_email(
     to: str,
@@ -927,12 +927,12 @@ def send_quote_request_to_sales(
     return _dispatch(recipient, subject, html, attachments=attachments or None)
 ```
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_quote_emails.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/prompts.py app/services/email.py tests/test_quote_emails.py && git commit -m "feat(quote): customer reference + sales quote-request emails (C2/C3)
 
@@ -954,7 +954,7 @@ The idempotent convergence primitive: on `verified AND quote_requested AND not a
 - Produces: `delivery.maybe_send_quote_confirmation(session_id: str) -> bool`
 - Consumes: `leads`(reference_code/email_verified/quote_requested/quote_confirmation_sent), `components.enumerate_components`, `storage.download_asset`, `email.send_quote_reference_email`, `email.send_quote_request_to_sales`, `stores.get_store`
 
-- [ ] **Step 1:** Add the failing tests to `backend/tests/test_delivery_quote_gate.py`:
+- [x] **Step 1:** Add the failing tests to `backend/tests/test_delivery_quote_gate.py`:
 ```python
 def _quote_tables(**over):
     lead = {"id": "lead-1", "session_id": "sess-1", "name": "Ann", "email": "a@b.com",
@@ -1000,12 +1000,12 @@ def test_quote_confirmation_requires_verified_and_requested(monkeypatch):
     assert delivery.maybe_send_quote_confirmation("sess-1") is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (no `maybe_send_quote_confirmation`).
+- [x] **Step 2:** Run it — expect FAIL (no `maybe_send_quote_confirmation`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py -k quote_confirmation -v
 ```
 
-- [ ] **Step 3:** Implement `maybe_send_quote_confirmation` in `backend/app/services/delivery.py`, after `backfill_pending` (~line 412). It reuses the module imports already present (`storage`, `get_store` via local import, `components`):
+- [x] **Step 3:** Implement `maybe_send_quote_confirmation` in `backend/app/services/delivery.py`, after `backfill_pending` (~line 412). It reuses the module imports already present (`storage`, `get_store` via local import, `components`):
 ```python
 def maybe_send_quote_confirmation(session_id: str) -> bool:
     """Send the customer reference email + sales notification, once. Idempotent.
@@ -1084,7 +1084,7 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
     return True
 ```
 
-- [ ] **Step 4:** Wire it into verification. In `backend/app/api/routes/leads.py`, inside `confirm_verification`, after the `maybe_send_preview` try/except block (~line 135, before the `if not preview_sent:` resume-email block), add:
+- [x] **Step 4:** Wire it into verification. In `backend/app/api/routes/leads.py`, inside `confirm_verification`, after the `maybe_send_preview` try/except block (~line 135, before the `if not preview_sent:` resume-email block), add:
 ```python
     # Quote-gated flow (C2/C3): the customer never gets the design — email them
     # their tracking reference + notify sales, once. Best-effort, idempotent.
@@ -1094,12 +1094,12 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
         log.error("quote_confirmation_failed", lead_id=lead_id, error_type=type(exc).__name__)
 ```
 
-- [ ] **Step 5:** Run it — expect PASS. Re-run the leads-verify route suite to confirm no regression.
+- [x] **Step 5:** Run it — expect PASS. Re-run the leads-verify route suite to confirm no regression.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py tests/test_leads_verify_route.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/services/delivery.py app/api/routes/leads.py tests/test_delivery_quote_gate.py && git commit -m "feat(quote): maybe_send_quote_confirmation + verification trigger (C2/C3)
 
@@ -1121,7 +1121,7 @@ A lean re-enqueue helper returning the `job_id`, plus `POST /admin/quote-request
 - Produces: `generate.enqueue_render_for_session(background, session) -> str`; `POST /admin/quote-requests/{lead_id}/render` → `{"job_id": str}`
 - Consumes: `generate._run_generation`, `prompt_builder.build_params`/`build_prompt`, `require_admin`, `require_store`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_admin_quote_render.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_admin_quote_render.py`:
 ```python
 """POST /admin/quote-requests/{lead_id}/render triggers an on-demand render (C4)."""
 from __future__ import annotations
@@ -1220,12 +1220,12 @@ def test_render_rejects_cross_store(client, monkeypatch):
     assert r.status_code == 404
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (404 route not found / no endpoint).
+- [x] **Step 2:** Run it — expect FAIL (404 route not found / no endpoint).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_quote_render.py -v
 ```
 
-- [ ] **Step 3:** Make `_enqueue_generation` return the job id and add the reusable render helper in `backend/app/api/routes/generate.py`. Change the end of `_enqueue_generation` (~line 630) so the final statement returns `job_id`:
+- [x] **Step 3:** Make `_enqueue_generation` return the job id and add the reusable render helper in `backend/app/api/routes/generate.py`. Change the end of `_enqueue_generation` (~line 630) so the final statement returns `job_id`:
 ```python
     background.add_task(
         _run_generation,
@@ -1254,7 +1254,7 @@ def enqueue_render_for_session(background: BackgroundTasks, session: dict) -> st
 ```
 Also add `BackgroundTasks` to the FastAPI import if not already imported (it is — line 6).
 
-- [ ] **Step 4:** Add the render endpoint in `backend/app/api/routes/admin_leads.py`. Update the imports at the top:
+- [x] **Step 4:** Add the render endpoint in `backend/app/api/routes/admin_leads.py`. Update the imports at the top:
 ```python
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
@@ -1293,12 +1293,12 @@ async def render_quote_request(
 ```
 Note: the router-level `dependencies=[Depends(require_admin)]` already gates every route here, so the render endpoint is admin- AND store-gated.
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_quote_render.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/generate.py app/api/routes/admin_leads.py tests/test_admin_quote_render.py && git commit -m "feat(quote): admin render-on-demand endpoint for quote requests (C4)
 
@@ -1319,7 +1319,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: `image_srcs: list[str]`
 - Produces: `_map_views(image_srcs) -> dict` (only real angles + front)
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_catalogue_sync_views.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_catalogue_sync_views.py`:
 ```python
 """_map_views records only genuine angles + front — no fabricated aliases (C6.1)."""
 from __future__ import annotations
@@ -1351,12 +1351,12 @@ def test_empty_srcs_is_empty():
     assert _map_views([]) == {}
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (current code fabricates back/left/right).
+- [x] **Step 2:** Run it — expect FAIL (current code fabricates back/left/right).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_catalogue_sync_views.py -v
 ```
 
-- [ ] **Step 3:** Replace `_map_views` in `backend/app/services/catalogue_sync.py` (lines 62–80) with:
+- [x] **Step 3:** Replace `_map_views` in `backend/app/services/catalogue_sync.py` (lines 62–80) with:
 ```python
 def _map_views(image_srcs: list[str]) -> dict:
     """Map product photos to angle keys by filename keyword, plus front.
@@ -1385,12 +1385,12 @@ def _map_views(image_srcs: list[str]) -> dict:
     return views
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Re-run the catalogue-sync suite if one exists.
+- [x] **Step 4:** Run it — expect PASS. Re-run the catalogue-sync suite if one exists.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_catalogue_sync_views.py -v && CANVAS_ORCHESTRATOR_V2=false pytest -k catalogue -q
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/catalogue_sync.py tests/test_catalogue_sync_views.py && git commit -m "fix(gen): _map_views stops fabricating back/left/right aliases (C6.1)
 
@@ -1412,7 +1412,7 @@ Adds a `generations.render_notes` column and makes `_run_generation`'s canvas br
 - Produces: `generate._has_genuine_angle(product_ref, view) -> bool`; `generations.render_notes` populated with skipped-face notes
 - Consumes: `product_ref["view_images"]`, `prompt_builder.render_views`
 
-- [ ] **Step 1:** Write the failing test. Add to `backend/tests/test_canvas_generation.py` (import the helper directly — pure, no DB):
+- [x] **Step 1:** Write the failing test. Add to `backend/tests/test_canvas_generation.py` (import the helper directly — pure, no DB):
 ```python
 def test_has_genuine_angle_front_always_true_others_need_photo():
     from app.api.routes import generate
@@ -1443,13 +1443,13 @@ def test_canvas_render_skips_faces_without_a_genuine_angle():
     assert skipped == ["back"]
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (helpers don't exist).
+- [x] **Step 2:** Run it — expect FAIL (helpers don't exist).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -k genuine_angle -v
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -k skips_faces -v
 ```
 
-- [ ] **Step 3:** Write the migration `backend/supabase/migrations/20260724000002_generation_render_notes.sql`:
+- [x] **Step 3:** Write the migration `backend/supabase/migrations/20260724000002_generation_render_notes.sql`:
 ```sql
 -- C6.2: per-render operational notes (e.g. "back face not rendered — no back
 -- angle photo for this product"). Surfaced to sales in the admin quote-requests
@@ -1457,7 +1457,7 @@ cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.p
 alter table generations add column if not exists render_notes jsonb;
 ```
 
-- [ ] **Step 4:** Add the helpers + wire them into `backend/app/api/routes/generate.py`. Add the helpers just above `_run_generation` (~line 345):
+- [x] **Step 4:** Add the helpers + wire them into `backend/app/api/routes/generate.py`. Add the helpers just above `_run_generation` (~line 345):
 ```python
 def _has_genuine_angle(product_ref: dict, view: str) -> bool:
     """True when a view has a REAL reference photo to composite onto.
@@ -1530,12 +1530,12 @@ Then record the notes at completion. In the completion `sb.table("generations").
         ).eq("job_id", job_id).execute()
 ```
 
-- [ ] **Step 5:** Run it — expect PASS. Re-run the full canvas-generation suite.
+- [x] **Step 5:** Run it — expect PASS. Re-run the full canvas-generation suite.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/generate.py supabase/migrations/20260724000002_generation_render_notes.sql tests/test_canvas_generation.py && git commit -m "fix(gen): skip canvas faces with no genuine angle; record render_notes (C6.2)
 
@@ -1556,7 +1556,7 @@ Injects a stacking-order sentence into each multi-element face's prompt so overl
 - Produces: `prompt_builder._zorder_note(elements) -> str`
 - Consumes: element `canvas.z`, `type`, `content`
 
-- [ ] **Step 1:** Write the failing test. Add to `backend/tests/test_prompt_builder.py`:
+- [x] **Step 1:** Write the failing test. Add to `backend/tests/test_prompt_builder.py`:
 ```python
 def test_build_view_prompt_injects_front_to_back_zorder():
     from app.services import prompt_builder
@@ -1585,12 +1585,12 @@ def test_zorder_note_empty_for_single_element():
     assert prompt_builder._zorder_note([{"type": "text", "content": "x"}]) == ""
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`_zorder_note` doesn't exist / not injected).
+- [x] **Step 2:** Run it — expect FAIL (`_zorder_note` doesn't exist / not injected).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_prompt_builder.py -k zorder -v
 ```
 
-- [ ] **Step 3:** Add the helpers in `backend/app/services/prompt_builder.py`, immediately after `_element_line` (~line 175):
+- [x] **Step 3:** Add the helpers in `backend/app/services/prompt_builder.py`, immediately after `_element_line` (~line 175):
 ```python
 def _element_label(el: dict) -> str:
     """A short identity for an element, for the layering note."""
@@ -1630,12 +1630,12 @@ Inject the note in `build_view_prompt` — replace the `if view_elements:` branc
             design_block = f"{design_block}\n{zorder}"
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Re-run the full prompt-builder suite.
+- [x] **Step 4:** Run it — expect PASS. Re-run the full prompt-builder suite.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_prompt_builder.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/prompt_builder.py tests/test_prompt_builder.py && git commit -m "fix(gen): inject explicit front-to-back z-order into per-face prompt (C6.3)
 
@@ -1656,7 +1656,7 @@ Extends `GET /admin/quote-requests` with the reference, summary fields, latest r
 - Produces: enriched list rows (`reference_code`, `needed_by`, `purpose`, `notes`, `render_status`, `render_notes`); `GET /admin/quote-requests/{lead_id}/components` → `{"components": [{"label", "url"}]}`
 - Consumes: `components.enumerate_components`, `storage.media_url`, latest generation row
 
-- [ ] **Step 1:** Write the failing tests. Add to `backend/tests/test_admin_leads.py` (mirror its existing fake-SB fixture; assert the new fields + endpoint):
+- [x] **Step 1:** Write the failing tests. Add to `backend/tests/test_admin_leads.py` (mirror its existing fake-SB fixture; assert the new fields + endpoint):
 ```python
 def test_quote_requests_include_reference_and_summary(admin_client, seed_quote_lead):
     # seed a quote_confirmed lead with a reference + collected summary
@@ -1695,12 +1695,12 @@ def test_v2_requested_leads_appear_without_quote_confirmed(admin_client, seed_v2
 > ```
 > `seed_quote_lead` seeds `leads` with `quote_confirmed=True`, `reference_code="MH-BCDFGH"`, and a session whose `collected` has `uploaded_asset_path="uploads/logo.png"`, `needed_by`, `purpose`, `quantity`. `seed_v2_requested_lead` seeds a SECOND lead with `quote_confirmed=False`, `quote_requested=True`, `reference_code="MH-REQ222"`. Monkeypatch `admin_leads.get_supabase` and `admin_leads.storage.media_url` (→ `f"/media/{path}"`).
 
-- [ ] **Step 2:** Run it — expect FAIL (fields/endpoint missing).
+- [x] **Step 2:** Run it — expect FAIL (fields/endpoint missing).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_leads.py -k "reference or components" -v
 ```
 
-- [ ] **Step 3:** Enrich the list + add the components endpoint in `backend/app/api/routes/admin_leads.py`. Add imports at the top:
+- [x] **Step 3:** Enrich the list + add the components endpoint in `backend/app/api/routes/admin_leads.py`. Add imports at the top:
 ```python
 from fastapi import Request
 
@@ -1785,17 +1785,17 @@ async def list_quote_components(lead_id: str, request: Request) -> dict:
     return {"components": out}
 ```
 
-- [ ] **Step 4:** Run it — expect PASS.
+- [x] **Step 4:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_admin_leads.py -v
 ```
 
-- [ ] **Step 5:** Run the full backend baseline to confirm no regressions across the workstream.
+- [x] **Step 5:** Run the full backend baseline to confirm no regressions across the workstream.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/admin_leads.py tests/test_admin_leads.py && git commit -m "feat(quote): admin quote-requests reference/summary + components endpoint (C5/C7)
 
@@ -1817,7 +1817,7 @@ Adds the reference column, a per-row expand with the summary + component downloa
 - Consumes: `GET /admin/quote-requests`, `GET /admin/quote-requests/{lead_id}/components`, `POST /admin/quote-requests/{lead_id}/render`, `GET /admin/generations` (existing) or `/generate/status/{job_id}` for polling
 - Produces: (UI) reference column, component download links, render button
 
-- [ ] **Step 1:** Write the failing test. Create `frontend/src/admin/views/QuoteRequestsView.test.tsx`:
+- [x] **Step 1:** Write the failing test. Create `frontend/src/admin/views/QuoteRequestsView.test.tsx`:
 ```tsx
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -1844,12 +1844,12 @@ describe('QuoteRequestsView', () => {
 })
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`reference_code` not on the type / not rendered).
+- [x] **Step 2:** Run it — expect FAIL (`reference_code` not on the type / not rendered).
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
 
-- [ ] **Step 3:** Extend the API in `frontend/src/admin/adminApi.ts`. Find the `QuoteRequest` type and add the fields, then add two functions near `listQuoteRequests` (~line 183):
+- [x] **Step 3:** Extend the API in `frontend/src/admin/adminApi.ts`. Find the `QuoteRequest` type and add the fields, then add two functions near `listQuoteRequests` (~line 183):
 ```ts
 // Add to the QuoteRequest interface:
 //   reference_code?: string | null
@@ -1871,7 +1871,7 @@ export function renderQuoteRequest(leadId: string): Promise<{ job_id: string }> 
 }
 ```
 
-- [ ] **Step 4:** Add the reference column + an expandable render/components panel in `frontend/src/admin/views/QuoteRequestsView.tsx`. Add a `reference` column at the front of `columns`:
+- [x] **Step 4:** Add the reference column + an expandable render/components panel in `frontend/src/admin/views/QuoteRequestsView.tsx`. Add a `reference` column at the front of `columns`:
 ```tsx
     { key: 'reference', header: 'Reference', render: (r) => r.reference_code ?? '—' },
 ```
@@ -1967,12 +1967,12 @@ function RenderCell({ leadId }: { leadId: string }) {
 ```
 Ensure `useState` is imported (it is, via the existing `useState` import at the top).
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd frontend && git add src/admin/adminApi.ts src/admin/views/QuoteRequestsView.tsx src/admin/views/QuoteRequestsView.test.tsx && git commit -m "feat(quote): admin quote-requests view — reference, components, render (C7)
 
@@ -1983,14 +1983,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Final verification
 
-- [ ] **Backend baseline stays green:**
+- [x] **Backend baseline stays green:**
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q
 ```
-- [ ] **Targeted frontend (Windows-stall-safe):**
+- [x] **Targeted frontend (Windows-stall-safe):**
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
-- [ ] **Manual smoke (documented, not automated):** with `CANVAS_ORCHESTRATOR_V2=true`, walk a canvas session to REQUEST_QUOTE → tap "Request a quote" → confirm the on-screen reference; verify the email → confirm the customer reference email (no image) + the sales email (summary + attachments); from the admin quote-requests view, click "Generate render" → confirm a render appears and the customer is NOT emailed the design.
+- [ ] **NOT DONE — Docker + Supabase were not running in this worktree, so no
+  live run was possible. Both migrations (`20260724000001_leads_reference_code.sql`,
+  `20260724000002_generation_render_notes.sql`) are UNAPPLIED.**
+  **Manual smoke (documented, not automated):** with `CANVAS_ORCHESTRATOR_V2=true`, walk a canvas session to REQUEST_QUOTE → tap "Request a quote" → confirm the on-screen reference; verify the email → confirm the customer reference email (no image) + the sales email (summary + attachments); from the admin quote-requests view, click "Generate render" → confirm a render appears and the customer is NOT emailed the design.
 ```
 ```

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { sendChat, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
+import { sendChat, sendBack, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
 import { parseCanvasOps, applyCanvasOps } from '../lib/canvasOps'
 import { useCanvasStore } from './canvasStore'
@@ -45,12 +45,20 @@ interface ChatStoreState {
     autoOpen: string | null
     instructions: string | null
     showDone: boolean
+    /** REWORK_CANVAS: the customer reopened a finished design — clear every
+     *  element's locked flag so the whole canvas is editable again. */
+    unlockAll: boolean
   } | null
   /** v2: the frontend should flatten + finalize the canvas now. */
   triggerFinalize: boolean
+  /** v2 canvas correction: whether there's a previous answer to undo (drives
+   *  the "↩ Back" control). */
+  canGoBack: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
+  /** v2 canvas correction: undo the last answered step and apply the re-ask. */
+  goBack: (sessionId: string) => Promise<void>
   /** Rebuild the thread from persisted history when resuming a session. */
   hydrate: (
     messages: ChatMessageOut[],
@@ -97,10 +105,12 @@ function parseData(data: Record<string, unknown>) {
         autoOpen: typeof rawCanvas.auto_open === 'string' ? rawCanvas.auto_open : null,
         instructions: typeof rawCanvas.instructions === 'string' ? rawCanvas.instructions : null,
         showDone: rawCanvas.show_done === true,
+        unlockAll: rawCanvas.unlock_all === true,
       }
     : null
   const triggerFinalize = data.trigger_finalize === true
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize }
+  const canGoBack = data.can_go_back === true
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack }
 }
 
 function uid(): string {
@@ -128,6 +138,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   kickoffDone: false,
   canvasDirective: null,
   triggerFinalize: false,
+  canGoBack: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -190,6 +201,17 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         chatError: err instanceof Error ? err.message : 'Something went wrong',
         sending: false,
       })
+    }
+  },
+
+  goBack: async (sessionId: string) => {
+    if (get().sending) return
+    set({ sending: true })
+    try {
+      const res = await sendBack(sessionId)
+      get().applyResponse(res.reply, res.state, res.data as Record<string, unknown>)
+    } finally {
+      set({ sending: false })
     }
   },
 
@@ -305,5 +327,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       kickoffDone: false,
       canvasDirective: null,
       triggerFinalize: false,
+      canGoBack: false,
     }),
 }))

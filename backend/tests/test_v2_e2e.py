@@ -14,6 +14,7 @@ from app.services.conversation import canvas_steps as cs
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
+from tests.canvas_step_helpers import seed_for
 
 
 class _FakeTable:
@@ -105,6 +106,12 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         lambda s, c, e: ("lead-1", True),
     )
 
+    # The explicit quote request writes to `leads` + converges delivery; neither
+    # belongs in a routing walk, so stub the recording and keep the reference.
+    monkeypatch.setattr(
+        cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH",
+    )
+
     async def _boom(*a, **k):
         raise o2.ie.LLMUnavailable("chips and direct-answer steps need no model")
     monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
@@ -116,7 +123,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Yes, I have a logo",      S.ASK_LOGO_PLACEMENT),
         ("Front",                   S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
-        ("Yes, remove background",  S.ASK_ANOTHER_LOGO),
+        ("Yes, remove background",  S.ASK_EMAIL),          # first element placed
+        ("sam@example.com",         S.ASK_ANOTHER_LOGO),
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
@@ -127,9 +135,11 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Done",                    S.ASK_ANYTHING_ELSE),
         ("No, that's everything",   S.ASK_QUANTITY),
         ("50-99",                   S.ASK_DECORATION),
-        ("Embroidery",              S.ASK_EMAIL),          # single-select
-        ("sam@example.com",         S.ASK_PURPOSE),
-        ("for the team",            S.FINALIZE_CANVAS),
+        ("Embroidery",              S.NEEDED_BY),          # single-select; email already captured
+        ("ASAP",                    S.ASK_PURPOSE),
+        ("for the team",            S.REVIEW_DESIGN),      # pre-submit review
+        ("Looks great, send it",    S.REQUEST_QUOTE),      # quote-gated submit
+        ("Request a quote",         S.FINALIZE_CANVAS),
     ]
 
     res = None
@@ -175,6 +185,7 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
     assert c["decoration_types"] == ["Embroidery"]
     assert c["decoration_type"] == "embroidery"   # the pick drives the style
     assert "decoration_mix" not in c              # no mix -> no describe step
+    assert c["needed_by"] == "ASAP"
 
 
 @pytest.mark.asyncio
@@ -184,9 +195,13 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     direct_answer carries it (it has no chips, so it cannot nudge instead)."""
     store = _new_store()
     store["session"]["state"] = S.ASK_DECORATION.value
+    # email_captured=True: the design phase is already closed (logos_done +
+    # decor_done), so ask_email (earlier in the registry) would otherwise
+    # intercept before the mix chip's own step is reached.
     store["session"]["collected"].update(
         {"name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
-         "pending_logo": None, "decor_done": True, "quantity": 12}
+         "pending_logo": None, "decor_done": True, "quantity": 12,
+         "email_captured": True}
     )
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
@@ -207,7 +222,12 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     assert res["data"]["progress"] == v2.progress_v2(S.ASK_DECORATION, {})
 
     res = await o2.handle_message("s1", "Embroidered logo, printed text on the back")
-    assert res["state"] == S.ASK_EMAIL.value
+    # This seed never places a design element (text-only, decor_done set
+    # directly) — email rides the design phase now, well before decoration, so
+    # with no first-element evidence it stays skipped and routing lands on
+    # needed_by. Email-after-first-element is covered directly in
+    # test_state_machine_v2.py.
+    assert res["state"] == S.NEEDED_BY.value
 
     c = store["session"]["collected"]
     assert c["decoration_mix_note"] == "Embroidered logo, printed text on the back"
@@ -232,3 +252,159 @@ async def test_v2_bg_chip_ships_an_op_to_the_canvas(monkeypatch):
         {"target": {"kind": "pending_logo", "face": "front"},
          "patch": {"removeBg": True}}
     ]
+
+
+@pytest.mark.asyncio
+async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
+    """B3 voice path: a dictated/transcribed custom date is free text, so it
+    flows through the interpreter into the needed_by slot — no chip tapped — and
+    advances ASK_PURPOSE. Chip labels from transcribed text are already covered
+    by test_full_v2_walk_using_the_exact_chip_labels."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "quantity": 12,
+        "decoration_done": True, "email_captured": True,
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    async def _fill(step, message, collected):
+        assert step.id is S.NEEDED_BY
+        return {"needed_by": "the 15th of next month"}
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _fill)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+    res = await o2.handle_message("s1", "I'd need them by the 15th of next month")
+    assert res["state"] == S.ASK_PURPOSE.value
+    assert store["session"]["collected"]["needed_by"] == "the 15th of next month"
+@pytest.mark.asyncio
+async def test_rework_canvas_done_chip_routes_back_to_review_design(monkeypatch):
+    """Driving the REWORK_CANVAS "Done" chip through the REAL pipeline must
+    clear design_rework and land back on REVIEW_DESIGN (B2's persist/directive
+    plumbing exists so this loop can complete)."""
+    store = _new_store()
+    store["session"]["state"] = S.REWORK_CANVAS.value
+    store["session"]["collected"] = seed_for(cs.by_id(S.REWORK_CANVAS))
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    out = await o2.handle_message("s1", "Done")
+
+    assert out["state"] == S.REVIEW_DESIGN.value
+    assert store["session"]["collected"]["design_rework"] is False
+
+
+# --- Workstream D: the store's canvas_flow reaches the router -----------------
+
+def _at_email_store(brand: dict | None):
+    """A session parked at ASK_EMAIL with every earlier step answered, so the
+    only thing left to route is the configurable tail (purpose).
+
+    `needed_by` (workstream B) and `quote_requested` (workstream C) are locked
+    steps that now flank ask_purpose. `design_confirmed` (the pre-submit
+    review, also workstream B) is a locked step too, sitting between purpose
+    and the quote submit. All three are seeded so the helper's stated
+    invariant still holds — otherwise routing stops on one of them and these
+    tests would silently stop testing the config wiring at all."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["store_id"] = "store-1"
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True,
+        "logos_done": True, "pending_logo": None, "decor_done": True,
+        "quantity": 12, "decoration_done": True,
+        "needed_by": "ASAP", "design_confirmed": True, "quote_requested": True,
+    })
+    return store
+
+
+def _wire(monkeypatch, store, brand: dict | None):
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
+    monkeypatch.setattr(o2, "get_store", lambda _id: {
+        "id": "store-1", "persona_name": "Ricardo", "brand": brand or {},
+    })
+    monkeypatch.setattr(
+        cs.leads_service, "capture_lead_and_verify",
+        lambda s, c, e: ("lead-1", True),
+    )
+
+    async def _boom(*a, **k):
+        raise o2.ie.LLMUnavailable("ask_email resolves via direct_answer")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    seen: dict = {}
+    real_next = v2.next_step
+
+    def _spy(collected, config=None):
+        seen["config"] = config
+        return real_next(collected, config)
+    monkeypatch.setattr(o2.v2, "next_step", _spy)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_threads_store_canvas_flow_config(monkeypatch):
+    """With a store config that disables ask_purpose, a session that has
+    answered every step up to purpose must route straight to FINALIZE_CANVAS
+    rather than asking the disabled step."""
+    cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
+    store = _at_email_store(cfg)
+    seen = _wire(monkeypatch, store, {"canvas_flow": cfg})
+
+    out = await o2.handle_message("s1", "sam@example.com")
+
+    assert seen["config"] == cfg
+    assert out["state"] == S.FINALIZE_CANVAS.value
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_without_canvas_flow_is_unchanged(monkeypatch):
+    """The control: an unconfigured store passes None and still asks purpose,
+    so the wiring changes behaviour only when a store opts in."""
+    store = _at_email_store(None)
+    seen = _wire(monkeypatch, store, {})
+
+    out = await o2.handle_message("s1", "sam@example.com")
+
+    assert seen["config"] is None
+    assert out["state"] == S.ASK_PURPOSE.value
+
+
+@pytest.mark.asyncio
+async def test_handle_back_threads_store_canvas_flow_config(monkeypatch):
+    """`handle_back` must pass the store's `canvas_flow` into BOTH
+    `last_answered_step` and `next_step` (mirroring `handle_message`'s own
+    wiring) — otherwise Back computes its routing against the DEFAULT registry
+    for a store using the Workstream D configurable flow, and `can_go_back`
+    can disagree with the real forward flow."""
+    cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
+    store = _at_email_store(cfg)
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: {
+        "id": "store-1", "persona_name": "Ricardo", "brand": {"canvas_flow": cfg},
+    })
+
+    seen_last: dict = {}
+    seen_next: dict = {}
+    real_last = v2.last_answered_step
+    real_next = v2.next_step
+
+    def _spy_last(collected, config=None):
+        seen_last["config"] = config
+        return real_last(collected, config)
+
+    def _spy_next(collected, config=None):
+        seen_next["config"] = config
+        return real_next(collected, config)
+
+    monkeypatch.setattr(o2.v2, "last_answered_step", _spy_last)
+    monkeypatch.setattr(o2.v2, "next_step", _spy_next)
+
+    await o2.handle_back("s1")
+
+    assert seen_last["config"] == cfg
+    assert seen_next["config"] == cfg

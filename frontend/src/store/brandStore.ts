@@ -13,6 +13,18 @@ function darken(hex: string, amt = 0.12): string {
   return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
 }
 
+/** Pick a legible text colour (white or near-black) for a #rrggbb (or #rgb)
+ *  background, using perceived luminance. Used when a store sets a header
+ *  background but no explicit header text colour. */
+function readableOn(hex: string): string {
+  let h = hex.replace('#', '')
+  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const n = parseInt(h, 16)
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b
+  return luminance < 140 ? '#ffffff' : '#1A1D29'
+}
+
 /** Set CSS custom properties from a brand. Unset fields are left untouched so the
  *  Tailwind fallbacks (current MadHats look) apply. */
 export function applyBrandVars(brand: Brand): void {
@@ -22,7 +34,14 @@ export function applyBrandVars(brand: Brand): void {
     root.style.setProperty('--brand-primary-hover', darken(brand.primary_colour))
   }
   if (brand.header_bg) root.style.setProperty('--brand-header-bg', brand.header_bg)
-  if (brand.header_text) root.style.setProperty('--brand-header-text', brand.header_text)
+  if (brand.header_text) {
+    root.style.setProperty('--brand-header-text', brand.header_text)
+  } else if (brand.header_bg) {
+    // A header bg without an explicit text colour would otherwise fall back to
+    // the dark default (#1A1D29) — invisible on a dark header. Derive a legible
+    // colour from the background so header text is always readable.
+    root.style.setProperty('--brand-header-text', readableOn(brand.header_bg))
+  }
 }
 
 interface BrandState {

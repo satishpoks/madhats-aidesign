@@ -4,7 +4,7 @@ from __future__ import annotations
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from app.api.deps import require_admin, require_store
+from app.api.deps import AdminContext, assert_store_allowed, require_admin, require_admin_ctx, require_store
 from app.models.graphics import GRAPHIC_CATEGORIES, GraphicAdmin
 from app.services import graphics as svc
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
@@ -27,8 +27,12 @@ def _to_admin(row: dict, base_url: str) -> dict:
 
 @router.get("/admin/graphics", response_model=list[GraphicAdmin])
 async def list_graphics(
-    request: Request, category: str | None = None, store: dict = Depends(require_store)
+    request: Request,
+    category: str | None = None,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> list[dict]:
+    assert_store_allowed(ctx, store["id"])
     cat = category if category in GRAPHIC_CATEGORIES else None
     base = str(request.base_url)
     return [_to_admin(row, base) for row in svc.list_graphics(store["id"], category=cat)]
@@ -41,7 +45,9 @@ async def create_graphic(
     name: str = Form(""),
     file: UploadFile = File(...),
     store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
+    assert_store_allowed(ctx, store["id"])
     if category not in GRAPHIC_CATEGORIES:
         raise HTTPException(status_code=400, detail="category must be clipart|company")
     data = await file.read()
@@ -59,7 +65,12 @@ async def create_graphic(
 
 
 @router.delete("/admin/graphics/{graphic_id}")
-async def delete_graphic(graphic_id: str, store: dict = Depends(require_store)) -> dict:
+async def delete_graphic(
+    graphic_id: str,
+    store: dict = Depends(require_store),
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
+    assert_store_allowed(ctx, store["id"])
     row = svc.get_graphic(graphic_id, store_id=store["id"])
     if row is None:
         raise HTTPException(status_code=404, detail="Graphic not found")

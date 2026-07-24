@@ -51,12 +51,28 @@ def satisfy(c: dict, step) -> None:
         c["decoration_mix_note"] = "embroidered logo, printed text"
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
+    elif step.id is S.NEEDED_BY:
+        c["needed_by"] = "2-4 weeks"
     elif step.id is S.ASK_PURPOSE:
         c["purpose"] = "team caps"
+    elif step.id is S.REVIEW_DESIGN:
+        c["design_confirmed"] = True
+    elif step.id is S.REWORK_CANVAS:
+        c.pop("design_rework", None)     # not reworking -> satisfied
+    elif step.id is S.REQUEST_QUOTE:
+        c["quote_requested"] = True
 
 
 def seed_for(step) -> dict:
     """A collected where `step` is the first unmet step."""
+    if step.id is S.REWORK_CANVAS:
+        # The one loop-only step: reached solely via design_rework=True at
+        # REVIEW_DESIGN, not via satisfy()'s forward-closing answer for that
+        # step (which confirms, i.e. skips past REWORK_CANVAS by design). Build
+        # it by taking the rework branch instead.
+        c = seed_for(cs.by_id(S.REVIEW_DESIGN))
+        c["design_rework"] = True
+        return c
     c = {"flow_mode": "canvas"}
     for s in cs.REGISTRY:
         if s.id is step.id:

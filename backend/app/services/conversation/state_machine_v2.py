@@ -26,6 +26,12 @@ from app.services.conversation.state_machine import ConversationState as S
 # shared tail state v1 owns — orchestrator_v2 delegates those turns to v1.
 V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
+# Commit flags a deliberate Back must NEVER clear: doing so would let the
+# customer un-verify their email or re-submit an already-sent quote (duplicate
+# sales email + second reference). email_captured is already non-writable; this
+# also shields quote_requested, which IS REQUEST_QUOTE's writable done_when slot.
+_TERMINAL_FLAGS: frozenset[str] = frozenset({"email_captured", "quote_requested"})
+
 
 def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     """The fields of one interpreted turn that are safe to bank.
@@ -49,10 +55,103 @@ def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
             if k in own or v or not collected.get(k)}
 
 
-def next_step(collected: dict) -> Step:
-    """The first step whose done_when is False. FINALIZE_CANVAS is terminal
-    (done_when is always False), so this always returns a Step."""
-    for step in cs.REGISTRY:
+def effective_registry(config: dict | None) -> tuple[Step, ...]:
+    """The registry as reordered/filtered by a store's canvas_flow config.
+
+    PURE: a function of (config, cs.REGISTRY) only — no collected, no DB, no
+    LLM — so the whole compose is exhaustively unit-testable with plain dicts.
+
+    Locked steps keep their EXACT registry index; the configurable steps are
+    redistributed among the indices configurable steps already occupy, in the
+    admin's order, with disabled ones dropped (the trailing configurable slots
+    collapse). Nothing ever crosses a locked step's position — that is what
+    keeps this trivial, and it is the invariant that let Workstream D pass its
+    Complexity gate. Needing to move a locked step, splice a configurable step
+    into a locked index, or add a cross-step done_when dependency would mean the
+    compose had entangled, and D should be dropped rather than forced.
+
+    Ids outside CONFIGURABLE_STEP_IDS are ignored rather than honoured — the
+    admin API rejects them (branding._validate_canvas_flow), and this second
+    read keeps a hand-edited stores.brand row from moving a locked step either.
+
+    A falsy/absent config returns cs.REGISTRY unchanged, so every existing
+    caller and the whole non-configured baseline are byte-identical.
+    """
+    registry = cs.REGISTRY
+    if not config:
+        return registry
+    steps_cfg = config.get("steps") or []
+    cfg_ids = cs.CONFIGURABLE_STEP_IDS
+
+    disabled: set[str] = set()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in steps_cfg:
+        sid = (item or {}).get("id")
+        if sid not in cfg_ids or sid in seen:
+            continue
+        seen.add(sid)
+        if item.get("enabled") is False:
+            disabled.add(sid)
+        else:
+            ordered.append(sid)
+    # Configurable steps the admin never mentioned keep default (registry)
+    # order, enabled, appended after the ones they did.
+    for step in registry:
+        sid = step.id.value
+        if sid in cfg_ids and sid not in seen:
+            ordered.append(sid)
+
+    by_id = {s.id.value: s for s in registry if s.id.value in cfg_ids}
+    present = [by_id[sid] for sid in ordered if sid in by_id]
+
+    slots = [i for i, s in enumerate(registry) if s.id.value in cfg_ids]
+    result: list[Step | None] = list(registry)
+    for i in slots:
+        result[i] = None
+    for pos, step in zip(slots, present):
+        result[pos] = step
+    return tuple(s for s in result if s is not None)
+
+
+def last_answered_step(collected: dict, config: dict | None = None) -> Step | None:
+    """The step a `Back` should re-open: the highest-index answered step,
+    before the current unmet one, whose WRITABLE slots (plus its own
+    `back_clears`) — when cleared — flip its done_when back to False. Pure;
+    no side effects.
+
+    A step whose done_when stays True after clearing that set (e.g. ASK_EMAIL,
+    satisfied by the non-writable email_captured, which no step's back_clears
+    may name) is skipped — Back can't un-answer it, so it is never offered as
+    a target. `back_clears` is what makes a derived-flag step like
+    ASK_DECORATION (gated on `decoration_done`, not a slot) detectable here.
+    """
+    reg = effective_registry(config)
+    current = next_step(collected, config)
+    if collected.get("quote_requested"):
+        # Once submitted, nothing before it is undoable — Back must be off
+        # (this also prevents a post-submit bounce back to REVIEW_DESIGN).
+        return None
+    writable = cs.WRITABLE_SLOTS
+    target: Step | None = None
+    for step in reg:
+        if step.id is current.id:
+            break
+        clears = ((set(step.slots) & writable) | set(step.back_clears)) - _TERMINAL_FLAGS
+        probe = {k: v for k, v in collected.items() if k not in clears}
+        if not step.done_when(probe):
+            target = step
+    return target
+
+
+def next_step(collected: dict, config: dict | None = None) -> Step:
+    """The first step whose done_when is False, over the config-composed
+    registry. FINALIZE_CANVAS is terminal (done_when is always False) and is
+    always locked-last, so this always returns a Step.
+
+    `config` defaults to None so every existing caller and test is unchanged.
+    """
+    for step in effective_registry(config):
         if not step.done_when(collected):
             return step
     return cs.REGISTRY[-1]
@@ -71,10 +170,20 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     # Describing a mix is a follow-up to the decoration question, not a step of
     # its own — asking for a mix must not make the counter grow a step.
     S.ASK_DECORATION_MIX: S.ASK_DECORATION,
+    # The explicit submit is the last beat of ASK_PURPOSE, not a numbered step.
+    S.REQUEST_QUOTE: S.ASK_PURPOSE,
+    # The pre-submit review (and any rework loop it opens) also folds onto the
+    # final beat, so the counter stays put rather than growing past "done".
+    S.REVIEW_DESIGN: S.ASK_PURPOSE,
+    S.REWORK_CANVAS: S.ASK_PURPOSE,
+    # Email rides the design phase (asked right after the first element is
+    # placed) — it is not a numbered step of its own, so it must not move the
+    # counter backward relative to whatever design step is in progress.
+    S.ASK_EMAIL: S.ASK_LOGO_PLACEMENT,
 }
 _PROGRESS_PATH: list[S] = [
     S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
-    S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_EMAIL, S.ASK_PURPOSE,
+    S.ASK_QUANTITY, S.ASK_DECORATION, S.NEEDED_BY, S.ASK_PURPOSE,
 ]
 
 
@@ -126,9 +235,13 @@ def directive_for(step: Step, collected: dict) -> dict:
     explicitly. A null directive means "not a v2 turn" and makes the frontend
     fall back to v1's whole-rail gating + status strip — which showed "Design
     locked in — finishing up" mid-design."""
+    if step.id is S.REWORK_CANVAS:
+        return {"allowed_tools": ["upload", "text", "shape"], "target_face": None,
+                "auto_open": None, "instructions": prompts.V2_REWORK_INSTRUCTIONS,
+                "show_done": True, "unlock_all": True}
     if step.tool is None:
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
-                "instructions": None, "show_done": False}
+                "instructions": None, "show_done": False, "unlock_all": False}
     tool = _decor_tool(collected) if step.id in _DECOR_STEPS else step.tool
     return {
         "allowed_tools": [tool],
@@ -136,6 +249,7 @@ def directive_for(step: Step, collected: dict) -> dict:
         "auto_open": tool if step.auto_open else None,
         "instructions": step.instructions or prompts.V2_TOOL_TIPS[tool],
         "show_done": step.show_done,
+        "unlock_all": False,
     }
 
 

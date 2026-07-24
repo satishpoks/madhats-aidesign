@@ -93,6 +93,22 @@ def _fetch_image_bytes(url: str) -> bytes | None:
         return None
 
 
+def _is_quote_gated(sb, session_id: str) -> bool:
+    """True when the session is the quote-gated canvas flow.
+
+    For these sessions the customer NEVER receives the design by email — they get
+    a tracking reference only (C2). Delivery of the design to the customer is
+    fully out of scope this batch, so both the preview and the final-design sends
+    are refused here regardless of generation state.
+    """
+    row = (
+        sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
+    )
+    if not row.data:
+        return False
+    return bool((row.data[0].get("collected") or {}).get("quote_requested"))
+
+
 def maybe_send_preview(session_id: str) -> bool:
     """Send the preview + sales emails iff ALL gates pass. Idempotent.
 
@@ -110,6 +126,10 @@ def maybe_send_preview(session_id: str) -> bool:
     value are the reliable part.
     """
     sb = get_supabase()
+
+    if _is_quote_gated(sb, session_id):
+        # Quote-gated flow: the customer gets a reference, never the design.
+        return False
 
     lead_res = (
         sb.table("leads")
@@ -339,6 +359,8 @@ def _deliver_final(lead: dict, image_path: str) -> bool:
 def send_final_design(session_id: str) -> bool:
     """Email the final (latest) design once, iff it differs from the first
     delivered design. Idempotent via leads.final_email_sent. Best-effort."""
+    if _is_quote_gated(get_supabase(), session_id):
+        return False
     gens = _completed_generations(session_id)
     if len(gens) < 2:
         return False  # no regeneration -> the first preview email already covered it
@@ -410,3 +432,91 @@ def backfill_pending(limit: int = 100, max_age_hours: int = 72) -> dict:
     tally = {"scanned": len(rows), "delivered": delivered, "still_pending": still_pending}
     log.info("backfill_complete", **tally)
     return tally
+
+
+def maybe_send_quote_confirmation(session_id: str) -> bool:
+    """Send the customer reference email + sales notification, once. Idempotent.
+
+    Gates (ALL required): a lead exists, email_verified, quote_requested, a
+    reference_code is allocated, the session's canvas has been FINALIZED, and
+    quote_confirmation_sent is False. On success the customer is emailed their
+    reference (no design image) and sales is emailed a summary with every
+    uploaded component attached, then the dedup flag is set.
+
+    This is the quote-gated analogue of maybe_send_preview: the async tracks
+    (explicit quote request, email verification, canvas finalize) converge here,
+    whichever finishes last — every one of them calls this. The canvas_finalized
+    gate is load-bearing: REQUEST_QUOTE runs BEFORE canvas-finalize persists the
+    elements/layout guides/previews, so a customer who verified early would
+    otherwise trigger the one-and-only sales email with NO components attached,
+    and the dedup flag would stop a better one ever being sent.
+
+    Best-effort sends; the flag is set only after the customer email dispatches,
+    so a failed run stays retriable. PII-safe: session/lead ids only.
+    """
+    # Local imports: `components` is only needed here, and `stores` would be a
+    # module-level cycle. `email_service`/`storage` are already module-level.
+    from app.services import components as components_service  # noqa: PLC0415
+    from app.services.stores import get_store  # noqa: PLC0415
+
+    sb = get_supabase()
+    lead = _lead_for_session(session_id)
+    if not lead:
+        return False
+    if not (lead.get("email_verified") and lead.get("quote_requested")):
+        return False
+    if not lead.get("reference_code"):
+        return False
+    if lead.get("quote_confirmation_sent"):
+        return False
+
+    session_res = (
+        sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    )
+    session = session_res.data[0] if session_res.data else {}
+    collected = session.get("collected") or {}
+    if not collected.get("canvas_finalized"):
+        # The design isn't persisted yet — sending now would attach nothing and
+        # the dedup flag would make it permanent. The finalize route re-calls us.
+        return False
+
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    brand = (store or {}).get("brand") or {}
+    store_name = (store or {}).get("name") or "MadHats"
+    primary = brand.get("primary_colour") or "#ff5c00"
+
+    customer_ok = email_service.send_quote_reference_email(
+        lead["email"], lead.get("name") or "there", lead["reference_code"],
+        store_name=store_name, primary_colour=primary,
+    )
+
+    # Build component attachments (base64), reusing the download primitive.
+    import base64  # noqa: PLC0415
+
+    attachments: list[dict] = []
+    for comp in components_service.enumerate_components(collected):
+        data = storage.download_asset(comp["path"])
+        if not data:
+            continue
+        attachments.append(
+            {
+                "filename": comp["path"].rsplit("/", 1)[-1],
+                "content": base64.b64encode(data).decode("ascii"),
+                "content_type": "image/png",
+            }
+        )
+    email_service.send_quote_request_to_sales(
+        (store or {}).get("sales_notification_email"),
+        lead["reference_code"], store_name, lead["email"], collected, attachments,
+    )
+
+    if not customer_ok:
+        # Leave the flag unset so a later retry (backfill / re-verify) re-sends.
+        log.warning("quote_reference_email_failed", session_id=session_id)
+        return False
+
+    sb.table("leads").update(
+        {"quote_confirmation_sent": True}
+    ).eq("id", lead["id"]).execute()
+    log.info("quote_confirmation_delivered", session_id=session_id)  # no PII
+    return True

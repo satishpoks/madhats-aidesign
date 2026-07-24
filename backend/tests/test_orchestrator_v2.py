@@ -107,8 +107,13 @@ async def test_the_live_bug_yes_another_logo_reopens_the_logo_loop(monkeypatch):
 async def test_a_chip_tap_makes_zero_llm_calls(monkeypatch):
     store = _new_store()
     store["session"]["state"] = S.ASK_QUANTITY.value
+    # `logos` carries first-element evidence: email now rides the design phase
+    # (earlier in the registry) and gates on it, so without this the router
+    # would skip the email step entirely and this turn would land on
+    # needed_by instead of proving the chip-tap-advances-to-email claim below.
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
                                      "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "logos": [{"face": "front", "placed": True}],
                                      "decor_done": True}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     calls = []
@@ -184,7 +189,53 @@ async def test_a_volunteered_answer_is_banked_and_its_step_skipped(monkeypatch):
     res = await o2.handle_message("s1", "no thanks, and I need 50 caps")
     assert store["session"]["collected"]["quantity"] == 50
     assert res["state"] == S.ASK_EMAIL.value        # ask_quantity skipped
-    assert res["data"]["progress"]["total"] == 8
+    assert res["data"]["progress"]["total"] == 8    # email left the counted path
+
+
+@pytest.mark.asyncio
+async def test_ask_email_tells_the_customer_a_verification_link_was_sent(monkeypatch):
+    """Regression (session 69902f52): after giving their email the customer was
+    marched straight to the purpose question with no word that a verification
+    link had been sent or why. The reply must name the link and the address."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "decor_done": True, "quantity": 50,
+                                     "decoration_type": "embroidery"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    # _apply_email calls capture_lead_and_verify (which sends the double opt-in
+    # email); stub it to report a successful capture.
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: ("lead-1", True))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+    res = await o2.handle_message("s1", "sam@example.com")
+    assert res["state"] == S.NEEDED_BY.value
+    assert "verification link" in res["reply"]
+    assert "sam@example.com" in res["reply"]
+
+
+@pytest.mark.asyncio
+async def test_ask_email_notice_absent_when_capture_fails(monkeypatch):
+    """If the address couldn't be captured, email_captured stays unset, the step
+    re-asks itself, and no false 'link sent' claim is made."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    # `logos` carries first-element evidence: without it, ask_email's own
+    # done_when short-circuits True (nothing placed yet) regardless of
+    # email_captured, so a failed capture would be masked as "step satisfied"
+    # instead of re-asking — the exact behaviour under test here.
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "logos": [{"face": "front", "placed": True}],
+                                     "decor_done": True, "quantity": 50}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: (None, False))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+    res = await o2.handle_message("s1", "sam@example.com")
+    assert res["state"] == S.ASK_EMAIL.value            # re-asks itself
+    assert "verification link" not in res["reply"]
 
 
 @pytest.mark.asyncio
@@ -211,12 +262,20 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "email_captured": True,
+        "needed_by": "ASAP", "email_captured": True, "design_confirmed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
+    monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
     _llm_returns(monkeypatch, {"purpose": "team caps"})
+    # Quote-gated flow (C1): answering purpose now lands on the explicit
+    # REQUEST_QUOTE submit step (design_confirmed is pre-seeded so the review
+    # step, workstream B, is already settled and doesn't intercept); the
+    # honesty gate fires on the turn that would otherwise reach
+    # FINALIZE_CANVAS, i.e. after the submit chip.
     res = await o2.handle_message("s1", "for the team")
+    assert res["state"] == S.REQUEST_QUOTE.value
+    res = await o2.handle_message("s1", "Request a quote")
     assert res["state"] == S.QUOTE_REQUESTED.value
     assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
 
@@ -291,7 +350,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
                         lambda s, c, e: ("lead-1", True))
     res = await o2.handle_message("s1", "sam@example.com")
     assert store["session"]["collected"]["email_captured"] is True
-    assert res["state"] == S.ASK_PURPOSE.value
+    assert res["state"] == S.NEEDED_BY.value
 
 
 @pytest.mark.asyncio
@@ -311,7 +370,7 @@ async def test_a_chip_bearing_step_still_stalls_in_an_outage(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
+async def test_typed_no_more_decor_advances_past_the_decor_loop(monkeypatch):
     """Finding 1 (final review), interpreter path end to end: a typed decline
     must not re-ask ASK_ANYTHING_ELSE forever.
 
@@ -319,6 +378,10 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     matching is case/whitespace-insensitive on the exact label, so a message
     that happens to equal "No, that's everything" would take the chip path
     and mask this bug, same as the model-free e2e did).
+
+    The seed's `decor_placed: True` is the customer's first placed element, so
+    once the decor loop closes the router lands on ASK_EMAIL (which now rides
+    the design phase) before ASK_QUANTITY — not on ASK_QUANTITY directly.
     """
     store = _new_store()
     store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
@@ -329,7 +392,7 @@ async def test_typed_no_more_decor_advances_to_quantity(monkeypatch):
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _llm_returns(monkeypatch, {"more_decor": False})
     res = await o2.handle_message("s1", "nah, nothing more thanks")
-    assert res["state"] == S.ASK_QUANTITY.value      # must NOT re-ask itself
+    assert res["state"] == S.ASK_EMAIL.value      # must NOT re-ask ASK_ANYTHING_ELSE
 
 
 @pytest.mark.asyncio
@@ -377,3 +440,103 @@ async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypat
     # The data should contain the options derived from chips_from
     assert res["data"]["options"] == ["Red", "Blue", "Green"]
     assert store["session"]["collected"]["_fail_count"] == 2
+
+
+# --- handle_back: undo the last answer and re-ask it (Task C2) ----------------
+
+@pytest.mark.asyncio
+async def test_back_clears_the_last_answer_and_re_asks(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_DECORATION.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 50, "email_captured": True,
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_QUANTITY.value          # re-asked
+    assert "quantity" not in store["session"]["collected"]  # answer cleared
+
+
+@pytest.mark.asyncio
+async def test_back_at_the_start_is_a_no_op(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_NAME.value
+
+
+@pytest.mark.asyncio
+async def test_back_at_greeting_does_not_crash(monkeypatch):
+    """`GREETING` has no registry Step (`cs.by_id` returns None), so the
+    no-target branch's `v2.reply_for(None, ...)` would raise AttributeError on
+    `None.id` without a dedicated guard. `_new_store()` defaults to GREETING,
+    mirroring a Back tap on the very first turn (before any message at all)."""
+    store = _new_store()
+    assert store["session"]["state"] == S.GREETING.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_NAME.value          # re-renders the kickoff
+    assert out["data"]                                 # a real, non-empty data blob
+
+
+def test_public_data_carries_can_go_back():
+    # A mid-flow step can go back; the very first cannot.
+    from app.services.conversation import state_machine_v2 as v2
+
+    d_mid = o2._public(cs.by_id(S.ASK_QUANTITY),
+                       {"name": "Sam", "intro_ack": True, "decor_placed": True,
+                        "logos_done": True, "pending_logo": None,
+                        "decor_done": True, "email_captured": True})
+    assert d_mid["can_go_back"] is True
+
+    d_start = o2._public(cs.by_id(S.ASK_NAME), {})
+    assert d_start["can_go_back"] is False
+
+
+@pytest.mark.asyncio
+async def test_back_from_post_decoration_state_undoes_the_decoration_method(monkeypatch):
+    """Amendment: Back must also be able to undo the decoration-method choice
+    (a derived-flag step, not a plain writable-slot step) via back_clears."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 50, "email_captured": True,
+        # decoration_options mirrors what `_prepare_decoration` would already
+        # have loaded on the original forward pass — Back does not (and must
+        # not) clear it, only the answer flags derived from it.
+        "decoration_options": ["Embroidery", "Screen Print"],
+        "decoration_types": ["Embroidery"], "decoration_done": True,
+        "decoration_type": "embroidery",
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_DECORATION.value
+    collected = store["session"]["collected"]
+    assert "decoration_done" not in collected
+    assert "decoration_types" not in collected
+    assert "decoration_type" not in collected
+    assert collected["decoration_options"] == ["Embroidery", "Screen Print"]
+    # Terminal flags are never touched by Back.
+    assert collected.get("email_captured") is True
+
+
+@pytest.mark.asyncio
+async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monkeypatch):
+    """Regression (C-1): a committed quote must not be re-submittable via Back.
+    quote_requested is REQUEST_QUOTE's writable done_when slot, so Back must
+    not be able to clear it and re-ask REQUEST_QUOTE."""
+    from tests.canvas_step_helpers import seed_for
+
+    store = _new_store()
+    store["session"]["state"] = S.FINALIZE_CANVAS.value
+    store["session"]["collected"].update(seed_for(cs.REGISTRY[-1]))
+    assert store["session"]["collected"]["quote_requested"] is True
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.FINALIZE_CANVAS.value           # no-op
+    assert store["session"]["collected"]["quote_requested"] is True

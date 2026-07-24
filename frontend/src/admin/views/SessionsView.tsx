@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { listSessions, type SessionListItem } from '../adminApi'
 import { StatusBadge } from '../components/StatusBadge'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { StorePicker } from '../StorePicker'
 
 const PAGE = 30
 
@@ -22,24 +23,25 @@ function summary(l: SessionListItem): string {
   return parts.length ? parts.join(' · ') : 'No brief details yet'
 }
 
-export function LeadsView() {
+export function SessionsView() {
   const [rows, setRows] = useState<SessionListItem[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [withContactOnly, setWithContactOnly] = useState(false)
+  const [storeId, setStoreId] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     let active = true
     setLoading(true)
-    listSessions(PAGE, offset)
+    listSessions(PAGE, offset, { storeId: storeId ?? undefined })
       .then((page) => { if (active) { setRows(page.items); setTotal(page.total); setError(null) } })
-      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load leads') })
+      .catch((e: unknown) => { if (active) setError(e instanceof Error ? e.message : 'Failed to load sessions') })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [offset])
+  }, [offset, storeId])
 
   const visible = withContactOnly ? rows.filter((r) => r.customer?.email) : rows
   const from = total === 0 ? 0 : offset + 1
@@ -48,8 +50,13 @@ export function LeadsView() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold">Leads</h1>
+        <h1 className="text-xl font-semibold">Sessions</h1>
         <div className="flex items-center gap-3 text-sm text-gray-600">
+          <StorePicker
+            value={storeId}
+            onChange={(id) => { setStoreId(id); setOffset(0) }}
+            allowAll
+          />
           <label className="flex items-center gap-1">
             <input type="checkbox" checked={withContactOnly} onChange={(e) => setWithContactOnly(e.target.checked)} />
             With contact only
@@ -62,13 +69,13 @@ export function LeadsView() {
 
       {error && <ErrorBanner message={error} />}
       {loading && <div className="py-8 text-center text-sm text-gray-500">Loading…</div>}
-      {!loading && visible.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No leads</div>}
+      {!loading && visible.length === 0 && <div className="py-8 text-center text-sm text-gray-500">No sessions</div>}
 
       <div className="grid gap-3">
         {visible.map((l) => (
           <button
             key={l.id}
-            onClick={() => navigate(`/admin/leads/${l.id}`)}
+            onClick={() => navigate(`/admin/sessions/${l.id}`)}
             className="flex items-center gap-4 rounded-lg border border-gray-200 bg-white p-3 text-left hover:border-gray-400 hover:shadow-sm"
           >
             <Thumb url={l.reference_image_url} label="cap" />

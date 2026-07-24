@@ -524,12 +524,16 @@ def _extract_fields_for_state(state: str, message: str, collected: dict) -> dict
 
 def _normalize_interpretation(data: dict, allowed_targets: list[str]) -> dict:
     intent = data.get("intent")
-    if intent not in _VALID_INTENTS:
+    # Guard set membership against non-string / unhashable model output: Haiku
+    # sometimes returns a list here, and `list not in {a_set}` raises
+    # TypeError: unhashable type: 'list', which 500'd the whole chat turn.
+    if not isinstance(intent, str) or intent not in _VALID_INTENTS:
         intent = "answer"
     fields = data.get("fields")
     fields = fields if isinstance(fields, dict) else {}
-    # Guard the enumerated zone value.
-    if fields.get("placement_zone") not in _VALID_ZONES:
+    # Guard the enumerated zone value — same unhashable hazard as `intent`.
+    zone = fields.get("placement_zone")
+    if not isinstance(zone, str) or zone not in _VALID_ZONES:
         fields.pop("placement_zone", None)
     revise = data.get("revise_target")
     backtrack = data.get("backtrack_target")
@@ -630,11 +634,15 @@ _SLOT_DOCS: dict[str, str] = {
     "more_decor": "more_decor (bool) — true if they want to add something else",
     "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
     "quantity": "quantity (integer) — how many caps; 0 means not sure",
+    "needed_by": "needed_by (string) — when the customer needs the caps by; a rough timeframe (e.g. 'ASAP', '2-4 weeks', '1-2 months') or a specific date they give. Use 'Just exploring' when there is no firm date",
     "decoration_types": "decoration_types (list of strings) — decoration methods they chose, copied EXACTLY from the options offered in the question",
     "decoration_mix": "decoration_mix (bool) — true if they want a MIX of more than one decoration method, or aren't sure which single one they want",
     "decoration_mix_note": "decoration_mix_note (string) — their description of the mix of methods they want, in their own words",
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
+    "quote_requested": "quote_requested (bool) — true if they want to send the design to the team for a quote",
+    "design_confirmed": "design_confirmed (bool) — true if they're happy with the finished design and ready to submit it",
+    "design_rework": "design_rework (bool) — true if they want to go back and change something on the design before submitting",
 }
 
 
