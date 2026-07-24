@@ -43,6 +43,41 @@ def _validate_menu_items(raw) -> list[dict]:
     return cleaned
 
 
+def _validate_canvas_flow(raw) -> dict:
+    """Validate a per-store canvas flow config (V3 admin-configurable order).
+
+    The id allow-list IS the guard that keeps admins away from every
+    dependency-locked step: only the curated safe subset
+    (`canvas_steps.CONFIGURABLE_STEP_IDS`) may be named, so a locked step can
+    never be disabled or reordered through this door. The import is
+    function-local to avoid a module-load cycle (canvas_steps pulls in
+    leads/intent_extractor, which reach back into config/storage).
+    """
+    from app.services.conversation.canvas_steps import CONFIGURABLE_STEP_IDS
+
+    if not isinstance(raw, dict):
+        raise ValueError("canvas_flow must be an object")
+    steps = raw.get("steps", [])
+    if not isinstance(steps, list):
+        raise ValueError("canvas_flow.steps must be a list")
+    cleaned: list[dict] = []
+    seen: set[str] = set()
+    for item in steps:
+        if not isinstance(item, dict):
+            raise ValueError("each flow step must be an object")
+        sid = item.get("id")
+        if sid not in CONFIGURABLE_STEP_IDS:
+            raise ValueError(f"step '{sid}' is not reorderable/optional")
+        if sid in seen:
+            raise ValueError(f"duplicate flow step '{sid}'")
+        seen.add(sid)
+        enabled = item.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("flow step 'enabled' must be a boolean")
+        cleaned.append({"id": sid, "enabled": enabled})
+    return {"steps": cleaned}
+
+
 def validate_brand(brand: dict) -> dict:
     """Return a cleaned copy of ``brand``. Raise ValueError on invalid input.
     Unknown keys are preserved (e.g. watermark_asset_url set by other flows)."""
@@ -58,6 +93,8 @@ def validate_brand(brand: dict) -> dict:
             raise ValueError(f"{key} must be a hex colour like #FF5C00")
     if "menu_items" in cleaned:
         cleaned["menu_items"] = _validate_menu_items(cleaned["menu_items"])
+    if "canvas_flow" in cleaned:
+        cleaned["canvas_flow"] = _validate_canvas_flow(cleaned["canvas_flow"])
     intro = cleaned.get("canvas_intro")
     if intro is not None and (not isinstance(intro, str) or len(intro) > 600):
         raise ValueError("canvas_intro must be a string of at most 600 characters")

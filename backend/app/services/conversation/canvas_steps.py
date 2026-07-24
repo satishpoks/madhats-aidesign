@@ -610,6 +610,28 @@ WRITABLE_SLOTS: frozenset[str] = frozenset(
     s for step in REGISTRY for s in step.slots
 )
 
+# --- V3 admin-configurable flow (Workstream D) --------------------------------
+# The curated SAFE SUBSET: the only steps an admin may reorder/disable per store.
+# Each is genuinely independent — its done_when reads only its OWN slot, it has
+# no apply cross-effect, no prepare, no ops, and it belongs to no loop — so no
+# other step's done_when can break when it moves or is dropped. Everything else
+# is dependency-LOCKED and never moves: ASK_NAME, SHOW_INTRO, the logo loop, the
+# decor loop (incl. ASK_ANYTHING_ELSE, which re-opens the loop), ASK_DECORATION
+# (prepare-bearing — its store load may satisfy its own step) with its
+# conditional partner ASK_DECORATION_MIX, ASK_EMAIL (must precede finalize, and
+# is what makes FINALIZE_CANVAS unreachable without a captured lead), and
+# FINALIZE_CANVAS itself.
+#
+# `needed_by` is added by Workstream B. Sourcing the set from REGISTRY by id
+# string means a not-yet-merged needed_by simply drops out here rather than
+# raising at import — and becomes configurable for free once B ships it.
+_CONFIGURABLE_STEP_NAMES: frozenset[str] = frozenset(
+    {"ask_quantity", "needed_by", "ask_purpose"}
+)
+CONFIGURABLE_STEP_IDS: frozenset[str] = frozenset(
+    s.id.value for s in REGISTRY if s.id.value in _CONFIGURABLE_STEP_NAMES
+)
+
 SLOT_ENUMS: dict[str, frozenset[str]] = {
     "logo_face": FACES,
     "logo_bg": frozenset({"removed", "none"}),

@@ -88,7 +88,7 @@ These three are safe to reorder/disable because **no other step's `done_when` re
 
 ### Steps
 
-- [ ] **Step 1: Write the failing validation tests.** Append to `backend/tests/test_branding.py`:
+- [x] **Step 1: Write the failing validation tests.** Append to `backend/tests/test_branding.py`:
 
 ```python
 def test_validate_brand_accepts_valid_canvas_flow():
@@ -146,14 +146,14 @@ def test_validate_brand_without_canvas_flow_is_untouched():
     assert "canvas_flow" not in cleaned
 ```
 
-- [ ] **Step 2: Run the tests — expect FAIL** (`_validate_canvas_flow` does not exist; the locked/unknown/duplicate cases pass through untouched today):
+- [x] **Step 2: Run the tests — expect FAIL** (`_validate_canvas_flow` does not exist; the locked/unknown/duplicate cases pass through untouched today):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_branding.py -q
 ```
 Expected: the eight new tests FAIL (accepts-valid returns the raw dict unchanged with no `enabled` default; the four reject-cases do not raise).
 
-- [ ] **Step 3: Add `CONFIGURABLE_STEP_IDS` to `canvas_steps.py`.** Insert immediately after the `WRITABLE_SLOTS` block (after ~line 611, before `SLOT_ENUMS`):
+- [x] **Step 3: Add `CONFIGURABLE_STEP_IDS` to `canvas_steps.py`.** Insert immediately after the `WRITABLE_SLOTS` block (after ~line 611, before `SLOT_ENUMS`):
 
 ```python
 # --- V3 admin-configurable flow (Workstream D) --------------------------------
@@ -174,7 +174,7 @@ CONFIGURABLE_STEP_IDS: frozenset[str] = frozenset(
 )
 ```
 
-- [ ] **Step 4: Add `_validate_canvas_flow` and the `validate_brand` hook in `branding.py`.** Add the helper above `validate_brand` (after `_validate_menu_items`, ~line 44):
+- [x] **Step 4: Add `_validate_canvas_flow` and the `validate_brand` hook in `branding.py`.** Add the helper above `validate_brand` (after `_validate_menu_items`, ~line 44):
 
 ```python
 def _validate_canvas_flow(raw) -> dict:
@@ -218,14 +218,14 @@ Then hook it into `validate_brand`, immediately after the `menu_items` block and
     intro = cleaned.get("canvas_intro")
 ```
 
-- [ ] **Step 5: Run the tests — expect PASS:**
+- [x] **Step 5: Run the tests — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_branding.py -q
 ```
 Expected: all tests PASS (existing branding tests + the eight new ones).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/canvas_steps.py app/services/branding.py tests/test_branding.py
