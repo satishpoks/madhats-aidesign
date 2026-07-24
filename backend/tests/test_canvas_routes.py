@@ -294,12 +294,15 @@ def test_finalize_routes_to_decoration(client, seeded_store_headers, canvas_sess
     assert row["collected"]["hat_colour"] == {"name": "Navy", "hex": "#1e3a8a"}
 
 
-def test_v2_finalize_goes_straight_to_generating(client, seeded_store_headers, canvas_session_id, monkeypatch):
-    """Under the v2 orchestrator flag, canvas-finalize must skip the v1
-    decoration/notes outro entirely and land on GENERATING with
-    trigger_generation set — name/quantity/email/purpose were already
-    captured in chat before finalize in the v2 flow."""
+def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    """Under the v2 orchestrator flag, canvas-finalize is QUOTE-GATED (C1/C4):
+    it must skip the v1 decoration/notes outro AND never trigger a render or a
+    design email. It lands on QUOTE_REQUESTED and echoes the tracking reference
+    the REQUEST_QUOTE step already minted."""
     monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    row["collected"] = {**(row.get("collected") or {}),
+                        "quote_requested": True, "reference_code": "MH-BCDFGH"}
 
     design = {"colourway": {"name": "Navy", "hex": "#1e3a8a"},
               "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
@@ -311,12 +314,15 @@ def test_v2_finalize_goes_straight_to_generating(client, seeded_store_headers, c
                     headers=seeded_store_headers)
     assert r.status_code == 200
     body = r.json()
-    assert body["state"] == "generating"
-    assert body["data"]["trigger_generation"] is True
+    assert body["state"] == "quote_requested"
+    assert body["data"]["reference_code"] == "MH-BCDFGH"
+    assert "MH-BCDFGH" in body["reply"]
+    # The quote-gated flow never renders from finalize and never offers options.
+    assert "trigger_generation" not in body["data"]
     assert "options" not in body["data"]
 
     row = client._fake.design_sessions.rows[canvas_session_id]
-    assert row["state"] == "generating"
+    assert row["state"] == "quote_requested"
     assert row["collected"]["elements"][0]["content"] == "HI"
     assert row["collected"]["canvas_finalized"] is True
     assert row["canvas_design"] == design

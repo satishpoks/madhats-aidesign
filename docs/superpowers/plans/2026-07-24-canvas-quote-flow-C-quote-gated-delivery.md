@@ -333,7 +333,7 @@ Adds a `REQUEST_QUOTE` registry step (between `ASK_PURPOSE` and `FINALIZE_CANVAS
 - Produces: `ConversationState.REQUEST_QUOTE`; a `Step(id=S.REQUEST_QUOTE, ...)` in `canvas_steps.REGISTRY`
 - Consumes: `leads.record_quote_request`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_request_quote_step.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_request_quote_step.py`:
 ```python
 """C1 — the REQUEST_QUOTE registry step records the request via its apply hook."""
 from __future__ import annotations
@@ -385,17 +385,17 @@ def test_request_quote_gates_finalize_until_requested():
     assert sm2.next_step(done).id is S.FINALIZE_CANVAS
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`AttributeError: REQUEST_QUOTE`).
+- [x] **Step 2:** Run it — expect FAIL (`AttributeError: REQUEST_QUOTE`).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_request_quote_step.py -v
 ```
 
-- [ ] **Step 3:** Add the enum member in `backend/app/services/conversation/state_machine.py`, immediately after `FINALIZE_CANVAS = "finalize_canvas"` (~line 49):
+- [x] **Step 3:** Add the enum member in `backend/app/services/conversation/state_machine.py`, immediately after `FINALIZE_CANVAS = "finalize_canvas"` (~line 49):
 ```python
     REQUEST_QUOTE = "request_quote"   # v2 quote-gated: explicit submit before finalize
 ```
 
-- [ ] **Step 4:** Add the apply hook + Step in `backend/app/services/conversation/canvas_steps.py`. Insert `_apply_request_quote` after `_apply_decoration_mix` (~line 327):
+- [x] **Step 4:** Add the apply hook + Step in `backend/app/services/conversation/canvas_steps.py`. Insert `_apply_request_quote` after `_apply_decoration_mix` (~line 327):
 ```python
 def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
     """Record the explicit quote request and stash the reference for on-screen.
@@ -425,13 +425,13 @@ Then insert the Step into `REGISTRY` immediately BEFORE the `FINALIZE_CANVAS` st
     ),
 ```
 
-- [ ] **Step 5:** Add the progress anchor so the step reads as final (no counter growth). In `backend/app/services/conversation/state_machine_v2.py`, add to `_PROGRESS_ANCHORS` (~line 63), after the `ASK_DECORATION_MIX` entry:
+- [x] **Step 5:** Add the progress anchor so the step reads as final (no counter growth). In `backend/app/services/conversation/state_machine_v2.py`, add to `_PROGRESS_ANCHORS` (~line 63), after the `ASK_DECORATION_MIX` entry:
 ```python
     # The explicit submit is the last beat of ASK_PURPOSE, not a numbered step.
     S.REQUEST_QUOTE: S.ASK_PURPOSE,
 ```
 
-- [ ] **Step 6:** Make the v2 finalize stop generating. In `backend/app/api/routes/sessions.py`, replace the `if settings.canvas_orchestrator_v2:` block inside `finalize_canvas` (~lines 268–280) with:
+- [x] **Step 6:** Make the v2 finalize stop generating. In `backend/app/api/routes/sessions.py`, replace the `if settings.canvas_orchestrator_v2:` block inside `finalize_canvas` (~lines 268–280) with:
 ```python
     # v2 step-by-step orchestrator: the design phase already happened in chat and
     # the customer explicitly requested a quote (REQUEST_QUOTE) before this. This
@@ -466,12 +466,12 @@ Then insert the Step into `REGISTRY` immediately BEFORE the `FINALIZE_CANVAS` st
         }
 ```
 
-- [ ] **Step 7:** Run the step test + the v2 e2e + state-machine suites — expect PASS.
+- [x] **Step 7:** Run the step test + the v2 e2e + state-machine suites — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_request_quote_step.py tests/test_state_machine_v2.py tests/test_v2_e2e.py -v
 ```
 
-- [ ] **Step 8:** Commit.
+- [x] **Step 8:** Commit.
 ```bash
 cd backend && git add app/services/conversation/state_machine.py app/services/conversation/canvas_steps.py app/services/conversation/state_machine_v2.py app/api/routes/sessions.py tests/test_request_quote_step.py && git commit -m "feat(quote): explicit Request-a-quote step; finalize stops generating (C1/C4)
 

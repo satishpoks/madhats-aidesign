@@ -53,6 +53,8 @@ def satisfy(c: dict, step) -> None:
         c["email_captured"] = True
     elif step.id is S.ASK_PURPOSE:
         c["purpose"] = "team caps"
+    elif step.id is S.REQUEST_QUOTE:
+        c["quote_requested"] = True
 
 
 def seed_for(step) -> dict:

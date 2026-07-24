@@ -71,6 +71,8 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     # Describing a mix is a follow-up to the decoration question, not a step of
     # its own — asking for a mix must not make the counter grow a step.
     S.ASK_DECORATION_MIX: S.ASK_DECORATION,
+    # The explicit submit is the last beat of ASK_PURPOSE, not a numbered step.
+    S.REQUEST_QUOTE: S.ASK_PURPOSE,
 }
 _PROGRESS_PATH: list[S] = [
     S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,

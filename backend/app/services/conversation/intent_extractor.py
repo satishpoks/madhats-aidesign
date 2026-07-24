@@ -639,6 +639,7 @@ _SLOT_DOCS: dict[str, str] = {
     "decoration_mix_note": "decoration_mix_note (string) — their description of the mix of methods they want, in their own words",
     "email": "email (string)",
     "purpose": "purpose (string) — what the hat is for",
+    "quote_requested": "quote_requested (bool) — true if they want to send the design to the team for a quote",
 }
 
 

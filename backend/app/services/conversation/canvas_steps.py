@@ -326,6 +326,22 @@ def _apply_decoration_mix(c: dict, f: dict, s: dict) -> None:
     c["decoration_type"] = _decoration_style_bucket(note)
 
 
+def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
+    """Record the explicit quote request and stash the reference for on-screen.
+
+    The lead already exists (email was captured at ASK_EMAIL). Recording mints
+    the tracking reference, marks the lead, and best-effort converges with the
+    verification track. `quote_requested` on `collected` is what satisfies
+    done_when; `reference_code` is surfaced to the customer immediately.
+    """
+    if not f.get("quote_requested"):
+        return
+    code = leads_service.record_quote_request(s, c)
+    if code:
+        c["reference_code"] = code
+    c["quote_requested"] = True
+
+
 # --- direct answers ------------------------------------------------------------
 # Used ONLY when the interpreter is unavailable (see Step.direct_answer). For
 # these three steps the answer IS the message — no interpretation needed, and
@@ -578,6 +594,15 @@ REGISTRY: tuple[Step, ...] = (
         slots=("purpose",),
         direct_answer=_direct_purpose,
         done_when=lambda c: bool(c.get("purpose")),
+    ),
+    Step(
+        id=S.REQUEST_QUOTE,
+        ask=("Your design's ready to go, {name}! Tap below to send it to our "
+             "team — they'll put together a quote and get back to you."),
+        chips=(Chip("Request a quote", {"quote_requested": True}),),
+        slots=("quote_requested",),
+        apply=_apply_request_quote,
+        done_when=lambda c: bool(c.get("quote_requested")),
     ),
     Step(
         id=S.FINALIZE_CANVAS,
