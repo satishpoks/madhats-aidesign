@@ -764,7 +764,7 @@ Adds the customer reference email (no design image) and the sales quote-request 
 - Produces: `email.send_quote_reference_email(to, name, reference_code, store_name, primary_colour) -> bool`; `email.send_quote_request_to_sales(recipient, reference_code, store_name, customer_email, collected, attachments) -> bool`
 - Consumes: `prompts.QUOTE_REFERENCE_EMAIL_*`, `prompts.SALES_QUOTE_REQUEST_EMAIL_*`, `email._branded`, `email._dispatch`
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_quote_emails.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_quote_emails.py`:
 ```python
 """Customer reference email (no image) + sales quote-request email (C2/C3)."""
 from __future__ import annotations
@@ -818,12 +818,12 @@ def test_sales_request_email_no_recipient_returns_false(monkeypatch):
         None, "MH-X", "MadHats", "a@b.com", {}, []) is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (functions don't exist).
+- [x] **Step 2:** Run it — expect FAIL (functions don't exist).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_quote_emails.py -v
 ```
 
-- [ ] **Step 3:** Add the templates in `backend/app/prompts.py`, after `SALES_QUOTE_CONFIRMED_EMAIL_BODY` (~line 801):
+- [x] **Step 3:** Add the templates in `backend/app/prompts.py`, after `SALES_QUOTE_CONFIRMED_EMAIL_BODY` (~line 801):
 ```python
 # Customer-facing reference email — quote-gated flow. NO design image; the
 # customer only ever receives their tracking reference. Rendered inside the
@@ -867,7 +867,7 @@ to the customer, quoting the reference above.
 """
 ```
 
-- [ ] **Step 4:** Add the send functions in `backend/app/services/email.py`, after `send_quote_confirmation_to_sales` (~line 287):
+- [x] **Step 4:** Add the send functions in `backend/app/services/email.py`, after `send_quote_confirmation_to_sales` (~line 287):
 ```python
 def send_quote_reference_email(
     to: str,
@@ -927,12 +927,12 @@ def send_quote_request_to_sales(
     return _dispatch(recipient, subject, html, attachments=attachments or None)
 ```
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_quote_emails.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/prompts.py app/services/email.py tests/test_quote_emails.py && git commit -m "feat(quote): customer reference + sales quote-request emails (C2/C3)
 

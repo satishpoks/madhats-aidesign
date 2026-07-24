@@ -287,6 +287,64 @@ def send_quote_confirmation_to_sales(
     return _send(to, subject, body)
 
 
+def send_quote_reference_email(
+    to: str,
+    name: str,
+    reference_code: str,
+    store_name: str = "MadHats",
+    primary_colour: str = "#ff5c00",
+) -> bool:
+    """Email the customer their tracking reference — quote-gated flow, no image."""
+    text = prompts.QUOTE_REFERENCE_EMAIL_BODY.format(name=name, reference_code=reference_code)
+    esc = html_lib.escape(text).replace(
+        html_lib.escape(reference_code),
+        f'<strong style="font-size:18px;letter-spacing:1px;">{html_lib.escape(reference_code)}</strong>',
+    )
+    body = f"<p style='white-space:pre-wrap'>{esc}</p>"
+    return _dispatch(
+        to,
+        prompts.QUOTE_REFERENCE_EMAIL_SUBJECT,
+        _branded(store_name, primary_colour, body),
+    )
+
+
+def send_quote_request_to_sales(
+    recipient: str | None,
+    reference_code: str,
+    store_name: str,
+    customer_email: str,
+    collected: dict,
+    attachments: list[dict] | None = None,
+) -> bool:
+    """Notify sales of an explicit quote request, with all components attached.
+
+    Best-effort like every other send here. Returns False (no send) when the
+    store has no sales_notification_email configured — we never fall back to a
+    global address for a store-scoped lead.
+    """
+    if not recipient:
+        log.info("sales_quote_request_skipped_no_recipient")
+        return False
+    notes = "; ".join(
+        str(n).strip() for n in (collected.get("brief_notes") or []) if str(n).strip()
+    ) or "—"
+    subject = prompts.SALES_QUOTE_REQUEST_EMAIL_SUBJECT.format(
+        reference_code=reference_code, store_name=store_name,
+    )
+    text = prompts.SALES_QUOTE_REQUEST_EMAIL_BODY.format(
+        reference_code=reference_code,
+        store_name=store_name,
+        customer_email=customer_email,
+        quantity=collected.get("quantity", "—"),
+        needed_by=collected.get("needed_by", "—"),
+        purpose=collected.get("purpose", "—"),
+        decoration=collected.get("decoration_type", "—"),
+        notes=notes,
+    )
+    html = "<pre style='font-family:inherit;white-space:pre-wrap'>" + html_lib.escape(text) + "</pre>"
+    return _dispatch(recipient, subject, html, attachments=attachments or None)
+
+
 def send_generation_alert(
     store_email: str, session_id: str, product: str, brief: str, error: str
 ) -> bool:
