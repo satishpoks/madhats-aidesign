@@ -492,7 +492,7 @@ Guards `maybe_send_preview` and `send_final_design` to refuse the customer desig
 - Consumes: `design_sessions.collected["quote_requested"]`
 - Produces: (behaviour) `maybe_send_preview` / `send_final_design` return `False` early for quote-gated sessions
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_delivery_quote_gate.py` (reuse the `_Query`/`_FakeSB` shape from `test_delivery.py`):
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_delivery_quote_gate.py` (reuse the `_Query`/`_FakeSB` shape from `test_delivery.py`):
 ```python
 """Quote-gated sessions never receive the design by email (C2)."""
 from __future__ import annotations
@@ -572,12 +572,12 @@ def test_send_final_design_skips_quote_gated(monkeypatch):
     assert delivery.send_final_design("sess-1") is False
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (the guard doesn't exist; preview/final would proceed).
+- [x] **Step 2:** Run it — expect FAIL (the guard doesn't exist; preview/final would proceed).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py -v
 ```
 
-- [ ] **Step 3:** Add a shared helper + guards in `backend/app/services/delivery.py`. Insert the helper after `_fetch_image_bytes` (~line 94):
+- [x] **Step 3:** Add a shared helper + guards in `backend/app/services/delivery.py`. Insert the helper after `_fetch_image_bytes` (~line 94):
 ```python
 def _is_quote_gated(sb, session_id: str) -> bool:
     """True when the session is the quote-gated canvas flow.
@@ -606,12 +606,12 @@ Add the guard at the top of `send_final_design`, immediately after the docstring
         return False
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Also re-run the existing delivery suite to confirm non-quote flows still send.
+- [x] **Step 4:** Run it — expect PASS. Also re-run the existing delivery suite to confirm non-quote flows still send.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_delivery_quote_gate.py tests/test_delivery.py -v
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/delivery.py tests/test_delivery_quote_gate.py && git commit -m "feat(quote): never email the design for quote-gated sessions (C2)
 

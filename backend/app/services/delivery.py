@@ -93,6 +93,22 @@ def _fetch_image_bytes(url: str) -> bytes | None:
         return None
 
 
+def _is_quote_gated(sb, session_id: str) -> bool:
+    """True when the session is the quote-gated canvas flow.
+
+    For these sessions the customer NEVER receives the design by email — they get
+    a tracking reference only (C2). Delivery of the design to the customer is
+    fully out of scope this batch, so both the preview and the final-design sends
+    are refused here regardless of generation state.
+    """
+    row = (
+        sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
+    )
+    if not row.data:
+        return False
+    return bool((row.data[0].get("collected") or {}).get("quote_requested"))
+
+
 def maybe_send_preview(session_id: str) -> bool:
     """Send the preview + sales emails iff ALL gates pass. Idempotent.
 
@@ -110,6 +126,10 @@ def maybe_send_preview(session_id: str) -> bool:
     value are the reliable part.
     """
     sb = get_supabase()
+
+    if _is_quote_gated(sb, session_id):
+        # Quote-gated flow: the customer gets a reference, never the design.
+        return False
 
     lead_res = (
         sb.table("leads")
@@ -339,6 +359,8 @@ def _deliver_final(lead: dict, image_path: str) -> bool:
 def send_final_design(session_id: str) -> bool:
     """Email the final (latest) design once, iff it differs from the first
     delivered design. Idempotent via leads.final_email_sent. Best-effort."""
+    if _is_quote_gated(get_supabase(), session_id):
+        return False
     gens = _completed_generations(session_id)
     if len(gens) < 2:
         return False  # no regeneration -> the first preview email already covered it
