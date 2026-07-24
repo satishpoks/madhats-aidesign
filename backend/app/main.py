@@ -16,6 +16,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.deps import limiter
 from app.api.routes import (
+    admin_auth,
     admin_decoration_types,
     admin_deliveries,
     admin_diagnostics,
@@ -139,6 +140,7 @@ def create_app() -> FastAPI:
         admin_settings.router,
         admin_hat_types.router,
         admin_graphics.router,
+        admin_auth.router,
     ):
         app.include_router(router)
 
