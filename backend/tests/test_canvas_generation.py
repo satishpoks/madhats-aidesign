@@ -189,3 +189,32 @@ def test_non_canvas_cache_key_unaffected_by_fix(monkeypatch):
         prompt="p", product_ref=product_ref, collected=collected, params=params))
 
     assert captured_keys == [expected_key]
+
+
+def test_has_genuine_angle_front_always_true_others_need_photo():
+    from app.api.routes import generate
+    product_ref = {"reference_image_url": "https://x/front.png",
+                   "view_images": {"front": "https://x/front.png",
+                                   "back": "https://x/back.png"}}
+    assert generate._has_genuine_angle(product_ref, "front") is True
+    assert generate._has_genuine_angle(product_ref, "back") is True
+    # left/right absent from view_images -> not genuine (front-alias forbidden)
+    assert generate._has_genuine_angle(product_ref, "left") is False
+    assert generate._has_genuine_angle(product_ref, "right") is False
+
+
+def test_canvas_render_skips_faces_without_a_genuine_angle():
+    """A back-decorated element on a product with no back photo is skipped, and a
+    note is recorded — the front hero still renders."""
+    from app.api.routes import generate
+    product_ref = {"reference_image_url": "https://x/front.png", "view_images": {}}
+    collected = {
+        "flow_mode": "canvas",
+        "elements": [
+            {"type": "text", "content": "F", "placement_zone": "front_panel"},
+            {"type": "text", "content": "B", "placement_zone": "back"},
+        ],
+    }
+    kept, skipped = generate._canvas_views_split(collected, product_ref)
+    assert kept == ["front"]
+    assert skipped == ["back"]

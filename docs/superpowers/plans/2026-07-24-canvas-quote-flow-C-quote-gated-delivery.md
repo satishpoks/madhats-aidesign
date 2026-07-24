@@ -1412,7 +1412,7 @@ Adds a `generations.render_notes` column and makes `_run_generation`'s canvas br
 - Produces: `generate._has_genuine_angle(product_ref, view) -> bool`; `generations.render_notes` populated with skipped-face notes
 - Consumes: `product_ref["view_images"]`, `prompt_builder.render_views`
 
-- [ ] **Step 1:** Write the failing test. Add to `backend/tests/test_canvas_generation.py` (import the helper directly — pure, no DB):
+- [x] **Step 1:** Write the failing test. Add to `backend/tests/test_canvas_generation.py` (import the helper directly — pure, no DB):
 ```python
 def test_has_genuine_angle_front_always_true_others_need_photo():
     from app.api.routes import generate
@@ -1443,13 +1443,13 @@ def test_canvas_render_skips_faces_without_a_genuine_angle():
     assert skipped == ["back"]
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (helpers don't exist).
+- [x] **Step 2:** Run it — expect FAIL (helpers don't exist).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -k genuine_angle -v
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -k skips_faces -v
 ```
 
-- [ ] **Step 3:** Write the migration `backend/supabase/migrations/20260724000002_generation_render_notes.sql`:
+- [x] **Step 3:** Write the migration `backend/supabase/migrations/20260724000002_generation_render_notes.sql`:
 ```sql
 -- C6.2: per-render operational notes (e.g. "back face not rendered — no back
 -- angle photo for this product"). Surfaced to sales in the admin quote-requests
@@ -1457,7 +1457,7 @@ cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.p
 alter table generations add column if not exists render_notes jsonb;
 ```
 
-- [ ] **Step 4:** Add the helpers + wire them into `backend/app/api/routes/generate.py`. Add the helpers just above `_run_generation` (~line 345):
+- [x] **Step 4:** Add the helpers + wire them into `backend/app/api/routes/generate.py`. Add the helpers just above `_run_generation` (~line 345):
 ```python
 def _has_genuine_angle(product_ref: dict, view: str) -> bool:
     """True when a view has a REAL reference photo to composite onto.
@@ -1530,12 +1530,12 @@ Then record the notes at completion. In the completion `sb.table("generations").
         ).eq("job_id", job_id).execute()
 ```
 
-- [ ] **Step 5:** Run it — expect PASS. Re-run the full canvas-generation suite.
+- [x] **Step 5:** Run it — expect PASS. Re-run the full canvas-generation suite.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_canvas_generation.py -v
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd backend && git add app/api/routes/generate.py supabase/migrations/20260724000002_generation_render_notes.sql tests/test_canvas_generation.py && git commit -m "fix(gen): skip canvas faces with no genuine angle; record render_notes (C6.2)
 

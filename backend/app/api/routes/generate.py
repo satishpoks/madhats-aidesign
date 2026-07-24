@@ -343,6 +343,31 @@ async def _render_view(
     }
 
 
+def _has_genuine_angle(product_ref: dict, view: str) -> bool:
+    """True when a view has a REAL reference photo to composite onto.
+
+    Front is always genuine (reference_image_url is always present). A non-front
+    view is genuine only when it is an explicit key in view_images — after the
+    C6.1 fix that means a keyword-matched product angle or a blank session's real
+    per-angle blank, never a fabricated front alias.
+    """
+    if view == prompt_builder.PRIMARY_VIEW:
+        return True
+    return bool((product_ref.get("view_images") or {}).get(view))
+
+
+def _canvas_views_split(collected: dict, product_ref: dict) -> tuple[list[str], list[str]]:
+    """Partition the canvas's decorated views into (kept, skipped).
+
+    Kept views have a genuine angle; skipped ones (decorated but no real photo)
+    are dropped so a back decoration is never composited onto the front cap. The
+    front hero is always kept."""
+    all_views = prompt_builder.render_views(collected)
+    kept = [v for v in all_views if _has_genuine_angle(product_ref, v)]
+    skipped = [v for v in all_views if v not in kept]
+    return kept, skipped
+
+
 async def _run_generation(
     *, job_id, session_id, store_id, tier, prompt, product_ref, collected, params,
     generation_id=None, provider_tier=None,
@@ -378,16 +403,19 @@ async def _run_generation(
     # decorated back/side), each with its real product-angle photo as the
     # conditioning image and its flattened canvas PNG as the layout guide.
     is_edit = tier == "edit"
+    _skipped_views: list[str] = []
     if is_edit:
         views = prompt_builder.affected_render_views(collected)
         prev_gen = _latest_complete_generation(session_id)
         prev_views = _prev_view_map(prev_gen)
     elif is_canvas:
-        # Every decorated face is AI-rendered: the front hero PLUS any back/side
-        # face carrying decoration (prompt_builder.render_views). Each face's
-        # _one() attaches its own reference angle, its flattened canvas PNG as the
-        # layout guide, and its per-view scoped description.
-        views = prompt_builder.render_views(collected)
+        # Every decorated face is AI-rendered, BUT only faces with a genuine
+        # reference angle — a decorated non-front face with no real photo is
+        # skipped (C6.2) rather than composited onto the wrong angle. The front
+        # hero always renders. Each kept face's _one() attaches its own reference
+        # angle, its flattened canvas PNG as the layout guide, and its per-view
+        # scoped description.
+        views, _skipped_views = _canvas_views_split(collected, product_ref)
         prev_views = {}
     else:
         views = prompt_builder.render_views(collected)
@@ -465,6 +493,18 @@ async def _run_generation(
         anchor = by_view.get(prompt_builder.PRIMARY_VIEW) or results[0]
         hero_entry = view_images.get(prompt_builder.PRIMARY_VIEW) or next(iter(view_images.values()))
 
+        # Ops note for any decorated face we deliberately did NOT render because
+        # the product carries no genuine photo for that angle (C6.2). Surfaced to
+        # sales in the admin quote-requests view; design data only, no PII.
+        render_notes = None
+        if _skipped_views:
+            render_notes = {
+                "skipped_views": _skipped_views,
+                "message": "; ".join(
+                    f"{v} face not rendered — no {v} angle photo for this product"
+                    for v in _skipped_views
+                ),
+            }
         sb.table("generations").update(
             {
                 "status": "complete",
@@ -476,6 +516,7 @@ async def _run_generation(
                 "cost_usd": sum(r.get("cost_usd") or 0 for r in results),
                 "latency_ms": max((r.get("latency_ms") or 0 for r in results), default=0),
                 "attempts": attempts,
+                "render_notes": render_notes,
             }
         ).eq("job_id", job_id).execute()
         log.info(
