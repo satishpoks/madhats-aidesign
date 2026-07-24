@@ -634,6 +634,7 @@ _SLOT_DOCS: dict[str, str] = {
     "more_decor": "more_decor (bool) — true if they want to add something else",
     "decor_done": "decor_done (bool) — true if they want NO text/shapes at all, or nothing MORE added",
     "quantity": "quantity (integer) — how many caps; 0 means not sure",
+    "needed_by": "needed_by (string) — when the customer needs the caps by; a rough timeframe (e.g. 'ASAP', '2-4 weeks', '1-2 months') or a specific date they give. Use 'Just exploring' when there is no firm date",
     "decoration_types": "decoration_types (list of strings) — decoration methods they chose, copied EXACTLY from the options offered in the question",
     "decoration_mix": "decoration_mix (bool) — true if they want a MIX of more than one decoration method, or aren't sure which single one they want",
     "decoration_mix_note": "decoration_mix_note (string) — their description of the mix of methods they want, in their own words",

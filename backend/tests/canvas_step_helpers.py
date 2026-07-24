@@ -51,6 +51,8 @@ def satisfy(c: dict, step) -> None:
         c["decoration_mix_note"] = "embroidered logo, printed text"
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
+    elif step.id is S.NEEDED_BY:
+        c["needed_by"] = "2-4 weeks"
     elif step.id is S.ASK_PURPOSE:
         c["purpose"] = "team caps"
 
