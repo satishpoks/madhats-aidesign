@@ -1817,7 +1817,7 @@ Adds the reference column, a per-row expand with the summary + component downloa
 - Consumes: `GET /admin/quote-requests`, `GET /admin/quote-requests/{lead_id}/components`, `POST /admin/quote-requests/{lead_id}/render`, `GET /admin/generations` (existing) or `/generate/status/{job_id}` for polling
 - Produces: (UI) reference column, component download links, render button
 
-- [ ] **Step 1:** Write the failing test. Create `frontend/src/admin/views/QuoteRequestsView.test.tsx`:
+- [x] **Step 1:** Write the failing test. Create `frontend/src/admin/views/QuoteRequestsView.test.tsx`:
 ```tsx
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -1844,12 +1844,12 @@ describe('QuoteRequestsView', () => {
 })
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (`reference_code` not on the type / not rendered).
+- [x] **Step 2:** Run it — expect FAIL (`reference_code` not on the type / not rendered).
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
 
-- [ ] **Step 3:** Extend the API in `frontend/src/admin/adminApi.ts`. Find the `QuoteRequest` type and add the fields, then add two functions near `listQuoteRequests` (~line 183):
+- [x] **Step 3:** Extend the API in `frontend/src/admin/adminApi.ts`. Find the `QuoteRequest` type and add the fields, then add two functions near `listQuoteRequests` (~line 183):
 ```ts
 // Add to the QuoteRequest interface:
 //   reference_code?: string | null
@@ -1871,7 +1871,7 @@ export function renderQuoteRequest(leadId: string): Promise<{ job_id: string }> 
 }
 ```
 
-- [ ] **Step 4:** Add the reference column + an expandable render/components panel in `frontend/src/admin/views/QuoteRequestsView.tsx`. Add a `reference` column at the front of `columns`:
+- [x] **Step 4:** Add the reference column + an expandable render/components panel in `frontend/src/admin/views/QuoteRequestsView.tsx`. Add a `reference` column at the front of `columns`:
 ```tsx
     { key: 'reference', header: 'Reference', render: (r) => r.reference_code ?? '—' },
 ```
@@ -1967,12 +1967,12 @@ function RenderCell({ leadId }: { leadId: string }) {
 ```
 Ensure `useState` is imported (it is, via the existing `useState` import at the top).
 
-- [ ] **Step 5:** Run it — expect PASS.
+- [x] **Step 5:** Run it — expect PASS.
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
 
-- [ ] **Step 6:** Commit.
+- [x] **Step 6:** Commit.
 ```bash
 cd frontend && git add src/admin/adminApi.ts src/admin/views/QuoteRequestsView.tsx src/admin/views/QuoteRequestsView.test.tsx && git commit -m "feat(quote): admin quote-requests view — reference, components, render (C7)
 
@@ -1983,14 +1983,17 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ## Final verification
 
-- [ ] **Backend baseline stays green:**
+- [x] **Backend baseline stays green:**
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q
 ```
-- [ ] **Targeted frontend (Windows-stall-safe):**
+- [x] **Targeted frontend (Windows-stall-safe):**
 ```bash
 cd frontend && npx vitest run src/admin/views/QuoteRequestsView.test.tsx
 ```
-- [ ] **Manual smoke (documented, not automated):** with `CANVAS_ORCHESTRATOR_V2=true`, walk a canvas session to REQUEST_QUOTE → tap "Request a quote" → confirm the on-screen reference; verify the email → confirm the customer reference email (no image) + the sales email (summary + attachments); from the admin quote-requests view, click "Generate render" → confirm a render appears and the customer is NOT emailed the design.
+- [ ] **NOT DONE — Docker + Supabase were not running in this worktree, so no
+  live run was possible. Both migrations (`20260724000001_leads_reference_code.sql`,
+  `20260724000002_generation_render_notes.sql`) are UNAPPLIED.**
+  **Manual smoke (documented, not automated):** with `CANVAS_ORCHESTRATOR_V2=true`, walk a canvas session to REQUEST_QUOTE → tap "Request a quote" → confirm the on-screen reference; verify the email → confirm the customer reference email (no image) + the sales email (summary + attachments); from the admin quote-requests view, click "Generate render" → confirm a render appears and the customer is NOT emailed the design.
 ```
 ```

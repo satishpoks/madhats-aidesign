@@ -61,17 +61,29 @@ export interface UpdateSubmissionBody {
 export interface QuoteRequest {
   lead_id: string
   session_id: string
+  /** The session's store PUBLISHABLE key — the render endpoint is store-scoped. */
+  store_key?: string | null
+  reference_code?: string | null
   name: string | null
   email: string | null
   phone: string | null
   notify_by_phone: boolean
   quote_note: string | null
   quote_confirmed_at: string | null
+  quote_requested?: boolean
   product: string | null
   decoration_type: string | null
   placement_zone: string | null
   quantity: number | null
+  needed_by?: string | null
+  purpose?: string | null
+  notes?: string | null
   share_token: string | null
+}
+
+export interface QuoteComponent {
+  label: string
+  url: string | null
 }
 
 export interface PromptPreview {
@@ -182,6 +194,22 @@ export function updateSubmission(id: string, body: UpdateSubmissionBody): Promis
 
 export function listQuoteRequests(): Promise<QuoteRequest[]> {
   return request<QuoteRequest[]>('/admin/quote-requests')
+}
+
+export function listQuoteComponents(leadId: string): Promise<{ components: QuoteComponent[] }> {
+  return request<{ components: QuoteComponent[] }>(`/admin/quote-requests/${leadId}/components`)
+}
+
+/**
+ * Trigger the on-demand render for a quote request. Store-scoped on the server
+ * (X-Store-Key), so the row's `store_key` must be passed through.
+ */
+export function renderQuoteRequest(leadId: string, storeKey: string): Promise<{ job_id: string }> {
+  return request<{ job_id: string }>(
+    `/admin/quote-requests/${leadId}/render`,
+    { method: 'POST' },
+    storeKey,
+  )
 }
 
 export function promptPreview(sessionId: string, tier: 'preview' | 'final'): Promise<PromptPreview> {

@@ -16,6 +16,7 @@ from app.api.deps import require_admin, require_store
 from app.api.routes import generate
 from app.db import get_supabase
 from app.services import components as components_service
+from app.services.stores import get_store
 
 router = APIRouter(tags=["admin-leads"], dependencies=[Depends(require_admin)])
 
@@ -49,10 +50,16 @@ async def list_quote_requests() -> list[dict]:
         session = sess.data[0] if sess.data else {}
         collected = session.get("collected") or {}
         product_ref = session.get("product_ref") or {}
+        # The render endpoint is store-scoped (X-Store-Key) but this listing
+        # spans every store, so each row carries its own store's PUBLISHABLE key
+        # — otherwise the admin's render button has no key to send. Publishable
+        # by definition; never the service key or the admin secret.
+        store = get_store(session.get("store_id")) if session.get("store_id") else None
         out.append(
             {
                 "lead_id": lead["id"],
                 "session_id": lead["session_id"],
+                "store_key": (store or {}).get("public_key"),
                 "reference_code": lead.get("reference_code"),
                 "name": lead.get("name"),
                 "email": lead.get("email"),

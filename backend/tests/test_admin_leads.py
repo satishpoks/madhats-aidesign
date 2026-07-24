@@ -77,6 +77,9 @@ def _patch_sb(monkeypatch, tables):
     from app.api.routes import admin_leads
 
     monkeypatch.setattr(admin_leads, "get_supabase", lambda: _FakeSB(tables))
+    # The listing resolves each session's store to carry its publishable key.
+    monkeypatch.setattr(admin_leads, "get_store",
+                        lambda sid: {"id": sid, "public_key": "mh_pk_store_1"})
 
 
 def test_rejects_missing_secret(admin_client):
@@ -127,6 +130,8 @@ def _quote_tables():
                            "uploaded_asset_path": "uploads/logo.png"}}
     sess2 = {"id": "sess-2", "share_token": "tok-2", "product_ref": {},
              "collected": {"quantity": 12}}
+    sess1["store_id"] = "store-1"
+    sess2["store_id"] = "store-1"
     return {"leads": [confirmed, requested, ignored],
             "design_sessions": [sess1, sess2],
             "generations": []}
@@ -143,6 +148,18 @@ def test_quote_requests_include_reference_and_summary(admin_client, monkeypatch)
     assert row["purpose"] == "team event"
     assert row["quantity"] == 60
     assert row["notes"] == "Decoration method: embroidery"
+
+
+def test_quote_requests_carry_the_store_publishable_key(admin_client, monkeypatch):
+    """The render endpoint is store-scoped (X-Store-Key), and this listing spans
+    every store — so each row must carry its own store's publishable key or the
+    admin's "Generate render" button has no key to send and always 401s."""
+    _patch_sb(monkeypatch, _quote_tables())
+    r = admin_client.get("/admin/quote-requests",
+                         headers={"X-Admin-Secret": "test-secret-123"})
+    assert r.status_code == 200
+    row = next(x for x in r.json() if x["lead_id"] == "lead-1")
+    assert row["store_key"] == "mh_pk_store_1"
 
 
 def test_v2_requested_leads_appear_without_quote_confirmed(admin_client, monkeypatch):
