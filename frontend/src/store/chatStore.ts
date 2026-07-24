@@ -27,7 +27,7 @@ interface ChatStoreState {
   colourSwatches: { name: string; hex: string }[]
   /** Blank flow: the hat-colour step wants a free colour picker (custom hex). */
   colourPicker: boolean
-  progress: { step: number; total: number } | null
+  progress: { step: number; total: number; sections?: string[]; section?: number } | null
   /** ask_decoration: the option chips are a multi-select set. */
   multiselect: boolean
   /** ask_decoration: currently-selected decoration names. */
@@ -92,7 +92,7 @@ function parseData(data: Record<string, unknown>) {
     : []
   const colourPicker = data.colour_picker === true
   const progress = (data.progress && typeof data.progress === 'object')
-    ? (data.progress as { step: number; total: number })
+    ? (data.progress as { step: number; total: number; sections?: string[]; section?: number })
     : null
   const multiselect = data.multiselect === true
   const selected = Array.isArray(data.selected) ? (data.selected as string[]) : []
