@@ -35,8 +35,15 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   // `locked` behaviour so v1 is unaffected.
   const toolDisabled = (t: Tool) =>
     !!locked || (allowedTools !== undefined && !allowedTools.has(t))
+  // A3: the upload tool is intentionally NOT emphasised in the main flow — the
+  // chips do the real work, and ask_logo_bg only holds the tool open (to keep
+  // the just-placed logo selectable) without wanting to draw the eye to it.
+  // Its `allowedTools`/`toolDisabled` behaviour is untouched (still enabled +
+  // unlocked); only the ring + pulse are dropped. Other tools still highlight.
   const hi = (t: Tool) =>
-    highlightTool === t ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse' : ''
+    t !== 'upload' && highlightTool === t
+      ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse'
+      : ''
 
   // Draw + cap-colour have no `Tool` entry in `allowedTools` (v2 never offers
   // either), so they were previously gated on `locked` alone and stayed

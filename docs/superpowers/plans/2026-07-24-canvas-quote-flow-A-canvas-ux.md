@@ -506,7 +506,7 @@ git commit -m "feat(canvas): universal rotate/move/size transform controls (A1)"
 - Consumes: existing `allowedTools?: Set<Tool>` and `highlightTool?: Tool | null` props (unchanged).
 - Produces: `upload` never receives the accent ring + pulse classes, even when `highlightTool === 'upload'`. The button stays enabled (`toolDisabled` untouched) so the load-bearing `ask_logo_bg` unlock is preserved. Non-upload highlights (`text`, `shape`) are unaffected.
 
-- [ ] **Step 1 — Write the failing de-highlight test.** Create `frontend/src/__tests__/toolRailUploadHighlight.test.tsx`:
+- [x] **Step 1 — Write the failing de-highlight test.** Create `frontend/src/__tests__/toolRailUploadHighlight.test.tsx`:
 ```tsx
 import { expect, test } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -536,13 +536,13 @@ test('a non-upload tool still highlights (text)', () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/toolRailUploadHighlight.test.tsx
 ```
 Expected: FAIL — the first test fails because `upload` currently gets the `ring-2 … animate-pulse` classes.
 
-- [ ] **Step 3 — Suppress the highlight for `upload` only.** In `frontend/src/components/DesignStudio/ToolRail.tsx`, replace the `hi` helper (~line 38–39):
+- [x] **Step 3 — Suppress the highlight for `upload` only.** In `frontend/src/components/DesignStudio/ToolRail.tsx`, replace the `hi` helper (~line 38–39):
 ```tsx
   const hi = (t: Tool) =>
     highlightTool === t ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse' : ''
@@ -560,7 +560,7 @@ with:
       : ''
 ```
 
-- [ ] **Step 4 — Retarget the existing conflicting test.** In `frontend/src/__tests__/ToolRail.test.tsx`, the test `only allowed tool is enabled and highlighted` (~line 75–87) asserts the `upload` button carries the highlight — now false by design. Replace that test body's tool from `upload` to `text` so the "only allowed tool is enabled + highlighted" intent still holds for a highlightable tool:
+- [x] **Step 4 — Retarget the existing conflicting test.** In `frontend/src/__tests__/ToolRail.test.tsx`, the test `only allowed tool is enabled and highlighted` (~line 75–87) asserts the `upload` button carries the highlight — now false by design. Replace that test body's tool from `upload` to `text` so the "only allowed tool is enabled + highlighted" intent still holds for a highlightable tool:
 ```tsx
 test('only allowed tool is enabled and highlighted', () => {
   render(
@@ -577,13 +577,13 @@ test('only allowed tool is enabled and highlighted', () => {
 })
 ```
 
-- [ ] **Step 5 — Run both ToolRail suites (expected PASS).**
+- [x] **Step 5 — Run both ToolRail suites (expected PASS).**
 ```
 npx vitest run src/__tests__/toolRailUploadHighlight.test.tsx src/__tests__/ToolRail.test.tsx
 ```
 Expected: PASS — new de-highlight suite (2 tests) + the existing ToolRail suite (retargeted test now green, all others unchanged).
 
-- [ ] **Step 6 — Commit.**
+- [x] **Step 6 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/ToolRail.tsx frontend/src/__tests__/toolRailUploadHighlight.test.tsx frontend/src/__tests__/ToolRail.test.tsx
 git commit -m "feat(canvas): de-emphasise upload button highlight, keep unlock (A3)"
