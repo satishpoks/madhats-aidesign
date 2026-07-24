@@ -180,7 +180,7 @@ git commit -m "feat(canvas): add unlockAll + strip persisted lock in fromCanvasD
 - Consumes: `useCanvasStore(s => s.unlockAll)` (Task 1).
 - Produces: on the `!triggerFinalize` re-arm branch (fires when the refine/rework flow drops `triggerFinalize` back to false after a finalize, i.e. the canvas re-opens for editing), `unlockAll()` runs so every pre-existing `locked:true` element becomes draggable/selectable again.
 
-- [ ] **Step 1 — Write the failing Surface test.** Create `frontend/src/__tests__/surfaceRework.test.tsx`:
+- [x] **Step 1 — Write the failing Surface test.** Create `frontend/src/__tests__/surfaceRework.test.tsx`:
 ```tsx
 import { render, act } from '@testing-library/react'
 import { expect, test, vi, beforeEach } from 'vitest'
@@ -251,20 +251,20 @@ test('finalize then rework re-open unlocks every element', async () => {
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/surfaceRework.test.tsx
 ```
 Expected: FAIL — after the `triggerFinalize:false` re-arm the element is still `locked:true` (nothing unlocks it yet).
 
-- [ ] **Step 3 — Add the `unlockAll` selector.** In `frontend/src/components/DesignStudio/Surface.tsx`, alongside the existing lock selectors (~line 51–52):
+- [x] **Step 3 — Add the `unlockAll` selector.** In `frontend/src/components/DesignStudio/Surface.tsx`, alongside the existing lock selectors (~line 51–52):
 ```tsx
   const lockAll = useCanvasStore(s => s.lockAll)
   const lockPlaced = useCanvasStore(s => s.lockPlaced)
   const unlockAll = useCanvasStore(s => s.unlockAll)
 ```
 
-- [ ] **Step 4 — Call `unlockAll()` in the re-arm branch.** In the finalize effect (~line 119–133), replace:
+- [x] **Step 4 — Call `unlockAll()` in the re-arm branch.** In the finalize effect (~line 119–133), replace:
 ```tsx
     if (!triggerFinalize) {
       // Re-arm: the refine confirm step fires trigger_finalize a SECOND time.
@@ -291,21 +291,21 @@ with:
     }
 ```
 
-- [ ] **Step 5 — Add `unlockAll` to the effect's dependency array.** The effect currently has `// eslint-disable-next-line react-hooks/exhaustive-deps` and `}, [triggerFinalize])`. Keep the disable comment (the effect intentionally excludes `doRender`/`lockAll`) — `unlockAll` is a stable zustand action reference, so no dependency change is required and the existing `[triggerFinalize]` array stays as-is. (Do not widen the deps; the guard is deliberately keyed on `triggerFinalize` only.)
+- [x] **Step 5 — Add `unlockAll` to the effect's dependency array.** The effect currently has `// eslint-disable-next-line react-hooks/exhaustive-deps` and `}, [triggerFinalize])`. Keep the disable comment (the effect intentionally excludes `doRender`/`lockAll`) — `unlockAll` is a stable zustand action reference, so no dependency change is required and the existing `[triggerFinalize]` array stays as-is. (Do not widen the deps; the guard is deliberately keyed on `triggerFinalize` only.)
 
-- [ ] **Step 6 — Run the test (expected PASS).**
+- [x] **Step 6 — Run the test (expected PASS).**
 ```
 npx vitest run src/__tests__/surfaceRework.test.tsx
 ```
 Expected: PASS (1 test).
 
-- [ ] **Step 7 — Guard the existing Surface directive suite.**
+- [x] **Step 7 — Guard the existing Surface directive suite.**
 ```
 npx vitest run src/__tests__/surfaceDirective.test.tsx
 ```
 Expected: PASS (6 tests) — the re-arm branch's `unlockAll()` is additive; `a second trigger_finalize re-arms and fires again` still passes (unlockAll runs alongside the ref reset, doRender still fires twice).
 
-- [ ] **Step 8 — Commit.**
+- [x] **Step 8 — Commit.**
 ```
 git add frontend/src/components/DesignStudio/Surface.tsx frontend/src/__tests__/surfaceRework.test.tsx
 git commit -m "fix(canvas): unlock all elements when canvas re-opens for rework (A2)"

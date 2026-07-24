@@ -50,6 +50,7 @@ export function DesignStudioSurface() {
   const toCanvasDesign = useCanvasStore(s => s.toCanvasDesign)
   const lockAll = useCanvasStore(s => s.lockAll)
   const lockPlaced = useCanvasStore(s => s.lockPlaced)
+  const unlockAll = useCanvasStore(s => s.unlockAll)
 
   const stageRef = useRef<Konva.Stage>(null)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -122,6 +123,20 @@ export function DesignStudioSurface() {
       // Without this the ref stays true from the first finalize and the
       // re-render is silently swallowed.
       finalizeStarted.current = false
+      // Rework re-open: the canvas is editable again, but every pre-existing
+      // element is still locked:true from the finalize lockAll(). Nothing else
+      // ever clears it, so refined designs render non-draggable/non-selectable
+      // ("not all layers are unlocked"). Unlock them here.
+      //
+      // Guarded on "something is actually locked" because this branch also runs
+      // on every ordinary mount (deps are [triggerFinalize], which starts
+      // false). unlockAll() clears selectedId, so calling it unconditionally
+      // deselects the element the customer is editing and unmounts
+      // SelectedToolbar with it — which would make the background-removal
+      // toggle unreachable at ask_logo_bg. With the guard it is a true no-op
+      // until a finalize has actually locked the canvas.
+      const locked = FACES.some(f => useCanvasStore.getState().faces[f].some(e => e.locked))
+      if (locked) unlockAll()
       return
     }
     if (!finalizeStarted.current) {
