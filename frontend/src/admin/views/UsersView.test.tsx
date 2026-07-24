@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { UsersView } from './UsersView'
 import * as api from '../adminApi'
@@ -22,7 +22,8 @@ describe('UsersView', () => {
       </MemoryRouter>,
     )
     await waitFor(() => expect(screen.getByText('ops@x.com')).toBeInTheDocument())
-    expect(screen.getByText(/Store 1/)).toBeInTheDocument()
+    const table = screen.getByRole('table')
+    expect(within(table).getByText(/Store 1/)).toBeInTheDocument()
   })
 
   it('creates a user', async () => {

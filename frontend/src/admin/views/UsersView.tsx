@@ -167,12 +167,20 @@ export function UsersView() {
             <input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              type="text"
+              type="password"
               className="rounded-lg border border-[#e0e1ea] px-3 py-1.5 text-[13px]"
             />
           </label>
           <label className="flex items-center gap-2 text-[13px]">
-            <input type="checkbox" checked={isSuper} onChange={(e) => setIsSuper(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={isSuper}
+              onChange={(e) => {
+                const checked = e.target.checked
+                setIsSuper(checked)
+                if (checked) setStoreIds([])
+              }}
+            />
             Super admin (all stores)
           </label>
           {!isSuper && (
@@ -189,7 +197,7 @@ export function UsersView() {
                       checked={storeIds.includes(s.id)}
                       onChange={() => toggleStore(s.id)}
                     />
-                    {s.slug}
+                    {s.name}
                   </label>
                 ))
               )}
