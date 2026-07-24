@@ -51,6 +51,15 @@ def test_login_disabled_user(client, monkeypatch):
     assert resp.status_code == 401
 
 
+def test_login_unknown_email_still_rejected(client, monkeypatch):
+    # No matching user at all — the enumeration-safe branch must still reject
+    # with the same 401 + detail as a wrong-password attempt on a real account.
+    monkeypatch.setattr(admin_users, "get_by_email", lambda e: None)
+    resp = client.post("/admin/auth/login", json={"email": "nobody@x.com", "password": "whatever"})
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid email or password"
+
+
 def test_me_with_env_secret_is_super(client):
     resp = client.get("/admin/auth/me", headers={"X-Admin-Secret": "envsecret"})
     assert resp.status_code == 200

@@ -17,6 +17,12 @@ from app.services import admin_auth, admin_users
 router = APIRouter(tags=["admin-auth"])
 log = structlog.get_logger()
 
+# Computed once at import so the "unknown email / disabled user" branch does the
+# same PBKDF2 work as the "wrong password" branch below — otherwise the two
+# branches are distinguishable by timing even though the HTTP response is
+# byte-identical, which leaks account existence (user-enumeration).
+_DUMMY_HASH = admin_auth.hash_password("invalid-placeholder-password")
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
@@ -53,6 +59,7 @@ def _profile(ctx: AdminContext) -> dict:
 async def login(body: LoginRequest) -> dict:
     user = admin_users.get_by_email(body.email)
     if not user or user.get("status") != "active":
+        admin_auth.verify_password(body.password, _DUMMY_HASH)  # equalize timing
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not admin_auth.verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
