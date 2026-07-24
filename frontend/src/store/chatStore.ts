@@ -167,6 +167,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
 
   sendMessage: async (sessionId: string, text: string) => {
     if (get().sending) return
+    // Never send a blank/whitespace user turn. This is the single choke point
+    // every user message flows through (chips, typed input, "done"/"ok"/"none",
+    // uploads). Only kickoff() legitimately sends "" — and it's a separate
+    // function. An empty turn reaching the backend is read as a real answer by
+    // the v2 interpreter and walked the conversation backward to ask_name
+    // (the live canvas dead-loop). Drop it here so no UI path can emit one.
+    if (!text.trim()) return
     set(state => ({
       messages: [
         ...state.messages,
