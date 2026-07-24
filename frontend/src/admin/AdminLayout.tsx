@@ -1,22 +1,25 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAdminStore } from './adminStore'
 
-const NAV = [
+const NAV: { to: string; label: string; superOnly?: boolean }[] = [
   { to: '/admin/submissions', label: 'Approval queue' },
   { to: '/admin/quote-requests', label: 'Quote requests' },
   { to: '/admin/leads', label: 'Leads' },
-  { to: '/admin/diagnostics', label: 'Diagnostics' },
-  { to: '/admin/stores', label: 'Stores' },
+  { to: '/admin/diagnostics', label: 'Diagnostics', superOnly: true },
+  { to: '/admin/stores', label: 'Stores', superOnly: true },
   { to: '/admin/branding', label: 'Branding' },
   { to: '/admin/hat-types', label: 'Hat Types' },
   { to: '/admin/graphics', label: 'Graphics' },
   { to: '/admin/decoration-types', label: 'Decorations' },
-  { to: '/admin/ops', label: 'Ops' },
-  { to: '/admin/settings', label: 'Settings' },
+  { to: '/admin/ops', label: 'Ops', superOnly: true },
+  { to: '/admin/settings', label: 'Settings', superOnly: true },
+  { to: '/admin/users', label: 'Users', superOnly: true },
 ]
 
 export function AdminLayout() {
   const logout = useAdminStore((s) => s.logout)
+  const isSuper = useAdminStore((s) => s.profile?.is_super ?? false)
+  const items = NAV.filter((n) => !n.superOnly || isSuper)
   return (
     <div className="min-h-screen bg-[#f8f9fa] font-sans text-[#1a1a2e]">
       <header className="sticky top-0 z-20 border-b border-[#e0e1ea] bg-white">
@@ -24,7 +27,7 @@ export function AdminLayout() {
           <span className="text-[18px] font-semibold tracking-tight text-[#ff5c00]">MAD HATS</span>
           <span className="hidden text-[13px] font-medium text-[#6b6b80] sm:inline">Admin</span>
           <nav className="flex flex-1 items-center gap-1 overflow-x-auto">
-            {NAV.map((item) => (
+            {items.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
