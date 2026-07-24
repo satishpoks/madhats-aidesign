@@ -1319,7 +1319,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: `image_srcs: list[str]`
 - Produces: `_map_views(image_srcs) -> dict` (only real angles + front)
 
-- [ ] **Step 1:** Write the failing test. Create `backend/tests/test_catalogue_sync_views.py`:
+- [x] **Step 1:** Write the failing test. Create `backend/tests/test_catalogue_sync_views.py`:
 ```python
 """_map_views records only genuine angles + front — no fabricated aliases (C6.1)."""
 from __future__ import annotations
@@ -1351,12 +1351,12 @@ def test_empty_srcs_is_empty():
     assert _map_views([]) == {}
 ```
 
-- [ ] **Step 2:** Run it — expect FAIL (current code fabricates back/left/right).
+- [x] **Step 2:** Run it — expect FAIL (current code fabricates back/left/right).
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_catalogue_sync_views.py -v
 ```
 
-- [ ] **Step 3:** Replace `_map_views` in `backend/app/services/catalogue_sync.py` (lines 62–80) with:
+- [x] **Step 3:** Replace `_map_views` in `backend/app/services/catalogue_sync.py` (lines 62–80) with:
 ```python
 def _map_views(image_srcs: list[str]) -> dict:
     """Map product photos to angle keys by filename keyword, plus front.
@@ -1385,12 +1385,12 @@ def _map_views(image_srcs: list[str]) -> dict:
     return views
 ```
 
-- [ ] **Step 4:** Run it — expect PASS. Re-run the catalogue-sync suite if one exists.
+- [x] **Step 4:** Run it — expect PASS. Re-run the catalogue-sync suite if one exists.
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false pytest tests/test_catalogue_sync_views.py -v && CANVAS_ORCHESTRATOR_V2=false pytest -k catalogue -q
 ```
 
-- [ ] **Step 5:** Commit.
+- [x] **Step 5:** Commit.
 ```bash
 cd backend && git add app/services/catalogue_sync.py tests/test_catalogue_sync_views.py && git commit -m "fix(gen): _map_views stops fabricating back/left/right aliases (C6.1)
 

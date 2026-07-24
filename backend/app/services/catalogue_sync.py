@@ -60,6 +60,15 @@ def _first_colour(product: dict) -> str:
 
 
 def _map_views(image_srcs: list[str]) -> dict:
+    """Map product photos to angle keys by filename keyword, plus front.
+
+    Only GENUINE, keyword-matched angles are recorded — we no longer fabricate
+    back/left/right from arbitrary positional images. A decorated face with no
+    real per-angle photo is left ABSENT here, so the canvas render loop
+    (generate.py) can SKIP it rather than compositing a back decoration onto a
+    front-facing cap (C6.1). Front is always available — it is the reference
+    photo (image_srcs[0]).
+    """
     views: dict[str, str] = {}
     angle_kw = {
         "front": ["front"],
@@ -74,9 +83,6 @@ def _map_views(image_srcs: list[str]) -> dict:
                 views[key] = src
     if image_srcs:
         views.setdefault("front", image_srcs[0])
-        views.setdefault("back", image_srcs[1] if len(image_srcs) > 1 else image_srcs[0])
-        views.setdefault("left", image_srcs[2] if len(image_srcs) > 2 else views["front"])
-        views.setdefault("right", image_srcs[3] if len(image_srcs) > 3 else views["front"])
     return views
 
 
