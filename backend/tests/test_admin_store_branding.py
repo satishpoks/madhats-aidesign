@@ -3,10 +3,11 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, require_admin_ctx
 from app.main import app
 
 _ROW = {"id": "s1", "slug": "acme", "name": "Acme", "brand": {"primary_colour": "#111111"}}
+_SUPER_CTX = AdminContext(user_id=None, email=None, is_super=True, allowed_store_ids=None)
 
 
 class _FakeTable:
@@ -22,7 +23,7 @@ class _FakeTable:
 
 @pytest.fixture
 def client(monkeypatch):
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     fake = _FakeTable(dict(_ROW))
     monkeypatch.setattr("app.api.routes.admin_stores.get_supabase", lambda: type("SB", (), {"table": lambda self, name: fake})())
     yield TestClient(app)
@@ -58,7 +59,7 @@ def test_patch_preserves_logo_url_when_omitted(monkeypatch):
     """A PATCH that sends only a colour must not wipe brand.logo_url — the
     frontend BrandingView intentionally omits logo_url from the PATCH body
     and relies on the backend to merge, not replace, the brand column."""
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     row = {
         "id": "s1",
         "slug": "acme",
@@ -88,7 +89,7 @@ def test_patch_preserves_logo_url_when_omitted(monkeypatch):
 def test_get_store_admin_returns_proxied_logo_url(monkeypatch):
     """GET /admin/stores/{id} must return a displayable /media proxy URL for
     brand.logo_url, not the raw storage path (which breaks <img src> on reload)."""
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     row = {"id": "s1", "slug": "acme", "name": "Acme", "brand": {"logo_url": "uploads/x.png"}}
     fake = _FakeTable(row)
     monkeypatch.setattr(
@@ -118,7 +119,7 @@ def test_get_store_admin_returns_proxied_logo_url(monkeypatch):
 def test_patch_accepts_and_merges_canvas_flow(monkeypatch):
     """A canvas_flow PATCH must validate, and must merge without wiping the
     existing logo_url (the same read-merge guarantee colours rely on)."""
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[require_admin_ctx] = lambda: _SUPER_CTX
     row = {"id": "s1", "slug": "acme", "name": "Acme",
            "brand": {"logo_url": "uploads/x.png", "primary_colour": "#111"}}
     fake = _FakeTable(row)
