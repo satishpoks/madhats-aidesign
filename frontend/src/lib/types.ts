@@ -109,6 +109,14 @@ export interface MenuItem {
 
 /** Per-store brand config (GET /storefront). All fields optional — unset fields
  *  keep the current MadHats Tailwind fallbacks. */
+/** One configurable step in the v2 canvas flow (V3 admin ordering). Only the
+ *  backend's CONFIGURABLE_STEP_IDS safe subset may appear — every other step is
+ *  dependency-locked and the server rejects it. */
+export interface FlowStep {
+  id: string
+  enabled: boolean
+}
+
 export interface Brand {
   logo_url?: string
   primary_colour?: string
@@ -116,6 +124,7 @@ export interface Brand {
   header_text?: string
   menu_items?: MenuItem[]
   canvas_intro?: string
+  canvas_flow?: { steps: FlowStep[] }
 }
 
 /** Response shape for GET /storefront — store name, persona name, and brand config. */

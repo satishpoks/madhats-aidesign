@@ -270,3 +270,76 @@ async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
     res = await o2.handle_message("s1", "I'd need them by the 15th of next month")
     assert res["state"] == S.ASK_PURPOSE.value
     assert store["session"]["collected"]["needed_by"] == "the 15th of next month"
+# --- Workstream D: the store's canvas_flow reaches the router -----------------
+
+def _at_email_store(brand: dict | None):
+    """A session parked at ASK_EMAIL with every earlier step answered, so the
+    only thing left to route is the configurable tail (purpose).
+
+    `needed_by` (workstream B) and `quote_requested` (workstream C) are locked
+    steps that now flank ask_purpose. They are seeded so the helper's stated
+    invariant still holds — otherwise routing stops on one of them and these
+    tests would silently stop testing the config wiring at all."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["store_id"] = "store-1"
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True,
+        "logos_done": True, "pending_logo": None, "decor_done": True,
+        "quantity": 12, "decoration_done": True,
+        "needed_by": "ASAP", "quote_requested": True,
+    })
+    return store
+
+
+def _wire(monkeypatch, store, brand: dict | None):
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
+    monkeypatch.setattr(o2, "get_store", lambda _id: {
+        "id": "store-1", "persona_name": "Ricardo", "brand": brand or {},
+    })
+    monkeypatch.setattr(
+        cs.leads_service, "capture_lead_and_verify",
+        lambda s, c, e: ("lead-1", True),
+    )
+
+    async def _boom(*a, **k):
+        raise o2.ie.LLMUnavailable("ask_email resolves via direct_answer")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    seen: dict = {}
+    real_next = v2.next_step
+
+    def _spy(collected, config=None):
+        seen["config"] = config
+        return real_next(collected, config)
+    monkeypatch.setattr(o2.v2, "next_step", _spy)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_threads_store_canvas_flow_config(monkeypatch):
+    """With a store config that disables ask_purpose, a session that has
+    answered every step up to purpose must route straight to FINALIZE_CANVAS
+    rather than asking the disabled step."""
+    cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
+    store = _at_email_store(cfg)
+    seen = _wire(monkeypatch, store, {"canvas_flow": cfg})
+
+    out = await o2.handle_message("s1", "sam@example.com")
+
+    assert seen["config"] == cfg
+    assert out["state"] == S.FINALIZE_CANVAS.value
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_without_canvas_flow_is_unchanged(monkeypatch):
+    """The control: an unconfigured store passes None and still asks purpose,
+    so the wiring changes behaviour only when a store opts in."""
+    store = _at_email_store(None)
+    seen = _wire(monkeypatch, store, {})
+
+    out = await o2.handle_message("s1", "sam@example.com")
+
+    assert seen["config"] is None
+    assert out["state"] == S.ASK_PURPOSE.value

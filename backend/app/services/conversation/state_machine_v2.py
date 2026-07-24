@@ -49,10 +49,73 @@ def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
             if k in own or v or not collected.get(k)}
 
 
-def next_step(collected: dict) -> Step:
-    """The first step whose done_when is False. FINALIZE_CANVAS is terminal
-    (done_when is always False), so this always returns a Step."""
-    for step in cs.REGISTRY:
+def effective_registry(config: dict | None) -> tuple[Step, ...]:
+    """The registry as reordered/filtered by a store's canvas_flow config.
+
+    PURE: a function of (config, cs.REGISTRY) only — no collected, no DB, no
+    LLM — so the whole compose is exhaustively unit-testable with plain dicts.
+
+    Locked steps keep their EXACT registry index; the configurable steps are
+    redistributed among the indices configurable steps already occupy, in the
+    admin's order, with disabled ones dropped (the trailing configurable slots
+    collapse). Nothing ever crosses a locked step's position — that is what
+    keeps this trivial, and it is the invariant that let Workstream D pass its
+    Complexity gate. Needing to move a locked step, splice a configurable step
+    into a locked index, or add a cross-step done_when dependency would mean the
+    compose had entangled, and D should be dropped rather than forced.
+
+    Ids outside CONFIGURABLE_STEP_IDS are ignored rather than honoured — the
+    admin API rejects them (branding._validate_canvas_flow), and this second
+    read keeps a hand-edited stores.brand row from moving a locked step either.
+
+    A falsy/absent config returns cs.REGISTRY unchanged, so every existing
+    caller and the whole non-configured baseline are byte-identical.
+    """
+    registry = cs.REGISTRY
+    if not config:
+        return registry
+    steps_cfg = config.get("steps") or []
+    cfg_ids = cs.CONFIGURABLE_STEP_IDS
+
+    disabled: set[str] = set()
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for item in steps_cfg:
+        sid = (item or {}).get("id")
+        if sid not in cfg_ids or sid in seen:
+            continue
+        seen.add(sid)
+        if item.get("enabled") is False:
+            disabled.add(sid)
+        else:
+            ordered.append(sid)
+    # Configurable steps the admin never mentioned keep default (registry)
+    # order, enabled, appended after the ones they did.
+    for step in registry:
+        sid = step.id.value
+        if sid in cfg_ids and sid not in seen:
+            ordered.append(sid)
+
+    by_id = {s.id.value: s for s in registry if s.id.value in cfg_ids}
+    present = [by_id[sid] for sid in ordered if sid in by_id]
+
+    slots = [i for i, s in enumerate(registry) if s.id.value in cfg_ids]
+    result: list[Step | None] = list(registry)
+    for i in slots:
+        result[i] = None
+    for pos, step in zip(slots, present):
+        result[pos] = step
+    return tuple(s for s in result if s is not None)
+
+
+def next_step(collected: dict, config: dict | None = None) -> Step:
+    """The first step whose done_when is False, over the config-composed
+    registry. FINALIZE_CANVAS is terminal (done_when is always False) and is
+    always locked-last, so this always returns a Step.
+
+    `config` defaults to None so every existing caller and test is unchanged.
+    """
+    for step in effective_registry(config):
         if not step.done_when(collected):
             return step
     return cs.REGISTRY[-1]

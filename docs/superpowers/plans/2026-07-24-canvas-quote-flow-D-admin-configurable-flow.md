@@ -66,6 +66,27 @@ These three are safe to reorder/disable because **no other step's `done_when` re
 
 ---
 
+## Complexity gate — VERDICT (recorded at implementation time, 2026-07-24)
+
+**PASSED. No entanglement. D ships.** Verified against the real registry before
+any code was written:
+
+- The configurable steps occupy registry indices **11 (`ASK_QUANTITY`)** and
+  **15 (`ASK_PURPOSE`)**. `needed_by` is Workstream B's and is absent from this
+  tree, so it drops out of `CONFIGURABLE_STEP_IDS` exactly as the plan intended.
+- Both carry `apply=None prepare=None ops=None chips_from=None tool=None`, and
+  each `done_when` reads only its own slot (`"quantity" in c` /
+  `bool(c.get("purpose"))`). **No other step's `done_when` reads either slot**
+  — confirmed by reading every `done_when` in `REGISTRY`.
+- Registry *order* has exactly one consumer: `state_machine_v2.next_step`
+  (2 call sites, both in `orchestrator_v2`). `V2_OWNED` is a frozenset, so it is
+  order-independent, and `cs.by_id` reads the full `REGISTRY` — which means a
+  session parked on a step an admin later disables is still handled, then routed
+  past it. No locked step had to move, nothing was spliced into a locked index,
+  and no cross-step `done_when` dependency was added.
+
+---
+
 ## Task 1: Config schema + server-side validation
 
 **Files:**
@@ -88,7 +109,7 @@ These three are safe to reorder/disable because **no other step's `done_when` re
 
 ### Steps
 
-- [ ] **Step 1: Write the failing validation tests.** Append to `backend/tests/test_branding.py`:
+- [x] **Step 1: Write the failing validation tests.** Append to `backend/tests/test_branding.py`:
 
 ```python
 def test_validate_brand_accepts_valid_canvas_flow():
@@ -146,14 +167,14 @@ def test_validate_brand_without_canvas_flow_is_untouched():
     assert "canvas_flow" not in cleaned
 ```
 
-- [ ] **Step 2: Run the tests — expect FAIL** (`_validate_canvas_flow` does not exist; the locked/unknown/duplicate cases pass through untouched today):
+- [x] **Step 2: Run the tests — expect FAIL** (`_validate_canvas_flow` does not exist; the locked/unknown/duplicate cases pass through untouched today):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_branding.py -q
 ```
 Expected: the eight new tests FAIL (accepts-valid returns the raw dict unchanged with no `enabled` default; the four reject-cases do not raise).
 
-- [ ] **Step 3: Add `CONFIGURABLE_STEP_IDS` to `canvas_steps.py`.** Insert immediately after the `WRITABLE_SLOTS` block (after ~line 611, before `SLOT_ENUMS`):
+- [x] **Step 3: Add `CONFIGURABLE_STEP_IDS` to `canvas_steps.py`.** Insert immediately after the `WRITABLE_SLOTS` block (after ~line 611, before `SLOT_ENUMS`):
 
 ```python
 # --- V3 admin-configurable flow (Workstream D) --------------------------------
@@ -174,7 +195,7 @@ CONFIGURABLE_STEP_IDS: frozenset[str] = frozenset(
 )
 ```
 
-- [ ] **Step 4: Add `_validate_canvas_flow` and the `validate_brand` hook in `branding.py`.** Add the helper above `validate_brand` (after `_validate_menu_items`, ~line 44):
+- [x] **Step 4: Add `_validate_canvas_flow` and the `validate_brand` hook in `branding.py`.** Add the helper above `validate_brand` (after `_validate_menu_items`, ~line 44):
 
 ```python
 def _validate_canvas_flow(raw) -> dict:
@@ -218,14 +239,14 @@ Then hook it into `validate_brand`, immediately after the `menu_items` block and
     intro = cleaned.get("canvas_intro")
 ```
 
-- [ ] **Step 5: Run the tests — expect PASS:**
+- [x] **Step 5: Run the tests — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_branding.py -q
 ```
 Expected: all tests PASS (existing branding tests + the eight new ones).
 
-- [ ] **Step 6: Commit.**
+- [x] **Step 6: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/canvas_steps.py app/services/branding.py tests/test_branding.py
@@ -256,7 +277,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing compose tests** using plain dicts. Append to `backend/tests/test_state_machine_v2.py`:
+- [x] **Step 1: Write the failing compose tests** using plain dicts. Append to `backend/tests/test_state_machine_v2.py`:
 
 ```python
 # --- Workstream D: config-aware compose (pure, plain dicts) --------------------
@@ -345,14 +366,14 @@ def test_next_step_still_blocks_finalize_without_email_under_config():
     assert v2.next_step(c, cfg).id is S.ASK_EMAIL
 ```
 
-- [ ] **Step 2: Run the tests — expect FAIL** (`effective_registry` does not exist; `next_step` takes one arg):
+- [x] **Step 2: Run the tests — expect FAIL** (`effective_registry` does not exist; `next_step` takes one arg):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_state_machine_v2.py -q
 ```
 Expected: the new tests error/FAIL (`AttributeError: module ... has no attribute 'effective_registry'`, `TypeError: next_step() takes 1 positional argument but 2 were given`).
 
-- [ ] **Step 3: Implement `effective_registry` and extend `next_step`** in `state_machine_v2.py`. Replace the existing `next_step` (lines 52–58) with:
+- [x] **Step 3: Implement `effective_registry` and extend `next_step`** in `state_machine_v2.py`. Replace the existing `next_step` (lines 52–58) with:
 
 ```python
 def effective_registry(config: dict | None) -> tuple[Step, ...]:
@@ -414,14 +435,14 @@ def next_step(collected: dict, config: dict | None = None) -> Step:
     return cs.REGISTRY[-1]
 ```
 
-- [ ] **Step 4: Run the tests — expect PASS:**
+- [x] **Step 4: Run the tests — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_state_machine_v2.py -q
 ```
 Expected: all tests PASS, including the pre-existing `test_router_walks_every_step_in_declared_order` and `test_finalize_unreachable_without_email_captured` (proving the default path is byte-identical).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/state_machine_v2.py tests/test_state_machine_v2.py
@@ -451,7 +472,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing orchestrator test.** Append to `backend/tests/test_v2_e2e.py`:
+- [x] **Step 1: Write the failing orchestrator test.** Append to `backend/tests/test_v2_e2e.py`:
 
 ```python
 @pytest.mark.asyncio
@@ -493,14 +514,14 @@ async def test_orchestrator_threads_store_canvas_flow_config(monkeypatch):
 
 > Note: `cs.leads_service` is the `leads as leads_service` import inside `canvas_steps`; `_apply_email` calls it. If the monkeypatch target differs in the real tree, patch `app.services.leads.capture_lead_and_verify` directly.
 
-- [ ] **Step 2: Run the test — expect FAIL** (orchestrator does not read `canvas_flow`; `next_step` is called with only `collected`, so `seen["config"]` is `None` and purpose is asked):
+- [x] **Step 2: Run the test — expect FAIL** (orchestrator does not read `canvas_flow`; `next_step` is called with only `collected`, so `seen["config"]` is `None` and purpose is asked):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_v2_e2e.py::test_orchestrator_threads_store_canvas_flow_config -q
 ```
 Expected: FAIL (`seen["config"]` is `None`, and/or state is `ask_purpose`).
 
-- [ ] **Step 3: Thread the config through `orchestrator_v2.handle_message`.** After the `intro = canvas_intro_text(store)` line (~line 49), add:
+- [x] **Step 3: Thread the config through `orchestrator_v2.handle_message`.** After the `intro = canvas_intro_text(store)` line (~line 49), add:
 
 ```python
     flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
@@ -526,14 +547,14 @@ to:
         next_ = v2.next_step(collected, flow_config)
 ```
 
-- [ ] **Step 4: Run the test — expect PASS:**
+- [x] **Step 4: Run the test — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_v2_e2e.py -q
 ```
 Expected: all `test_v2_e2e.py` tests PASS (the full chip-label walk still passes — it uses no store config, so `flow_config` is `None` and routing is unchanged).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/orchestrator_v2.py tests/test_v2_e2e.py
@@ -562,7 +583,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing persistence tests.** Append to `backend/tests/test_admin_store_branding.py`:
+- [x] **Step 1: Write the failing persistence tests.** Append to `backend/tests/test_admin_store_branding.py`:
 
 ```python
 def test_patch_accepts_and_merges_canvas_flow(monkeypatch):
@@ -607,14 +628,14 @@ def test_patch_rejects_a_locked_step_in_canvas_flow(client):
     assert r.status_code == 400
 ```
 
-- [ ] **Step 2: Run the tests — expect PASS immediately** (no route change: `validate_brand` from Task 1 already validates `canvas_flow`, and the merge is already read-merge). This task's TDD is a *verification* that the existing route composes correctly with Task 1:
+- [x] **Step 2: Run the tests — expect PASS immediately** (no route change: `validate_brand` from Task 1 already validates `canvas_flow`, and the merge is already read-merge). This task's TDD is a *verification* that the existing route composes correctly with Task 1:
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_admin_store_branding.py -q
 ```
 Expected: all tests PASS. **If `test_patch_rejects_a_locked_step_in_canvas_flow` does NOT return 400**, Task 1's validator hook is not wired — return to Task 1 Step 4 before proceeding.
 
-- [ ] **Step 3: Commit.**
+- [x] **Step 3: Commit.**
 
 ```bash
 cd backend && git add tests/test_admin_store_branding.py
@@ -626,7 +647,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 4: Full backend baseline gate.**
+- [x] **Step 4: Full backend baseline gate.**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest -q
@@ -648,7 +669,7 @@ Expected: green (the documented 788+ passing baseline, now +new). If anything un
 
 ### Steps
 
-- [ ] **Step 1: Add `canvas_flow` to the `Brand` interface** in `frontend/src/lib/types.ts` (replace the interface body ~lines 112–119):
+- [x] **Step 1: Add `canvas_flow` to the `Brand` interface** in `frontend/src/lib/types.ts` (replace the interface body ~lines 112–119):
 
 ```ts
 /** One configurable step in the v2 canvas flow (V3 admin ordering). */
@@ -670,7 +691,7 @@ export interface Brand {
 }
 ```
 
-- [ ] **Step 2: Add the "Flow steps" card to `BrandingView.tsx`.** First add a label map + helpers near the top of the component body (after `const menu = brand.menu_items ?? []`, ~line 51):
+- [x] **Step 2: Add the "Flow steps" card to `BrandingView.tsx`.** First add a label map + helpers near the top of the component body (after `const menu = brand.menu_items ?? []`, ~line 51):
 
 ```tsx
   // The safe, admin-configurable subset (mirrors backend CONFIGURABLE_STEP_IDS).
@@ -737,7 +758,7 @@ Then insert the card JSX between the Canvas-intro `</label>` and the Menu `<div>
 
 The existing `onSave` already PATCHes `rest` (the whole brand minus `logo_url`), so `canvas_flow` is persisted with no `onSave` change. No frontend `validate()` change is needed (only known step ids and booleans are ever produced by this UI; the server re-validates regardless).
 
-- [ ] **Step 3: Verify the frontend builds and the targeted admin test (if present) passes.**
+- [x] **Step 3: Verify the frontend builds and the targeted admin test (if present) passes.**
 
 ```bash
 cd frontend && npm run build
@@ -745,7 +766,7 @@ cd frontend && npx vitest run src/admin/views/BrandingView.test.tsx
 ```
 Expected: build succeeds; the existing `BrandingView` test (if any) still passes. (Full `vitest run` is a known Windows tinypool flake — keep it targeted.)
 
-- [ ] **Step 4: Commit.**
+- [x] **Step 4: Commit.**
 
 ```bash
 cd frontend && git add src/lib/types.ts src/admin/views/BrandingView.tsx
@@ -765,13 +786,13 @@ EOF
 
 ## Final verification
 
-- [ ] **Backend baseline green:**
+- [x] **Backend baseline green:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest -q
 ```
 Expected: all pass (baseline + new tests across `test_branding.py`, `test_state_machine_v2.py`, `test_v2_e2e.py`, `test_admin_store_branding.py`).
 
-- [ ] **Confirm the invariants held throughout (grep sanity):** no locked-step id appears in `CONFIGURABLE_STEP_IDS`; `effective_registry(None) is cs.REGISTRY`; `next_step`'s default arg is `None`. All are asserted by tests above; if any test was skipped, do not claim completion.
+- [x] **Confirm the invariants held throughout (grep sanity):** no locked-step id appears in `CONFIGURABLE_STEP_IDS`; `effective_registry(None) is cs.REGISTRY`; `next_step`'s default arg is `None`. All are asserted by tests above; if any test was skipped, do not claim completion.
 
-- [ ] **Report to orchestrator:** what shipped (config schema + pure compose + orchestrator wiring + admin editor), the narrowed subset decision from the Complexity gate (decoration + anything_else excluded as prepare-bearing / loop-coupled), the documented known gaps (static progress counter; disabled-step slot-packing), and the Workstream B precondition (`needed_by` must be merged for it to be configurable).
+- [x] **Report to orchestrator:** what shipped (config schema + pure compose + orchestrator wiring + admin editor), the narrowed subset decision from the Complexity gate (decoration + anything_else excluded as prepare-bearing / loop-coupled), the documented known gaps (static progress counter; disabled-step slot-packing), and the Workstream B precondition (`needed_by` must be merged for it to be configurable).

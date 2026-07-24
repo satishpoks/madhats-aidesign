@@ -1,13 +1,30 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { getStore, updateStoreBrand, uploadStoreLogo, type FullStore } from '../adminApi'
-import type { Brand, MenuItem } from '../../lib/types'
+import type { Brand, MenuItem, FlowStep } from '../../lib/types'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { useStores } from './hatTypes/shared'
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const MAX_MENU = 5
 const MAX_LABEL_LEN = 40
+
+// The safe, admin-configurable subset — mirrors the backend's
+// canvas_steps.CONFIGURABLE_STEP_IDS. Every other v2 step is dependency-locked
+// and is deliberately never surfaced here; the server rejects a locked id
+// regardless, so this list is UX, not the guard.
+//
+// `needed_by` is listed because workstream B's step is now in the backend
+// registry, which makes it configurable automatically (CONFIGURABLE_STEP_IDS is
+// REGISTRY intersected with the safe-subset names). Keep this array in step
+// with that intersection: listing an id the backend does not accept makes the
+// first toggle save fail with a 400, and omitting one the backend DOES accept
+// silently hides a step admins are entitled to configure.
+const FLOW_STEPS: { id: string; label: string }[] = [
+  { id: 'ask_quantity', label: 'How many caps?' },
+  { id: 'needed_by', label: 'When do you need these by?' },
+  { id: 'ask_purpose', label: 'What is the hat for?' },
+]
 
 function validate(brand: Brand): string | null {
   for (const [k, v] of Object.entries(brand)) {
@@ -49,6 +66,32 @@ export function BrandingView() {
   function setField(k: keyof Brand, v: string) { setBrand(b => ({ ...b, [k]: v })); setSaved(false) }
   function setMenu(items: MenuItem[]) { setBrand(b => ({ ...b, menu_items: items })); setSaved(false) }
   const menu = brand.menu_items ?? []
+
+  // Compose the current view: configured order first, then any step the store
+  // never mentioned (default order, enabled) — the same rule the backend
+  // compose applies. Unknown ids in the stored config are filtered out so a
+  // step this build doesn't know about can never be echoed back on save.
+  const configured = (brand.canvas_flow?.steps ?? []).filter(
+    s => FLOW_STEPS.some(f => f.id === s.id))
+  const flow: FlowStep[] = [
+    ...configured,
+    ...FLOW_STEPS.filter(f => !configured.some(s => s.id === f.id))
+      .map(f => ({ id: f.id, enabled: true })),
+  ]
+  const labelOf = (id: string) => FLOW_STEPS.find(f => f.id === id)?.label ?? id
+  function setFlow(steps: FlowStep[]) {
+    setBrand(b => ({ ...b, canvas_flow: { steps } })); setSaved(false)
+  }
+  function toggleStep(i: number) {
+    setFlow(flow.map((s, j) => j === i ? { ...s, enabled: !s.enabled } : s))
+  }
+  function moveStep(i: number, dir: -1 | 1) {
+    const j = i + dir
+    if (j < 0 || j >= flow.length) return
+    const next = [...flow]
+    ;[next[i], next[j]] = [next[j], next[i]]
+    setFlow(next)
+  }
 
   async function onLogo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -147,6 +190,30 @@ export function BrandingView() {
           rows={4}
         />
       </label>
+
+      {/* Flow steps (V3 — reorder/disable the safe subset) */}
+      <div className="flex flex-col gap-2 rounded-xl border border-[#e0e1ea] bg-white p-4">
+        <span className="text-[13px] font-medium">Flow steps</span>
+        <span className="text-[12px] text-[#9a9ab0]">
+          Reorder or switch off these questions. Everything else in the flow is fixed.
+        </span>
+        {flow.map((s, i) => (
+          <div key={s.id} className="flex items-center gap-2">
+            <label className="flex flex-1 items-center gap-2 text-[13px]">
+              <input type="checkbox" checked={s.enabled}
+                     onChange={() => toggleStep(i)}
+                     aria-label={`${labelOf(s.id)} enabled`} />
+              <span className={s.enabled ? '' : 'text-[#9a9ab0] line-through'}>{labelOf(s.id)}</span>
+            </label>
+            <button onClick={() => moveStep(i, -1)} disabled={i === 0}
+                    aria-label={`Move ${labelOf(s.id)} up`}
+                    className="rounded border border-[#e0e1ea] px-2 text-[12px] disabled:opacity-40">↑</button>
+            <button onClick={() => moveStep(i, 1)} disabled={i === flow.length - 1}
+                    aria-label={`Move ${labelOf(s.id)} down`}
+                    className="rounded border border-[#e0e1ea] px-2 text-[12px] disabled:opacity-40">↓</button>
+          </div>
+        ))}
+      </div>
 
       {/* Menu */}
       <div className="flex flex-col gap-2 rounded-xl border border-[#e0e1ea] bg-white p-4">

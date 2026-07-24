@@ -422,3 +422,135 @@ def test_needed_by_is_asked_after_email_and_before_purpose():
     assert v2.next_step(c).id is S.NEEDED_BY
     c["needed_by"] = "ASAP"
     assert v2.next_step(c).id is S.ASK_PURPOSE
+# --- Workstream D: config-aware compose (pure, plain dicts) --------------------
+# effective_registry is a pure function of (config, cs.REGISTRY) — no collected,
+# no DB, no LLM — so every case below is a plain-dict unit test.
+
+def _flow(*pairs):
+    """A canvas_flow config from (id, enabled) pairs."""
+    return {"steps": [{"id": i, "enabled": e} for i, e in pairs]}
+
+
+def test_effective_registry_is_identity_without_config():
+    assert v2.effective_registry(None) is cs.REGISTRY
+    assert v2.effective_registry({}) is cs.REGISTRY
+    # A config that names nothing composes back to the identical tuple.
+    assert v2.effective_registry({"steps": []}) == cs.REGISTRY
+
+
+def test_effective_registry_keeps_every_locked_step_in_place():
+    # Reorder the configurable subset; every non-configurable step must keep its
+    # exact relative position. Nothing crosses a locked step.
+    eff = v2.effective_registry(_flow(("ask_purpose", True), ("ask_quantity", True)))
+    locked_before = [s.id for s in cs.REGISTRY if s.id.value not in cs.CONFIGURABLE_STEP_IDS]
+    locked_after = [s.id for s in eff if s.id.value not in cs.CONFIGURABLE_STEP_IDS]
+    assert locked_after == locked_before
+
+
+def test_effective_registry_keeps_locked_steps_at_their_exact_index():
+    """Stronger than relative order: a locked step must keep its literal index,
+    which is what guarantees no configurable step is ever spliced into a locked
+    position (the entanglement the Complexity gate exists to catch)."""
+    eff = v2.effective_registry(_flow(("ask_purpose", True), ("ask_quantity", True)))
+    assert len(eff) == len(cs.REGISTRY)
+    for i, (before, after) in enumerate(zip(cs.REGISTRY, eff)):
+        if before.id.value not in cs.CONFIGURABLE_STEP_IDS:
+            assert after is before, f"locked step moved at index {i}"
+
+
+def test_effective_registry_reorders_only_the_configurable_slots():
+    # ask_quantity naturally sits at an earlier index than ask_purpose. Asking
+    # for purpose first must put purpose in the earliest configurable slot and
+    # quantity in a later one — without moving any locked step.
+    eff = v2.effective_registry(_flow(("ask_purpose", True), ("ask_quantity", True)))
+    order = [s.id.value for s in eff if s.id.value in cs.CONFIGURABLE_STEP_IDS]
+    assert order.index("ask_purpose") < order.index("ask_quantity")
+
+
+def test_effective_registry_drops_a_disabled_step():
+    eff = v2.effective_registry(_flow(("ask_purpose", False)))
+    ids = [s.id.value for s in eff]
+    assert "ask_purpose" not in ids
+    assert "ask_quantity" in ids            # untouched configurable steps remain
+    assert len(eff) == len(cs.REGISTRY) - 1     # exactly one step removed
+
+
+def test_effective_registry_ignores_unmentioned_configurable_steps():
+    # Only ask_purpose is named; the rest keep default order + enabled.
+    eff = v2.effective_registry(_flow(("ask_purpose", True)))
+    assert {s.id.value for s in eff} == {s.id.value for s in cs.REGISTRY}
+
+
+def test_effective_registry_ignores_a_locked_or_unknown_id():
+    """Defence in depth. `branding.validate_brand` rejects these at the admin
+    door, but a hand-edited stores.brand row must not be able to move a locked
+    step either — the compose only ever reads CONFIGURABLE_STEP_IDS."""
+    eff = v2.effective_registry(_flow(("ask_email", False), ("not_a_step", True)))
+    assert eff == cs.REGISTRY
+
+
+def test_effective_registry_ignores_duplicate_ids():
+    eff = v2.effective_registry(_flow(("ask_purpose", True), ("ask_purpose", True)))
+    assert [s.id.value for s in eff].count("ask_purpose") == 1
+    assert len(eff) == len(cs.REGISTRY)
+
+
+def test_next_step_default_matches_the_bare_registry_walk():
+    # The baseline guarantee: next_step(collected) with no config is unchanged.
+    c = {"flow_mode": "canvas"}
+    for step in cs.REGISTRY:
+        assert v2.next_step(c).id is step.id
+        assert v2.next_step(c, None).id is step.id
+        satisfy(c, step)
+
+
+def test_next_step_honours_a_reordering_config():
+    # With purpose-before-quantity, a session that has answered everything up to
+    # the first configurable slot is asked purpose, not quantity.
+    cfg = _flow(("ask_purpose", True), ("ask_quantity", True))
+    c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+         "logos_done": True, "pending_logo": None, "decor_done": True}
+    assert v2.next_step(c).id is S.ASK_QUANTITY          # default order
+    assert v2.next_step(c, cfg).id is S.ASK_PURPOSE      # configured order
+
+
+def test_next_step_skips_a_disabled_step():
+    cfg = _flow(("ask_purpose", False))
+    # Everything answered except purpose; purpose disabled -> finalize (given
+    # email captured). Locked steps still gate normally.
+    # `needed_by` (workstream B) and `quote_requested` (workstream C) are seeded
+    # because both are locked steps flanking ask_purpose — without them the walk
+    # stops on one of THEM and the test would prove nothing about the disabled
+    # step. Seeding keeps ask_purpose the only variable, which is the claim.
+    c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+         "logos_done": True, "pending_logo": None, "decor_done": True,
+         "quantity": 12, "decoration_done": True, "email_captured": True,
+         "needed_by": "ASAP", "quote_requested": True}
+    assert v2.next_step(c).id is S.ASK_PURPOSE           # asked by default
+    assert v2.next_step(c, cfg).id is S.FINALIZE_CANVAS  # skipped when disabled
+
+
+def test_next_step_still_blocks_finalize_without_email_under_config():
+    # The load-bearing invariant survives reordering: email is locked before
+    # finalize, so no config can reach finalize without email_captured.
+    cfg = _flow(("ask_purpose", True), ("ask_quantity", True))
+    c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+         "logos_done": True, "pending_logo": None, "decor_done": True,
+         "quantity": 12, "decoration_done": True, "purpose": "team caps"}
+    assert v2.next_step(c, cfg).id is S.ASK_EMAIL
+
+
+def test_no_config_can_reach_finalize_without_email():
+    """Exhaustive over every enable/disable+order permutation of the safe
+    subset: FINALIZE_CANVAS is unreachable while email_captured is falsy."""
+    import itertools
+
+    ids = sorted(cs.CONFIGURABLE_STEP_IDS)
+    c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+         "logos_done": True, "pending_logo": None, "decor_done": True,
+         "quantity": 12, "decoration_done": True, "purpose": "team caps",
+         "needed_by": "next month"}
+    for order in itertools.permutations(ids):
+        for flags in itertools.product([True, False], repeat=len(order)):
+            cfg = _flow(*zip(order, flags))
+            assert v2.next_step(c, cfg).id is S.ASK_EMAIL
