@@ -14,13 +14,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, require_super
 from app.config import settings
 from app.db import get_supabase
 from app.services.products import get_product
 from app.storage import media_url
 
-router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin)])
+router = APIRouter(tags=["admin-diagnostics"], dependencies=[Depends(require_admin_ctx)])
 
 
 def _img(path: str | None, request: Request) -> str | None:
@@ -55,6 +55,7 @@ async def list_sessions(
     offset: int = Query(default=0, ge=0),
     state: str | None = None,
     store_id: str | None = None,
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
     sb = get_supabase()
     # Embed the captured lead contact and this session's generations so each row
@@ -68,7 +69,16 @@ async def list_sessions(
     )
     if state:
         q = q.eq("state", state)
-    if store_id:
+    if not ctx.is_super:
+        allowed = list(ctx.allowed_store_ids or set())
+        if store_id is not None:
+            assert_store_allowed(ctx, store_id)
+            q = q.eq("store_id", store_id)
+        elif allowed:
+            q = q.in_("store_id", allowed)
+        else:
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    elif store_id:
         q = q.eq("store_id", store_id)
     res = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
 
@@ -112,12 +122,17 @@ async def list_sessions(
 
 
 @router.get("/admin/sessions/{session_id}")
-async def get_session_detail(session_id: str, request: Request) -> dict:
+async def get_session_detail(
+    session_id: str,
+    request: Request,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Session not found")
     session = res.data[0]
+    assert_store_allowed(ctx, session.get("store_id"))
 
     msgs = (
         sb.table("chat_messages")
@@ -184,8 +199,15 @@ async def list_generation_logs(
     offset: int = Query(default=0, ge=0),
     session_id: str | None = None,
     status: str | None = None,
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
     sb = get_supabase()
+    if not ctx.is_super:
+        if not session_id:
+            raise HTTPException(status_code=403, detail="Select a store/session")
+        sess = sb.table("design_sessions").select("store_id").eq("id", session_id).limit(1).execute()
+        sess_store_id = sess.data[0].get("store_id") if sess.data else None
+        assert_store_allowed(ctx, sess_store_id)
     q = sb.table("generation_logs").select(
         "id, generation_id, job_id, session_id, attempt, tier, status, model, "
         "full_prompt, request_payload, reference_image_url, uploaded_asset_url, output_image_url, "
@@ -242,8 +264,9 @@ def _count(table: str, **filters: object) -> int:
 
 
 @router.get("/admin/diagnostics")
-async def diagnostics() -> dict:
+async def diagnostics(ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
     """System health summary: counts + non-secret provider config."""
+    require_super(ctx)
     return {
         "app_env": settings.app_env,
         "providers": {

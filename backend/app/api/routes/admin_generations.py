@@ -17,11 +17,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 
-from app.api.deps import require_admin
+from app.api.deps import AdminContext, require_admin_ctx, require_super
 from app.api.routes import generate
 from app.db import get_supabase
 
-router = APIRouter(tags=["admin-generations"], dependencies=[Depends(require_admin)])
+router = APIRouter(tags=["admin-generations"], dependencies=[Depends(require_admin_ctx)])
 
 # Operational job fields surfaced to the admin panel. Deliberately excludes
 # prompt / raw_response / collected / lead details — this is a triage view, not
@@ -46,6 +46,7 @@ async def list_generations(
     status: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     stuck_minutes: int = generate.STUCK_MINUTES_DEFAULT,
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
     """List recent generation jobs + status for the Ops panel.
 
@@ -53,12 +54,33 @@ async def list_generations(
     A job is ``stalled`` when it is still ``pending`` past ``stuck_minutes``
     (the same threshold the watchdog reaps at). ``summary`` counts are computed
     over the returned window so the tiles reflect exactly what the table shows.
+
+    A non-super store admin only sees jobs whose session belongs to one of
+    their assigned stores (``generations`` has no store_id column of its own —
+    resolved via ``design_sessions``).
     """
     sb = get_supabase()
     q = sb.table("generations").select(",".join(_JOB_FIELDS))
     if status:
         q = q.eq("status", status)
     rows = q.order("created_at", desc=True).limit(limit).execute().data or []
+
+    if not ctx.is_super:
+        allowed = ctx.allowed_store_ids or set()
+        if not allowed:
+            rows = []
+        else:
+            session_ids = [r.get("session_id") for r in rows if r.get("session_id")]
+            store_by_session: dict[str, str | None] = {}
+            if session_ids:
+                sess_res = (
+                    sb.table("design_sessions")
+                    .select("id, store_id")
+                    .in_("id", session_ids)
+                    .execute()
+                )
+                store_by_session = {s["id"]: s.get("store_id") for s in (sess_res.data or [])}
+            rows = [r for r in rows if store_by_session.get(r.get("session_id")) in allowed]
 
     now = datetime.now(timezone.utc)
     cutoff_seconds = stuck_minutes * 60
@@ -86,7 +108,10 @@ async def reap_stuck_generations(
     background: BackgroundTasks,
     stuck_minutes: int = generate.STUCK_MINUTES_DEFAULT,
     limit: int = 50,
+    ctx: AdminContext = Depends(require_admin_ctx),
 ) -> dict:
+    """Cross-store self-heal sweep — super admin only."""
+    require_super(ctx)
     return await generate.reap_stuck_generations(
         background=background, stuck_minutes=stuck_minutes, limit=limit
     )
