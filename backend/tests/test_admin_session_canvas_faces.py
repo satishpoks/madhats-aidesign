@@ -112,3 +112,32 @@ def test_non_canvas_session_has_no_faces(client, monkeypatch):
     body = client.get("/admin/sessions/sess-2", headers={"X-Admin-Secret": "envsecret"}).json()
     assert body.get("canvas_design") is None
     assert body.get("canvas_faces") == []
+
+
+def test_old_session_expired_signed_url_only_resolves_to_media_proxy_not_raw_signed_url(client, monkeypatch):
+    """An image element with only an (expired) signed assetUrl and no assetPath
+    must resolve through the /media proxy, never leak the raw signed URL."""
+    session_row = {
+        "id": "sess-3", "store_id": None, "state": "complete",
+        "collected": {"flow_mode": "canvas"},
+        "canvas_design": {"colourway": None, "faces": {
+            "front": [
+                {"type": "image",
+                 "assetUrl": "http://x/storage/v1/object/sign/madhats-assets/old_front.png?t=9",
+                 "zIndex": 0},
+            ],
+            "back": [], "left": [], "right": [],
+        }},
+    }
+    _patch_sb(monkeypatch, session_row)
+    res = client.get("/admin/sessions/sess-3", headers={"X-Admin-Secret": "envsecret"})
+    assert res.status_code == 200
+    body = res.json()
+    faces = {f["face"]: f for f in body["canvas_faces"]}
+    front = faces["front"]
+    imgs = [e for e in front["elements"] if e["kind"] == "image"]
+    assert len(imgs) == 1
+    url = imgs[0]["url"]
+    assert url is not None
+    assert "/media/" in url
+    assert "object/sign" not in url

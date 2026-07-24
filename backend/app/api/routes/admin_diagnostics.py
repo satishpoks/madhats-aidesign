@@ -150,8 +150,10 @@ def _build_canvas_faces(session: dict, request: Request) -> list[dict]:
         img_n = 0
         for el in els_src:
             if el.get("type") == "image":
-                img_n += 1
                 url = _resolve_element_media(el, request)
+                if not url:
+                    continue
+                img_n += 1
                 elements.append({
                     "kind": "image",
                     "url": url,

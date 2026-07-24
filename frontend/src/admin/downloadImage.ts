@@ -2,6 +2,7 @@
  *  Cross-origin <a download> is ignored by browsers, so we go via a blob URL. */
 export async function downloadImage(url: string, filename: string): Promise<void> {
   const res = await fetch(url)
+  if (!res.ok) throw new Error(`Download failed (${res.status})`)
   const blob = await res.blob()
   const objUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')

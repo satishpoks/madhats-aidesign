@@ -35,3 +35,18 @@ def test_company_graphic_media_url_passthrough(monkeypatch):
         {"type": "logo", "placement_zone": "front_panel", "assetUrl": "http://api/media/tok123"},
     ]}
     assert gen._canvas_view_images(c, "front") == ["http://api/media/tok123"]
+
+
+def test_logo_with_no_resolvable_asset_is_skipped(monkeypatch):
+    """No assetPath, no assetUrl (and separately, a non-http assetUrl that isn't
+    a signed URL) falls through every resolution branch -> terminal skip."""
+    monkeypatch.setattr(gen, "generate_signed_url", lambda p: f"signed://{p}")
+    c_missing = {"flow_mode": "canvas", "elements": [
+        {"type": "logo", "placement_zone": "front_panel"},
+    ]}
+    assert gen._canvas_view_images(c_missing, "front") == []
+
+    c_bad_url = {"flow_mode": "canvas", "elements": [
+        {"type": "logo", "placement_zone": "front_panel", "assetUrl": "not-a-url"},
+    ]}
+    assert gen._canvas_view_images(c_bad_url, "front") == []
