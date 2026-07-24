@@ -4,7 +4,7 @@ import { useAdminStore } from './adminStore'
 const NAV: { to: string; label: string; superOnly?: boolean }[] = [
   { to: '/admin/submissions', label: 'Approval queue' },
   { to: '/admin/quote-requests', label: 'Quote requests' },
-  { to: '/admin/leads', label: 'Leads' },
+  { to: '/admin/sessions', label: 'Sessions' },
   { to: '/admin/diagnostics', label: 'Diagnostics', superOnly: true },
   { to: '/admin/stores', label: 'Stores', superOnly: true },
   { to: '/admin/branding', label: 'Branding' },

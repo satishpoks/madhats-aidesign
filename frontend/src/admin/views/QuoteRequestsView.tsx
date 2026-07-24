@@ -49,7 +49,7 @@ export function QuoteRequestsView() {
       render: (r) => (
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); navigate(`/admin/leads/${r.session_id}`) }}
+          onClick={(e) => { e.stopPropagation(); navigate(`/admin/sessions/${r.session_id}`) }}
           className="rounded-lg bg-[#ff5c00] px-3 py-1 text-xs text-white hover:bg-[#e64f00]"
         >
           View 360°
@@ -69,7 +69,7 @@ export function QuoteRequestsView() {
         rows={rows}
         loading={loading}
         empty="No quote requests"
-        onRowClick={(r) => navigate(`/admin/leads/${r.session_id}`)}
+        onRowClick={(r) => navigate(`/admin/sessions/${r.session_id}`)}
       />
     </div>
   )
