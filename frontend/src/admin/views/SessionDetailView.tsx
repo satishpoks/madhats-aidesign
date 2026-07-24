@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { getSessionDetail, type SessionDetail, type SessionGeneration } from '../adminApi'
+import { downloadImage } from '../downloadImage'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { StatusBadge } from '../components/StatusBadge'
 
 const ANGLES = ['front', 'side', 'back', 'left', 'right'] as const
+const FACE_LABEL: Record<string, string> = { front: 'Front', back: 'Back', left: 'Left', right: 'Right' }
 
 // Curated, human-friendly brief fields (in display order). Everything else is
 // internal plumbing (ids, hashes, flags) and stays in the collapsible raw view.
@@ -44,6 +46,24 @@ function Card({ title, action, children }: { title: string; action?: React.React
       </div>
       {children}
     </section>
+  )
+}
+
+function Thumb({ url, label, download }: { url: string | null; label: string; download?: string }) {
+  if (!url) return null
+  return (
+    <figure className="text-center">
+      <img src={url} alt={label} className="size-28 rounded-lg border border-[#e0e1ea] bg-[#f8f9fa] object-contain" />
+      <figcaption className="mt-1 text-[11px] text-[#6b6b80]">{label}</figcaption>
+      {download && (
+        <button
+          onClick={() => void downloadImage(url, download)}
+          className="mt-1 text-[11px] font-medium text-[#ff5c00] hover:underline"
+        >
+          Download
+        </button>
+      )}
+    </figure>
   )
 }
 
@@ -171,6 +191,41 @@ export function SessionDetailView() {
               </div>
             )}
           </Card>
+
+          {detail.canvas_faces?.length > 0 && (
+            <Card title="Customer's design">
+              <div className="space-y-5">
+                {detail.canvas_faces.map((f) => {
+                  const images = f.elements.filter((e) => e.kind === 'image' && e.url)
+                  const notes = f.elements.filter((e) => e.kind !== 'image' && e.text)
+                  return (
+                    <div key={f.face} className="rounded-lg border border-[#f0f1f5] p-3">
+                      <h3 className="mb-2 text-[12px] font-semibold text-[#1a1a2e]">{FACE_LABEL[f.face] ?? f.face}</h3>
+                      <div className="flex flex-wrap gap-3">
+                        <Thumb url={f.preview_url} label="Preview" download={`${f.face}-preview.png`} />
+                        <Thumb url={f.layout_url} label="Layout guide" download={`${f.face}-layout.png`} />
+                        {images.map((e, i) => (
+                          <Thumb key={i} url={e.url ?? null} label={`Upload ${i + 1}`} download={e.download_name ?? `${f.face}-upload-${i + 1}.png`} />
+                        ))}
+                      </div>
+                      {notes.length > 0 && (
+                        <ul className="mt-3 space-y-1">
+                          {notes.map((e, i) => (
+                            <li key={i} className="text-[12px] text-[#6b6b80]">
+                              <span className="capitalize text-[#1a1a2e]">{e.kind}:</span> {e.text}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      {images.length === 0 && !f.preview_url && !f.layout_url && (
+                        <p className="text-[12px] text-[#6b6b80]">No recoverable images for this face.</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </Card>
+          )}
 
           <Card title="Selected cap — 360°" action={<span className="text-[12px] text-[#6b6b80]">{detail.product ?? ''}</span>}>
             {capImages.length === 0 ? (
