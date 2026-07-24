@@ -342,6 +342,45 @@ frontend targeted 107 passing.
   base instead of repeating 0.35 (the bug). Ops-ephemeral reload bug also closed
   (the edited design is now persisted each describe turn).
 
+=== Workstream C — quote-gated delivery + generation fix (branch worktree-agent-a7a758a1ba82909b9) ===
+Plan: docs/superpowers/plans/2026-07-24-canvas-quote-flow-C-quote-gated-delivery.md
+Baseline be3d0fc: CANVAS_ORCHESTRATOR_V2=false pytest -q = 798 passed.
+Task 1: complete (f6ff750) — leads.reference_code migration + MH-XXXXXX generator
+Task 2: complete (5a5fe6f) — record_quote_request
+Task 3: complete (2b8cb71) — REQUEST_QUOTE step; v2 finalize is quote-gated
+Task 4: complete (6a0e943) — delivery quote-gate guards
+Task 5: complete (21cbcd1) — components.enumerate_components
+Task 6: complete (0e67042) — reference + sales quote-request emails
+Task 7: complete (9ea13da) — maybe_send_quote_confirmation + verification trigger
+Task 8: complete (9c36af9) — POST /admin/quote-requests/{lead_id}/render
+Task 9: complete (601264c) — _map_views stops fabricating aliases (C6.1)
+Task 10: complete (77ed080) — skip faces w/o genuine angle + render_notes (C6.2)
+Task 11: complete (60ac831) — front-to-back z-order in per-face prompt (C6.3)
+Task 12: complete (4e86549) — admin listing widened (.or_) + components endpoint
+Task 13: complete (409cbb9) — admin view: reference col, components, render button
+Self-review fix (e3e03db) — maybe_send_quote_confirmation now requires
+  canvas_finalized; v2 finalize is a third convergence point. Without it a
+  customer who verified BEFORE tapping "Request a quote" got the one-and-only
+  sales email with NO components attached, made permanent by the dedup flag.
+Final: CANVAS_ORCHESTRATOR_V2=false pytest -q = 834 passed.
+  Flag-on = 831 passed / 3 failed; the SAME 3 fail on baseline be3d0fc
+  (test_finalize_routes_to_decoration, test_chat_post_resolves_body_not_422,
+   test_flag_defaults_false) — pre-existing, verified by re-running baseline.
+  Frontend: npx vitest run src/admin = 13 files / 37 tests passing; tsc clean.
+BOTH MIGRATIONS ARE UNAPPLIED (no Docker/Supabase in this worktree):
+  20260724000001_leads_reference_code.sql, 20260724000002_generation_render_notes.sql
+  They MUST be applied BEFORE this code is deployed — every generation completion
+  writes generations.render_notes, and the quote flow writes leads.reference_code.
+Deviations: store_key added to the admin listing (the plan's renderQuoteRequest
+  sent no X-Store-Key -> guaranteed 401); canvas_finalized gate + finalize
+  converge (above); a few pre-existing tests updated where behaviour changed.
+Open tickets: record_quote_request's own converge is now effectively unreachable
+  (the canvas is never finalized at REQUEST_QUOTE time) — harmless safety net;
+  a failed customer-reference email re-sends the sales email on retry (the dedup
+  flag is driven by the customer send only); product_references rows synced
+  BEFORE C6.1 still carry fabricated back/left/right aliases until re-synced.
+NOT verified live — no Docker, no Supabase, no browser run.
+
 === ALL 9 TASKS COMPLETE. Branch feat/canvas-led-refine ready to finish. ===
 Final review's one Important (compounding) is FIXED + live-verified. Remaining
 open items are all tickets (refused-ack copy; no-key stall at DESCRIBE_CHANGES;
