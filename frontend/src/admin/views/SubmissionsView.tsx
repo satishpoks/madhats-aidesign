@@ -5,6 +5,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { StatusBadge } from '../components/StatusBadge'
 import { KpiTile } from '../components/KpiTile'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { StorePicker } from '../StorePicker'
 
 const STATUSES = ['all', 'pending', 'approved', 'rejected'] as const
 
@@ -30,6 +31,10 @@ export function SubmissionsView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<(typeof STATUSES)[number]>('all')
+  // The backend list endpoint has no store_id param yet (it already
+  // auto-restricts results to the admin's assigned stores), so this picker is
+  // a scoping affordance only for now.
+  const [storeId, setStoreId] = useState<string | null>(null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -80,7 +85,10 @@ export function SubmissionsView() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-[20px] font-semibold text-[#1a1a2e]">Approval queue</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[20px] font-semibold text-[#1a1a2e]">Approval queue</h1>
+        <StorePicker value={storeId} onChange={setStoreId} allowAll />
+      </div>
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <KpiTile label="Pending" value={kpis.pending} tone="amber" />
