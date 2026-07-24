@@ -372,3 +372,39 @@ async def test_orchestrator_without_canvas_flow_is_unchanged(monkeypatch):
 
     assert seen["config"] is None
     assert out["state"] == S.ASK_PURPOSE.value
+
+
+@pytest.mark.asyncio
+async def test_handle_back_threads_store_canvas_flow_config(monkeypatch):
+    """`handle_back` must pass the store's `canvas_flow` into BOTH
+    `last_answered_step` and `next_step` (mirroring `handle_message`'s own
+    wiring) — otherwise Back computes its routing against the DEFAULT registry
+    for a store using the Workstream D configurable flow, and `can_go_back`
+    can disagree with the real forward flow."""
+    cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
+    store = _at_email_store(cfg)
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: {
+        "id": "store-1", "persona_name": "Ricardo", "brand": {"canvas_flow": cfg},
+    })
+
+    seen_last: dict = {}
+    seen_next: dict = {}
+    real_last = v2.last_answered_step
+    real_next = v2.next_step
+
+    def _spy_last(collected, config=None):
+        seen_last["config"] = config
+        return real_last(collected, config)
+
+    def _spy_next(collected, config=None):
+        seen_next["config"] = config
+        return real_next(collected, config)
+
+    monkeypatch.setattr(o2.v2, "last_answered_step", _spy_last)
+    monkeypatch.setattr(o2.v2, "next_step", _spy_next)
+
+    await o2.handle_back("s1")
+
+    assert seen_last["config"] == cfg
+    assert seen_next["config"] == cfg

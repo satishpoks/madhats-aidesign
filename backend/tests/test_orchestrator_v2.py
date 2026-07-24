@@ -468,6 +468,20 @@ async def test_back_at_the_start_is_a_no_op(monkeypatch):
     assert out["state"] == S.ASK_NAME.value
 
 
+@pytest.mark.asyncio
+async def test_back_at_greeting_does_not_crash(monkeypatch):
+    """`GREETING` has no registry Step (`cs.by_id` returns None), so the
+    no-target branch's `v2.reply_for(None, ...)` would raise AttributeError on
+    `None.id` without a dedicated guard. `_new_store()` defaults to GREETING,
+    mirroring a Back tap on the very first turn (before any message at all)."""
+    store = _new_store()
+    assert store["session"]["state"] == S.GREETING.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_NAME.value          # re-renders the kickoff
+    assert out["data"]                                 # a real, non-empty data blob
+
+
 def test_public_data_carries_can_go_back():
     # A mid-flow step can go back; the very first cannot.
     from app.services.conversation import state_machine_v2 as v2

@@ -72,7 +72,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         step = cs.by_id(S.ASK_NAME)
         reply = v2.reply_for(step, collected, persona=persona, intro=intro)
         return await _persist(sb, session_id, collected, step, reply,
-                              state_before, S.ASK_NAME, user_message="")
+                              state_before, S.ASK_NAME, user_message="",
+                              config=flow_config)
 
     step = cs.by_id(current)
     ack = ""
@@ -90,7 +91,7 @@ async def handle_message(session_id: str, message: str) -> dict:
         except ie.LLMUnavailable:
             if step.direct_answer is None:
                 return await _stall(sb, session_id, collected, step, state_before,
-                                    message)
+                                    message, config=flow_config)
             # The answer IS the message for this step — resolve it deterministically
             # rather than stranding the session. Still validated, still guarded by
             # the step's apply. No ack: the model is down.
@@ -169,24 +170,41 @@ async def handle_back(session_id: str) -> dict:
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
+    # Same wiring as handle_message: thread the store's configurable-flow
+    # config into the router so Back's routing (and the can_go_back it
+    # reports) is computed over the SAME config-composed registry the forward
+    # flow just used, not silently the default registry.
+    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
 
-    target = v2.last_answered_step(collected)
+    if current is S.GREETING:
+        # Nothing before the very first step to undo — re-render the kickoff,
+        # mirroring handle_message's own GREETING branch. Without this guard
+        # cs.by_id(GREETING) is None (GREETING has no registry Step) and the
+        # no-target branch below crashes on v2.reply_for(None, ...).
+        step = cs.by_id(S.ASK_NAME)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        return await _persist(sb, session_id, collected, step, reply,
+                              current.value, S.ASK_NAME, user_message="",
+                              data=_public(step, collected, flow_config))
+
+    target = v2.last_answered_step(collected, flow_config)
     if target is None:
         step = cs.by_id(current)
         reply = v2.reply_for(step, collected, persona=persona, intro=intro)
         return await _persist(sb, session_id, collected, step, reply,
                               current.value, current, user_message="",
-                              data=_public(step, collected))
+                              data=_public(step, collected, flow_config))
     for key in (set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears):
         collected.pop(key, None)
-    nxt = v2.next_step(collected)
+    nxt = v2.next_step(collected, flow_config)
     reply = v2.reply_for(nxt, collected, persona=persona, intro=intro)
     return await _persist(sb, session_id, collected, nxt, reply,
                           current.value, nxt.id, user_message="",
-                          data=_public(nxt, collected))
+                          data=_public(nxt, collected, flow_config))
 
 
-async def _stall(sb, session_id, collected, step, state_before, message) -> dict:
+async def _stall(sb, session_id, collected, step, state_before, message,
+                 *, config: dict | None = None) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
     Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — those
@@ -201,15 +219,19 @@ async def _stall(sb, session_id, collected, step, state_before, message) -> dict
     nudge = fails >= _NUDGE_AFTER and cs.chips_of(step, collected)
     reply = prompts.V2_NUDGE_REPLY if nudge else prompts.V2_STALL_REPLY
     return await _persist(sb, session_id, collected, step, reply, state_before,
-                          step.id, user_message=message)
+                          step.id, user_message=message, config=config)
 
 
 async def _persist(sb, session_id, collected, step, reply, state_before, new_state,
-                   *, user_message: str = "", data: dict | None = None) -> dict:
+                   *, user_message: str = "", data: dict | None = None,
+                   config: dict | None = None) -> dict:
     """Write the state + both chat rows, and shape the response.
 
     `step` is the step the session now RESTS on (None only for the capped
-    QUOTE_REQUESTED handoff, which supplies its own `data`).
+    QUOTE_REQUESTED handoff, which supplies its own `data`). `config` is the
+    store's canvas_flow — only consulted for the `_public` fallback below (an
+    explicit `data=` always wins), so `can_go_back` in that fallback is scoped
+    to the same config-composed registry as the turn that produced it.
     """
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
@@ -222,5 +244,5 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
          "state_before": state_before, "state_after": new_state.value},
     ]).execute()
     if data is None:
-        data = _public(step, collected) if step else {}
+        data = _public(step, collected, config) if step else {}
     return {"reply": reply, "state": new_state.value, "data": data}
