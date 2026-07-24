@@ -540,3 +540,41 @@ async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monk
     out = await o2.handle_back("s1")
     assert out["state"] == S.FINALIZE_CANVAS.value           # no-op
     assert store["session"]["collected"]["quote_requested"] is True
+
+
+@pytest.mark.asyncio
+async def test_empty_turn_is_a_noop_and_never_reaches_the_interpreter(monkeypatch):
+    """Regression: the live dead-loop. An empty/whitespace "" turn at an
+    advanced non-greeting step was fed to interpret_turn_v2, which — given no
+    real input but the full slot list — hallucinated well-typed slot values.
+    first-unmet routing then walked the conversation BACKWARD, twice all the
+    way to ask_name (with `name` wiped), making the flow unfinishable.
+
+    Only the GREETING kickoff legitimately sends "". At every other owned step
+    an empty turn must be a no-op: state unchanged, nothing cleared, and the
+    interpreter must never run (feeding it "" is the whole bug).
+    """
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ADD_DECOR.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Satish", "has_logo": True,
+        "logo_face": "front", "logo_placed": True, "logo_bg": "removed",
+        "logos_done": True, "email_captured": True,
+        "_asked": ["ask_name", "show_intro", "ask_has_logo",
+                   "ask_logo_placement", "logo_adjust", "ask_logo_bg",
+                   "ask_email", "ask_another_logo"],
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    async def _boom(*a, **k):
+        raise AssertionError("interpreter must not run on an empty turn")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    async def _ack(*a, **k):
+        return ""
+    monkeypatch.setattr(o2.ie, "write_ack", _ack)
+
+    res = await o2.handle_message("s1", "   ")   # whitespace-only
+
+    assert res["state"] == S.ASK_ADD_DECOR.value               # stayed put
+    assert store["session"]["collected"]["name"] == "Satish"   # nothing cleared

@@ -76,6 +76,20 @@ async def handle_message(session_id: str, message: str) -> dict:
                               config=flow_config)
 
     step = cs.by_id(current)
+
+    if not (message or "").strip():
+        # An empty/whitespace turn is never a real answer at a non-greeting step
+        # — only the GREETING kickoff (handled above) legitimately sends "". A
+        # blank message matches no chip, so without this guard it falls through
+        # to interpret_turn_v2, and the model — handed no real input but the full
+        # slot list — hallucinates well-typed slot values that walk first-unmet
+        # routing BACKWARD (the live dead-loop that reset sessions to ask_name).
+        # Re-render the current step, ingesting nothing.
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        return await _persist(sb, session_id, collected, step, reply, state_before,
+                              current, user_message=message,
+                              data=_public(step, collected, flow_config))
+
     ack = ""
 
     fields = v2.resolve_chip(step, message, collected)
