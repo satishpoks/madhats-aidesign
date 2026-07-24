@@ -98,7 +98,7 @@ EOF
 
 Why this is its own task: `progress_for`'s `total` is `len(_PROGRESS_PATH)`, so appending `S.NEEDED_BY` bumps the v2 flow total to 9 the instant the path changes — independent of whether the `Step` record exists yet. Exactly one existing assertion pins that total (`test_orchestrator_v2.py:187`); it is updated here so this task lands green.
 
-- [ ] **Step 1 (failing test):** Add a progress-position test to `backend/tests/test_state_machine_v2.py`:
+- [x] **Step 1 (failing test):** Add a progress-position test to `backend/tests/test_state_machine_v2.py`:
 
 ```python
 def test_needed_by_has_a_progress_slot_immediately_before_purpose():
@@ -108,10 +108,10 @@ def test_needed_by_has_a_progress_slot_immediately_before_purpose():
     assert len(path) == 9
 ```
 
-- [ ] **Step 2 (run → FAIL):** `pytest tests/test_state_machine_v2.py::test_needed_by_has_a_progress_slot_immediately_before_purpose -v`
+- [x] **Step 2 (run → FAIL):** `pytest tests/test_state_machine_v2.py::test_needed_by_has_a_progress_slot_immediately_before_purpose -v`
   - Expected: `FAILED` — `assert S.NEEDED_BY in path` is False; `len(path) == 8`.
 
-- [ ] **Step 3 (implement):** In `backend/app/services/conversation/state_machine_v2.py`, insert `S.NEEDED_BY` immediately before `S.ASK_PURPOSE` in `_PROGRESS_PATH`:
+- [x] **Step 3 (implement):** In `backend/app/services/conversation/state_machine_v2.py`, insert `S.NEEDED_BY` immediately before `S.ASK_PURPOSE` in `_PROGRESS_PATH`:
 
 ```python
 _PROGRESS_PATH: list[S] = [
@@ -120,7 +120,7 @@ _PROGRESS_PATH: list[S] = [
 ]
 ```
 
-- [ ] **Step 4 (update the one coupled assertion):** In `backend/tests/test_orchestrator_v2.py`, in `test_a_volunteered_answer_is_banked_and_its_step_skipped` (~line 187), bump the v2 flow total:
+- [x] **Step 4 (update the one coupled assertion):** In `backend/tests/test_orchestrator_v2.py`, in `test_a_volunteered_answer_is_banked_and_its_step_skipped` (~line 187), bump the v2 flow total:
 
 ```python
     assert res["data"]["progress"]["total"] == 9
@@ -128,7 +128,7 @@ _PROGRESS_PATH: list[S] = [
 
   (Leave the V1 totals untouched — `test_progress.py:24`, `test_state_machine.py:86`, and `test_state_machine.py` `advance_state` use the separate V1 `progress()` and are unaffected by `_PROGRESS_PATH`.)
 
-- [ ] **Step 5 (run → PASS):** run the new test, the existing v2 progress guards, and the coupled orchestrator test together:
+- [x] **Step 5 (run → PASS):** run the new test, the existing v2 progress guards, and the coupled orchestrator test together:
 ```bash
 pytest tests/test_state_machine_v2.py::test_needed_by_has_a_progress_slot_immediately_before_purpose \
        tests/test_state_machine_v2.py::test_progress_collapses_loop_steps_onto_their_anchor \
@@ -138,7 +138,7 @@ pytest tests/test_state_machine_v2.py::test_needed_by_has_a_progress_slot_immedi
 ```
   - Expected: `5 passed`. (`test_every_asking_step_has_a_progress_position` iterates `cs.REGISTRY`, which does not yet contain `NEEDED_BY`, so it stays green; `ASK_PURPOSE`'s anchor is still in the path.)
 
-- [ ] **Step 6 (commit):**
+- [x] **Step 6 (commit):**
 ```bash
 git add backend/app/services/conversation/state_machine_v2.py backend/tests/test_state_machine_v2.py backend/tests/test_orchestrator_v2.py
 git commit -m "$(cat <<'EOF'

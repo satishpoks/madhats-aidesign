@@ -405,3 +405,10 @@ def test_a_truthy_correction_to_a_settled_slot_is_still_allowed():
 
 def test_needed_by_enum_member_exists():
     assert S.NEEDED_BY.value == "needed_by"
+
+
+def test_needed_by_has_a_progress_slot_immediately_before_purpose():
+    path = v2._PROGRESS_PATH
+    assert S.NEEDED_BY in path
+    assert path.index(S.NEEDED_BY) == path.index(S.ASK_PURPOSE) - 1
+    assert len(path) == 9
