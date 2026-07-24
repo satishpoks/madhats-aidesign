@@ -43,7 +43,7 @@
 - Produces: `unlockAll(): void` — sets `locked:false` on every element across all four faces; clears `selectedId` (mirror of `lockAll`).
 - Modifies: `fromCanvasDesign(design)` — hydrated elements come back with `locked` removed (editable), so a serialised `locked:true` never permanently freezes a resumed design.
 
-- [ ] **Step 1 — Write the failing store test.** Create `frontend/src/__tests__/canvasStoreUnlock.test.ts`:
+- [x] **Step 1 — Write the failing store test.** Create `frontend/src/__tests__/canvasStoreUnlock.test.ts`:
 ```ts
 import { beforeEach, expect, test } from 'vitest'
 import { useCanvasStore } from '../store/canvasStore'
@@ -93,13 +93,13 @@ test('fromCanvasDesign strips a persisted locked flag so resumed elements are ed
 })
 ```
 
-- [ ] **Step 2 — Run the test (expected FAIL).**
+- [x] **Step 2 — Run the test (expected FAIL).**
 ```
 npx vitest run src/__tests__/canvasStoreUnlock.test.ts
 ```
 Expected: FAIL — `unlockAll is not a function` and the resumed element still carries `locked:true`.
 
-- [ ] **Step 3 — Add `unlockAll` to the `CanvasState` interface.** In `frontend/src/store/canvasStore.ts`, insert after the `lockPlaced` declaration in the interface (currently ~line 76, right after its doc comment block):
+- [x] **Step 3 — Add `unlockAll` to the `CanvasState` interface.** In `frontend/src/store/canvasStore.ts`, insert after the `lockPlaced` declaration in the interface (currently ~line 76, right after its doc comment block):
 ```ts
   lockPlaced: () => void
   /** Rework/refine re-open: clear locked on every element across all faces so
@@ -107,7 +107,7 @@ Expected: FAIL — `unlockAll is not a function` and the resumed element still c
   unlockAll: () => void
 ```
 
-- [ ] **Step 4 — Implement `unlockAll` in the store body.** Insert immediately after the `lockPlaced` implementation (the block ending `}),` at ~line 232):
+- [x] **Step 4 — Implement `unlockAll` in the store body.** Insert immediately after the `lockPlaced` implementation (the block ending `}),` at ~line 232):
 ```ts
   unlockAll: () => set(s => {
     const faces = { ...s.faces }
@@ -116,7 +116,7 @@ Expected: FAIL — `unlockAll is not a function` and the resumed element still c
   }),
 ```
 
-- [ ] **Step 5 — Strip `locked` in `fromCanvasDesign`.** Replace the current `fromCanvasDesign` implementation (~line 243–253):
+- [x] **Step 5 — Strip `locked` in `fromCanvasDesign`.** Replace the current `fromCanvasDesign` implementation (~line 243–253):
 ```ts
   fromCanvasDesign: design => set(() => {
     // Merge onto a full empty-faces base so a partial/legacy blob (missing a
@@ -150,19 +150,19 @@ with:
   }),
 ```
 
-- [ ] **Step 6 — Run the test (expected PASS).**
+- [x] **Step 6 — Run the test (expected PASS).**
 ```
 npx vitest run src/__tests__/canvasStoreUnlock.test.ts
 ```
 Expected: PASS (3 tests).
 
-- [ ] **Step 7 — Guard against regressions in the existing lock test.**
+- [x] **Step 7 — Guard against regressions in the existing lock test.**
 ```
 npx vitest run src/__tests__/canvasStoreLock.test.ts
 ```
 Expected: PASS (3 tests) — `unlockAll`/`fromCanvasDesign` changes don't touch `lockAll`/`lockPlaced`.
 
-- [ ] **Step 8 — Commit.**
+- [x] **Step 8 — Commit.**
 ```
 git add frontend/src/store/canvasStore.ts frontend/src/__tests__/canvasStoreUnlock.test.ts
 git commit -m "feat(canvas): add unlockAll + strip persisted lock in fromCanvasDesign (A2)"

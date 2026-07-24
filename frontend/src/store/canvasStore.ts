@@ -74,6 +74,9 @@ interface CanvasState {
    *  step adds an element then locks, "lock all unlocked" == "lock the one
    *  just placed" without needing to track which element that was. */
   lockPlaced: () => void
+  /** Rework/refine re-open: clear locked on every element across all faces so
+   *  a refined design is fully editable again (mirror of lockAll). */
+  unlockAll: () => void
   /** Ops channel: patch by explicit face — `updateElement` only sees activeFace. */
   patchElement: (face: Face, id: string, patch: Partial<CanvasElement>) => void
   removeElementOn: (face: Face, id: string) => void
@@ -231,6 +234,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { faces, selectedId: null }
   }),
 
+  unlockAll: () => set(s => {
+    const faces = { ...s.faces }
+    for (const f of FACES) faces[f] = faces[f].map(e => ({ ...e, locked: false }))
+    return { faces, selectedId: null }
+  }),
+
   reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,
     faceImages: { front: '', back: '', left: '', right: '' },
     drawMode: false, drawColour: '#111827', drawWidth: 0.01 }),
@@ -243,7 +252,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   fromCanvasDesign: design => set(() => {
     // Merge onto a full empty-faces base so a partial/legacy blob (missing a
     // face key) still yields a valid Record<Face, …> and never throws downstream.
-    const faces = { ...emptyFaces(), ...(design?.faces ?? {}) }
+    // Strip any persisted `locked:true` so a resumed/refined design comes back
+    // editable — a permanent lock must never survive into the design blob's
+    // editability (the rework-unlock bug fix).
+    const base = { ...emptyFaces(), ...(design?.faces ?? {}) }
+    const faces = { ...emptyFaces() } as Record<Face, CanvasElement[]>
+    for (const f of FACES) faces[f] = (base[f] ?? []).map(e => ({ ...e, locked: false }))
     return {
       faces,
       colourway: design?.colourway ?? null,
