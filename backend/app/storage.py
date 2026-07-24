@@ -145,3 +145,23 @@ def media_url(path: str | None, base_url: str) -> str | None:
     if path.startswith("http"):
         return path
     return f"{base_url}media/{make_media_token(path)}"
+
+
+_BUCKET_MARKERS = ("/object/sign/madhats-assets/", "/object/public/madhats-assets/")
+
+
+def path_from_signed_url(url: str | None) -> str | None:
+    """Extract the bucket-relative storage path from a Supabase signed/public URL.
+
+    Existing canvas sessions persisted expiring signed URLs on their image
+    elements; the storage object still exists, so recovering the path lets us
+    re-sign / re-proxy it. Returns None for anything that isn't a
+    madhats-assets storage URL (external product images, /media proxies)."""
+    if not url:
+        return None
+    for marker in _BUCKET_MARKERS:
+        idx = url.find(marker)
+        if idx != -1:
+            rest = url[idx + len(marker):]
+            return rest.split("?", 1)[0] or None
+    return None
