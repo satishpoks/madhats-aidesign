@@ -256,7 +256,7 @@ EOF
 
 ### Steps
 
-- [ ] **Step 1: Write the failing compose tests** using plain dicts. Append to `backend/tests/test_state_machine_v2.py`:
+- [x] **Step 1: Write the failing compose tests** using plain dicts. Append to `backend/tests/test_state_machine_v2.py`:
 
 ```python
 # --- Workstream D: config-aware compose (pure, plain dicts) --------------------
@@ -345,14 +345,14 @@ def test_next_step_still_blocks_finalize_without_email_under_config():
     assert v2.next_step(c, cfg).id is S.ASK_EMAIL
 ```
 
-- [ ] **Step 2: Run the tests — expect FAIL** (`effective_registry` does not exist; `next_step` takes one arg):
+- [x] **Step 2: Run the tests — expect FAIL** (`effective_registry` does not exist; `next_step` takes one arg):
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_state_machine_v2.py -q
 ```
 Expected: the new tests error/FAIL (`AttributeError: module ... has no attribute 'effective_registry'`, `TypeError: next_step() takes 1 positional argument but 2 were given`).
 
-- [ ] **Step 3: Implement `effective_registry` and extend `next_step`** in `state_machine_v2.py`. Replace the existing `next_step` (lines 52–58) with:
+- [x] **Step 3: Implement `effective_registry` and extend `next_step`** in `state_machine_v2.py`. Replace the existing `next_step` (lines 52–58) with:
 
 ```python
 def effective_registry(config: dict | None) -> tuple[Step, ...]:
@@ -414,14 +414,14 @@ def next_step(collected: dict, config: dict | None = None) -> Step:
     return cs.REGISTRY[-1]
 ```
 
-- [ ] **Step 4: Run the tests — expect PASS:**
+- [x] **Step 4: Run the tests — expect PASS:**
 
 ```bash
 cd backend && CANVAS_ORCHESTRATOR_V2=false python -m pytest tests/test_state_machine_v2.py -q
 ```
 Expected: all tests PASS, including the pre-existing `test_router_walks_every_step_in_declared_order` and `test_finalize_unreachable_without_email_captured` (proving the default path is byte-identical).
 
-- [ ] **Step 5: Commit.**
+- [x] **Step 5: Commit.**
 
 ```bash
 cd backend && git add app/services/conversation/state_machine_v2.py tests/test_state_machine_v2.py
