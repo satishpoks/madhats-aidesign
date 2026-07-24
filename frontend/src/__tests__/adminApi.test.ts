@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
-  validateSecret,
   listStores,
   createStore,
   updateSubmission,
@@ -22,27 +21,7 @@ function ok(data: unknown, status = 200) {
 
 beforeEach(() => {
   mockFetch.mockReset()
-  useAdminStore.getState().login('secret-123')
-})
-
-describe('validateSecret', () => {
-  it('returns true on 200', async () => {
-    mockFetch.mockReturnValue(ok([]))
-    await expect(validateSecret('abc')).resolves.toBe(true)
-  })
-
-  it('sends the given secret as X-Admin-Secret', async () => {
-    mockFetch.mockReturnValue(ok([]))
-    await validateSecret('my-secret')
-    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
-    expect(init.headers.get('X-Admin-Secret')).toBe('my-secret')
-  })
-
-  it('returns false on 403 without logging out', async () => {
-    mockFetch.mockReturnValue(ok({ detail: 'forbidden' }, 403))
-    await expect(validateSecret('bad')).resolves.toBe(false)
-    expect(useAdminStore.getState().authed).toBe(true)
-  })
+  useAdminStore.getState().loginWith('secret', 'secret-123', { email: null, is_super: true, stores: [] })
 })
 
 describe('authenticated requests', () => {
@@ -52,6 +31,15 @@ describe('authenticated requests', () => {
     const init = mockFetch.mock.calls[0][1] as { headers: Headers }
     expect(init.headers.get('X-Admin-Secret')).toBe('secret-123')
     expect(init.headers.get('X-Store-Key')).toBeNull()
+  })
+
+  it('sends a bearer credential as Authorization header', async () => {
+    useAdminStore.getState().loginWith('bearer', 'jwt-123', { email: 'a@x.com', is_super: false, stores: [] })
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200 }))
+    await listStores()
+    const init = mockFetch.mock.calls[0][1] as { headers: Headers }
+    expect(init.headers.get('Authorization')).toBe('Bearer jwt-123')
+    expect(init.headers.get('X-Admin-Secret')).toBeNull()
   })
 
   it('createStore POSTs JSON body', async () => {
