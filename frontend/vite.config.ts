@@ -35,6 +35,12 @@ const allowedHosts: true | string[] | undefined = allowAnyHost
 
 export default defineConfig({
   plugins: [react()],
+  // Load env from the REPO ROOT (one level up), not frontend/, so there is a
+  // single source of truth shared with the backend + docker-compose. Vite only
+  // ever inlines VITE_-prefixed vars into the client bundle — the root .env's
+  // backend secrets are visible to this config process but never emitted to the
+  // browser. Rule that keeps that true: never name a real secret VITE_*.
+  envDir: '..',
   server: {
     port: 5173,
     host: true,
