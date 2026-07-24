@@ -57,30 +57,40 @@ async def list_generations(
 
     A non-super store admin only sees jobs whose session belongs to one of
     their assigned stores (``generations`` has no store_id column of its own —
-    resolved via ``design_sessions``).
+    resolved via ``design_sessions``). That scoping is applied BEFORE the
+    ``limit`` — otherwise another store's newer jobs would starve the admin's
+    own jobs out of the page.
     """
     sb = get_supabase()
     q = sb.table("generations").select(",".join(_JOB_FIELDS))
     if status:
         q = q.eq("status", status)
-    rows = q.order("created_at", desc=True).limit(limit).execute().data or []
 
     if not ctx.is_super:
         allowed = ctx.allowed_store_ids or set()
         if not allowed:
             rows = []
         else:
-            session_ids = [r.get("session_id") for r in rows if r.get("session_id")]
-            store_by_session: dict[str, str | None] = {}
-            if session_ids:
-                sess_res = (
-                    sb.table("design_sessions")
-                    .select("id, store_id")
-                    .in_("id", session_ids)
+            sess_res = (
+                sb.table("design_sessions")
+                .select("id")
+                .in_("store_id", list(allowed))
+                .execute()
+            )
+            allowed_session_ids = [s["id"] for s in (sess_res.data or [])]
+            if not allowed_session_ids:
+                rows = []
+            else:
+                rows = (
+                    q.in_("session_id", allowed_session_ids)
+                    .order("created_at", desc=True)
+                    .limit(limit)
                     .execute()
+                    .data
+                    or []
                 )
-                store_by_session = {s["id"]: s.get("store_id") for s in (sess_res.data or [])}
-            rows = [r for r in rows if store_by_session.get(r.get("session_id")) in allowed]
+    else:
+        rows = q.order("created_at", desc=True).limit(limit).execute().data or []
 
     now = datetime.now(timezone.utc)
     cutoff_seconds = stuck_minutes * 60

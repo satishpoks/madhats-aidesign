@@ -237,7 +237,11 @@ async def list_generation_logs(
 
 
 @router.get("/admin/generation-logs/{log_id}")
-async def get_generation_log(log_id: str, request: Request) -> dict:
+async def get_generation_log(
+    log_id: str,
+    request: Request,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> dict:
     """Full detail for one audit row — INCLUDING the raw provider response.
 
     ``raw_response`` is deliberately excluded from the list endpoint (a successful
@@ -249,6 +253,10 @@ async def get_generation_log(log_id: str, request: Request) -> dict:
     if not res.data:
         raise HTTPException(status_code=404, detail="Generation log not found")
     row = res.data[0]
+    if not ctx.is_super:
+        sess = sb.table("design_sessions").select("store_id").eq("id", row.get("session_id")).limit(1).execute()
+        sess_store_id = sess.data[0].get("store_id") if sess.data else None
+        assert_store_allowed(ctx, sess_store_id)
     row["output_image_url"] = _img(row.get("output_image_url"), request)
     row["uploaded_asset_url"] = _img(row.get("uploaded_asset_url"), request)
     row["reference_image_url"] = _img(row.get("reference_image_url"), request)
