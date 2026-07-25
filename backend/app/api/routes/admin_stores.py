@@ -5,6 +5,7 @@ POST /admin/stores/{id}/sync to pull its Shopify catalogue.
 """
 from __future__ import annotations
 
+import re
 import secrets
 
 import structlog
@@ -20,6 +21,9 @@ from app.storage import media_url, upload_asset
 
 router = APIRouter(tags=["admin-stores"])
 log = structlog.get_logger()
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _gen_public_key(slug: str) -> str:
@@ -124,12 +128,20 @@ async def update_store(
         # BrandingView intentionally strips logo_url from the PATCH body and
         # relies on the backend to preserve it.
         patch["brand"] = {**existing_brand, **validated}
+    if body.sales_notification_email is not None:
+        # Top-level column. Empty/whitespace clears it to NULL; a non-empty
+        # value must look like an email. This is the one place the per-store
+        # sales inbox is editable after creation.
+        email = body.sales_notification_email.strip()
+        if email and not _EMAIL_RE.match(email):
+            raise HTTPException(status_code=400, detail="Invalid sales notification email")
+        patch["sales_notification_email"] = email or None
     if not patch:
         raise HTTPException(status_code=400, detail="Nothing to update")
     res = sb.table("stores").update(patch).eq("id", store_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Store not found")
-    log.info("store_branding_updated", store_id=store_id)  # no PII
+    log.info("store_updated", store_id=store_id)  # no PII (email not logged)
     return res.data[0]
 
 

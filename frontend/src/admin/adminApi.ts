@@ -630,14 +630,21 @@ export interface FullStore {
   slug: string
   name: string
   brand: Brand
+  sales_notification_email?: string
 }
 
 export function getStore(id: string): Promise<FullStore> {
   return request<FullStore>(`/admin/stores/${id}`)
 }
 
-export function updateStoreBrand(id: string, brand: Brand): Promise<FullStore> {
-  return request<FullStore>(`/admin/stores/${id}`, { method: 'PATCH', body: JSON.stringify({ brand }) })
+/** PATCH the store's brand, and — when `salesEmail` is passed — its top-level
+ *  sales_notification_email column (an empty string clears it to NULL). */
+export function updateStoreBrand(
+  id: string, brand: Brand, salesEmail?: string,
+): Promise<FullStore> {
+  const body: Record<string, unknown> = { brand }
+  if (salesEmail !== undefined) body.sales_notification_email = salesEmail
+  return request<FullStore>(`/admin/stores/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
 /** Upload a store logo (multipart) — like uploadHatAngle/uploadGraphic, the browser sets the boundary. */

@@ -6,6 +6,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { useStores } from './hatTypes/shared'
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const MAX_MENU = 5
 const MAX_LABEL_LEN = 40
 
@@ -50,6 +51,7 @@ export function BrandingView() {
   const storeId = params.get('store') ?? ''
   const [brand, setBrand] = useState<Brand>({})
   const [logoUrl, setLogoUrl] = useState<string>('')
+  const [salesEmail, setSalesEmail] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -63,7 +65,10 @@ export function BrandingView() {
   useEffect(() => {
     if (!storeId) return
     getStore(storeId)
-      .then((s: FullStore) => { setBrand(s.brand ?? {}); setLogoUrl(s.brand?.logo_url ?? '') })
+      .then((s: FullStore) => {
+        setBrand(s.brand ?? {}); setLogoUrl(s.brand?.logo_url ?? '')
+        setSalesEmail(s.sales_notification_email ?? '')
+      })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load store'))
   }, [storeId])
 
@@ -112,12 +117,14 @@ export function BrandingView() {
   async function onSave() {
     const msg = validate(brand)
     if (msg) { setError(msg); return }
+    const email = salesEmail.trim()
+    if (email && !EMAIL.test(email)) { setError('Enter a valid sales notification email'); return }
     setBusy(true); setError(null)
     try {
       // logo_url stored via upload already; strip the proxied absolute URL so we
       // don't overwrite the storage path with a signed URL. Backend keeps it.
       const { logo_url: _omit, ...rest } = brand
-      await updateStoreBrand(storeId, rest)
+      await updateStoreBrand(storeId, rest, email)
       setSaved(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -163,6 +170,22 @@ export function BrandingView() {
         </label>
         <span className="text-[12px] text-[#9a9ab0]">PNG/JPG/GIF/WebP · max 10 MB</span>
       </div>
+
+      {/* Sales notifications */}
+      <label className="flex flex-col gap-1 rounded-xl border border-[#e0e1ea] bg-white p-4 text-[12px] text-[#6b6b80]">
+        <span className="text-sm text-textMuted">Sales notification email</span>
+        <span className="text-[12px] text-[#9a9ab0]">
+          Where this store's quote requests and design leads are sent. Leave blank to send nowhere.
+        </span>
+        <input
+          type="email"
+          aria-label="Sales notification email"
+          value={salesEmail}
+          onChange={e => { setSalesEmail(e.target.value); setSaved(false) }}
+          placeholder="sales@yourstore.com"
+          className="mt-1 rounded-lg border border-[#e0e1ea] bg-white px-3 py-2 text-sm"
+        />
+      </label>
 
       {/* Colours */}
       <div className="grid grid-cols-3 gap-4 rounded-xl border border-[#e0e1ea] bg-white p-4">

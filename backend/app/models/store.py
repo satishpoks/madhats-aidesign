@@ -16,6 +16,9 @@ class CreateStoreRequest(BaseModel):
 
 class UpdateStoreRequest(BaseModel):
     brand: dict | None = None
+    # Top-level store column (not part of brand). None = not being edited this
+    # PATCH; an empty/whitespace string clears it back to NULL.
+    sales_notification_email: str | None = None
 
 
 class StoreResponse(BaseModel):

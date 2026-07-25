@@ -156,3 +156,57 @@ def test_patch_rejects_a_locked_step_in_canvas_flow(client):
         headers={"X-Admin-Secret": "z"},
     )
     assert r.status_code == 400
+
+
+# --- Sales notification email (top-level store column, not brand) -------------
+
+def test_patch_updates_sales_notification_email(client):
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"sales_notification_email": "ops@acme.example"},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 200
+    assert r.json()["sales_notification_email"] == "ops@acme.example"
+
+
+def test_patch_sales_email_only_without_brand_is_allowed(client):
+    """A sales-email-only PATCH must not hit the 'Nothing to update' guard."""
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"sales_notification_email": "ops@acme.example"},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 200
+
+
+def test_patch_rejects_invalid_sales_email(client):
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"sales_notification_email": "not-an-email"},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 400
+
+
+def test_patch_empty_sales_email_clears_to_null(client):
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"sales_notification_email": "   "},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 200
+    assert r.json()["sales_notification_email"] is None
+
+
+def test_patch_updates_brand_and_sales_email_together(client):
+    r = client.patch(
+        "/admin/stores/s1",
+        json={"brand": {"primary_colour": "#00FF00"},
+              "sales_notification_email": "ops@acme.example"},
+        headers={"X-Admin-Secret": "z"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["brand"]["primary_colour"] == "#00FF00"
+    assert body["sales_notification_email"] == "ops@acme.example"

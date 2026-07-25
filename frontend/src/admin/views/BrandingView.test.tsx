@@ -60,7 +60,10 @@ describe('BrandingView', () => {
     // Only the safe subset is offered; email/decoration/finalize are locked.
     // Three since workstream B's `needed_by` joined the configurable subset.
     expect(screen.getAllByRole('checkbox')).toHaveLength(3)
-    expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument()
+    // The locked `ask_email` step must not appear as a flow-step checkbox.
+    // (Scoped to a checkbox so it doesn't match the unrelated "Sales
+    // notification email" input field, which legitimately carries "email".)
+    expect(screen.queryByRole('checkbox', { name: /email/i })).not.toBeInTheDocument()
   })
 
   it('persists a reorder into brand.canvas_flow', async () => {
@@ -111,6 +114,34 @@ describe('BrandingView', () => {
       { target: { value: 'ftp://acme.test/e' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     expect(await screen.findByText(/http\(s\) URLs/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  // --- Sales notification email ----------------------------------------------
+
+  it('loads the current sales notification email and saves an edit', async () => {
+    vi.mocked(api.getStore).mockResolvedValueOnce({
+      id: 's1', slug: 'acme', name: 'Acme',
+      brand: { primary_colour: '#123456', menu_items: [] },
+      sales_notification_email: 'old@acme.example',
+    })
+    renderView()
+    const input = await screen.findByLabelText('Sales notification email')
+    expect(input).toHaveValue('old@acme.example')
+    fireEvent.change(input, { target: { value: 'new@acme.example' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    // 3rd positional arg carries the sales email alongside the brand PATCH.
+    expect(vi.mocked(api.updateStoreBrand).mock.calls[0][2]).toBe('new@acme.example')
+  })
+
+  it('rejects an invalid sales notification email on save', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByLabelText('Sales notification email'),
+      { target: { value: 'not-an-email' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/valid.*email/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 })
