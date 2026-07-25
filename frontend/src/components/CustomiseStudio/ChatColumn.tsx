@@ -5,6 +5,7 @@ import { useGenerationStore } from '../../store/generationStore'
 import { Modal } from '../Modal'
 import { usePushToTalk } from '../../hooks/usePushToTalk'
 import { uploadLogo, postComposite } from '../../lib/api'
+import { linkify } from '../../lib/linkify'
 
 // ---------------------------------------------------------------------------
 // TypingIndicator
@@ -441,7 +442,7 @@ export function ChatColumn() {
                   : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
               }`}
             >
-              {msg.text}
+              {linkify(msg.text)}
             </div>
           </div>
         ))}
