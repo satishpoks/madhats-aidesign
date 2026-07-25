@@ -654,6 +654,10 @@ Import-Certificate -FilePath .\caddy-root.crt -CertStoreLocation Cert:\LocalMach
 
 Delete the extracted file afterwards and restart the browser. `caddy trust` alone does **not** work here — Caddy runs in a container, so the CA lives inside it, not on the host.
 
+Add `caddy-root.crt` to `.gitignore` in the same commit. The file is not secret (it is the CA's public root; the signing key never leaves the `caddy_data` volume), but it is per-machine and self-generated, so a committed copy is both dead weight and actively misleading — a later `Import-Certificate` run against a stale copy would trust a CA that no longer exists. This repo has a documented history of `git add -A` sweeping in files it shouldn't.
+
+**First-run friction worth knowing:** trusting the CA fixes both origins at once, but if you skip Step 8 and instead click through Chrome's interstitial on `https://localhost`, API calls will still fail. A per-origin exception does not extend to subresource origins, so you would have to visit `https://api.localhost` and accept it separately. Trusting the CA is the shorter path.
+
 Verify without `-k`:
 
 ```bash
