@@ -1,0 +1,42 @@
+# Production TLS termination.
+#
+# Certificates are obtained from Let's Encrypt over HTTP-01 automatically, and
+# renewed without a cron job. Caddy also redirects :80 -> :443 by itself.
+#
+# REQUIRED: the `caddy_data` volume must be mounted at /data. That is where
+# issued certificates and the ACME account key live. Without it every restart
+# re-issues from scratch, and Let's Encrypt's limit of 5 duplicate certificates
+# per week will lock us out of our own domain.
+
+{
+	# Expiry-notice address. Blank is valid (no notices), see .env ACME_EMAIL.
+	email {$ACME_EMAIL}
+}
+
+madhats.getaiconsult.com.au {
+	reverse_proxy frontend:5173
+}
+
+api.madhats.getaiconsult.com.au {
+	reverse_proxy backend:8000
+}
+
+# --- Legacy plain-HTTP ports: redirect-only, temporary ------------------------
+# Verification and quote links ALREADY DELIVERED to customers point at
+# http://madhats.getaiconsult.com.au:8000/... with signed tokens. Dropping these
+# ports would dead-end every one of them. {uri} preserves path AND query, so the
+# tokens survive the redirect.
+#
+# These blocks are address-only (no hostname), so Caddy serves them over plain
+# HTTP and does not attempt certificates for them.
+#
+# REMOVE once outstanding tokens have expired: the longest-lived is the quote
+# token at QUOTE_TOKEN_TTL_SECONDS = 2592000 (30 days).
+
+:8000 {
+	redir https://api.madhats.getaiconsult.com.au{uri} permanent
+}
+
+:5173 {
+	redir https://madhats.getaiconsult.com.au{uri} permanent
+}

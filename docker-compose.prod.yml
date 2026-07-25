@@ -26,13 +26,25 @@
 # *code* change needs a rebuild, not just recreate:
 #   docker compose -f docker-compose.prod.yml up -d --build backend
 #   SUPABASE_URL / keys / ADMIN_SECRET / provider keys …  (as usual)
+#
+#   - caddy is the only service publishing ports. backend/frontend are reachable
+#     only on the compose network. Re-adding a `ports:` mapping to either one
+#     re-exposes it in cleartext AND makes TRUSTED_PROXY_HOSTS=* spoofable.
+#   - VITE_API_BASE_URL is COMPILED IN. After changing it you must REBUILD, not
+#     just recreate:  docker compose -f docker-compose.prod.yml up -d --build frontend
+#     Recreating alone leaves the old http:// URL in the bundle, and every API
+#     call then fails as mixed content from the HTTPS page.
 
 services:
   backend:
     build: ./backend
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    environment:
+      # Safe ONLY because this service publishes no ports (see above): the Caddy
+      # container is the only thing that can reach 8000, so X-Forwarded-For
+      # cannot be spoofed. Re-add a `ports:` mapping and this becomes a
+      # rate-limit bypass — anyone could rotate the header for a fresh bucket.
+      TRUSTED_PROXY_HOSTS: "*"
     env_file: .env
     # host.docker.internal is available if SUPABASE_URL points at a Supabase
     # running on the host; harmless when SUPABASE_URL is a hosted URL.
@@ -49,11 +61,28 @@ services:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
         VITE_STORE_KEY: ${VITE_STORE_KEY:-}
     restart: unless-stopped
-    ports:
-      - "5173:5173" 
     env_file: .env                   # static server (serve -s) listens on 5173
     depends_on:
       - backend
+
+  # TLS termination for both web services. The ONLY container publishing ports.
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"     # ACME HTTP-01 challenge + redirect to 443
+      - "443:443"
+      - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d
+      - "5173:5173" # legacy redirect only — see Caddyfile.prod, remove after 30d
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # MANDATORY: issued certs live here
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
 
   # Periodically triggers the generation watchdog (reap stalled renders) and the
   # delivery backfill (retry undelivered previews) — both are admin self-heal
@@ -77,3 +106,7 @@ services:
         http://backend:8000/admin/deliveries/backfill > /dev/null 2>&1 || true;
         sleep 180;
         done
+
+volumes:
+  caddy_data:
+  caddy_config:
