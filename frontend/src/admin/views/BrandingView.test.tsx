@@ -41,7 +41,11 @@ describe('BrandingView', () => {
     await waitFor(() => expect(api.getStore).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: /add menu item/i }))
     fireEvent.change(screen.getByPlaceholderText(/label/i), { target: { value: 'Bad' } })
-    fireEvent.change(screen.getByPlaceholderText(/https/i), { target: { value: 'javascript:alert(1)' } })
+    // The colour reference links share the same "https://…" placeholder, so
+    // disambiguate: the menu row's url input is the last https-placeholder
+    // field in document order.
+    const urlInputs = screen.getAllByPlaceholderText(/https/i)
+    fireEvent.change(urlInputs[urlInputs.length - 1], { target: { value: 'javascript:alert(1)' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
@@ -85,5 +89,28 @@ describe('BrandingView', () => {
     await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
     const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
     expect(brand.canvas_flow?.steps).toContainEqual({ id: 'ask_purpose', enabled: false })
+  })
+
+  // --- Colour reference guide links (pre-quote colour disclaimer) ------------
+
+  it('renders and edits the colour reference link fields', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    const embroidery = await screen.findByLabelText('Embroidery colour chart URL')
+    const print = screen.getByLabelText('Print colour guide URL')
+    fireEvent.change(embroidery, { target: { value: 'https://acme.test/e' } })
+    fireEvent.change(print, { target: { value: 'https://acme.test/p' } })
+    expect((embroidery as HTMLInputElement).value).toBe('https://acme.test/e')
+    expect((print as HTMLInputElement).value).toBe('https://acme.test/p')
+  })
+
+  it('rejects a non-http colour reference link on save', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByLabelText('Embroidery colour chart URL'),
+      { target: { value: 'ftp://acme.test/e' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/http\(s\) URLs/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 })

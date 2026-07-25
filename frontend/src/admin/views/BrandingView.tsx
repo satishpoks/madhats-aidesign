@@ -37,6 +37,10 @@ function validate(brand: Brand): string | null {
     if (m.label.trim().length > MAX_LABEL_LEN) return 'Menu labels must be 40 characters or fewer'
     if (!/^https?:\/\//i.test(m.url)) return 'Menu links must be full http(s) URLs'
   }
+  for (const k of ['colour_ref_embroidery_url', 'colour_ref_print_url'] as const) {
+    const v = brand[k]
+    if (v && !/^https?:\/\//i.test(v)) return 'Colour reference links must be full http(s) URLs'
+  }
   return null
 }
 
@@ -190,6 +194,27 @@ export function BrandingView() {
           rows={4}
         />
       </label>
+
+      {/* Colour reference guide links (shown in the pre-quote colour note) */}
+      <div className="flex flex-col gap-2 rounded-xl border border-[#e0e1ea] bg-white p-4">
+        <span className="text-sm text-textMuted">Colour reference guide links</span>
+        <label className="flex flex-col gap-1 text-[12px] text-[#6b6b80]">
+          <span>Embroidery colour chart URL</span>
+          <input type="url" aria-label="Embroidery colour chart URL"
+                 value={brand.colour_ref_embroidery_url ?? ''}
+                 onChange={e => setField('colour_ref_embroidery_url', e.target.value)}
+                 placeholder="https://…"
+                 className="rounded-lg border border-[#e0e1ea] bg-white px-3 py-2 text-sm" />
+        </label>
+        <label className="flex flex-col gap-1 text-[12px] text-[#6b6b80]">
+          <span>Print colour guide URL</span>
+          <input type="url" aria-label="Print colour guide URL"
+                 value={brand.colour_ref_print_url ?? ''}
+                 onChange={e => setField('colour_ref_print_url', e.target.value)}
+                 placeholder="https://…"
+                 className="rounded-lg border border-[#e0e1ea] bg-white px-3 py-2 text-sm" />
+        </label>
+      </div>
 
       {/* Flow steps (V3 — reorder/disable the safe subset) */}
       <div className="flex flex-col gap-2 rounded-xl border border-[#e0e1ea] bg-white p-4">

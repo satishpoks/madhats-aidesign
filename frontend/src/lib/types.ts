@@ -125,6 +125,8 @@ export interface Brand {
   menu_items?: MenuItem[]
   canvas_intro?: string
   canvas_flow?: { steps: FlowStep[] }
+  colour_ref_embroidery_url?: string
+  colour_ref_print_url?: string
 }
 
 /** Response shape for GET /storefront — store name, persona name, and brand config. */
