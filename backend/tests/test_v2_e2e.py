@@ -138,7 +138,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Embroidery",              S.NEEDED_BY),          # single-select; email already captured
         ("ASAP",                    S.ASK_PURPOSE),
         ("for the team",            S.REVIEW_DESIGN),      # pre-submit review
-        ("Looks great, send it",    S.REQUEST_QUOTE),      # quote-gated submit
+        ("Looks great, send it",    S.ASK_FINAL_NOTES),    # colour disclaimer
+        ("Nothing to add",          S.REQUEST_QUOTE),      # quote-gated submit
         ("Request a quote",         S.FINALIZE_CANVAS),
     ]
 
@@ -305,10 +306,11 @@ def _at_email_store(brand: dict | None):
 
     `needed_by` (workstream B) and `quote_requested` (workstream C) are locked
     steps that now flank ask_purpose. `design_confirmed` (the pre-submit
-    review, also workstream B) is a locked step too, sitting between purpose
-    and the quote submit. All three are seeded so the helper's stated
-    invariant still holds — otherwise routing stops on one of them and these
-    tests would silently stop testing the config wiring at all."""
+    review, also workstream B) and `final_notes_done` (the pre-quote colour
+    disclaimer, Task 2/3) are locked steps too, sitting between purpose and
+    the quote submit. All four are seeded so the helper's stated invariant
+    still holds — otherwise routing stops on one of them and these tests
+    would silently stop testing the config wiring at all."""
     store = _new_store()
     store["session"]["state"] = S.ASK_EMAIL.value
     store["session"]["store_id"] = "store-1"
@@ -316,7 +318,8 @@ def _at_email_store(brand: dict | None):
         "name": "Sam", "intro_ack": True,
         "logos_done": True, "pending_logo": None, "decor_done": True,
         "quantity": 12, "decoration_done": True,
-        "needed_by": "ASAP", "design_confirmed": True, "quote_requested": True,
+        "needed_by": "ASAP", "design_confirmed": True, "final_notes_done": True,
+        "quote_requested": True,
     })
     return store
 
