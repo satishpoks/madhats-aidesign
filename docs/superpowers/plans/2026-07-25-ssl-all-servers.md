@@ -271,7 +271,14 @@ Create `caddy/Caddyfile.prod`:
 # per week will lock us out of our own domain.
 
 {
-	# Expiry-notice address. Blank is valid (no notices), see .env ACME_EMAIL.
+	# Address Let's Encrypt uses for certificate-expiry notices.
+	#
+	# REQUIRED, and enforced by docker-compose.prod.yml's `${ACME_EMAIL:?...}`.
+	# Caddy's `email` directive rejects an empty argument at PARSE time
+	# ("wrong argument count"), so a blank value does not degrade to "no
+	# notices" — it stops the proxy from starting at all, taking the whole
+	# site down on a fresh deploy. Compose therefore refuses to start with a
+	# clear message rather than letting Caddy fail cryptically.
 	email {$ACME_EMAIL}
 }
 
@@ -328,7 +335,10 @@ Insert this service after the `frontend` service (i.e. after current line 56):
       - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d
       - "5173:5173" # legacy redirect only — see Caddyfile.prod, remove after 30d
     environment:
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # `:?` makes compose refuse to start with this message when the value is
+      # missing. Required because Caddy's `email` directive rejects a blank
+      # argument at parse time — a silent default would take the site down.
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env - Caddy needs it for Let us Encrypt expiry notices}
     volumes:
       - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # MANDATORY: issued certs live here
@@ -686,7 +696,11 @@ Append a new section:
 # Caddy terminates TLS in front of both web services in each stack.
 #
 # Address Let's Encrypt uses for certificate-expiry notices (production only).
-# Blank is valid — you simply get no notices.
+#
+# REQUIRED for the prod stack — not optional. Caddy's `email` directive rejects
+# a blank argument at parse time, so an empty value stops the proxy booting and
+# takes the site down. docker-compose.prod.yml uses `${ACME_EMAIL:?...}` so you
+# get a clear compose error instead of a cryptic Caddy one. Unused in dev.
 ACME_EMAIL=
 
 # Hosts whose X-Forwarded-* headers the backend trusts, for client-IP recovery.
