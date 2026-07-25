@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from app.api.deps import limiter
 from app.api.routes import (
@@ -114,6 +115,16 @@ def create_app() -> FastAPI:
 
     # CORS — see build_cors_kwargs (open to all origins while ALLOWED_ORIGINS="*").
     app.add_middleware(CORSMiddleware, **build_cors_kwargs(settings))
+
+    # Trust the reverse proxy's X-Forwarded-* headers.
+    #
+    # MUST be added LAST: Starlette's add_middleware inserts at index 0, so the
+    # last-added middleware is the OUTERMOST one. SlowAPIMiddleware keys rate
+    # limits on request.client.host, which behind Caddy is the proxy's container
+    # IP — every customer would share one bucket until this rewrites it.
+    app.add_middleware(
+        ProxyHeadersMiddleware, trusted_hosts=settings.trusted_proxy_hosts_value
+    )
 
     for router in (
         health.router,

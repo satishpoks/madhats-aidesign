@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # CORS. "*" (the default) allows any origin — kept open/flexible for now.
     # Set a comma-separated origin list to lock it down later.
     allowed_origins: str = "*"
+    # Hosts whose X-Forwarded-* headers are trusted, for ProxyHeadersMiddleware.
+    # "*" is correct while the backend port is NOT published to the host — only
+    # the Caddy container can reach it, so the headers cannot be spoofed. If you
+    # ever re-publish 8000 to the host, tighten this to the proxy's IP.
+    trusted_proxy_hosts: str = "*"
     verification_token_ttl_seconds: int = 900  # 15 min
     quote_token_ttl_seconds: int = 2592000  # 30 days — quote link stays valid a while
 
@@ -89,6 +94,15 @@ class Settings(BaseSettings):
     def allow_all_origins(self) -> bool:
         """True when CORS should accept any origin (ALLOWED_ORIGINS contains '*')."""
         return "*" in self.allowed_origins_list
+
+    @property
+    def trusted_proxy_hosts_value(self) -> list[str] | str:
+        """Matches ProxyHeadersMiddleware's `trusted_hosts`, which accepts either
+        the literal "*" or a list of hosts."""
+        raw = self.trusted_proxy_hosts.strip()
+        if raw == "*":
+            return "*"
+        return [h.strip() for h in raw.split(",") if h.strip()]
 
     @property
     def rate_limit_str(self) -> str:
