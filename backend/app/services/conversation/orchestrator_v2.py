@@ -32,14 +32,16 @@ _NUDGE_AFTER = 2
 
 
 def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
-    """`v2.public_data_for` plus `can_go_back` — whether `Back` currently has
-    anywhere to go. Used everywhere a v2 turn's `data` is built, so the
-    frontend always knows whether to offer the affordance. `config` is the
-    store's canvas_flow (if any) — threaded through so can_go_back is
-    computed over the SAME config-composed registry `next_step` just routed
-    on, not silently the default registry."""
+    """`v2.public_data_for` plus `can_go_back` (whether `Back` has anywhere to
+    go) and `back_removes_element` (whether that Back removes the in-progress
+    element rather than rewinding one slot). `_back_used` suppresses Back until
+    the next forward turn — one step per Back, no two consecutive."""
     data = v2.public_data_for(step, collected)
-    data["can_go_back"] = v2.last_answered_step(collected, config) is not None
+    can_back = (not collected.get("_back_used")) and (
+        v2.last_answered_step(collected, config) is not None)
+    data["can_go_back"] = can_back
+    data["back_removes_element"] = bool(
+        can_back and step is not None and step.id in v2._ELEMENT_ADJUST_STEPS)
     return data
 
 
@@ -92,6 +94,11 @@ async def handle_message(session_id: str, message: str) -> dict:
         return await _persist(sb, session_id, collected, step, reply, state_before,
                               current, user_message=message,
                               data=_public(step, collected, flow_config))
+
+    # A real forward answer re-enables Back: the single-step lock is per-Back.
+    # Popped AFTER the empty-turn guard so a blank kickoff turn never clears it,
+    # and BEFORE the interpreter runs so `_back_used` never enters an LLM context.
+    collected.pop("_back_used", None)
 
     ack = ""
 

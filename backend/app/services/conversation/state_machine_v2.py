@@ -32,6 +32,15 @@ V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 # also shields quote_requested, which IS REQUEST_QUOTE's writable done_when slot.
 _TERMINAL_FLAGS: frozenset[str] = frozenset({"email_captured", "quote_requested"})
 
+# The steps where an element is actually ON the canvas being adjusted. Back at
+# one of these means "remove this element and start it over" (a UI-confirmed
+# gesture), not the per-slot rewind every other step uses. The placement steps
+# (ASK_LOGO_PLACEMENT / ASK_DECOR_PLACEMENT) are pre-placement — nothing on the
+# canvas yet — so they keep the normal rewind.
+_ELEMENT_ADJUST_STEPS: frozenset[S] = frozenset(
+    {S.LOGO_ADJUST, S.ASK_LOGO_BG, S.DECOR_ADJUST}
+)
+
 
 def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     """The fields of one interpreted turn that are safe to bank.

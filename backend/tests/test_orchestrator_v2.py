@@ -543,6 +543,48 @@ async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monk
     assert store["session"]["collected"]["quote_requested"] is True
 
 
+# --- Task 1: element-adjust set + back lock -----------------------------------
+
+def test_public_flags_back_removes_element_only_mid_element():
+    from app.services.conversation import state_machine_v2 as v2
+    base = {"name": "Sam", "intro_ack": True, "has_logo": True,
+            "pending_logo": {"face": "front", "placed": True}, "email_captured": True}
+    d_adjust = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
+    assert d_adjust["can_go_back"] is True
+    assert d_adjust["back_removes_element"] is True
+
+    # A non-element step that can still go back keeps the flag false.
+    d_plain = o2._public(cs.by_id(S.ASK_QUANTITY),
+                         {"name": "Sam", "intro_ack": True, "decor_placed": True,
+                          "logos_done": True, "pending_logo": None,
+                          "decor_done": True, "email_captured": True})
+    assert d_plain["can_go_back"] is True
+    assert d_plain["back_removes_element"] is False
+
+
+def test_public_can_go_back_is_suppressed_while_back_used():
+    base = {"name": "Sam", "intro_ack": True, "has_logo": True,
+            "pending_logo": {"face": "front", "placed": True}, "email_captured": True,
+            "_back_used": True}
+    d = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
+    assert d["can_go_back"] is False
+    assert d["back_removes_element"] is False   # gated on can_go_back too
+
+
+@pytest.mark.asyncio
+async def test_forward_turn_clears_the_back_lock(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True,
+                                     "_back_used": True,
+                                     "pending_logo": {"face": "front", "placed": True}}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)                        # chip tap needs no model
+    await o2.handle_message("s1", "Yes, another logo")
+    assert "_back_used" not in store["session"]["collected"]
+
+
 @pytest.mark.asyncio
 async def test_final_notes_renders_disclaimer_and_captures_verbatim(monkeypatch):
     # Seed a session parked at ASK_FINAL_NOTES with the design confirmed.
