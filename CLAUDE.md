@@ -655,11 +655,14 @@ frontend`. Env is only read at container **start**, so always
   customers share one rate-limit bucket. Check `docker compose exec backend env
   | grep TRUSTED`. The code default is empty (trust nothing) — the compose file
   is what opts in.
-- **Re-adding `ports:` to backend or frontend in prod** re-exposes them in
-  cleartext, bypassing TLS entirely — AND turns the `TRUSTED_PROXY_HOSTS: "*"`
-  on that same service into a rate-limit bypass, since a direct caller could
-  then rotate `X-Forwarded-For` for a fresh bucket per request. The two lines
-  are deliberately adjacent; never re-add one without removing the other.
+- **Re-adding `ports:` to backend or frontend in prod** re-exposes that service
+  in cleartext, bypassing TLS entirely. On **`backend` specifically** it is
+  worse: it also turns that service's `TRUSTED_PROXY_HOSTS: "*"` into a
+  rate-limit bypass, because a direct caller could then rotate
+  `X-Forwarded-For` for a fresh bucket per request. Those two lines are
+  deliberately adjacent; never re-add one without removing the other.
+  (`frontend` sets no `TRUSTED_PROXY_HOSTS` — it is a static file server — so
+  re-exposing it is a cleartext problem only.)
 - **Mixed-content errors after deploy** → the frontend was recreated but not
   rebuilt, so the old `http://` API URL is still compiled into the bundle.
   `up -d --build frontend`.
