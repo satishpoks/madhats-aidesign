@@ -618,13 +618,25 @@ the box. Caddy will retry ACME against Let's Encrypt while DNS is unresolved,
 which is the fastest way to hit the duplicate-certificate rate limit (5/week)
 and lock yourself out of issuance for the real domain.
 
-**If instead running the dev stack in prod** (`docker-compose.yml`): set
-`VITE_API_BASE_URL` in the **project-root `.env`** (NOT `frontend/.env` — the
-compose `environment:` block overrides that), set `ALLOWED_HOSTS=*` (the Vite
-dev server otherwise blocks the public Host header, esp. with a `:5173` port in
-it), then `docker compose up -d --force-recreate frontend`. Env is only read at
-container **start**, so always `--force-recreate`; hard-refresh the browser
-(old bundle is cached).
+**The dev stack (`docker-compose.yml`) is not a supported way to serve
+production — it now carries its own Caddy too, and that breaks the idea
+outright.** Its `caddy` service also binds `:80`/`:443`; on the prod box that
+collides with `docker-compose.prod.yml`'s Caddy, or squats those ports if prod
+is stopped. Its Caddyfile serves only `localhost`/`api.localhost` under
+Caddy's *internal* CA — neither name is publicly resolvable, nor is that CA
+trusted by any real customer's browser — and its `VITE_API_BASE_URL` now
+defaults to `https://api.localhost`, meaningless off that host. Use the
+**Prod deploy** block above; do not run `docker compose up` (the plain,
+no-`-f`, dev-file form) against the public box.
+
+The only leftover use case is running the **bare Vite dev server** (HMR)
+yourself, behind a reverse proxy you manage — not this repo's dev-stack Caddy.
+In that specific case, two facts still hold: set `VITE_API_BASE_URL` in the
+**project-root `.env`** (NOT `frontend/.env` — the compose `environment:`
+block overrides that) and `ALLOWED_HOSTS=*` (the Vite dev server otherwise
+blocks a public Host header), then `docker compose up -d --force-recreate
+frontend`. Env is only read at container **start**, so always
+`--force-recreate`; hard-refresh the browser (old bundle is cached).
 
 **Gotchas checklist:**
 - `.env*` is git-ignored and excluded from images (`frontend/.dockerignore`) — a
