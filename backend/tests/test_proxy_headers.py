@@ -56,7 +56,21 @@ def test_two_clients_behind_the_proxy_get_distinct_keys():
     assert a["ip"] != b["ip"]
 
 
-def test_trusted_proxy_hosts_defaults_to_wildcard():
+def test_default_trusts_no_proxy():
+    """Fail SAFE. Trusting a forwarded header from an untrusted caller is worse
+    than the bug this fixes: anyone reaching the port directly could rotate
+    X-Forwarded-For for a fresh rate-limit bucket per request. The deployment
+    that closes the port is the deployment that opts in (docker-compose.prod.yml)."""
+    assert Settings().trusted_proxy_hosts == ""
+    assert Settings().trusted_proxy_hosts_value == []
+
+
+def test_untrusted_forwarded_header_is_ignored():
+    resp = TestClient(_app(trusted=[])).get("/whoami", headers=FORWARDED)
+    assert resp.json()["ip"] == "testclient"
+
+
+def test_wildcard_is_honoured_when_explicitly_configured():
     assert Settings(trusted_proxy_hosts="*").trusted_proxy_hosts_value == "*"
 
 

@@ -64,10 +64,15 @@ class Settings(BaseSettings):
     # Set a comma-separated origin list to lock it down later.
     allowed_origins: str = "*"
     # Hosts whose X-Forwarded-* headers are trusted, for ProxyHeadersMiddleware.
-    # "*" is correct while the backend port is NOT published to the host — only
-    # the Caddy container can reach it, so the headers cannot be spoofed. If you
-    # ever re-publish 8000 to the host, tighten this to the proxy's IP.
-    trusted_proxy_hosts: str = "*"
+    #
+    # Defaults to trusting NOTHING, deliberately. Honouring X-Forwarded-For from
+    # an untrusted caller is worse than the bucket-collapse it prevents: anyone
+    # who can reach this port directly could rotate the header for a fresh
+    # rate-limit bucket per request. Only a deployment that puts a proxy in front
+    # AND stops publishing the port may opt in — docker-compose.prod.yml sets
+    # "*" immediately beside the removed port mapping, so the trust and its
+    # justification live on the same screen.
+    trusted_proxy_hosts: str = ""
     verification_token_ttl_seconds: int = 900  # 15 min
     quote_token_ttl_seconds: int = 2592000  # 30 days — quote link stays valid a while
 
