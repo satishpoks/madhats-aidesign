@@ -14,10 +14,17 @@ interface UseSpeechRecognition {
   stop: () => void
 }
 
-/** Shown when the browser has blocked microphone access for this site. */
+/** Shown when the site/OS has blocked microphone access. Mac-aware. */
 const MIC_BLOCKED_MESSAGE =
-  'Microphone access is blocked. Click the camera/mic icon in your browser’s ' +
-  'address bar to allow it, then press Space to talk again.'
+  'Microphone access is blocked. Allow it via the mic icon in your browser’s ' +
+  'address bar, and on Mac also check System Settings → Privacy & Security → ' +
+  'Microphone → Chrome. Then hold to talk again.'
+/** Shown on an insecure origin, where the browser refuses the mic outright. */
+const MIC_INSECURE_MESSAGE =
+  'Voice needs a secure (https) connection, so it’s unavailable on this site ' +
+  'right now. You can type your message instead.'
+/** Shown when the device exposes no microphone. */
+const MIC_NOT_FOUND_MESSAGE = 'No microphone was found on this device.'
 
 /**
  * Thin wrapper over the browser Web Speech API (SpeechRecognition).
@@ -126,6 +133,13 @@ export function useSpeechRecognition(
   const start = useCallback(async () => {
     const rec = recognitionRef.current as { start: () => void } | null
     if (!rec) return
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      // On http:// (non-localhost) Chrome refuses the mic and never prompts —
+      // no address-bar icon appears — so the "unblock" hint would be wrong.
+      setError(MIC_INSECURE_MESSAGE)
+      setListening(false)
+      return
+    }
     // Proactively obtain mic permission. SpeechRecognition.start() alone only
     // prompts inconsistently and stays silent when blocked; getUserMedia gives
     // us a real prompt on first use and a clear rejection when access is denied.
@@ -137,8 +151,11 @@ export function useSpeechRecognition(
           // We only needed the permission — release the mic immediately.
           stream.getTracks().forEach(t => t.stop())
           micReadyRef.current = true
-        } catch {
-          setError(MIC_BLOCKED_MESSAGE)
+        } catch (err) {
+          const name = (err as { name?: string })?.name
+          setError(name === 'NotFoundError' || name === 'OverconstrainedError'
+            ? MIC_NOT_FOUND_MESSAGE
+            : MIC_BLOCKED_MESSAGE)
           setListening(false)
           return
         }
