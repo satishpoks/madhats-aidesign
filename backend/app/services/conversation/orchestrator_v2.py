@@ -236,10 +236,12 @@ async def _stall(sb, session_id, collected, step, state_before, message,
                  *, config: dict | None = None) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
-    Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — those
-    (ask_name, ask_email, ask_purpose) resolve the message directly during an
-    outage instead of ever landing here. For the remaining chip-bearing steps,
-    after `_NUDGE_AFTER` consecutive failures we re-render the chips and nudge —
+    Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — the
+    direct-answer steps resolve the message directly during an outage instead
+    of ever landing here (ASK_FINAL_NOTES never reaches this function either,
+    for a different reason: its `direct_capture` short-circuits before the
+    interpreter is ever called). For the remaining chip-bearing steps, after
+    `_NUDGE_AFTER` consecutive failures we re-render the chips and nudge —
     chips are deterministic, so this degrades the bot to a tap-through wizard.
     Nothing is guessed; a closed question is asked.
     """

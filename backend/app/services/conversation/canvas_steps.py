@@ -385,8 +385,18 @@ def _apply_final_notes(c: dict, f: dict, s: dict) -> None:
     """Verbatim capture into the team brief. The "Nothing to add" chip sets
     final_notes_done directly (merged before this runs); a typed note sets it
     here. final_notes_done is deliberately NOT a slot, so the interpreter can
-    never fabricate it and skip the disclaimer."""
-    note = (f.get("final_notes") or "").strip()
+    never fabricate it and skip the disclaimer.
+
+    Also folds an early-volunteered value: the interpreter can bank
+    `final_notes` from an earlier, out-of-order turn (e.g. "for the team, use
+    Pantone 186 C" answered at some other step), well before ASK_FINAL_NOTES is
+    ever current. If the customer then taps "Nothing to add" — whose fields
+    carry no final_notes, only the done flag — the current turn alone would
+    drop that pre-banked value on the floor. `f.get("final_notes") or
+    c.get("final_notes")` prefers the current turn's answer (so a fresh typed
+    note always wins over a stale pre-banked one) and falls back to the
+    pre-banked value only when the current turn has none."""
+    note = (f.get("final_notes") or c.get("final_notes") or "").strip()
     if not note:
         return
     c.setdefault("brief_notes", []).append(f"Customer final notes: {note}")
@@ -395,7 +405,7 @@ def _apply_final_notes(c: dict, f: dict, s: dict) -> None:
 
 # --- direct answers ------------------------------------------------------------
 # Used ONLY when the interpreter is unavailable (see Step.direct_answer). For
-# these three steps the answer IS the message — no interpretation needed, and
+# these steps the answer IS the message — no interpretation needed, and
 # none of these is a keyword fallback: there is nothing to match against a
 # keyword list, just the raw message assigned to the one slot the step asks
 # for. Each result still passes through validate_fields and the step's own

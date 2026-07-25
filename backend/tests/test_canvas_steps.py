@@ -714,3 +714,19 @@ def test_apply_final_notes_nothing_to_add_adds_no_brief_note():
     c = {"final_notes_done": True}
     cs._apply_final_notes(c, {}, {})
     assert "brief_notes" not in c
+
+
+def test_apply_final_notes_folds_early_volunteered_note_on_nothing_to_add():
+    from app.services.conversation import canvas_steps as cs
+    # Customer volunteered a colour code at an earlier step (interpreter banked it),
+    # then taps "Nothing to add" (chip fields carry no final_notes, only the done flag).
+    c = {"final_notes": "Pantone 186 C for the text", "final_notes_done": True}
+    cs._apply_final_notes(c, {}, {})
+    assert any("Pantone 186 C" in n for n in c.get("brief_notes", []))
+
+
+def test_apply_final_notes_typed_note_wins_over_pre_banked():
+    from app.services.conversation import canvas_steps as cs
+    c = {"final_notes": "stale early value"}
+    cs._apply_final_notes(c, {"final_notes": "the real typed note"}, {})
+    assert c["brief_notes"] == ["Customer final notes: the real typed note"]
