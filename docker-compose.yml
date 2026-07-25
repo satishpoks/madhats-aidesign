@@ -48,7 +48,13 @@ services:
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
       TAILSCALE_HOST: ${TAILSCALE_HOST:-}
       # Hostname served by the Caddy TLS proxy; points Vite HMR at wss://<host>:443.
-      TLS_PROXY_HOST: ${TLS_PROXY_HOST:-}
+      # Defaults to `localhost`, which is correct in BOTH dev access modes: it is
+      # the hostname this stack's Caddy serves (https://localhost), and the plain
+      # http://localhost:5173 path is unaffected by the HMR host. Left empty, a
+      # developer who pulls this branch without editing their existing .env gets
+      # https://localhost with HMR pointed at ws://localhost:5173 — silently
+      # blocked as mixed content, with no error beyond "HMR stopped working".
+      TLS_PROXY_HOST: ${TLS_PROXY_HOST:-localhost}
       # Extra hostnames the Vite dev server accepts (comma-separated) when the
       # stack is fronted by a public domain, e.g.
       # ALLOWED_HOSTS=madhats.getaiconsult.com.au. Relaxes the host check only.

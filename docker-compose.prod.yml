@@ -14,8 +14,11 @@
 #   docker compose -f docker-compose.prod.yml up -d --build frontend
 #
 # Required in the project-root .env:
-#   VITE_API_BASE_URL   public backend URL the BROWSER calls, e.g.
-#                       https://api.madhats.getaiconsult.com.au   (baked at build)
+#   VITE_API_BASE_URL   REQUIRED — public backend URL the BROWSER calls, e.g.
+#                       https://api.madhats.getaiconsult.com.au   (baked at build).
+#                       Enforced with `${VITE_API_BASE_URL:?...}` on the frontend
+#                       build args below: an unset value would otherwise compile
+#                       localhost into the production bundle.
 #   VITE_STORE_KEY      e.g. mh_pk_madhats_local
 #   ALLOWED_ORIGINS     backend CORS. Defaults to "*" (any origin, reflected —
 #                       kept open for now). Set a comma-separated list to lock
@@ -68,7 +71,17 @@ services:
       dockerfile: Dockerfile          # production static build
       args:
         # Compiled into the JS bundle at build time (Vite inlines VITE_*).
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        #
+        # `:?` for the same reason as ACME_EMAIL below — a silent default here
+        # is MORE consequential, not less. If .env is missing or mistypes the
+        # key, a `:-` fallback builds cleanly, certs issue, and the production
+        # bundle calls http://localhost:8000: a total outage that presents as a
+        # backend fault. Refusing to build is the cheaper failure.
+        #
+        # NB this catches an UNSET value only. A STALE one (an old host still
+        # sitting in .env) builds happily — the bundle-inspection step in the
+        # cutover runbook is what catches that.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?set VITE_API_BASE_URL in .env - it is COMPILED INTO the frontend bundle at build time, e.g. https://api.madhats.getaiconsult.com.au}
         VITE_STORE_KEY: ${VITE_STORE_KEY:-}
     restart: unless-stopped
     env_file: .env                   # static server (serve -s) listens on 5173
@@ -88,7 +101,7 @@ services:
       # `:?` makes compose refuse to start with this message when the value is
       # missing. Required because Caddy's `email` directive rejects a blank
       # argument at parse time — a silent default would take the site down.
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env - Caddy needs it for Let us Encrypt expiry notices}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env - Caddy needs it for Let's Encrypt expiry notices}
     volumes:
       - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # MANDATORY: issued certs live here

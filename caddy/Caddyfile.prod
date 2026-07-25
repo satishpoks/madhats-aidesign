@@ -7,7 +7,6 @@
 # issued certificates and the ACME account key live. Without it every restart
 # re-issues from scratch, and Let's Encrypt's limit of 5 duplicate certificates
 # per week will lock us out of our own domain.
-
 {
 	# Address Let's Encrypt uses for certificate-expiry notices.
 	#

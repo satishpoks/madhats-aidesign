@@ -8,7 +8,6 @@
 #
 # *.localhost resolves to 127.0.0.1 natively in Chrome and Firefox — no hosts
 # file edit is needed.
-
 {
 	local_certs
 }

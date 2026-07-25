@@ -9,7 +9,7 @@
 #
 # Pass the config as build args when building the image, e.g.:
 #   docker build -t madhats-frontend \
-#     --build-arg VITE_API_BASE_URL=http://madhats.getaiconsult.com.au:8000 \
+#     --build-arg VITE_API_BASE_URL=https://api.madhats.getaiconsult.com.au \
 #     --build-arg VITE_STORE_KEY=mh_pk_madhats_local ./frontend
 
 # ---- Build stage ----------------------------------------------------------
@@ -21,8 +21,20 @@ RUN npm ci
 
 COPY . .
 
-# Build-time configuration. Defaults mirror the app's own code fallbacks so an
-# un-configured build behaves like local dev rather than pointing nowhere.
+# Build-time configuration. Defaults mirror the app's own code fallbacks
+# (src/lib/api.ts, src/admin/adminApi.ts) so an un-configured BARE `docker build`
+# behaves like local dev rather than pointing nowhere.
+#
+# This default is deliberately NOT the production URL, and deliberately not
+# removed either:
+#   - a production URL here would hardcode one customer's domain into a generic
+#     image and make every local build call production;
+#   - no default at all sets VITE_API_BASE_URL="", which Vite inlines as an empty
+#     string — the app's `?? 'http://localhost:8000'` fallback is nullish-only,
+#     so calls would go to relative paths on the static server and 404.
+# The production path can no longer reach this default anyway:
+# docker-compose.prod.yml guards the value with `${VITE_API_BASE_URL:?...}` and
+# refuses to build without an explicit one.
 ARG VITE_API_BASE_URL=http://localhost:8000
 ARG VITE_STORE_KEY=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
