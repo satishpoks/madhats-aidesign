@@ -835,14 +835,23 @@ These were discovered during implementation, not planned for. Each is a document
 
 3. **Clicking through the browser warning is not a substitute for trusting the CA.** A per-origin certificate exception does not extend to subresource origins, so accepting `https://localhost` still leaves every API call to `https://api.localhost` failing. Say so wherever the dev CA trust step is referenced, so the first-run experience isn't mistaken for a broken backend.
 
-- [ ] **Step 5: Verify no stale HTTP references remain**
+- [ ] **Step 5: Fix every stale HTTP reference repo-wide**
 
 ```bash
 cd /c/Users/satis/madhats-aidesign
 grep -rn "http://madhats.getaiconsult.com.au" --include="*.yml" --include="*.md" --include="*.example" . | grep -v docs/superpowers
 ```
 
-Expected: no hits outside the spec/plan docs and the intentional legacy-redirect comments in `caddy/Caddyfile.prod`.
+Four known stale sites, all documentation/comments — **fix all of them**, even though two live in files Tasks 2 and 3 created. They are comment-only edits with no functional effect, and leaving a compose header that instructs the operator to use `http://…:8000` is how the wrong value gets pasted into a real `.env`:
+
+1. **`CLAUDE.md`** §13c intro blockquote — still says the box is "reached via `http://madhats.getaiconsult.com.au:<port>` (plain HTTP)". It sits directly above the new HTTPS runbook and contradicts it. Rewrite for the Caddy topology.
+2. **`docker-compose.prod.yml`** header, the "Required in the project-root .env" block — shows `http://…:8000` and `http://…:5173` as the example values. Update to the HTTPS equivalents and add `ACME_EMAIL` as required.
+3. **`docker-compose.yml`** `VITE_API_BASE_URL` comment — describes `http://…:8000` while the default on the very next line is now `https://api.localhost`. Self-contradictory; rewrite.
+4. **`docs/shopify/README.md`** lines ~33 and ~61 — the Studio host URL and the copy-paste Liquid embed snippet, both `http://madhats.getaiconsult.com.au:5173`.
+
+Site 4 needs care. That snippet is what the in-house Shopify developer pastes into the live storefront, so changing this file does not change the storefront — it only changes the instructions. Update the URL to `https://madhats.getaiconsult.com.au` (no port) and add a short note that an existing storefront button still using the old `http://…:5173` link keeps working only while `Caddyfile.prod`'s legacy redirect blocks remain, and must be updated before those are removed. Do not describe this as optional.
+
+Expected after fixing: no hits outside `docs/superpowers/` and the intentional legacy-redirect comments in `caddy/Caddyfile.prod`.
 
 - [ ] **Step 6: Commit**
 
@@ -880,6 +889,10 @@ Not a code task — the deploy sequence, in the order that avoids an outage.
 **Rollback:** `git revert` the four commits and `docker compose -f docker-compose.prod.yml up -d --build`. No schema migration, no data mutation. Legacy HTTP email links resume working immediately because the port mappings return.
 
 **Cleanup, ~30 days out:** delete the `:8000` and `:5173` blocks from `caddy/Caddyfile.prod` and their port mappings from `docker-compose.prod.yml`, once quote tokens (`QUOTE_TOKEN_TTL_SECONDS` = 2592000) have expired.
+
+**Blocker for that cleanup — needs the Shopify developer.** The live storefront's "customise this hat" button links to `http://madhats.getaiconsult.com.au:5173/?product_id=…`. After cutover that link survives only via the legacy `:5173` redirect, and it is an insecure navigation from an HTTPS storefront page in the meantime. It must be repointed to `https://madhats.getaiconsult.com.au/?product_id=…` before the redirect blocks are removed, or the button 404s for every customer.
+
+Per CLAUDE.md §2 the storefront is not ours to change unilaterally — this is a coordination item to raise with the in-house Shopify developer, not a task to execute.
 
 ## Known follow-ups (out of scope)
 
