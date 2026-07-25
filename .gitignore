@@ -51,6 +51,13 @@ yarn-error.log*
 # (docker-compose.yml is tracked; ignore local override)
 docker-compose.override.yml
 
+# ── Caddy (dev TLS) ───────────────────────────────────────────────────────────
+# Extracted per Caddyfile.dev Step 8, for importing into the host's trusted
+# root store. Per-machine and self-generated (regenerated with every fresh
+# caddy_data volume) — a committed copy would go stale and silently trust a CA
+# that no longer exists. Not secret: it's the CA's public root, not its key.
+caddy-root.crt
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
