@@ -41,7 +41,8 @@ export function applyCanvasOps(ops: CanvasOp[]): void {
   const s = useCanvasStore.getState()
   for (const op of ops) {
     if (op.target.kind === 'pending_logo') {
-      if (op.patch) s.patchPendingLogo(op.target.face, op.patch)
+      if (op.remove) s.removePending(op.target.face)
+      else if (op.patch) s.patchPendingLogo(op.target.face, op.patch)
       continue
     }
     if (op.remove) s.removeElementOn(op.target.face, op.target.id)

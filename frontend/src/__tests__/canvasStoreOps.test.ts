@@ -1,5 +1,6 @@
 import { beforeEach, expect, test } from 'vitest'
 import { useCanvasStore } from '../store/canvasStore'
+import { applyCanvasOps } from '../lib/canvasOps'
 
 beforeEach(() => useCanvasStore.getState().reset())
 
@@ -58,4 +59,35 @@ test('patchPendingLogo is a no-op when the face has no unlocked image', () => {
   s.lockAll()
   expect(() => s.patchPendingLogo('front', { removeBg: true })).not.toThrow()
   expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
+})
+
+test('removePending drops the last unlocked element of any type on the face', () => {
+  const s = useCanvasStore.getState()
+  s.setActiveFace('back'); s.addText('t')       // a decor, not an image
+  s.removePending('back')
+  expect(useCanvasStore.getState().faces.back).toHaveLength(0)
+})
+
+test('removePending keeps locked elements and older placed ones', () => {
+  const s = useCanvasStore.getState()
+  s.addImage('kept.png'); s.lockPlaced()        // locked, must survive
+  s.addImage('current.png')                     // the one just placed
+  s.removePending('front')
+  const { faces } = useCanvasStore.getState()
+  expect(faces.front).toHaveLength(1)
+  expect(faces.front[0].assetUrl).toBe('kept.png')
+})
+
+test('removePending is a no-op when nothing is unlocked', () => {
+  const s = useCanvasStore.getState()
+  s.addImage('logo.png'); s.lockAll()
+  expect(() => s.removePending('front')).not.toThrow()
+  expect(useCanvasStore.getState().faces.front).toHaveLength(1)
+})
+
+test('applyCanvasOps remove on a pending_logo target calls removePending', () => {
+  const s = useCanvasStore.getState()
+  s.setActiveFace('left'); s.addText('x')
+  applyCanvasOps([{ target: { kind: 'pending_logo', face: 'left' }, remove: true }])
+  expect(useCanvasStore.getState().faces.left).toHaveLength(0)
 })

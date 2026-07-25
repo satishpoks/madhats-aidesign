@@ -84,6 +84,10 @@ interface CanvasState {
    *  "last unlocked" anchor `lockPlaced` uses, because the backend has no id
    *  for it: canvas_design isn't persisted until finalize. */
   patchPendingLogo: (face: Face, patch: Partial<CanvasElement>) => void
+  /** Remove the last unlocked element (any type) on `face` — the in-progress
+   *  element being worked on. Same "last unlocked" anchor patchPendingLogo
+   *  uses, but not restricted to images, since a mid-flow decor is text/shape. */
+  removePending: (face: Face) => void
   reset: () => void
   toCanvasDesign: () => CanvasDesign
   /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
@@ -190,6 +194,22 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const next = arr.slice()
     next[idx] = { ...next[idx], ...patch }
     return { faces: { ...s.faces, [face]: next } }
+  }),
+
+  removePending: (face) => set(s => {
+    const arr = s.faces[face]
+    let idx = -1
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (!arr[i].locked) { idx = i; break }
+    }
+    if (idx === -1) return s
+    const removed = arr[idx]
+    const next = arr.slice()
+    next.splice(idx, 1)
+    return {
+      faces: { ...s.faces, [face]: next },
+      selectedId: s.selectedId === removed.id ? null : s.selectedId,
+    }
   }),
 
   reorder: (id, dir) => set(s => {
