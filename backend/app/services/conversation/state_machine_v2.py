@@ -186,13 +186,37 @@ _PROGRESS_PATH: list[S] = [
     S.ASK_QUANTITY, S.ASK_DECORATION, S.NEEDED_BY, S.ASK_PURPOSE,
 ]
 
+_SECTIONS: list[str] = [
+    "Intro", "Logo & Image", "Text & Graphics", "Review", "Quote request",
+]
+# Every registry step -> its milestone section (0-based). FINALIZE_CANVAS is
+# deliberately absent: it (and any shared-tail state with no registry step)
+# resolves to len(_SECTIONS) == "all milestones complete".
+_STEP_SECTION: dict[S, int] = {
+    S.ASK_NAME: 0, S.SHOW_INTRO: 0,
+    S.ASK_HAS_LOGO: 1, S.ASK_LOGO_PLACEMENT: 1, S.LOGO_ADJUST: 1,
+    S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.ASK_ANOTHER_LOGO: 1,
+    S.ASK_ADD_DECOR: 2, S.ASK_DECOR_PLACEMENT: 2, S.DECOR_ADJUST: 2,
+    S.ASK_ANYTHING_ELSE: 2,
+    S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,
+    S.NEEDED_BY: 3, S.ASK_PURPOSE: 3, S.REVIEW_DESIGN: 3, S.REWORK_CANVAS: 3,
+    S.REQUEST_QUOTE: 4,
+}
+
+
+def section_for(step: Step) -> int:
+    """The 0-based milestone section for a step. finalize + any unmapped step
+    resolve to len(_SECTIONS) == all milestones complete."""
+    return _STEP_SECTION.get(step.id, len(_SECTIONS))
+
 
 def progress_for(step: Step) -> dict:
     total = len(_PROGRESS_PATH)
+    section = {"sections": _SECTIONS, "section": section_for(step)}
     anchor = _PROGRESS_ANCHORS.get(step.id, step.id)
     if anchor in _PROGRESS_PATH:
-        return {"step": _PROGRESS_PATH.index(anchor) + 1, "total": total}
-    return {"step": total, "total": total}      # finalize + tail -> complete
+        return {"step": _PROGRESS_PATH.index(anchor) + 1, "total": total, **section}
+    return {"step": total, "total": total, **section}   # finalize + tail -> complete
 
 
 def progress_v2(state: S, collected: dict | None = None) -> dict:
@@ -202,7 +226,8 @@ def progress_v2(state: S, collected: dict | None = None) -> dict:
     step = cs.by_id(state)
     if step is None:
         total = len(_PROGRESS_PATH)
-        return {"step": total, "total": total}
+        return {"step": total, "total": total,
+                "sections": _SECTIONS, "section": len(_SECTIONS)}
     return progress_for(step)
 
 

@@ -2,6 +2,7 @@ import { useSessionStore } from '../../store/sessionStore'
 import { DesignStudioSurface } from '../DesignStudio/Surface'
 import { StoreHeader } from '../StoreHeader'
 import { ChatColumn } from './ChatColumn'
+import { MilestoneBar } from './MilestoneBar'
 
 /**
  * CustomiseStudio — the split-screen canvas experience.
@@ -16,6 +17,7 @@ export function CustomiseStudio() {
   return (
     <div className="h-screen bg-base flex flex-col">
       <StoreHeader subtitle={productRef ? `${productRef.name} › Design` : undefined} />
+      <MilestoneBar />
 
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
       <div className="flex-1 flex flex-col md:flex-row min-h-0">

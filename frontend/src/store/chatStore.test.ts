@@ -19,6 +19,23 @@ describe('chatStore progress', () => {
     await useChatStore.getState().sendMessage('s1', 'hi')
     expect(useChatStore.getState().progress).toEqual({ step: 3, total: 9 })
   })
+
+  it('carries milestone sections + active index when present', async () => {
+    vi.mocked(api.sendChat).mockResolvedValue({
+      reply: 'ok',
+      state: 'ask_quantity',
+      data: { progress: {
+        step: 5, total: 8,
+        sections: ['Intro', 'Logo & Image', 'Text & Graphics', 'Review', 'Quote request'],
+        section: 3,
+      } },
+    } as never)
+    await useChatStore.getState().sendMessage('s1', 'hi')
+    const p = useChatStore.getState().progress
+    expect(p?.section).toBe(3)
+    expect(p?.sections).toEqual(
+      ['Intro', 'Logo & Image', 'Text & Graphics', 'Review', 'Quote request'])
+  })
 })
 
 test('parses multiselect + selected from data', () => {

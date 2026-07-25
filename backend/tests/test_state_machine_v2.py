@@ -174,21 +174,63 @@ def test_v2_owned_is_the_registry_plus_greeting():
 
 def test_progress_collapses_loop_steps_onto_their_anchor():
     total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
+    secs = v2._SECTIONS
     # ASK_HAS_LOGO and ASK_LOGO_PLACEMENT both have progress step 3
-    assert v2.progress_for(cs.by_id(S.ASK_HAS_LOGO)) == {"step": 3, "total": total}
+    assert v2.progress_for(cs.by_id(S.ASK_HAS_LOGO)) == {
+        "step": 3, "total": total, "sections": secs, "section": 1}
     for sid in (S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_ANOTHER_LOGO):
-        assert v2.progress_for(cs.by_id(sid)) == {"step": 3, "total": total}
+        assert v2.progress_for(cs.by_id(sid)) == {
+            "step": 3, "total": total, "sections": secs, "section": 1}
     for sid in (S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE):
-        assert v2.progress_for(cs.by_id(sid)) == {"step": 4, "total": total}
-    assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {"step": total, "total": total}
+        assert v2.progress_for(cs.by_id(sid)) == {
+            "step": 4, "total": total, "sections": secs, "section": 2}
+    assert v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)) == {
+        "step": total, "total": total, "sections": secs, "section": len(secs)}
 
 
 def test_progress_v2_is_state_keyed_and_survives_a_tail_state():
     # sessions.py's canvas-finalize route calls this with GENERATING, which has
     # NO registry step. It must report "complete", not explode.
     total = v2.progress_for(cs.by_id(S.ASK_NAME))["total"]
-    assert v2.progress_v2(S.GENERATING, {}) == {"step": total, "total": total}
-    assert v2.progress_v2(S.ASK_QUANTITY, {}) == {"step": 5, "total": total}
+    secs = v2._SECTIONS
+    assert v2.progress_v2(S.GENERATING, {}) == {
+        "step": total, "total": total, "sections": secs, "section": len(secs)}
+    assert v2.progress_v2(S.ASK_QUANTITY, {}) == {
+        "step": 5, "total": total, "sections": secs, "section": 3}
+
+
+def test_section_for_maps_every_step_to_its_section():
+    expected = {
+        S.ASK_NAME: 0, S.SHOW_INTRO: 0,
+        S.ASK_HAS_LOGO: 1, S.ASK_LOGO_PLACEMENT: 1, S.LOGO_ADJUST: 1,
+        S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.ASK_ANOTHER_LOGO: 1,
+        S.ASK_ADD_DECOR: 2, S.ASK_DECOR_PLACEMENT: 2, S.DECOR_ADJUST: 2,
+        S.ASK_ANYTHING_ELSE: 2,
+        S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,
+        S.NEEDED_BY: 3, S.ASK_PURPOSE: 3, S.REVIEW_DESIGN: 3, S.REWORK_CANVAS: 3,
+        S.REQUEST_QUOTE: 4,
+    }
+    for sid, section in expected.items():
+        assert v2.section_for(cs.by_id(sid)) == section, sid
+    # Every non-finalize registry step is mapped explicitly (guards a step added
+    # later without a section landing silently in "complete").
+    for step in cs.REGISTRY:
+        if step.id is S.FINALIZE_CANVAS:
+            continue
+        assert step.id in expected, f"{step.id} has no section"
+
+
+def test_finalize_and_tail_report_complete_section():
+    assert v2.section_for(cs.by_id(S.FINALIZE_CANVAS)) == len(v2._SECTIONS)
+    assert v2.progress_v2(S.GENERATING, {})["section"] == len(v2._SECTIONS)
+
+
+def test_progress_for_carries_sections_and_active_index():
+    p = v2.progress_for(cs.by_id(S.ASK_QUANTITY))
+    assert p["sections"] == ["Intro", "Logo & Image", "Text & Graphics",
+                             "Review", "Quote request"]
+    assert p["section"] == 3
+    assert v2.progress_for(cs.by_id(S.REQUEST_QUOTE))["section"] == 4
 
 
 def test_tool_steps_hand_over_exactly_one_tool():
