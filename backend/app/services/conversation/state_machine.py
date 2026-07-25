@@ -50,6 +50,7 @@ class ConversationState(str, Enum):
     REVIEW_DESIGN = "review_design"       # v2: recheck all views before submit
     REWORK_CANVAS = "rework_canvas"       # v2: reopened canvas during review rework
     REQUEST_QUOTE = "request_quote"   # v2 quote-gated: explicit submit before finalize
+    ASK_FINAL_NOTES = "ask_final_notes"   # v2: colour disclaimer + final notes before quote
     ASK_DECORATION = "ask_decoration"
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
     NEEDED_BY = "needed_by"                      # v2 only: "when do you want it by?" (before purpose)

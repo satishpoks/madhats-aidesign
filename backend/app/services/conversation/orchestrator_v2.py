@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from app import prompts
 from app.config import settings
 from app.db import get_supabase
-from app.services.branding import canvas_intro_text
+from app.services.branding import canvas_intro_text, colour_disclaimer_text
 from app.services.stores import get_store
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation import intent_extractor as ie
@@ -58,6 +58,7 @@ async def handle_message(session_id: str, message: str) -> dict:
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
+    colour_note = colour_disclaimer_text(store, collected.get("name") or "there")
     # The store's admin-configured step order/on-off for the safe subset (V3).
     # None for an unconfigured store, which makes the router walk cs.REGISTRY
     # unchanged. Validated on the way in by branding._validate_canvas_flow.
@@ -70,7 +71,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         # FULL greeting; only a re-ask gets the shorter retry copy. The main loop
         # below marks it when the customer actually answers.
         step = cs.by_id(S.ASK_NAME)
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
+                             colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply,
                               state_before, S.ASK_NAME, user_message="",
                               config=flow_config)
@@ -85,7 +87,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         # slot list — hallucinates well-typed slot values that walk first-unmet
         # routing BACKWARD (the live dead-loop that reset sessions to ask_name).
         # Re-render the current step, ingesting nothing.
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
+                             colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply, state_before,
                               current, user_message=message,
                               data=_public(step, collected, flow_config))
@@ -94,24 +97,30 @@ async def handle_message(session_id: str, message: str) -> dict:
 
     fields = v2.resolve_chip(step, message, collected)
     if fields is None and step.slots:
-        # Free text on a step that asks for something: the model reads it, or we
-        # stall. No keyword fallback — a wrong field corrupts the design.
-        # The `try` wraps ONLY the interpretation. write_ack must stay outside it:
-        # it swallows its own failures today, but if it ever raised
-        # LLMUnavailable, catching it here would silently discard a SUCCESSFUL
-        # interpretation and overwrite it with direct_answer (or stall).
-        try:
-            fields = await ie.interpret_turn_v2(step, message, collected)
-        except ie.LLMUnavailable:
-            if step.direct_answer is None:
-                return await _stall(sb, session_id, collected, step, state_before,
-                                    message, config=flow_config)
-            # The answer IS the message for this step — resolve it deterministically
-            # rather than stranding the session. Still validated, still guarded by
-            # the step's apply. No ack: the model is down.
+        if step.direct_capture:
+            # The answer IS the message; interpreting it adds nothing and an LLM
+            # could reshape a colour code. Verbatim, still validated + apply-guarded.
             fields = ie.validate_fields(step.direct_answer(message))
         else:
-            ack = await ie.write_ack(persona, fields)
+            # Free text on a step that asks for something: the model reads it, or
+            # we stall. No keyword fallback — a wrong field corrupts the design.
+            # The `try` wraps ONLY the interpretation. write_ack must stay outside
+            # it: it swallows its own failures today, but if it ever raised
+            # LLMUnavailable, catching it here would silently discard a SUCCESSFUL
+            # interpretation and overwrite it with direct_answer (or stall).
+            try:
+                fields = await ie.interpret_turn_v2(step, message, collected)
+            except ie.LLMUnavailable:
+                if step.direct_answer is None:
+                    return await _stall(sb, session_id, collected, step,
+                                        state_before, message, config=flow_config)
+                # The answer IS the message for this step — resolve it
+                # deterministically rather than stranding the session. Still
+                # validated, still guarded by the step's apply. No ack: the
+                # model is down.
+                fields = ie.validate_fields(step.direct_answer(message))
+            else:
+                ack = await ie.write_ack(persona, fields)
     elif fields is None:
         fields = {}                       # ack-only step (show_intro)
 
@@ -152,7 +161,8 @@ async def handle_message(session_id: str, message: str) -> dict:
         return await _persist(sb, session_id, collected, None, reply, state_before,
                               S.QUOTE_REQUESTED, user_message=message, data=data)
 
-    reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack)
+    reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack,
+                        colour_note=colour_note)
     if step.id is S.ASK_EMAIL and collected.get("email_captured"):
         # The double opt-in verification email just went out (from _apply_email).
         # Prepend a notice so the customer knows to expect it and why — without
@@ -184,6 +194,7 @@ async def handle_back(session_id: str) -> dict:
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
+    colour_note = colour_disclaimer_text(store, collected.get("name") or "there")
     # Same wiring as handle_message: thread the store's configurable-flow
     # config into the router so Back's routing (and the can_go_back it
     # reports) is computed over the SAME config-composed registry the forward
@@ -196,7 +207,8 @@ async def handle_back(session_id: str) -> dict:
         # cs.by_id(GREETING) is None (GREETING has no registry Step) and the
         # no-target branch below crashes on v2.reply_for(None, ...).
         step = cs.by_id(S.ASK_NAME)
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
+                             colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply,
                               current.value, S.ASK_NAME, user_message="",
                               data=_public(step, collected, flow_config))
@@ -204,7 +216,8 @@ async def handle_back(session_id: str) -> dict:
     target = v2.last_answered_step(collected, flow_config)
     if target is None:
         step = cs.by_id(current)
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro)
+        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
+                             colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply,
                               current.value, current, user_message="",
                               data=_public(step, collected, flow_config))
@@ -212,7 +225,8 @@ async def handle_back(session_id: str) -> dict:
     for key in clear:
         collected.pop(key, None)
     nxt = v2.next_step(collected, flow_config)
-    reply = v2.reply_for(nxt, collected, persona=persona, intro=intro)
+    reply = v2.reply_for(nxt, collected, persona=persona, intro=intro,
+                         colour_note=colour_note)
     return await _persist(sb, session_id, collected, nxt, reply,
                           current.value, nxt.id, user_message="",
                           data=_public(nxt, collected, flow_config))
@@ -222,10 +236,12 @@ async def _stall(sb, session_id, collected, step, state_before, message,
                  *, config: dict | None = None) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
-    Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — those
-    (ask_name, ask_email, ask_purpose) resolve the message directly during an
-    outage instead of ever landing here. For the remaining chip-bearing steps,
-    after `_NUDGE_AFTER` consecutive failures we re-render the chips and nudge —
+    Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — the
+    direct-answer steps resolve the message directly during an outage instead
+    of ever landing here (ASK_FINAL_NOTES never reaches this function either,
+    for a different reason: its `direct_capture` short-circuits before the
+    interpreter is ever called). For the remaining chip-bearing steps, after
+    `_NUDGE_AFTER` consecutive failures we re-render the chips and nudge —
     chips are deterministic, so this degrades the bot to a tap-through wizard.
     Nothing is guessed; a closed question is asked.
     """

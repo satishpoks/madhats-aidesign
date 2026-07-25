@@ -29,6 +29,11 @@ beforeEach(() => {
     configurable: true,
     value: { getUserMedia },
   })
+  // Keep existing behavioural tests on the secure path; insecure-origin
+  // behaviour is exercised explicitly below.
+  Object.defineProperty(window, 'isSecureContext', {
+    configurable: true, value: true,
+  })
 })
 
 afterEach(() => {
@@ -157,5 +162,30 @@ describe('useSpeechRecognition', () => {
     expect(onResult).toHaveBeenCalledTimes(2)
     expect(onResult).toHaveBeenNthCalledWith(1, 'hello')
     expect(onResult).toHaveBeenNthCalledWith(2, 'world')
+  })
+
+  it('reports voice unavailable on an insecure origin without touching getUserMedia', async () => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+    const { result } = renderHook(() => useSpeechRecognition(vi.fn()))
+    await act(async () => { await result.current.start() })
+    expect(getUserMedia).not.toHaveBeenCalled()
+    expect(currentRec.start).not.toHaveBeenCalled()
+    expect(result.current.error).toMatch(/secure \(https\) connection/i)
+  })
+
+  it('gives Mac-aware guidance when the OS/site permission is denied', async () => {
+    getUserMedia.mockRejectedValue(
+      Object.assign(new Error('denied'), { name: 'NotAllowedError' }))
+    const { result } = renderHook(() => useSpeechRecognition(vi.fn()))
+    await act(async () => { await result.current.start() })
+    expect(result.current.error).toMatch(/System Settings/i)
+  })
+
+  it('reports when no microphone is found', async () => {
+    getUserMedia.mockRejectedValue(
+      Object.assign(new Error('none'), { name: 'NotFoundError' }))
+    const { result } = renderHook(() => useSpeechRecognition(vi.fn()))
+    await act(async () => { await result.current.start() })
+    expect(result.current.error).toMatch(/no microphone/i)
   })
 })

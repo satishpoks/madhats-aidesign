@@ -263,6 +263,7 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
         "needed_by": "ASAP", "email_captured": True, "design_confirmed": True,
+        "final_notes_done": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
@@ -540,6 +541,81 @@ async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monk
     out = await o2.handle_back("s1")
     assert out["state"] == S.FINALIZE_CANVAS.value           # no-op
     assert store["session"]["collected"]["quote_requested"] is True
+
+
+@pytest.mark.asyncio
+async def test_final_notes_renders_disclaimer_and_captures_verbatim(monkeypatch):
+    # Seed a session parked at ASK_FINAL_NOTES with the design confirmed.
+    store = _new_store()
+    store["session"]["state"] = S.ASK_FINAL_NOTES.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": True, "logos_done": True, "pending_logo": None,
+        "email_captured": True, "lead_id": "L1", "decor_done": True,
+        "quantity": 12, "decoration_done": True, "needed_by": "2-4 weeks",
+        "purpose": "team caps", "design_confirmed": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: None)
+    # Interpreter MUST NOT be called for a direct_capture step.
+    async def _boom(*a, **k):
+        raise AssertionError("interpreter must not run for direct_capture")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    out = await o2.handle_message("s1", "Text in Pantone 186 C please")
+
+    assert "Customer final notes: Text in Pantone 186 C please" in \
+        store["session"]["collected"]["brief_notes"]
+    assert store["session"]["collected"]["final_notes_done"] is True
+    assert store["session"]["state"] == S.REQUEST_QUOTE.value
+
+
+@pytest.mark.asyncio
+async def test_final_notes_whitespace_only_reasks_rather_than_advancing(monkeypatch):
+    """A blank/whitespace turn is never a real answer (the empty-turn guard
+    fires before the direct_capture branch): it must re-render ASK_FINAL_NOTES
+    rather than banking an empty note and advancing to REQUEST_QUOTE."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_FINAL_NOTES.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": True, "logos_done": True, "pending_logo": None,
+        "email_captured": True, "lead_id": "L1", "decor_done": True,
+        "quantity": 12, "decoration_done": True, "needed_by": "2-4 weeks",
+        "purpose": "team caps", "design_confirmed": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: None)
+    async def _boom(*a, **k):
+        raise AssertionError("interpreter must not run on a blank turn")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    out = await o2.handle_message("s1", "   ")
+
+    assert store["session"]["state"] == S.ASK_FINAL_NOTES.value
+    assert "final_notes_done" not in store["session"]["collected"]
+    assert "brief_notes" not in store["session"]["collected"]
+
+
+@pytest.mark.asyncio
+async def test_final_notes_ask_shows_disclaimer_links(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.REVIEW_DESIGN.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": True, "logos_done": True, "pending_logo": None,
+        "email_captured": True, "decor_done": True, "quantity": 12,
+        "decoration_done": True, "needed_by": "2-4 weeks", "purpose": "team caps",
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: None)
+
+    out = await o2.handle_message("s1", "Looks great, send it")
+
+    assert store["session"]["state"] == S.ASK_FINAL_NOTES.value
+    assert prompts.V2_DEFAULT_COLOUR_EMBROIDERY_URL in out["reply"]
+    assert "closest match" in out["reply"]
+    assert out["data"]["options"] == ["Nothing to add"]
 
 
 @pytest.mark.asyncio

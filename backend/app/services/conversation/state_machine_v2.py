@@ -176,6 +176,7 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     # final beat, so the counter stays put rather than growing past "done".
     S.REVIEW_DESIGN: S.ASK_PURPOSE,
     S.REWORK_CANVAS: S.ASK_PURPOSE,
+    S.ASK_FINAL_NOTES: S.ASK_PURPOSE,
     # Email rides the design phase (asked right after the first element is
     # placed) — it is not a numbered step of its own, so it must not move the
     # counter backward relative to whatever design step is in progress.
@@ -200,6 +201,7 @@ _STEP_SECTION: dict[S, int] = {
     S.ASK_ANYTHING_ELSE: 2,
     S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,
     S.NEEDED_BY: 3, S.ASK_PURPOSE: 3, S.REVIEW_DESIGN: 3, S.REWORK_CANVAS: 3,
+    S.ASK_FINAL_NOTES: 3,
     S.REQUEST_QUOTE: 4,
 }
 
@@ -303,7 +305,7 @@ def public_data_for(step: Step, collected: dict) -> dict:
 
 
 def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
-              ack: str = "") -> str:
+              ack: str = "", colour_note: str = "") -> str:
     """ack (LLM, best-effort) + the step's copy + its tool tip (verbatim).
 
     The tip is concatenated from the registry and never passes through a model,
@@ -320,6 +322,7 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
             name=collected.get("name") or "there",
             persona=persona,
             intro=intro,
+            colour_note=colour_note,
         )
         if step.tip and step.id is not S.LOGO_ADJUST:
             body = f"{body} {step.tip}"

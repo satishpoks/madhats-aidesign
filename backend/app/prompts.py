@@ -1148,6 +1148,25 @@ V2_EMAIL_VERIFY_NOTICE = (
     "your address so we can email your finished design there."
 )
 
+# The pre-quote colour-accuracy disclaimer (v2 canvas ASK_FINAL_NOTES). The two
+# reference links are admin-configurable per store (branding.colour_disclaimer_text);
+# these are neutral placeholders used until an admin sets real ones. Copy must not
+# promise exact colour — it says "closest match" unless the customer gives a code.
+V2_DEFAULT_COLOUR_EMBROIDERY_URL = "https://example.com/embroidery-chart"
+V2_DEFAULT_COLOUR_PRINT_URL = "https://example.com/print-colour-guide"
+
+V2_COLOUR_DISCLAIMER = (
+    "One quick note before we send this over, {name} — screen colours aren't "
+    "always exact. What you see is a guide; our team matches your design to the "
+    "closest embroidery and print colours.\n\n"
+    "Reference charts — embroidery: {embroidery_url} · print: {print_url}\n\n"
+    "If you already have a specific print colour (CMYK or Pantone) or an "
+    "embroidery thread number, pop it below and we'll use it — otherwise we'll "
+    "pick the closest match.\n\n"
+    "Any final notes or pointers for the team? Type them here, or tap "
+    '"Nothing to add".'
+)
+
 V2_TURN_INTERPRETER_PROMPT = """You read ONE customer message in a guided cap-design chat and turn it into structured fields. You do NOT decide what happens next.
 
 We just asked the customer:

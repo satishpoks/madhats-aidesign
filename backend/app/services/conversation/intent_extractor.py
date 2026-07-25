@@ -643,6 +643,7 @@ _SLOT_DOCS: dict[str, str] = {
     "quote_requested": "quote_requested (bool) — true if they want to send the design to the team for a quote",
     "design_confirmed": "design_confirmed (bool) — true if they're happy with the finished design and ready to submit it",
     "design_rework": "design_rework (bool) — true if they want to go back and change something on the design before submitting",
+    "final_notes": "final_notes (string) — any final notes for the team (e.g. exact colour codes like Pantone/CMYK, special instructions)",
 }
 
 
