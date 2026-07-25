@@ -33,7 +33,9 @@
 #
 #   - caddy is the only service publishing ports. backend/frontend are reachable
 #     only on the compose network. Re-adding a `ports:` mapping to either one
-#     re-exposes it in cleartext AND makes TRUSTED_PROXY_HOSTS=* spoofable.
+#     re-exposes that service in cleartext; on `backend` it additionally makes
+#     TRUSTED_PROXY_HOSTS=* spoofable, which is a rate-limit bypass. (`frontend`
+#     sets no TRUSTED_PROXY_HOSTS — it is a static file server.)
 #   - VITE_API_BASE_URL is COMPILED IN. After changing it you must REBUILD, not
 #     just recreate:  docker compose -f docker-compose.prod.yml up -d --build frontend
 #     Recreating alone leaves the old http:// URL in the bundle, and every API
