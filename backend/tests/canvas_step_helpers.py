@@ -59,6 +59,8 @@ def satisfy(c: dict, step) -> None:
         c["design_confirmed"] = True
     elif step.id is S.REWORK_CANVAS:
         c.pop("design_rework", None)     # not reworking -> satisfied
+    elif step.id is S.ASK_FINAL_NOTES:
+        c["final_notes_done"] = True
     elif step.id is S.REQUEST_QUOTE:
         c["quote_requested"] = True
 

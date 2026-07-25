@@ -49,6 +49,10 @@ class Step:
     # Haiku outage dead-ends every session at step 1 (ask_name has no chips, so
     # the chip-nudge escape hatch cannot fire).
     direct_answer: Callable[[str], dict] | None = None
+    # When True, free text on this step is banked VERBATIM via direct_answer
+    # (no interpreter, no ack). For steps where the answer IS the message and an
+    # LLM could corrupt it — e.g. a Pantone/CMYK code in the final notes.
+    direct_capture: bool = False
     tool: str | None = None
     tip: str | None = None
     instructions: str | None = None            # overrides V2_TOOL_TIPS[tool] in the directive
@@ -377,6 +381,18 @@ def _apply_request_quote(c: dict, f: dict, s: dict) -> None:
     c["quote_requested"] = True
 
 
+def _apply_final_notes(c: dict, f: dict, s: dict) -> None:
+    """Verbatim capture into the team brief. The "Nothing to add" chip sets
+    final_notes_done directly (merged before this runs); a typed note sets it
+    here. final_notes_done is deliberately NOT a slot, so the interpreter can
+    never fabricate it and skip the disclaimer."""
+    note = (f.get("final_notes") or "").strip()
+    if not note:
+        return
+    c.setdefault("brief_notes", []).append(f"Customer final notes: {note}")
+    c["final_notes_done"] = True
+
+
 # --- direct answers ------------------------------------------------------------
 # Used ONLY when the interpreter is unavailable (see Step.direct_answer). For
 # these three steps the answer IS the message — no interpretation needed, and
@@ -691,6 +707,18 @@ REGISTRY: tuple[Step, ...] = (
         tip=None,                              # no single-tool tip applies here
         instructions=prompts.V2_REWORK_INSTRUCTIONS,
         show_done=True,
+    ),
+    Step(
+        id=S.ASK_FINAL_NOTES,
+        # Copy is rendered from store branding and passed in via reply_for's
+        # colour_note kwarg (single-pass format; value has no braces).
+        ask="{colour_note}",
+        chips=(Chip("Nothing to add", {"final_notes_done": True}),),
+        slots=("final_notes",),
+        direct_capture=True,
+        direct_answer=lambda m: {"final_notes": m.strip()},
+        apply=_apply_final_notes,
+        done_when=lambda c: bool(c.get("final_notes_done")),
     ),
     Step(
         id=S.REQUEST_QUOTE,

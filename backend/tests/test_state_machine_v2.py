@@ -108,7 +108,8 @@ def test_finalize_unreachable_without_email_captured():
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
               quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
-              purpose="team caps", design_confirmed=True, quote_requested=True)
+              purpose="team caps", design_confirmed=True, final_notes_done=True,
+              quote_requested=True)
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
 
 
@@ -134,8 +135,10 @@ def test_review_is_asked_after_purpose():
     assert v2.next_step(_seed_at_review()).id is S.REVIEW_DESIGN
 
 
-def test_confirming_review_advances_to_request_quote():
-    assert v2.next_step(_seed_at_review(design_confirmed=True)).id is S.REQUEST_QUOTE
+def test_confirming_review_advances_to_final_notes():
+    # ASK_FINAL_NOTES (colour disclaimer + verbatim notes) now sits between
+    # REVIEW_DESIGN and REQUEST_QUOTE; see test_final_notes_sits_between_review_and_quote.
+    assert v2.next_step(_seed_at_review(design_confirmed=True)).id is S.ASK_FINAL_NOTES
 
 
 def test_rework_routes_to_the_canvas_rework_step():
@@ -208,6 +211,7 @@ def test_section_for_maps_every_step_to_its_section():
         S.ASK_ANYTHING_ELSE: 2,
         S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,
         S.NEEDED_BY: 3, S.ASK_PURPOSE: 3, S.REVIEW_DESIGN: 3, S.REWORK_CANVAS: 3,
+        S.ASK_FINAL_NOTES: 3,
         S.REQUEST_QUOTE: 4,
     }
     for sid, section in expected.items():
@@ -690,7 +694,8 @@ def test_next_step_skips_a_disabled_step():
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
          "quantity": 12, "decoration_done": True, "email_captured": True,
-         "needed_by": "ASAP", "design_confirmed": True, "quote_requested": True}
+         "needed_by": "ASAP", "design_confirmed": True, "final_notes_done": True,
+         "quote_requested": True}
     assert v2.next_step(c).id is S.ASK_PURPOSE           # asked by default
     assert v2.next_step(c, cfg).id is S.FINALIZE_CANVAS  # skipped when disabled
 
@@ -775,6 +780,32 @@ def test_last_answered_never_clears_a_terminal_flag():
     # since doing so would have to clear the terminal quote_requested flag.
     c = seed_for(cs.REGISTRY[-1])
     assert v2.last_answered_step(c) is None
+
+
+def test_final_notes_sits_between_review_and_quote():
+    # After the design is confirmed at REVIEW_DESIGN, the next step is the
+    # colour-disclaimer/final-notes step, then the quote request.
+    c = _seed(name="Sam", intro_ack=True, has_logo=True,
+              pending_logo=None, logos_done=True, email_captured=True,
+              decor_done=True, quantity=12, decoration_done=True,
+              needed_by="2-4 weeks", purpose="team caps", design_confirmed=True)
+    assert v2.next_step(c).id is S.ASK_FINAL_NOTES
+    c["final_notes_done"] = True
+    assert v2.next_step(c).id is S.REQUEST_QUOTE
+
+
+def test_final_notes_done_is_not_interpreter_writable():
+    # The step must not be skippable by a hallucinated flag — final_notes_done
+    # is set only by apply/the chip, never by the interpreter.
+    assert "final_notes_done" not in cs.WRITABLE_SLOTS
+    assert "final_notes" in cs.WRITABLE_SLOTS
+
+
+def test_reply_for_renders_colour_note_verbatim():
+    step = cs.by_id(S.ASK_FINAL_NOTES)
+    out = v2.reply_for(step, {"name": "Sam"}, persona="Ricardo", intro="hi",
+                       colour_note="SCREEN COLOURS ARE A GUIDE")
+    assert out == "SCREEN COLOURS ARE A GUIDE"
 
 
 def test_no_config_can_reach_finalize_without_email():

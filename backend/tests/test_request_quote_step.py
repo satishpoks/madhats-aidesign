@@ -45,7 +45,8 @@ def test_request_quote_gates_finalize_until_requested():
     # an unused key is harmless if a step isn't present yet.)
     done = {"name": "Ann", "intro_ack": True, "logos_done": True, "decor_done": True,
             "quantity": 1, "decoration_done": True, "email_captured": True,
-            "needed_by": "ASAP", "purpose": "team", "design_confirmed": True}
+            "needed_by": "ASAP", "purpose": "team", "design_confirmed": True,
+            "final_notes_done": True}
     assert sm2.next_step(done).id is S.REQUEST_QUOTE
     done["quote_requested"] = True
     assert sm2.next_step(done).id is S.FINALIZE_CANVAS

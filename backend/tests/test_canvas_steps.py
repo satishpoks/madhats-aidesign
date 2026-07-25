@@ -19,6 +19,7 @@ def test_registry_declares_the_v2_flow_in_order():
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
         S.NEEDED_BY, S.ASK_PURPOSE, S.REVIEW_DESIGN, S.REWORK_CANVAS,
+        S.ASK_FINAL_NOTES,
         S.REQUEST_QUOTE,
         S.FINALIZE_CANVAS,
     ]
@@ -34,8 +35,11 @@ def test_chips_may_set_slots_plus_trusted_flags_the_llm_cannot():
     # flags beyond the interpreter's writable set. decor_done is writable by
     # BOTH now (a typed "no more" is just as valid an answer as the chip); only
     # quantity_unsure stays chip-only — it's an annotation ("Not sure" tapped),
-    # not something the model should ever infer from free text.
-    allowed = cs.WRITABLE_SLOTS | {"quantity_unsure"}
+    # not something the model should ever infer from free text. final_notes_done
+    # is chip-only too: it must not be interpreter-writable (see
+    # test_final_notes_done_is_not_interpreter_writable), but the "Nothing to
+    # add" chip we authored is allowed to set it directly.
+    allowed = cs.WRITABLE_SLOTS | {"quantity_unsure", "final_notes_done"}
     for step in cs.REGISTRY:
         for chip in step.chips:
             assert set(chip.fields) <= allowed, f"{step.id}: {chip.label}"
@@ -693,3 +697,20 @@ def test_a_defer_answer_still_satisfies_needed_by():
     fields = v2.resolve_chip(step, "Just exploring", {})
     assert fields == {"needed_by": "Just exploring"}
     assert step.done_when(fields)
+
+
+def test_apply_final_notes_appends_typed_note_to_brief():
+    from app.services.conversation import canvas_steps as cs
+    c = {}
+    cs._apply_final_notes(c, {"final_notes": "Pantone 186 C for the text"}, {})
+    assert c["final_notes_done"] is True
+    assert any("Pantone 186 C" in n for n in c["brief_notes"])
+
+
+def test_apply_final_notes_nothing_to_add_adds_no_brief_note():
+    from app.services.conversation import canvas_steps as cs
+    # The chip sets final_notes_done directly (merged before apply); apply sees
+    # no final_notes and must not append a brief note.
+    c = {"final_notes_done": True}
+    cs._apply_final_notes(c, {}, {})
+    assert "brief_notes" not in c
