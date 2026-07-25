@@ -98,6 +98,16 @@ def validate_brand(brand: dict) -> dict:
     intro = cleaned.get("canvas_intro")
     if intro is not None and (not isinstance(intro, str) or len(intro) > 600):
         raise ValueError("canvas_intro must be a string of at most 600 characters")
+    for key in ("colour_ref_embroidery_url", "colour_ref_print_url"):
+        val = cleaned.get(key)
+        if val in (None, ""):
+            cleaned.pop(key, None)
+            continue
+        if not isinstance(val, str):
+            raise ValueError(f"{key} must be a string URL")
+        parsed = urlparse(val)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError(f"{key} must be an http(s) URL")
     return cleaned
 
 
@@ -108,6 +118,22 @@ def canvas_intro_text(store: dict | None) -> str:
     if isinstance(text, str) and text.strip():
         return text.strip()
     return prompts.V2_DEFAULT_INTRO
+
+
+def colour_disclaimer_text(store: dict | None, name: str) -> str:
+    """The fully-rendered pre-quote colour disclaimer for the v2 canvas flow.
+
+    Rendered here (name + both URLs already substituted) rather than left with a
+    `{name}` placeholder, because reply_for runs a SINGLE str.format pass and
+    would not expand a placeholder nested inside a substituted value.
+    """
+    brand = (store or {}).get("brand") or {}
+    embroidery = (brand.get("colour_ref_embroidery_url")
+                  or prompts.V2_DEFAULT_COLOUR_EMBROIDERY_URL)
+    print_url = (brand.get("colour_ref_print_url")
+                 or prompts.V2_DEFAULT_COLOUR_PRINT_URL)
+    return prompts.V2_COLOUR_DISCLAIMER.format(
+        name=name, embroidery_url=embroidery, print_url=print_url)
 
 
 def public_brand(brand: dict | None, base_url: str) -> dict:
