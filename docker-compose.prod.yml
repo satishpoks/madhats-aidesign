@@ -40,10 +40,14 @@ services:
     build: ./backend
     restart: unless-stopped
     environment:
-      # Safe ONLY because this service publishes no ports (see above): the Caddy
-      # container is the only thing that can reach 8000, so X-Forwarded-For
-      # cannot be spoofed. Re-add a `ports:` mapping and this becomes a
-      # rate-limit bypass — anyone could rotate the header for a fresh bucket.
+      # Safe ONLY because this service publishes no ports (see above): no
+      # external caller can reach 8000 — only containers on this compose
+      # network can, and Caddy overwrites X-Forwarded-For on the way through.
+      # (Note `watchdog` also calls backend:8000 directly; it sends no
+      # X-Forwarded-For, so it is unaffected. The boundary is "nothing off this
+      # network", not "only Caddy".)
+      # Re-add a `ports:` mapping and this line becomes a rate-limit bypass —
+      # a direct caller could rotate the header for a fresh bucket per request.
       TRUSTED_PROXY_HOSTS: "*"
     env_file: .env
     # host.docker.internal is available if SUPABASE_URL points at a Supabase
