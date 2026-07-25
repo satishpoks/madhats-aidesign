@@ -394,7 +394,7 @@ export function ChatColumn() {
             Online
           </p>
         </div>
-        {progress && progress.step < progress.total && (
+        {progress && !progress.sections && progress.step < progress.total && (
           <span className="ml-auto text-xs font-medium text-textMuted">
             Step {progress.step} of {progress.total}
           </span>
