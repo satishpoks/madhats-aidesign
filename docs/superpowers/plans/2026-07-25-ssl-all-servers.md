@@ -117,7 +117,21 @@ def test_two_clients_behind_the_proxy_get_distinct_keys():
     assert a["ip"] != b["ip"]
 
 
-def test_trusted_proxy_hosts_defaults_to_wildcard():
+def test_default_trusts_no_proxy():
+    """Fail SAFE. Trusting a forwarded header from an untrusted caller is worse
+    than the bug this fixes: anyone reaching the port directly could rotate
+    X-Forwarded-For for a fresh rate-limit bucket per request. The deployment
+    that closes the port is the deployment that opts in (docker-compose.prod.yml)."""
+    assert Settings().trusted_proxy_hosts == ""
+    assert Settings().trusted_proxy_hosts_value == []
+
+
+def test_untrusted_forwarded_header_is_ignored():
+    resp = TestClient(_app(trusted=[])).get("/whoami", headers=FORWARDED)
+    assert resp.json()["ip"] == "testclient"
+
+
+def test_wildcard_is_honoured_when_explicitly_configured():
     assert Settings(trusted_proxy_hosts="*").trusted_proxy_hosts_value == "*"
 
 
@@ -152,10 +166,15 @@ In `backend/app/config.py`, immediately after the `allowed_origins` block (curre
 
 ```python
     # Hosts whose X-Forwarded-* headers are trusted, for ProxyHeadersMiddleware.
-    # "*" is correct while the backend port is NOT published to the host — only
-    # the Caddy container can reach it, so the headers cannot be spoofed. If you
-    # ever re-publish 8000 to the host, tighten this to the proxy's IP.
-    trusted_proxy_hosts: str = "*"
+    #
+    # Defaults to trusting NOTHING, deliberately. Honouring X-Forwarded-For from
+    # an untrusted caller is worse than the bucket-collapse it prevents: anyone
+    # who can reach this port directly could rotate the header for a fresh
+    # rate-limit bucket per request. Only a deployment that puts a proxy in front
+    # AND stops publishing the port may opt in — docker-compose.prod.yml sets
+    # "*" immediately beside the removed port mapping, so the trust and its
+    # justification live on the same screen.
+    trusted_proxy_hosts: str = ""
 ```
 
 And with the other properties, after `allow_all_origins` (currently ends line 91):
@@ -343,7 +362,20 @@ and these two from `frontend` (currently lines 52-53):
       - "5173:5173" 
 ```
 
-This is load-bearing, not tidiness: if `8000:8000` survives, `http://madhats.getaiconsult.com.au:8000` keeps serving the whole API in cleartext and the TLS in front of it is decorative. It is also what makes `TRUSTED_PROXY_HOSTS=*` safe in Task 1 — with the port unpublished, only Caddy can reach it, so `X-Forwarded-For` cannot be spoofed.
+This is load-bearing, not tidiness: if `8000:8000` survives, `http://madhats.getaiconsult.com.au:8000` keeps serving the whole API in cleartext and the TLS in front of it is decorative.
+
+**In the same edit**, add the proxy-trust opt-in to the `backend` service, so the trust and the port closure that justifies it sit together:
+
+```yaml
+    environment:
+      # Safe ONLY because this service publishes no ports (see above): the Caddy
+      # container is the only thing that can reach 8000, so X-Forwarded-For
+      # cannot be spoofed. Re-add a `ports:` mapping and this becomes a
+      # rate-limit bypass — anyone could rotate the header for a fresh bucket.
+      TRUSTED_PROXY_HOSTS: "*"
+```
+
+Without this line the backend trusts no proxy (Task 1 defaults it to empty), so `request.client.host` stays Caddy's container IP and every customer shares one rate-limit bucket.
 
 Both services remain reachable from Caddy over the compose network by service name; no `expose:` is needed (Docker Compose networks allow all inter-service ports by default).
 
@@ -476,7 +508,17 @@ volumes:
   caddy_config:
 ```
 
-**Unlike prod, dev KEEPS the `backend`/`frontend` port mappings** (`8000:8000`, `5173:5173`) so `http://localhost:5173` still works for a quick check without the proxy. The trade-off: with a port published, `X-Forwarded-For` is spoofable by anything on the host. That is acceptable in dev and unacceptable in prod, which is why prod drops them.
+**Unlike prod, dev KEEPS the `backend`/`frontend` port mappings** (`8000:8000`, `5173:5173`) so `http://localhost:5173` still works for a quick check without the proxy.
+
+Add the proxy-trust opt-in to the dev `backend` service too, in its existing `environment:` block (after the `SUPABASE_URL` entry), so dev exercises the same client-IP path as prod:
+
+```yaml
+      # Dev opts in so the proxied path matches prod. Unlike prod, dev still
+      # publishes 8000, so anything on this host CAN spoof X-Forwarded-For and
+      # hand itself a fresh rate-limit bucket. Accepted: dev is not a threat
+      # model, and the alternative is dev not exercising the prod code path.
+      TRUSTED_PROXY_HOSTS: ${TRUSTED_PROXY_HOSTS:-*}
+```
 
 - [ ] **Step 4: Teach Vite about the TLS proxy**
 
@@ -649,10 +691,13 @@ ACME_EMAIL=
 
 # Hosts whose X-Forwarded-* headers the backend trusts, for client-IP recovery.
 # Rate limiting keys on the client IP, so if this is wrong every customer shares
-# one bucket. "*" is correct while the backend port is NOT published to the host
-# (docker-compose.prod.yml) — only Caddy can reach it, so the header cannot be
-# spoofed. Tighten to the proxy IP if you ever re-publish port 8000.
-TRUSTED_PROXY_HOSTS=*
+# one bucket -- and if it is too permissive, anyone who can reach the port
+# directly can rotate the header for a fresh bucket per request.
+#
+# LEAVE THIS BLANK. Both compose files set it themselves, next to the port
+# mapping that justifies it. Only set it here if you run the backend outside
+# compose behind your own proxy, and then name that proxy's IP rather than "*".
+TRUSTED_PROXY_HOSTS=
 
 # Hostname the dev Caddy serves, so Vite points HMR at wss://<host>:443.
 # Leave blank to use the plain-HTTP dev server on http://localhost:5173.
@@ -679,8 +724,9 @@ git pull
 #   STUDIO_BASE_URL=https://madhats.getaiconsult.com.au
 #   VITE_STORE_KEY=mh_pk_madhats_local
 #   ALLOWED_ORIGINS=*                    # still open; tightening is a separate change
-#   TRUSTED_PROXY_HOSTS=*                # safe: backend port is not published
 #   ACME_EMAIL=ops@example.com
+#   (TRUSTED_PROXY_HOSTS is set by docker-compose.prod.yml itself — leave it
+#    blank in .env, so the trust stays coupled to the removed port mapping)
 #   (+ SUPABASE_URL/keys, ADMIN_SECRET, provider keys …)
 docker compose down
 docker compose -f docker-compose.prod.yml up -d --build
@@ -705,10 +751,13 @@ Add these entries:
 - **Everyone gets 429s under mild load** → `TRUSTED_PROXY_HOSTS` is not reaching
   the backend, so `request.client.host` is Caddy's container IP and all
   customers share one rate-limit bucket. Check `docker compose exec backend env
-  | grep TRUSTED`.
+  | grep TRUSTED`. The code default is empty (trust nothing) — the compose file
+  is what opts in.
 - **Re-adding `ports:` to backend or frontend in prod** re-exposes them in
-  cleartext, bypassing TLS entirely, and makes `X-Forwarded-For` spoofable.
-  Caddy is meant to be the only port-publishing service.
+  cleartext, bypassing TLS entirely — AND turns the `TRUSTED_PROXY_HOSTS: "*"`
+  on that same service into a rate-limit bypass, since a direct caller could
+  then rotate `X-Forwarded-For` for a fresh bucket per request. The two lines
+  are deliberately adjacent; never re-add one without removing the other.
 - **Mixed-content errors after deploy** → the frontend was recreated but not
   rebuilt, so the old `http://` API URL is still compiled into the bundle.
   `up -d --build frontend`.
