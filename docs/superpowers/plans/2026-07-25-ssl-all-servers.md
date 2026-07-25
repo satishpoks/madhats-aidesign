@@ -819,6 +819,22 @@ published in dev for quick checks). The internal CA must be trusted once —
 see docs/superpowers/plans/2026-07-25-ssl-all-servers.md Task 3 Step 8.
 ```
 
+- [ ] **Step 4b: Correct three facts this work proved stale or missing**
+
+These were discovered during implementation, not planned for. Each is a documentation-only change to CLAUDE.md.
+
+1. **The test baseline is wrong.** CLAUDE.md §13 states "backend `pytest` 954 passing". The actual baseline on `master` is **994**, verified during Task 1 by stashing the change and re-running (no test flipped status). With this branch's 9 new tests it is **1003**. Update the figure and keep the existing `CANVAS_ORCHESTRATOR_V2=false` caveat, which is still correct.
+
+2. **Git Bash mangles `docker run` volume paths.** Validating a Caddyfile needs `MSYS_NO_PATHCONV=1`, or MSYS rewrites the container-side path and the mount silently lands somewhere wrong. Add to the §13c gotchas:
+
+```markdown
+- **`docker run -v` fails or mounts the wrong path on Windows/Git Bash** → prefix
+  with `MSYS_NO_PATHCONV=1`, e.g.
+  `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile`
+```
+
+3. **Clicking through the browser warning is not a substitute for trusting the CA.** A per-origin certificate exception does not extend to subresource origins, so accepting `https://localhost` still leaves every API call to `https://api.localhost` failing. Say so wherever the dev CA trust step is referenced, so the first-run experience isn't mistaken for a broken backend.
+
 - [ ] **Step 5: Verify no stale HTTP references remain**
 
 ```bash
