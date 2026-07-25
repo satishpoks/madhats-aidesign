@@ -15,12 +15,16 @@
 #
 # Required in the project-root .env:
 #   VITE_API_BASE_URL   public backend URL the BROWSER calls, e.g.
-#                       http://madhats.getaiconsult.com.au:8000   (baked at build)
+#                       https://api.madhats.getaiconsult.com.au   (baked at build)
 #   VITE_STORE_KEY      e.g. mh_pk_madhats_local
 #   ALLOWED_ORIGINS     backend CORS. Defaults to "*" (any origin, reflected —
 #                       kept open for now). Set a comma-separated list to lock
 #                       down; it MUST then include the frontend origin, e.g.
-#                       http://madhats.getaiconsult.com.au:5173
+#                       https://madhats.getaiconsult.com.au
+#   ACME_EMAIL          REQUIRED — Caddy's `email` directive rejects a blank
+#                       value at parse time, so an empty ACME_EMAIL stops the
+#                       proxy booting. This file enforces it with
+#                       `${ACME_EMAIL:?...}` on the caddy service below.
 #
 # NOTE: the backend here runs the BUILT image (no source bind-mount), so a CORS
 # *code* change needs a rebuild, not just recreate:

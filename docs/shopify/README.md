@@ -30,7 +30,18 @@ Studio for **the product the customer is viewing**, in a new tab.
 2. **The Studio deployment is built for this store** — its `VITE_STORE_KEY` is
    the store's publishable key. The button carries no store key; the frontend
    already knows which store it is. (One Studio deployment per store.)
-3. You know the **Studio host URL** (e.g. `http://madhats.getaiconsult.com.au:5173`).
+3. You know the **Studio host URL** (e.g. `https://madhats.getaiconsult.com.au`
+   — no port; TLS is terminated by Caddy in front of the Studio).
+
+> **If the live storefront button still links to the old**
+> `http://madhats.getaiconsult.com.au:5173/...` **URL, it must be repointed to
+> the `https://` URL above.** The old link keeps working *only* for as long as
+> the temporary legacy-redirect blocks in `caddy/Caddyfile.prod` stay in place
+> (kept solely so already-delivered email links don't dead-end). Those blocks
+> are scheduled for removal once outstanding quote/verification tokens expire
+> (see `docs/superpowers/plans/2026-07-25-ssl-all-servers.md`, "Cleanup"). This
+> is not optional — once the redirect blocks are removed, an un-repointed
+> button 404s for every customer who clicks it.
 
 ## Install (recommended — Liquid snippet)
 
@@ -58,7 +69,7 @@ email, a hard-coded link for a single product), use a static link. You must fill
 in the product's numeric Shopify id yourself:
 
 ```html
-<a href="http://madhats.getaiconsult.com.au:5173/?product_id=8123456789&source=shopify"
+<a href="https://madhats.getaiconsult.com.au/?product_id=8123456789&source=shopify"
    target="_blank" rel="noopener"
    style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;
           border-radius:8px;background:#111827;color:#fff;font-weight:600;
@@ -69,6 +80,10 @@ in the product's numeric Shopify id yourself:
 
 Find a product's numeric id in the Shopify admin URL
 (`…/products/8123456789`) or via `{{ product.id }}` in a theme.
+
+**Already pasted the old `:5173` link somewhere?** See the note under
+Prerequisites above — repoint it before the legacy redirect is removed, or the
+button 404s.
 
 ## Testing it
 

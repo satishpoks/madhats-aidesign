@@ -568,10 +568,16 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 
 ## 13c. Deployment — Production
 
-> Prod runs on a self-hosted box (Docker), **not** Railway. Backend + frontend
-> are containers on the same public IP, different ports (backend `:8000`,
-> frontend `:5173`), reached via `http://madhats.getaiconsult.com.au:<port>`
-> (plain HTTP). Supabase is the hosted project (URL/keys in `.env`).
+> Prod runs on a self-hosted box (Docker), **not** Railway. Caddy is the only
+> service publishing ports; it terminates TLS and reverse-proxies by hostname
+> to the backend and frontend containers over the internal compose network —
+> frontend at `https://madhats.getaiconsult.com.au`, backend at
+> `https://api.madhats.getaiconsult.com.au`. Plain-HTTP `:8000`/`:5173` still
+> answer, but only as temporary 301 redirects to the HTTPS hosts (see the
+> "Legacy plain-HTTP ports" block in `caddy/Caddyfile.prod`) — kept solely so
+> already-delivered signed email links (verification, quote) don't dead-end,
+> and slated for removal once those tokens expire. Supabase is the hosted
+> project (URL/keys in `.env`).
 
 **Golden rule — the frontend API URL is a BUILD-TIME value.** Vite inlines every
 `VITE_*` var into the JS bundle when it builds; a hosted frontend never reads a

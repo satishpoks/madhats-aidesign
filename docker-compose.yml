@@ -35,12 +35,13 @@ services:
     environment:
       # Vite bakes this into the bundle at container start. The BROWSER (on the
       # host / public internet) must be able to reach the backend at this URL.
-      #  - Local dev: defaults to localhost:8000. To reach the dev stack from
-      #    another device (e.g. over Tailscale), set VITE_API_BASE_URL in your
-      #    shell or the project-root .env, e.g. http://100.103.149.17:8000.
-      #  - Server: set VITE_API_BASE_URL in the project-root .env to the PUBLIC
-      #    backend URL, e.g. http://madhats.getaiconsult.com.au:8000, then
-      #    `docker compose up -d --force-recreate frontend`.
+      #  - Local dev: defaults to https://api.localhost (the dev Caddy TLS
+      #    proxy). To reach the dev stack from another device (e.g. over
+      #    Tailscale), set VITE_API_BASE_URL in your shell or the project-root
+      #    .env, e.g. http://100.103.149.17:8000.
+      #  - Server: this compose file is dev-only; production uses
+      #    docker-compose.prod.yml, whose header documents the equivalent
+      #    HTTPS values (e.g. https://api.madhats.getaiconsult.com.au).
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.localhost}
       VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
