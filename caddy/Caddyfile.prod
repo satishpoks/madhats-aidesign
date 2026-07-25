@@ -9,7 +9,14 @@
 # per week will lock us out of our own domain.
 
 {
-	# Expiry-notice address. Blank is valid (no notices), see .env ACME_EMAIL.
+	# Address Let's Encrypt uses for certificate-expiry notices.
+	#
+	# REQUIRED, and enforced by docker-compose.prod.yml's `${ACME_EMAIL:?...}`.
+	# Caddy's `email` directive rejects an empty argument at PARSE time
+	# ("wrong argument count"), so a blank value does not degrade to "no
+	# notices" — it stops the proxy from starting at all, taking the whole
+	# site down on a fresh deploy. Compose therefore refuses to start with a
+	# clear message rather than letting Caddy fail cryptically.
 	email {$ACME_EMAIL}
 }
 

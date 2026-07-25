@@ -75,7 +75,10 @@ services:
       - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d
       - "5173:5173" # legacy redirect only — see Caddyfile.prod, remove after 30d
     environment:
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # `:?` makes compose refuse to start with this message when the value is
+      # missing. Required because Caddy's `email` directive rejects a blank
+      # argument at parse time — a silent default would take the site down.
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env - Caddy needs it for Let us Encrypt expiry notices}
     volumes:
       - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # MANDATORY: issued certs live here
