@@ -282,12 +282,28 @@ Create `caddy/Caddyfile.prod`:
 	email {$ACME_EMAIL}
 }
 
+# `header_up X-Forwarded-For {remote_host}` REPLACES any client-supplied value
+# with the real peer address, rather than letting one through.
+#
+# This is load-bearing for rate limiting, not decoration. uvicorn's
+# ProxyHeadersMiddleware trusts the LEFTMOST X-Forwarded-For entry (verified:
+# "9.9.9.9, 203.0.113.50" resolves to 9.9.9.9). So if a client-supplied value
+# ever survived to the backend, an attacker could hand themselves a fresh
+# rate-limit bucket per request through the public HTTPS endpoint — the closed
+# port 8000 would not help. Caddy 2.8 already discards unsolicited
+# X-Forwarded-For (verified empirically), but that is a Caddy default our repo
+# never states; this line pins the invariant where it can be read and reviewed.
+
 madhats.getaiconsult.com.au {
-	reverse_proxy frontend:5173
+	reverse_proxy frontend:5173 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }
 
 api.madhats.getaiconsult.com.au {
-	reverse_proxy backend:8000
+	reverse_proxy backend:8000 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }
 
 # --- Legacy plain-HTTP ports: redirect-only, temporary ------------------------
@@ -378,10 +394,14 @@ This is load-bearing, not tidiness: if `8000:8000` survives, `http://madhats.get
 
 ```yaml
     environment:
-      # Safe ONLY because this service publishes no ports (see above): the Caddy
-      # container is the only thing that can reach 8000, so X-Forwarded-For
-      # cannot be spoofed. Re-add a `ports:` mapping and this becomes a
-      # rate-limit bypass — anyone could rotate the header for a fresh bucket.
+      # Safe ONLY because this service publishes no ports (see above): no
+      # external caller can reach 8000 — only containers on this compose
+      # network can, and Caddy overwrites X-Forwarded-For on the way through.
+      # (Note `watchdog` also calls backend:8000 directly; it sends no
+      # X-Forwarded-For, so it is unaffected. The boundary is "nothing off this
+      # network", not "only Caddy".)
+      # Re-add a `ports:` mapping and this line becomes a rate-limit bypass —
+      # a direct caller could rotate the header for a fresh bucket per request.
       TRUSTED_PROXY_HOSTS: "*"
 ```
 
@@ -466,12 +486,19 @@ Create `caddy/Caddyfile.dev`:
 	local_certs
 }
 
+# header_up matches Caddyfile.prod — see the explanation there. Kept identical
+# so dev exercises the same forwarded-header path production depends on.
+
 localhost {
-	reverse_proxy frontend:5173
+	reverse_proxy frontend:5173 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }
 
 api.localhost {
-	reverse_proxy backend:8000
+	reverse_proxy backend:8000 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }
 ```
 
