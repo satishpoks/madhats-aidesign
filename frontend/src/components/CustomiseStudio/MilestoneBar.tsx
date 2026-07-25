@@ -29,6 +29,7 @@ export function MilestoneBar() {
               key={label}
               data-testid={`milestone-${label}`}
               data-state={state}
+              aria-current={state === 'current' ? 'step' : undefined}
               className="relative flex flex-1 flex-col items-center min-w-0"
             >
               {/* Connector track to the NEXT dot; filled if this dot is done. */}

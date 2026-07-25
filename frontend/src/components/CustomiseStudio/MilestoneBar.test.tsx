@@ -38,6 +38,14 @@ test('marks earlier sections complete, the current one active, later ones upcomi
   expect(screen.getByTestId('milestone-Quote request')).toHaveAttribute('data-state', 'upcoming')
 })
 
+test('sets aria-current="step" on the active milestone only', () => {
+  useChatStore.setState({ progress: { step: 5, total: 8, sections: SECTIONS, section: 2 } })
+  render(<MilestoneBar />)
+  expect(screen.getByTestId('milestone-Text & Graphics')).toHaveAttribute('aria-current', 'step')
+  expect(screen.getByTestId('milestone-Intro')).not.toHaveAttribute('aria-current')
+  expect(screen.getByTestId('milestone-Review')).not.toHaveAttribute('aria-current')
+})
+
 test('marks every section complete once section index is past the last (section == length)', () => {
   useChatStore.setState({ progress: { step: 8, total: 8, sections: SECTIONS, section: 5 } })
   render(<MilestoneBar />)
