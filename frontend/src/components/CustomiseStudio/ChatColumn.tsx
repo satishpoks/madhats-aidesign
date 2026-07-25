@@ -284,6 +284,11 @@ export function ChatColumn() {
     if (chatState !== 'upload_logo') setLogoModalDismissed(false)
   }, [chatState])
 
+  // Reset the mid-element Back confirm whenever the step changes, so a confirm
+  // left open (e.g. the customer tapped a chip instead of answering it) can't
+  // re-appear unbidden on a later element-adjust step.
+  useEffect(() => { setConfirmingBack(false) }, [chatState])
+
   // Canvas sessions run the intro Q&A in this column, so kick off the greeting
   // on mount. Resumed sessions hydrate with kickoffDone=true and are skipped.
   useEffect(() => {

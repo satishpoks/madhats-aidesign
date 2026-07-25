@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 
 vi.mock('../lib/api', () => ({
   sendChat: vi.fn().mockResolvedValue({ reply: 'ok', state: 'ask_name', data: {} }),
@@ -132,5 +132,24 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     fireEvent.click(screen.getByText('↩ Back'))
     expect(goBack).toHaveBeenCalledTimes(1) // no confirm step
+  })
+
+  it('resets an open Back confirm when the chat state changes, so it cannot reappear unbidden later', async () => {
+    const goBack = vi.fn()
+    useChatStore.setState({
+      canGoBack: true, backRemovesElement: true, sending: false, kickoffDone: true, goBack,
+      chatState: 'ask_logo_bg',
+    })
+    render(<ChatColumn />)
+
+    fireEvent.click(screen.getByText('↩ Back'))
+    expect(screen.getByText(/start it over/i)).toBeInTheDocument()
+
+    // Advance the step without answering the confirm (e.g. the customer tapped
+    // a still-visible chip instead). The confirm must not survive the step change.
+    act(() => { useChatStore.setState({ chatState: 'logo_adjust' }) })
+
+    expect(screen.queryByText(/start it over/i)).not.toBeInTheDocument()
+    expect(screen.getByText('↩ Back')).toBeInTheDocument()
   })
 })
