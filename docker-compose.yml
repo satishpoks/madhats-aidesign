@@ -12,6 +12,11 @@ services:
       # MUST belong to whichever project this URL points at, or PostgREST rejects
       # the JWT (PGRST301 "no suitable key").
       SUPABASE_URL: ${SUPABASE_URL:-http://host.docker.internal:54321}
+      # Dev opts in so the proxied path matches prod. Unlike prod, dev still
+      # publishes 8000, so anything on this host CAN spoof X-Forwarded-For and
+      # hand itself a fresh rate-limit bucket. Accepted: dev is not a threat
+      # model, and the alternative is dev not exercising the prod code path.
+      TRUSTED_PROXY_HOSTS: ${TRUSTED_PROXY_HOSTS:-*}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -36,11 +41,13 @@ services:
       #  - Server: set VITE_API_BASE_URL in the project-root .env to the PUBLIC
       #    backend URL, e.g. http://madhats.getaiconsult.com.au:8000, then
       #    `docker compose up -d --force-recreate frontend`.
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://111.118.194.148:8000}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.localhost}
       VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
       TAILSCALE_HOST: ${TAILSCALE_HOST:-}
+      # Hostname served by the Caddy TLS proxy; points Vite HMR at wss://<host>:443.
+      TLS_PROXY_HOST: ${TLS_PROXY_HOST:-}
       # Extra hostnames the Vite dev server accepts (comma-separated) when the
       # stack is fronted by a public domain, e.g.
       # ALLOWED_HOSTS=madhats.getaiconsult.com.au. Relaxes the host check only.
@@ -53,6 +60,24 @@ services:
       - /app/node_modules        # keep the container's Linux deps (don't shadow with host)
     depends_on:
       - backend
+
+  # TLS termination for dev, using Caddy's internal CA. Mirrors the prod stack
+  # so proxy/routing bugs surface here first.
+  #   https://localhost      -> frontend
+  #   https://api.localhost  -> backend
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile.dev:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
 
   # Periodically triggers the generation watchdog (reap stalled renders) and the
   # delivery backfill (retry undelivered previews) — both are admin self-heal
@@ -76,3 +101,7 @@ services:
         http://backend:8000/admin/deliveries/backfill > /dev/null 2>&1 || true;
         sleep 180;
         done
+
+volumes:
+  caddy_data:
+  caddy_config:

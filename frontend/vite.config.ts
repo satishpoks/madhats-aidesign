@@ -10,6 +10,15 @@ import react from '@vitejs/plugin-react'
 // Leave it unset for the normal localhost/docker flow.
 const tailscaleHost = process.env.TAILSCALE_HOST
 
+// When the dev stack is fronted by the Caddy TLS proxy (docker-compose.yml),
+// set TLS_PROXY_HOST to the hostname it serves — normally `localhost`. Vite
+// then points HMR at wss://<host>:443 so the socket goes through the proxy
+// instead of trying ws://localhost:5173 from an HTTPS page (which browsers
+// block as mixed content). Leave unset to use the plain-HTTP dev server.
+// NB: named TLS_PROXY_HOST, not HTTPS_PROXY_HOST, so no HTTP client library
+// mistakes it for outbound proxy configuration.
+const tlsProxyHost = process.env.TLS_PROXY_HOST
+
 // Which hostnames the dev server accepts in its Host-header check, via the
 // ALLOWED_HOSTS env var (relaxes only the host check; does NOT touch HMR):
 //   ALLOWED_HOSTS=*                              → accept ANY host (use when the
@@ -23,6 +32,7 @@ const rawAllowedHosts = (process.env.ALLOWED_HOSTS ?? '').trim()
 const allowAnyHost = ['*', 'all', 'true'].includes(rawAllowedHosts.toLowerCase())
 const explicitHosts = [
   ...(tailscaleHost ? [tailscaleHost] : []),
+  ...(tlsProxyHost ? [tlsProxyHost] : []),
   ...rawAllowedHosts.split(',').map((h) => h.trim()).filter((h) => h && h !== '*'),
 ]
 
@@ -45,10 +55,14 @@ export default defineConfig({
     port: 5173,
     host: true,
     ...(allowedHosts !== undefined ? { allowedHosts } : {}),
-    // HMR over the Tailscale HTTPS proxy only applies when TAILSCALE_HOST is set.
+    // HMR must travel back through whichever HTTPS front-end is in play.
+    // Tailscale takes precedence: if both are set, the tailnet hostname is the
+    // one the browser actually loaded.
     ...(tailscaleHost
       ? { hmr: { host: tailscaleHost, protocol: 'wss', clientPort: 443 } }
-      : {}),
+      : tlsProxyHost
+        ? { hmr: { host: tlsProxyHost, protocol: 'wss', clientPort: 443 } }
+        : {}),
   },
   test: {
     environment: 'jsdom',

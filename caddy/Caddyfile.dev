@@ -1,0 +1,29 @@
+# Dev TLS termination, mirroring Caddyfile.prod so proxy/routing bugs surface
+# locally instead of in production.
+#
+# `local_certs` forces Caddy's INTERNAL CA for every site. This is deliberately
+# a global option rather than a per-site `tls internal`: it makes it impossible
+# for this file to contact Let's Encrypt even if a real hostname is added to it
+# by mistake, which would otherwise burn ACME rate limits against the live domain.
+#
+# *.localhost resolves to 127.0.0.1 natively in Chrome and Firefox — no hosts
+# file edit is needed.
+
+{
+	local_certs
+}
+
+# header_up matches Caddyfile.prod — see the explanation there. Kept identical
+# so dev exercises the same forwarded-header path production depends on.
+
+localhost {
+	reverse_proxy frontend:5173 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+api.localhost {
+	reverse_proxy backend:8000 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
