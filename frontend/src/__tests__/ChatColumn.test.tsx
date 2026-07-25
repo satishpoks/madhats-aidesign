@@ -104,4 +104,33 @@ describe('ChatColumn', () => {
     fireEvent.click(cont)
     await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', undefined))
   })
+
+  it('Back shows a confirm and only removes on confirm when backRemovesElement', async () => {
+    const goBack = vi.fn()
+    useChatStore.setState({
+      canGoBack: true, backRemovesElement: true, sending: false, kickoffDone: true, goBack,
+    })
+    render(<ChatColumn />)
+
+    fireEvent.click(screen.getByText('↩ Back'))
+    expect(goBack).not.toHaveBeenCalled() // confirm first, no immediate back
+    expect(screen.getByText(/start it over/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Keep going'))
+    expect(goBack).not.toHaveBeenCalled() // declined
+
+    fireEvent.click(screen.getByText('↩ Back'))
+    fireEvent.click(screen.getByText('Remove & start over'))
+    expect(goBack).toHaveBeenCalledTimes(1)
+  })
+
+  it('Back goes straight through when backRemovesElement is false', async () => {
+    const goBack = vi.fn()
+    useChatStore.setState({
+      canGoBack: true, backRemovesElement: false, sending: false, kickoffDone: true, goBack,
+    })
+    render(<ChatColumn />)
+    fireEvent.click(screen.getByText('↩ Back'))
+    expect(goBack).toHaveBeenCalledTimes(1) // no confirm step
+  })
 })

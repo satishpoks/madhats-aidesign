@@ -173,6 +173,8 @@ export function ChatColumn() {
   const sendMessage = useChatStore(s => s.sendMessage)
   const canGoBack = useChatStore(s => s.canGoBack)
   const goBack = useChatStore(s => s.goBack)
+  const backRemovesElement = useChatStore(s => s.backRemovesElement)
+  const [confirmingBack, setConfirmingBack] = useState(false)
   const pollVerification = useChatStore(s => s.pollVerification)
   const advanceRegeneration = useChatStore(s => s.advanceRegeneration)
   const advanceGeneration = useChatStore(s => s.advanceGeneration)
@@ -630,12 +632,30 @@ export function ChatColumn() {
             it. Hidden when there's nothing to undo (backend-driven) or while
             a send is in flight. */}
         {sessionId && canGoBack && !sending && (
-          <button
-            onClick={() => void goBack(sessionId)}
-            className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
-          >
-            ↩ Back
-          </button>
+          confirmingBack && backRemovesElement ? (
+            <div className="self-start flex flex-wrap items-center gap-2 text-xs text-textMuted">
+              <span>Remove this element and start it over?</span>
+              <button
+                onClick={() => { setConfirmingBack(false); void goBack(sessionId) }}
+                className="text-accent hover:underline underline-offset-2"
+              >
+                Remove &amp; start over
+              </button>
+              <button
+                onClick={() => setConfirmingBack(false)}
+                className="hover:underline underline-offset-2"
+              >
+                Keep going
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => (backRemovesElement ? setConfirmingBack(true) : void goBack(sessionId))}
+              className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
+            >
+              ↩ Back
+            </button>
+          )
         )}
 
         {/* Option chip rows */}

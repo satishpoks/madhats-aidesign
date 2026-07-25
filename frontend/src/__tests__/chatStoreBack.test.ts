@@ -48,3 +48,12 @@ test('goBack is a no-op while a send is already in flight', async () => {
   await useChatStore.getState().goBack('sess-1')
   expect(sendBack).not.toHaveBeenCalled()
 })
+
+test('applyResponse sets backRemovesElement from data.back_removes_element', () => {
+  useChatStore.getState().applyResponse('r', 'ask_logo_bg',
+    { can_go_back: true, back_removes_element: true })
+  expect(useChatStore.getState().backRemovesElement).toBe(true)
+
+  useChatStore.getState().applyResponse('r', 'ask_quantity', { can_go_back: true })
+  expect(useChatStore.getState().backRemovesElement).toBe(false)
+})

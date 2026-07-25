@@ -54,6 +54,10 @@ interface ChatStoreState {
   /** v2 canvas correction: whether there's a previous answer to undo (drives
    *  the "↩ Back" control). */
   canGoBack: boolean
+  /** v2 canvas: whether Back at the current step removes the in-progress
+   *  element (and re-asks it) rather than rewinding one slot — drives the
+   *  "remove & restart?" confirm in ChatColumn. */
+  backRemovesElement: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -110,7 +114,8 @@ function parseData(data: Record<string, unknown>) {
     : null
   const triggerFinalize = data.trigger_finalize === true
   const canGoBack = data.can_go_back === true
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack }
+  const backRemovesElement = data.back_removes_element === true
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack, backRemovesElement }
 }
 
 function uid(): string {
@@ -139,6 +144,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   canvasDirective: null,
   triggerFinalize: false,
   canGoBack: false,
+  backRemovesElement: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -335,5 +341,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       canvasDirective: null,
       triggerFinalize: false,
       canGoBack: false,
+      backRemovesElement: false,
     }),
 }))
