@@ -245,10 +245,18 @@ Each subagent should:
 
 > **How this dev runs the stack:** **both** `backend` and `frontend` run in Docker
 > via `docker compose up` (see `docker-compose.yml`) — NOT bare `uvicorn`/`npm run
-> dev` on the host. Backend → `http://localhost:8000`, frontend (Vite dev + HMR) →
-> `http://localhost:5173`. Supabase runs on the **host** via `npx supabase start`;
-> the backend container reaches it at `host.docker.internal:54321`.
+> dev` on the host. Backend → https://api.localhost, frontend → https://localhost
+> (both via the Caddy TLS proxy; the plain http://localhost:8000 / :5173 ports
+> are still published in dev for quick checks). The internal CA must be trusted
+> once — see docs/superpowers/plans/2026-07-25-ssl-all-servers.md Task 3 Step 8.
+> Supabase runs on the **host** via `npx supabase start`; the backend container
+> reaches it at `host.docker.internal:54321`.
 >
+> - **Clicking through the browser warning is not a substitute for Step 8.** A
+>   per-origin certificate exception does not extend to subresource origins, so
+>   accepting the warning on `https://localhost` still leaves every API call to
+>   `https://api.localhost` failing. If the studio loads but every request
+>   errors, you likely skipped trusting the CA rather than broken the backend.
 > - **`.env` changes** (backend): read only at container start. A running `--reload`
 >   worker does NOT pick up new env vars — recreate: `docker compose up -d
 >   --force-recreate backend` (or down/up).
@@ -536,7 +544,7 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   choke-point guard neutralises the whole class regardless. Regression tests:
   `test_orchestrator_v2.py::test_empty_turn_is_a_noop_and_never_reaches_the_interpreter`
   (backend), `chatStore.test.ts` "blank-turn guard" (frontend).
-- Tests: backend `pytest` 954 passing (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- Tests: backend `pytest` 1003 passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline on `master` is 994 (9 new tests since — verified during the TLS-for-all-servers work by stashing the change and re-running, confirming no test flipped status, so the earlier "954" figure recorded here was simply stale). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
@@ -580,19 +588,29 @@ stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked i
 | API URL | runtime env, re-bakeable on restart | **compiled in** — rebuild to change |
 | Backend | `uvicorn --reload` + source bind-mount | image CMD (no reload), no mount |
 
-**Recommended prod deploy (static build, one command):**
+**Prod deploy (static build + Caddy TLS):**
 ```bash
 git pull
 # project-root .env must have (prod values):
-#   VITE_API_BASE_URL=http://madhats.getaiconsult.com.au:8000   # baked into the bundle
+#   VITE_API_BASE_URL=https://api.madhats.getaiconsult.com.au   # baked into the bundle
+#   EMAIL_VERIFY_BASE_URL=https://api.madhats.getaiconsult.com.au
+#   STUDIO_BASE_URL=https://madhats.getaiconsult.com.au
 #   VITE_STORE_KEY=mh_pk_madhats_local
-#   ALLOWED_ORIGINS=http://madhats.getaiconsult.com.au:5173     # backend CORS — MUST include the site origin
+#   ALLOWED_ORIGINS=*                    # still open; tightening is a separate change
+#   ACME_EMAIL=ops@example.com
+#   (TRUSTED_PROXY_HOSTS is set by docker-compose.prod.yml itself — leave it
+#    blank in .env, so the trust stays coupled to the removed port mapping)
 #   (+ SUPABASE_URL/keys, ADMIN_SECRET, provider keys …)
-docker compose down                                            # stop dev stack if running
+docker compose down
 docker compose -f docker-compose.prod.yml up -d --build
-# after ANY VITE_API_BASE_URL change, rebuild the frontend (it's compiled in):
+# after ANY VITE_API_BASE_URL change, REBUILD the frontend (it's compiled in):
 docker compose -f docker-compose.prod.yml up -d --build frontend
 ```
+
+**Before the first deploy:** confirm `api.madhats.getaiconsult.com.au` resolves to
+the box. Caddy will retry ACME against Let's Encrypt while DNS is unresolved,
+which is the fastest way to hit the duplicate-certificate rate limit (5/week)
+and lock yourself out of issuance for the real domain.
 
 **If instead running the dev stack in prod** (`docker-compose.yml`): set
 `VITE_API_BASE_URL` in the **project-root `.env`** (NOT `frontend/.env` — the
@@ -611,6 +629,25 @@ container **start**, so always `--force-recreate`; hard-refresh the browser
   frontend origin; fix `.env`, recreate backend.
 - "Blocked request … host not allowed" → dev server only; set `ALLOWED_HOSTS=*`
   and recreate, or switch to the static prod build (no host check).
+- **Certs vanish / re-issued every restart** → the `caddy_data` volume is missing
+  or was pruned. Issued certs live in `/data`; without the volume every `up`
+  re-issues and burns the Let's Encrypt duplicate limit (5/week).
+- **Everyone gets 429s under mild load** → `TRUSTED_PROXY_HOSTS` is not reaching
+  the backend, so `request.client.host` is Caddy's container IP and all
+  customers share one rate-limit bucket. Check `docker compose exec backend env
+  | grep TRUSTED`. The code default is empty (trust nothing) — the compose file
+  is what opts in.
+- **Re-adding `ports:` to backend or frontend in prod** re-exposes them in
+  cleartext, bypassing TLS entirely — AND turns the `TRUSTED_PROXY_HOSTS: "*"`
+  on that same service into a rate-limit bypass, since a direct caller could
+  then rotate `X-Forwarded-For` for a fresh bucket per request. The two lines
+  are deliberately adjacent; never re-add one without removing the other.
+- **Mixed-content errors after deploy** → the frontend was recreated but not
+  rebuilt, so the old `http://` API URL is still compiled into the bundle.
+  `up -d --build frontend`.
+- **`docker run -v` fails or mounts the wrong path on Windows/Git Bash** → prefix
+  with `MSYS_NO_PATHCONV=1`, e.g.
+  `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile`
 
 ---
 
