@@ -136,6 +136,31 @@ the port.
 **Test:** a request carrying `X-Forwarded-For` must key the limiter on the
 forwarded client IP, not the immediate peer.
 
+### The second reason the middleware is required — asset URLs
+
+Trusting the proxy is not only a rate-limiting fix, and calling it one
+undersells it. `ProxyHeadersMiddleware` also rewrites `scope["scheme"]` from
+`X-Forwarded-Proto`, and `backend/app/storage.py:132-147` (`media_url`) builds
+**every private-asset URL from `str(request.base_url)`** — roughly 16 call
+sites, including the brand logo (`services/branding.py:148`), hat-type angles,
+company graphics, blank-hat composites, session `view_images`
+(`api/routes/sessions.py:345,348`), admin thumbnails, and quote components
+(`api/routes/admin_leads.py:131`).
+
+Caddy speaks plain HTTP to `backend:8000`, so without that trust every one of
+those URLs is emitted as `http://…` and blocked as mixed content on the HTTPS
+page: the studio renders with no product photo, no brand logo and no graphics,
+and the admin console shows no thumbnails.
+
+This is the **loud** consequence — an operator sees it immediately — whereas the
+rate-limit bucket collapse is the quiet one. Both are fixed by the same
+middleware, and neither degrades gracefully, so the middleware is mandatory
+rather than an optimisation.
+
+**Test:** a request carrying `X-Forwarded-Proto: https` must yield
+`request.base_url` with an `https` scheme; without the middleware it must stay
+`http` (`backend/tests/test_proxy_headers.py`).
+
 ## Configuration
 
 Four values move to HTTPS. All live in the project-root `.env`.

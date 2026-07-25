@@ -844,15 +844,28 @@ These were discovered during implementation, not planned for. Each is a document
 
 ```bash
 cd /c/Users/satis/madhats-aidesign
-grep -rn "http://madhats.getaiconsult.com.au" --include="*.yml" --include="*.md" --include="*.example" . | grep -v docs/superpowers
+grep -rn "http://madhats.getaiconsult.com.au" \
+  --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.claude . \
+  | grep -v docs/superpowers
 ```
 
-Four known stale sites, all documentation/comments — **fix all of them**, even though two live in files Tasks 2 and 3 created. They are comment-only edits with no functional effect, and leaving a compose header that instructs the operator to use `http://…:8000` is how the wrong value gets pasted into a real `.env`:
+**Sweep with directory exclusions, never an `--include` allow-list.** The
+original form of this step listed `--include="*.yml" --include="*.md"
+--include="*.example"`, which structurally cannot see `.liquid` or `Dockerfile`
+— so the "verify none remain" check was incapable of catching the two stale
+URLs that actually shipped (`docs/shopify/studio-button.liquid`, the build-arg
+example in `frontend/Dockerfile`). An allow-list sweep only ever finds the file
+types you already thought of.
+
+Five known stale sites, all documentation/comments — **fix all of them**, even though two live in files Tasks 2 and 3 created. They are comment-only edits with no functional effect, and leaving a compose header that instructs the operator to use `http://…:8000` is how the wrong value gets pasted into a real `.env`:
 
 1. **`CLAUDE.md`** §13c intro blockquote — still says the box is "reached via `http://madhats.getaiconsult.com.au:<port>` (plain HTTP)". It sits directly above the new HTTPS runbook and contradicts it. Rewrite for the Caddy topology.
 2. **`docker-compose.prod.yml`** header, the "Required in the project-root .env" block — shows `http://…:8000` and `http://…:5173` as the example values. Update to the HTTPS equivalents and add `ACME_EMAIL` as required.
 3. **`docker-compose.yml`** `VITE_API_BASE_URL` comment — describes `http://…:8000` while the default on the very next line is now `https://api.localhost`. Self-contradictory; rewrite.
 4. **`docs/shopify/README.md`** lines ~33 and ~61 — the Studio host URL and the copy-paste Liquid embed snippet, both `http://madhats.getaiconsult.com.au:5173`.
+5. **`docs/shopify/studio-button.liquid`** lines ~18 and ~22 — the `STUDIO_URL` assign AND the "Prod example" in its header comment. This is the file the README tells the Shopify developer to open, so leaving it stale makes the *recommended* install path produce an insecure navigation from an HTTPS storefront, and a 404 once the legacy redirects are removed. Fixing the README alone is not enough. (Missed on the first pass — see the allow-list note above.) Also `frontend/Dockerfile`'s `--build-arg` example comment, for the same reason.
+
+Expected after fixing: the only remaining hits are the deliberate ones — the legacy-redirect explanation in `caddy/Caddyfile.prod`, the repoint warnings in `docs/shopify/README.md` and `studio-button.liquid`, and historical `.superpowers/sdd/` review artifacts.
 
 Site 4 needs care. That snippet is what the in-house Shopify developer pastes into the live storefront, so changing this file does not change the storefront — it only changes the instructions. Update the URL to `https://madhats.getaiconsult.com.au` (no port) and add a short note that an existing storefront button still using the old `http://…:5173` link keeps working only while `Caddyfile.prod`'s legacy redirect blocks remain, and must be updated before those are removed. Do not describe this as optional.
 
@@ -873,8 +886,23 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 Not a code task — the deploy sequence, in the order that avoids an outage.
 
+- [ ] **0.** **Keep a pre-cutover copy of `.env`:** `cp .env .env.pre-tls`. `.env` is gitignored, so `git revert` cannot restore it — without this copy the rollback below has nothing to roll back to. Do not skip; it takes one second and it is the whole rollback path.
 - [ ] **1.** Add DNS: `api.madhats` A → box public IP. Confirm with `dig +short api.madhats.getaiconsult.com.au` before continuing. ACME fails without it.
-- [ ] **2.** Confirm ports 80 and 443 are free on the box: `sudo ss -lntp | grep -E ':(80|443)\b'`.
+- [ ] **2.** **Confirm ports 80 and 443 are reachable INBOUND FROM THE INTERNET — do this before tearing anything down.** This is the most likely first-deploy failure: the box has only ever served 8000 and 5173, so a firewall or cloud security group permitting exactly those two ports is the expected current state. If 80 is filtered, ACME HTTP-01 fails and Caddy retries in a loop — and step 4 has by then already removed the old stack, so the site is down for the entire debugging window.
+
+  Reachability, not local availability, is the property that matters. Check it directly, from **off** the box:
+
+  ```bash
+  # on the box: a throwaway listener on 80 (and repeat for 443)
+  sudo python3 -m http.server 80
+  # from any other machine / your laptop:
+  curl -sS -m 5 -o /dev/null -w "%{http_code}\n" http://madhats.getaiconsult.com.au/
+  ```
+  A response (any status) means the port is open end-to-end. A hang or "Connection timed out" means it is filtered upstream — fix that first. Then Ctrl-C the listener.
+
+  Also confirm the host-level firewall and the provider's security group explicitly allow both ports, e.g. `sudo ufw status` (expect `80/tcp ALLOW` and `443/tcp ALLOW`) plus the inbound rules in the VPS/cloud console. A provider security group is invisible to `ufw` and to `ss`, and is the usual culprit.
+
+  Secondarily, confirm nothing on the box is already **bound** to those ports, or Caddy will fail to start: `sudo ss -lntp | grep -E ':(80|443)\b'` — expect no output.
 - [ ] **3.** Update the server's `.env` to the production values in Task 4 Step 2.
 - [ ] **4.** `docker compose -f docker-compose.prod.yml up -d --build` — the `--build` is required, not optional, because `VITE_API_BASE_URL` is compiled into the bundle.
 - [ ] **5.** Watch issuance: `docker compose -f docker-compose.prod.yml logs -f caddy` until both certificates are obtained.
@@ -886,12 +914,30 @@ Not a code task — the deploy sequence, in the order that avoids an outage.
   curl -sI "http://madhats.getaiconsult.com.au:8000/health?x=1" | grep -i location
   ```
   The last one must show the query string preserved — that is what keeps signed email tokens valid.
+- [ ] **6b.** **Inspect the shipped bundle for the API URL.** The only check that catches BOTH an unset and a *stale* `VITE_API_BASE_URL` — compose's `:?` guard catches unset only, and a stale value from an old `.env` builds perfectly cleanly.
+  ```bash
+  docker compose -f docker-compose.prod.yml exec frontend sh -c "grep -oh 'https\?://[a-z0-9.:-]*' dist/assets/*.js | sort -u | grep -i madhats"
+  ```
+  Correct result: only `https://api.madhats.getaiconsult.com.au` (plus possibly `https://madhats.getaiconsult.com.au`). Any `http://` scheme, any `:8000`/`:5173` port, or an unexpected host means the bundle was built with the wrong value — fix `.env` and `up -d --build frontend`.
 - [ ] **7.** End-to-end customer run: chat → email verification link → quote link → studio resume link. This is the only check that exercises `EMAIL_VERIFY_BASE_URL`, `STUDIO_BASE_URL`, and `VITE_API_BASE_URL` together.
 - [ ] **8.** Test the microphone in the studio — the secure context was the original driver.
 - [ ] **9.** Devtools: no mixed-content warnings, no CORS errors.
 - [ ] **10.** Confirm rate limiting is per-client, not global: from two different source IPs, exceed `RATE_LIMIT_RPM` on one and confirm the other is unaffected.
 
-**Rollback:** `git revert` the four commits and `docker compose -f docker-compose.prod.yml up -d --build`. No schema migration, no data mutation. Legacy HTTP email links resume working immediately because the port mappings return.
+**Active SPA sessions do not survive the cutover.** The legacy `:8000`/`:5173` 301s rescue top-level *navigations* — email links, the storefront button — but a tab still running the pre-cutover bundle calls `http://…:8000` via `fetch`, and its **CORS preflight** (`OPTIONS`) is not guaranteed to follow a redirect; browsers may not follow redirects on a preflight at all. Those in-flight sessions will fail with what look like CORS errors until the customer reloads. Expect a short burst of them during the deploy window and do not misdiagnose it as a broken `ALLOWED_ORIGINS` — a hard refresh fixes an affected tab.
+
+**Rollback — `git revert` ALONE IS NOT SUFFICIENT.** `.env` is gitignored, so reverting commits cannot restore `VITE_API_BASE_URL`, `EMAIL_VERIFY_BASE_URL`, or `STUDIO_BASE_URL` to their pre-cutover HTTP values. Executed literally, a revert-only rollback rebuilds the frontend with `https://api.madhats.getaiconsult.com.au` still compiled in while Caddy is gone — so the rollback *causes* the outage it was meant to end, and emails keep minting dead HTTPS links. Do all three steps, in order:
+
+1. `git revert` the four commits.
+2. **Restore `.env` by hand** — it is not in git. Either `cp .env.pre-tls .env` (the copy taken in step 0) or edit these three values back:
+   - `VITE_API_BASE_URL=http://madhats.getaiconsult.com.au:8000`
+   - `EMAIL_VERIFY_BASE_URL=http://madhats.getaiconsult.com.au:8000`
+   - `STUDIO_BASE_URL=http://madhats.getaiconsult.com.au:5173`
+
+   (`ACME_EMAIL` and `TRUSTED_PROXY_HOSTS` can stay; the reverted compose file ignores them.)
+3. `docker compose -f docker-compose.prod.yml up -d --build` — `--build` is mandatory, because `VITE_API_BASE_URL` is compiled into the bundle. Then re-run the step-6b bundle inspection to confirm the `http://` URL is actually the one shipped.
+
+No schema migration, no data mutation. Legacy HTTP email links resume working immediately because the port mappings return.
 
 **Cleanup, ~30 days out:** delete the `:8000` and `:5173` blocks from `caddy/Caddyfile.prod` and their port mappings from `docker-compose.prod.yml`, once quote tokens (`QUOTE_TOKEN_TTL_SECONDS` = 2592000) have expired.
 

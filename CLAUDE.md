@@ -607,7 +607,10 @@ git pull
 #   (TRUSTED_PROXY_HOSTS is set by docker-compose.prod.yml itself — leave it
 #    blank in .env, so the trust stays coupled to the removed port mapping)
 #   (+ SUPABASE_URL/keys, ADMIN_SECRET, provider keys …)
-docker compose down
+# NOTE the -f: a bare `docker compose down` loads the DEV compose file, which
+# this section explicitly forbids running on the prod box (see below). It would
+# also miss the prod project's containers and leave them up.
+docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml up -d --build
 # after ANY VITE_API_BASE_URL change, REBUILD the frontend (it's compiled in):
 docker compose -f docker-compose.prod.yml up -d --build frontend
@@ -650,11 +653,20 @@ frontend`. Env is only read at container **start**, so always
 - **Certs vanish / re-issued every restart** → the `caddy_data` volume is missing
   or was pruned. Issued certs live in `/data`; without the volume every `up`
   re-issues and burns the Let's Encrypt duplicate limit (5/week).
-- **Everyone gets 429s under mild load** → `TRUSTED_PROXY_HOSTS` is not reaching
-  the backend, so `request.client.host` is Caddy's container IP and all
-  customers share one rate-limit bucket. Check `docker compose exec backend env
-  | grep TRUSTED`. The code default is empty (trust nothing) — the compose file
-  is what opts in.
+- **Product photos, the brand logo and admin thumbnails all vanish, with
+  mixed-content errors in the console** → `TRUSTED_PROXY_HOSTS` is not reaching
+  the backend. `ProxyHeadersMiddleware` rewrites `scope["scheme"]` from
+  `X-Forwarded-Proto`, and `app/storage.py:media_url` builds **every**
+  private-asset URL from `request.base_url` (~16 call sites: brand logo, hat-type
+  angles, company graphics, blank-hat composites, session `view_images`, admin
+  thumbnails, quote components). Untrusted → Caddy's plain-HTTP hop wins, every
+  one of those comes back `http://`, and the browser blocks them on the HTTPS
+  page: the studio renders with no imagery at all.
+  **Second effect, quieter: everyone gets 429s under mild load** — the same
+  middleware recovers the client IP from `X-Forwarded-For`; without it
+  `request.client.host` is Caddy's container IP and all customers share one
+  rate-limit bucket. Check `docker compose exec backend env | grep TRUSTED`. The
+  code default is empty (trust nothing) — the compose file is what opts in.
 - **Re-adding `ports:` to backend or frontend in prod** re-exposes that service
   in cleartext, bypassing TLS entirely. On **`backend` specifically** it is
   worse: it also turns that service's `TRUSTED_PROXY_HOSTS: "*"` into a
@@ -668,7 +680,18 @@ frontend`. Env is only read at container **start**, so always
   `up -d --build frontend`.
 - **`docker run -v` fails or mounts the wrong path on Windows/Git Bash** → prefix
   with `MSYS_NO_PATHCONV=1`, e.g.
-  `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --config /etc/caddy/Caddyfile`
+  `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile`
+  (`--adapter caddyfile` is needed because the filename isn't literally
+  `Caddyfile`; for `Caddyfile.prod` also pass `-e ACME_EMAIL=…`, since a blank
+  `email` argument is a parse error by design.)
+- **`docker compose up` (the DEV stack) now fails outright if host port 80 or 443
+  is taken** → the dev stack gained its own `caddy` service binding both. Compose
+  aborts the *whole* stack, not just `caddy`, so backend and frontend never
+  start either. On Windows these ports are commonly held by `http.sys`/IIS, or by
+  another project's Docker stack. Find the holder with
+  `netstat -ano | findstr ":443"` (PowerShell: `Get-NetTCPConnection -LocalPort 443`)
+  and stop it, or comment out the dev `caddy` service and use plain
+  `http://localhost:5173` for that session.
 
 ---
 
