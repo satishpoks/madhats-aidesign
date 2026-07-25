@@ -79,10 +79,14 @@ class Settings(BaseSettings):
     # --- App ---
     app_env: str = "development"
     sentry_dsn: str = ""
-    email_verify_base_url: str = "http://localhost:8000"
+    # Public backend origin baked into verification / quote links in customer
+    # email. Defaults to the DEV stack's TLS hostnames (docker-compose.yml runs
+    # Caddy in front of both services), matching .env.example. Set explicitly in
+    # production — see docker-compose.prod.yml.
+    email_verify_base_url: str = "https://api.localhost"
     # Customer-facing Studio (frontend) origin — used for the "make some edits"
     # link in the preview email, which reopens the chatbot on their session.
-    studio_base_url: str = "http://localhost:5173"
+    studio_base_url: str = "https://localhost"
     chatbot_persona_name: str = "Ricardo"
 
     # --- Orchestrator selection ---
