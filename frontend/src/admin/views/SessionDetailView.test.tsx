@@ -50,3 +50,30 @@ describe('SessionDetailView customer design section', () => {
     expect(screen.queryByText(/Customer's design/i)).not.toBeInTheDocument()
   })
 })
+
+describe('SessionDetailView notes', () => {
+  it('renders every brief_notes line verbatim in a Notes card, plus v1 notes', async () => {
+    vi.mocked(api.getSessionDetail).mockResolvedValue({
+      ...baseDetail,
+      collected: {
+        brief_notes: [
+          'Customer final notes: use Pantone 186 C for the text',
+          'Decoration method: Embroidery',
+        ],
+        notes: 'Rush order please',
+      },
+    } as unknown as api.SessionDetail)
+    renderAt()
+    expect(await screen.findByRole('heading', { name: 'Notes' })).toBeInTheDocument()
+    expect(screen.getByText('Customer final notes: use Pantone 186 C for the text')).toBeInTheDocument()
+    expect(screen.getByText('Decoration method: Embroidery')).toBeInTheDocument()
+    expect(screen.getByText('Rush order please')).toBeInTheDocument()
+  })
+
+  it('omits the Notes card when there are no notes', async () => {
+    vi.mocked(api.getSessionDetail).mockResolvedValue({ ...baseDetail, collected: {} } as unknown as api.SessionDetail)
+    renderAt()
+    await screen.findAllByText('Cap')
+    expect(screen.queryByRole('heading', { name: 'Notes' })).not.toBeInTheDocument()
+  })
+})

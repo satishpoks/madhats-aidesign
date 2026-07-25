@@ -124,6 +124,20 @@ export function SessionDetailView() {
   const pinCount = Array.isArray(detail.collected.pin_annotations)
     ? (detail.collected.pin_annotations as unknown[]).length
     : 0
+  // The running team brief, verbatim. brief_notes accumulates the customer's
+  // typed final notes ("Customer final notes: …") alongside auto-added lines
+  // ("Decoration method: …"); `notes` is the v1 free-text field. Shown as-is so
+  // the design team sees exactly what the customer wrote (e.g. a Pantone code).
+  const briefNotes = Array.isArray(detail.collected.brief_notes)
+    ? (detail.collected.brief_notes as unknown[]).filter(
+        (n): n is string => typeof n === 'string' && n.trim() !== '',
+      )
+    : []
+  const freeNotes =
+    typeof detail.collected.notes === 'string' && detail.collected.notes.trim() !== ''
+      ? (detail.collected.notes as string)
+      : ''
+  const hasNotes = briefNotes.length > 0 || freeNotes !== ''
   const active: SessionGeneration | undefined = generated[activeGen]
 
   return (
@@ -276,6 +290,23 @@ export function SessionDetailView() {
               </pre>
             )}
           </Card>
+
+          {hasNotes && (
+            <Card title="Notes">
+              {briefNotes.length > 0 && (
+                <ul className="space-y-1.5">
+                  {briefNotes.map((n, i) => (
+                    <li key={i} className="whitespace-pre-wrap text-[13px] text-[#1a1a2e]">
+                      {n}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {freeNotes && (
+                <p className="mt-2 whitespace-pre-wrap text-[13px] text-[#1a1a2e]">{freeNotes}</p>
+              )}
+            </Card>
+          )}
 
           <Card title="Lead">
             <dl className="space-y-2 text-[13px]">
