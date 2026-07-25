@@ -15,11 +15,20 @@
   - source      = "shopify" (attribution; surfaces in the session's entryContext)
 
   SETUP: set STUDIO_URL below to your Studio host. Prod example:
-    http://madhats.getaiconsult.com.au:5173
+    https://madhats.getaiconsult.com.au
   No trailing slash.
+
+  MUST be HTTPS. The storefront is served over HTTPS, so an http:// Studio link
+  is an insecure navigation away from a secure page. The Studio is behind a
+  Caddy TLS proxy on the standard port — there is no port in the URL any more.
+
+  The old http://madhats.getaiconsult.com.au:5173 link still resolves only while
+  the temporary legacy-redirect blocks remain in caddy/Caddyfile.prod (scheduled
+  for removal ~30 days after the TLS cutover). After that it 404s for every
+  customer, so any storefront still using it must be repointed before then.
 {%- endcomment -%}
 
-{%- assign STUDIO_URL = 'http://madhats.getaiconsult.com.au:5173' -%}
+{%- assign STUDIO_URL = 'https://madhats.getaiconsult.com.au' -%}
 
 {%- comment -%} Find which option (if any) is the colour option. {%- endcomment -%}
 {%- assign colour_position = 0 -%}
