@@ -1,95 +1,71 @@
-# SDD progress — canvas per-element images + admin 360 view
+# SDD Progress — v2 canvas Back: element-aware restart + single-step lock
 
-Plan: docs/superpowers/plans/2026-07-24-canvas-per-element-images-360-view.md
-Spec: docs/superpowers/specs/2026-07-24-canvas-per-element-images-and-360-view-design.md
-Branch: feat/canvas-per-element-images-360-view
-Base (before Task 1): 61b4930
+Branch: feat/tls-all-servers
+Plan: docs/superpowers/plans/2026-07-25-v2-canvas-back-element-restart.md
+Started base: 21f1b7f
+
+Global constraints:
+- v2 canvas flow only (settings.canvas_orchestrator_v2 on AND flow_mode=="canvas"); never touch v1/non-canvas.
+- Backend tests: `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q <path>`.
+- No browser confirm(); confirm is inline chat UI.
+- Internal `_`-prefixed keys never in WRITABLE_SLOTS, never in LLM context.
+- Element-adjust set exactly {LOGO_ADJUST, ASK_LOGO_BG, DECOR_ADJUST}.
+- Decor restart -> ASK_ADD_DECOR; logo restart -> ASK_LOGO_PLACEMENT.
 
 Tasks:
-- T1: storage.path_from_signed_url helper
-- T2: /uploads/logo returns asset_path
-- T3: canvas_describe shared element_label + carry assetPath
-- T4: providers accept uploaded_asset_urls list
-- T5: generate.py per-view image conditioning (BUG FIX)
-- T6: admin session endpoint canvas_faces
-- T7: frontend canvasStore assetPath
-- T8: frontend api + Surface thread asset_path
-- T9: admin 360 view Customer's design section + download
-- T10: full-suite verification
+1. Backend — element-adjust set, gated can_go_back, back_removes_element, lock-clear
+2. Backend — handle_back element-restart branch + restart copy
+3. Frontend — removePending action + canvas_ops remove verb
+4. Frontend — backRemovesElement + ChatColumn confirm dialog
 
-## Progress
-Task 1: complete (commits 61b4930..6834ff7, review clean). No issues. Pure helper, 4/4 tests.
+--- ledger ---
+Task 1 base (before dispatch): 21f1b7f
+Task 1: complete (commits 21f1b7f..741a49f, review clean). _ELEMENT_ADJUST_STEPS
+  {LOGO_ADJUST,ASK_LOGO_BG,DECOR_ADJUST}; _public gates can_go_back on `not _back_used` + adds
+  back_removes_element; handle_message pops _back_used after empty-turn guard, before interpreter.
+  handle_back untouched (Task 2). 3/3 new + full backend 1009 pass. _back_used not in WRITABLE_SLOTS
+  (by construction) and not LLM-leaked (verified by reviewer).
+  MINOR: brief's -k filter misses one of the 3 new test names (harmless; verified separately).
 
-Task 2 base (before dispatch): 6834ff7
-Task 2: complete (commits 6834ff7..b2e754e, review Approved). Reviewer's "Important"
-  (reuse existing fixtures) adjudicated FALSE POSITIVE by controller: no uploads/logo
-  route fixture exists (grep hits were string mentions); inline _FakeSB mirrors
-  test_canvas_routes.py pattern. 1/1 test.
+Task 2 base (before dispatch): 741a49f
+Task 2: complete (commits 741a49f..6b7ecf1, review clean). handle_back: _restart_element helper
+  (logo -> pending_logo={} -> ASK_LOGO_PLACEMENT; decor -> pop decor_choice/face/placed ->
+  ASK_ADD_DECOR) + emits canvas_ops pending_logo remove w/ face fallback; _back_used=True on BOTH
+  element + non-element paths; V2_BACK_RESTART_ACK copy. GREETING/target-None/quote_requested guards
+  unchanged. 3/3 new + wider 140 + full backend 1012 pass. No scope creep.
 
-Task 3 base (before dispatch): b2e754e
-Task 3: complete (commits b2e754e..541e3eb, review Approved). Hand-traced _describe
-  output byte-identical (text/drawing/shape/logo). element_label shared; assetPath
-  carried. 50/50 canvas_describe-touching tests. MINOR: required face-suffix dup in
-  _describe shape branch (inherent to leading-"a" divergence).
+Task 3 base (before dispatch): 6b7ecf1
+Task 3: complete (commits 6b7ecf1..244d020, review clean). canvasStore.removePending(face) removes
+  last-unlocked element of ANY type (no image filter), no-op when none, clears selectedId if removed
+  was selected; applyCanvasOps pending_logo branch calls removePending on remove:true (patch path
+  kept); parseCanvasOps unchanged. 10/10 focused + 20/20 neighbours + tsc clean. Brief test typo
+  fixed: .url -> .assetUrl (real field on CanvasElement; reviewer confirmed not masking).
 
-Task 4 base (before dispatch): 541e3eb
-Task 4: complete (commits 541e3eb..6074376, review Approved). Providers accept
-  uploaded_asset_urls list; legacy single path traced byte-identical; each artwork
-  own role="uploaded_asset" part. New 3 tests + adapter regressions; full suite 964.
+Task 4 base (before dispatch): 244d020
+Task 4: complete (commits 244d020..531eb87, review clean). chatStore.backRemovesElement in all 4
+  canGoBack sites; ChatColumn inline confirm ("Remove this element and start it over?") gated on
+  confirmingBack && backRemovesElement; Remove&start over -> goBack, Keep going -> dismiss; flag-false
+  Back unchanged. No window.confirm. 24/24 (chatStoreBack 5 + ChatColumn 9 + canvasStoreOps 10) + tsc
+  clean. kickoffDone:true in tests prevents mount-kickoff clobber (reviewer verified).
 
-Task 5 base (before dispatch): 6074376
-Task 5: complete (commits 6074376..d530934, review Approved). CORE BUG FIX.
-  _canvas_view_images per-view resolution (assetPath/recover/passthrough/skip);
-  non-canvas byte-identical; provider gets full per-view list not first-only.
-  4/4 new tests + full suite 968. MINOR (final triage): skip-branch (no
-  assetUrl/assetPath) not directly tested.
+=== ALL 4 TASKS COMPLETE. HEAD 531eb87. ===
 
-Task 6 base (before dispatch): d530934
-Task 6: complete (commits d530934..3249fcf, review Approved). Admin endpoint
-  canvas_faces + canvas_design; _resolve_element_media proxies via /media (never
-  raw signed URL); scoping/existing fields untouched; non-canvas → null/[]. 2 new
-  tests + scoping regression; full suite 970. MINOR (final triage): http-passthrough
-  + terminal-None branches untested; "other" el type falls to logo label (latent).
+FINAL WHOLE-BRANCH REVIEW (opus): READY TO MERGE — no Critical/Important.
+  Verified end-to-end: lock sets on both Back paths -> can_go_back=false that turn -> FE hides button
+  -> next forward turn pops _back_used; no chained backs. Logo restart -> ASK_LOGO_PLACEMENT, decor ->
+  ASK_ADD_DECOR (email gate not tripped). Canvas-op {kind:pending_logo,remove:true} agrees FE<->BE,
+  applied imperatively (not effect). _back_used never in LLM ctx / WRITABLE_SLOTS. Terminal flags +
+  GREETING/post-submit guards intact. v1/non-canvas provably unaffected.
+  MINOR (fixed): confirmingBack could go stale and re-open the destructive confirm unbidden after a
+  chip tap on a later element-adjust step.
 
-=== BACKEND COMPLETE (T1-T6), 970 tests passing ===
+Fix wave: complete (commit 531eb87..b3e6e19). ChatColumn useEffect resets confirmingBack on chatState
+  change + regression test. 15/15 (ChatColumn 10 + chatStoreBack 5) pass, tsc clean.
 
-Task 7 base (before dispatch): 3249fcf
-Task 7: complete (commits 3249fcf..f230114, review clean). canvasStore assetPath
-  field + addImage 3rd param; round-trips via toCanvasDesign. 3 tests, tsc clean.
+FOLLOW-UP TICKETS (non-blocking, from final review recommendations):
+  - removePending / element-restart assume "at most one unlocked element per face" (the lockPlaced
+    anchor). Holds today; add a one-line invariant comment on removePending.
+  - handle_back lock is UI-enforced only (no server early-return when _back_used set). Optional
+    defensive early-return would make "one step per Back" hold regardless of client.
 
-Task 8 base (before dispatch): f230114
-Task 8: complete (commits f230114..1245679, review clean). uploadLogo return type
-  + handleUpload thread asset_path; addGraphic untouched. Collateral (legit):
-  updated 3 ChatPanel test mocks for the new return field. tsc clean, 10/10 tests.
-
-Task 9 base (before dispatch): 1245679
-Task 9: complete (commits 1245679..faea439, review Approved). Admin "Customer's design"
-  section (per-face preview/layout/uploads thumbnails + Download + element text list);
-  gated on canvas_faces.length (non-canvas unchanged); downloadImage blob util; adminApi
-  types match backend field-for-field. Test uses vi.mock convention; findAllByText('Cap')
-  fix legit (pre-existing dup). 2 tests, tsc clean. MINOR (final triage): downloadImage
-  no res.ok check (brief-inherited); "Upload N" label vs download_name numbering can
-  diverge if an image lacks resolvable url (cosmetic).
-
-Task 10 base (before dispatch): faea439
-Task 10: complete (verification only, no commit). Backend full suite 970; frontend
-  targeted 25 (canvasStore 3, store/canvasStore 13, SessionDetailView 2, surfaceDirective 7);
-  tsc exit 0; npm run build OK (pre-existing chunk-size warning only).
-
-=== ALL 10 TASKS COMPLETE. Backend 970, frontend targeted 25, tsc+build clean. HEAD faea439 ===
-Merge-base with master: a7f5100195a159f15f531ca25c218fbe93ce8627
-
-FINAL WHOLE-BRANCH REVIEW (opus): READY TO MERGE — Yes. No Critical/Important.
-  Verified: bug fixed + directly tested; data path coherent (asset_path↔assetPath
-  consistent across every boundary); v1/non-canvas byte-identical; no raw signed URLs
-  to browser; backward-compatible (additive, no migration).
-FIX WAVE (commit faea439..18c75f8): downloadImage res.ok check; admin numbers only
-  resolvable images (label==download_name); +test pinning no-leak (_resolve_element_media
-  proxies expired signed URL via /media, never raw); +test _canvas_view_images skip branch;
-  +frontend downloadImage.test. Covering suites green.
-REMAINING (Minor/ticket, non-blocking):
-  - http-passthrough latent gap if signed-URL format ever changes buckets (defensive guard).
-  - (pre-existing) C6.2 back-decoration-on-no-angle skip is correct, noted.
-NOT MINE (left uncommitted, user's in-progress edits): docker-compose.yml +
-  docker-compose.prod.yml (env_file: .env on frontend). progress.md = scratch ledger.
-=== FEATURE COMPLETE — READY TO MERGE (HEAD 18c75f8) ===
+=== FEATURE COMPLETE — READY TO MERGE. HEAD b3e6e19. Branch feat/tls-all-servers. ===
