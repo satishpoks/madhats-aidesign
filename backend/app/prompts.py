@@ -1198,6 +1198,10 @@ V2_NUDGE_REPLY = (
     "and we'll keep moving."
 )
 
+V2_BACK_RESTART_ACK = (
+    "No worries — I've removed that one so you can start it over."
+)
+
 V2_ACK_PROMPT = """You are {persona}, a friendly cap-design assistant.
 
 Write ONE short, warm sentence acknowledging what the customer just told you. Then stop.

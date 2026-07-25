@@ -696,3 +696,59 @@ async def test_empty_turn_is_a_noop_and_never_reaches_the_interpreter(monkeypatc
 
     assert res["state"] == S.ASK_ADD_DECOR.value               # stayed put
     assert store["session"]["collected"]["name"] == "Satish"   # nothing cleared
+
+
+# --- Task 2: element-restart Back --------------------------------------------
+
+@pytest.mark.asyncio
+async def test_back_at_logo_bg_removes_the_logo_and_restarts_placement(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_LOGO_BG.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "pending_logo": {"face": "left", "placed": True},
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_LOGO_PLACEMENT.value          # restart the element
+    assert store["session"]["collected"]["pending_logo"] == {} # face/placed/bg cleared
+    assert out["data"]["canvas_ops"] == [
+        {"target": {"kind": "pending_logo", "face": "left"}, "remove": True}]
+    assert store["session"]["collected"]["_back_used"] is True # lock set
+    assert out["data"]["can_go_back"] is False                 # can't back again yet
+
+
+@pytest.mark.asyncio
+async def test_back_at_decor_adjust_removes_the_decor_and_restarts(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.DECOR_ADJUST.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": False,
+        "logos_done": True, "pending_logo": None, "email_captured": True,
+        "decor_choice": "text", "decor_face": "back", "decor_placed": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_ADD_DECOR.value               # re-pick text/shape
+    collected = store["session"]["collected"]
+    assert "decor_choice" not in collected
+    assert "decor_face" not in collected
+    assert "decor_placed" not in collected
+    assert out["data"]["canvas_ops"] == [
+        {"target": {"kind": "pending_logo", "face": "back"}, "remove": True}]
+
+
+@pytest.mark.asyncio
+async def test_non_element_back_sets_the_lock_and_carries_no_canvas_op(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_DECORATION.value
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 50, "email_captured": True,
+    })
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1")
+    assert out["state"] == S.ASK_QUANTITY.value                # normal rewind
+    assert "canvas_ops" not in out["data"]
+    assert store["session"]["collected"]["_back_used"] is True

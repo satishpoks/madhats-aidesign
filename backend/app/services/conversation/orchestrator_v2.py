@@ -184,6 +184,22 @@ async def handle_message(session_id: str, message: str) -> dict:
                           next_.id, user_message=message, data=data)
 
 
+def _restart_element(collected: dict, current: S) -> str:
+    """Clear the in-progress element's slots so first-unmet re-asks it from the
+    top, and return the face the (now-removed) canvas element sat on. Logo:
+    reset pending_logo to {} (loop stays open) -> re-asks ASK_LOGO_PLACEMENT.
+    Decor: drop the decor slots -> re-asks ASK_ADD_DECOR (re-pick text/shape)."""
+    if current in (S.LOGO_ADJUST, S.ASK_LOGO_BG):
+        face = cs._pending(collected).get("face") or "front"
+        collected["pending_logo"] = {}
+        return face
+    # DECOR_ADJUST
+    face = collected.get("decor_face") or "front"
+    for key in ("decor_choice", "decor_face", "decor_placed"):
+        collected.pop(key, None)
+    return face
+
+
 async def handle_back(session_id: str) -> dict:
     """Undo the last answer: clear the last-answered step's writable slots
     (plus its own `back_clears`) and re-ask it. One level per call; the
@@ -220,6 +236,18 @@ async def handle_back(session_id: str) -> dict:
                               current.value, S.ASK_NAME, user_message="",
                               data=_public(step, collected, flow_config))
 
+    if current in v2._ELEMENT_ADJUST_STEPS:
+        face = _restart_element(collected, current)
+        collected["_back_used"] = True
+        nxt = v2.next_step(collected, flow_config)
+        reply = v2.reply_for(nxt, collected, persona=persona, intro=intro,
+                             ack=prompts.V2_BACK_RESTART_ACK, colour_note=colour_note)
+        data = _public(nxt, collected, flow_config)
+        data["canvas_ops"] = [
+            {"target": {"kind": "pending_logo", "face": face}, "remove": True}]
+        return await _persist(sb, session_id, collected, nxt, reply,
+                              current.value, nxt.id, user_message="", data=data)
+
     target = v2.last_answered_step(collected, flow_config)
     if target is None:
         step = cs.by_id(current)
@@ -231,6 +259,7 @@ async def handle_back(session_id: str) -> dict:
     clear = ((set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears)) - v2._TERMINAL_FLAGS
     for key in clear:
         collected.pop(key, None)
+    collected["_back_used"] = True
     nxt = v2.next_step(collected, flow_config)
     reply = v2.reply_for(nxt, collected, persona=persona, intro=intro,
                          colour_note=colour_note)
