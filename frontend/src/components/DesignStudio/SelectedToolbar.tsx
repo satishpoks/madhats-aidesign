@@ -1,6 +1,12 @@
 import { useCanvasStore, LINE_SHAPES } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
 
+/** Header label per element type — the panel names what it is adjusting, so a
+ *  customer who selects something knows the panel that just appeared is for it. */
+const ADJUST_LABELS: Record<string, string> = {
+  text: 'Text', image: 'Image', shape: 'Shape', drawing: 'Drawing',
+}
+
 export function SelectedToolbar() {
   const activeFace = useCanvasStore(s => s.activeFace)
   const faces = useCanvasStore(s => s.faces)
@@ -35,8 +41,18 @@ export function SelectedToolbar() {
   // rotate-only on-canvas Transformer — so size is not offered for them.
   const canResize = el.type !== 'drawing'
 
+  // sticky: the centre column of Surface is the scroll container, so this pins
+  // the panel to the top of the canvas area. It used to render BELOW the cap,
+  // which on a phone (chat already owns 45vh) put it under the fold entirely.
+  // The controls region scrolls within itself so a wrapped toolbar can never
+  // push the cap off-screen.
   return (
-    <div className="flex flex-wrap items-center gap-2 p-3 bg-surface border border-border rounded-xl">
+    <div data-testid="adjust-panel"
+      className="sticky top-0 z-20 w-full bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
+      <div className="bg-accent text-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
+        Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 p-3 max-h-[45vh] overflow-y-auto">
       {el.type === 'text' && (
         <>
           <input value={el.content ?? ''} onChange={e => update(el.id, { content: e.target.value })}
@@ -182,6 +198,7 @@ export function SelectedToolbar() {
         <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
           title="Delete this element" aria-label="Delete">Delete</button>
       </Group>
+      </div>
     </div>
   )
 }

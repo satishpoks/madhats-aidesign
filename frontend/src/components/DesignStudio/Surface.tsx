@@ -295,15 +295,15 @@ export function DesignStudioSurface() {
           <FaceThumbnails />
         </div>
 
-        {/* Centre — canvas + contextual toolbar */}
+        {/* Centre — Adjust panel (sticky, ABOVE the cap) then the canvas.
+            The panel is rendered first so it is the first thing in view on a
+            phone; it returns null until an element is selected, so nothing is
+            reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          <CanvasStage stageRef={stageRef} locked={stageLocked} />
-          {/* v2 mounts the toolbar on its editing steps: the instruction copy
-              tells the customer to change font/size/colour "in the toolbar
-              under the cap". It no-ops (returns null) until an element is
-              selected, so it only surfaces once they pick a placed element —
-              exactly when needed. On a no-tool step it stays out entirely. */}
           {(isV2 ? v2Editing : unlocked) && <SelectedToolbar />}
+          <div data-testid="canvas-stage-wrap" className="w-full flex justify-center">
+            <CanvasStage stageRef={stageRef} locked={stageLocked} />
+          </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}
               className="px-6 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold">
