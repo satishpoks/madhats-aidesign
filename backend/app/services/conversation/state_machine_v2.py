@@ -332,11 +332,6 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
             persona=persona,
             intro=intro,
             colour_note=colour_note,
-            # Computed here, not threaded through orchestrator_v2 like
-            # colour_note: it needs only `collected`, so there is no store to
-            # plumb. Unused kwargs are ignored by str.format, so no other
-            # step's copy is affected.
-            bg_note=cs.bg_note_for(collected),
         )
         if step.tip and step.id is not S.LOGO_ADJUST:
             body = f"{body} {step.tip}"
