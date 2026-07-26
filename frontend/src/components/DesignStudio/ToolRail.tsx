@@ -59,7 +59,9 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   const drawOrColourDisabled = !!locked || railGated
 
   return (
-    <div className="flex flex-col gap-3 p-4 w-full md:w-64">
+    // Narrower on a laptop/iPad so the cap keeps the width it needs; full 16rem
+    // back on a large desktop.
+    <div className="flex flex-col gap-2.5 p-3 xl:p-4 w-full md:w-44 lg:w-52 xl:w-64">
       <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
       <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
       <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>

@@ -24,7 +24,10 @@ export function CustomiseStudio() {
         <div className="flex-1 flex min-h-0 min-w-0">
           <DesignStudioSurface />
         </div>
-        <div className="border-t md:border-t-0 md:border-l border-border flex-shrink-0 w-full md:w-[380px] h-[45vh] md:h-auto flex flex-col min-h-0">
+        {/* Chat width scales with the screen: a laptop/iPad keeps roughly the old
+            width (the canvas is tight there), a desktop gives the conversation a
+            noticeably bigger share. Mobile (`w-full` + the 45vh split) unchanged. */}
+        <div className="border-t md:border-t-0 md:border-l border-border flex-shrink-0 w-full md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] h-[45vh] md:h-auto flex flex-col min-h-0">
           <ChatColumn />
         </div>
       </div>

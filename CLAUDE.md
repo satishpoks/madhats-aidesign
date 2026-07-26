@@ -588,6 +588,48 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   Chrome extension's `resize_window` is a no-op in this environment and the
   devtools MCP could not attach), so mobile rests on the clamp arithmetic plus
   the class-pinning tests.
+- **Canvas screen space optimisation — responsive stage (2026-07-26).**
+  Four changes, all verified in-browser at 1536×639: the `StoreHeader` logo is
+  `h-8` (was `h-16`, header 92px → 49px); the `ChatColumn` voice block is a
+  single compact ROW (7×7 mic, one `text-xs` line, listening-only halo) instead
+  of a centred stack with two halo rings, a big label, a kbd chip and an "or
+  type" line — it was eating ~140px of the scarcest column on the screen; the
+  chat column widens with the viewport (`md:360 lg:420 xl:480 2xl:560`, mobile
+  `w-full`+45vh untouched) while `ToolRail` narrows (`md:w-44 lg:w-52 xl:w-64`)
+  so a laptop/iPad doesn't pay for it.
+  **The Konva stage is now responsive, and the mechanism matters:** `STAGE_W`/
+  `STAGE_H` stay a hard 480 — that is the LOGICAL space every element
+  coordinate is normalised to, that `FaceThumbnails`' `SCALE` divides by, and
+  that `canvasGeometry` is tested against — and only the *rendered* size moves,
+  via a uniform `scaleX/scaleY` on the `<Stage>`. Two consequences that are
+  easy to get wrong: (1) `stage.getPointerPosition()` returns CONTAINER pixels
+  and Konva does NOT apply the stage transform to it, so `pointerNorm` (the
+  draw tool) divides by the DISPLAYED size, not `STAGE_W`, while `livePts`
+  still multiplies by `STAGE_W` because it is drawn inside the scaled stage;
+  (2) `canvasFlatten` can no longer hardcode `pixelRatio: 2` — it derives the
+  ratio from `stage.width()` so every export is exactly `EXPORT_EDGE_PX` (960)
+  regardless of screen, which is what stops a short laptop from sending the
+  image model a 560px layout guide where a desktop sends 1120px.
+  `canvasFlattenExportSize.test.ts` pins that invariant; verified live that a
+  339px on-screen stage exports 960×960 and that the far edges are opaque (i.e.
+  the scale IS applied on export, nothing is cropped).
+  Size = `clamp(280, min(columnWidth, availableHeight), 560)` where
+  `availableHeight` is **measured, not assumed**: the column's inner height
+  minus its other children. A fixed constant is wrong in both directions
+  because the sticky Adjust panel comes and goes with the selection — too small
+  and the cap is needlessly tiny with nothing selected, too large and selecting
+  an element pushes the cap off the bottom. `col.clientHeight` is set by the
+  flex row above it (viewport-derived, content-independent), so resizing the
+  stage can never feed back into the number. Both a `ResizeObserver` (column +
+  siblings) and a `MutationObserver` (childList) are needed — RO alone never
+  sees a sibling that has not mounted yet — and **both must be
+  feature-detected**, since jsdom ships neither and constructing one
+  unconditionally throws through every Surface-mounting test. Measured live:
+  484px with nothing selected (fits exactly, no scroll), 280px (the MIN floor)
+  with the panel open in this unusually short 639px window, back to 366px on
+  deselect. MIN is a usability floor, not a fit guarantee — on a very short
+  window the column scrolls a little rather than shrinking to something you
+  can't design on. Drag/select/transform re-verified at scale 0.76.
 - Tests: backend `pytest` 1003 passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline on `master` is 994 (9 new tests since — verified during the TLS-for-all-servers work by stashing the change and re-running, confirming no test flipped status, so the earlier "954" figure recorded here was simply stale). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.

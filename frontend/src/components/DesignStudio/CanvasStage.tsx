@@ -1,12 +1,56 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Stage, Layer, Image as KonvaImage, Rect, Line } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
 import { TextNode, ImageNode, ShapeNode, DrawingNode } from './nodes'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 
+/**
+ * The stage's LOGICAL coordinate space. Every element coordinate is normalised
+ * to it, the face thumbnails scale off it, and the flatten exports are sized
+ * from it — so this stays a constant 480 forever. Only the stage's *rendered*
+ * size responds to the screen, via a uniform Konva scale (see `display` below).
+ */
 export const STAGE_W = 480
 export const STAGE_H = 480
+
+/**
+ * Bounds for the on-screen (scaled) stage edge, in CSS pixels. MIN is a floor
+ * on usability, not on fit: on a very short window the cap keeps this size and
+ * the column scrolls a little, rather than shrinking to something you can't
+ * design on.
+ */
+const MIN_DISPLAY = 280
+const MAX_DISPLAY = 560
+/** Breathing room so we never land exactly on the overflow threshold. */
+const FIT_MARGIN = 8
+
+/**
+ * Height left for the cap in the centre column: the column's own inner height
+ * minus everything else sharing it — the instruction callout, the sticky Adjust
+ * panel, the Done button and the row gaps.
+ *
+ * Measured rather than assumed because the Adjust panel appears and disappears
+ * with the selection, and a fixed guess is wrong in both directions: too small
+ * and the cap is needlessly tiny with nothing selected, too large and selecting
+ * an element pushes the cap off the bottom of the screen.
+ *
+ * `col.clientHeight` is set by the flex row above it (viewport-derived), NOT by
+ * its contents, so resizing the stage can never feed back into this number.
+ */
+function availableHeight(slot: HTMLElement): number {
+  const col = slot.parentElement
+  if (!col) return Infinity
+  const cs = getComputedStyle(col)
+  const gap = parseFloat(cs.rowGap) || 0
+  let used = 0
+  for (const child of col.children) {
+    if (child === slot) continue
+    used += child.getBoundingClientRect().height + gap
+  }
+  const inner = col.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0)
+  return inner - used - FIT_MARGIN
+}
 
 export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<Konva.Stage>; locked?: boolean }) {
   const activeFace = useCanvasStore(s => s.activeFace)
@@ -22,6 +66,45 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
   const addDrawing = useCanvasStore(s => s.addDrawing)
 
   const [stroke, setStroke] = useState<number[] | null>(null)
+
+  // Responsive display size: fit the width the column gives us and the height
+  // left over beside the panel/callout/Done button, clamped. The scene graph is
+  // untouched — `scale` below maps the fixed 480 logical space onto whatever we
+  // can afford on screen.
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const [display, setDisplay] = useState(STAGE_W)
+  useEffect(() => {
+    const el = wrapRef.current
+    const slot = el?.parentElement
+    if (!el || !slot) return
+    const measure = () => {
+      const w = el.clientWidth || STAGE_W
+      const h = availableHeight(slot)
+      setDisplay(Math.round(Math.max(MIN_DISPLAY, Math.min(MAX_DISPLAY, w, h))))
+    }
+    measure()
+    const col = slot.parentElement
+    // Width/height of the column and of the siblings sharing it (the Adjust
+    // panel grows and shrinks with the selected element's controls). Both
+    // observers are feature-detected — jsdom ships neither.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    const observeSiblings = () => {
+      if (!ro || !col) return
+      for (const child of col.children) if (child !== slot) ro.observe(child)
+    }
+    ro?.observe(el)
+    if (col) ro?.observe(col)
+    observeSiblings()
+    // The panel/callout/Done button mount and unmount as the flow advances —
+    // a ResizeObserver alone never sees a sibling that wasn't there yet.
+    const mo = col && typeof MutationObserver !== 'undefined'
+      ? new MutationObserver(() => { observeSiblings(); measure() })
+      : null
+    mo?.observe(col!, { childList: true })
+    window.addEventListener('resize', measure)
+    return () => { ro?.disconnect(); mo?.disconnect(); window.removeEventListener('resize', measure) }
+  }, [])
+  const scale = display / STAGE_W
 
   const bgUrl = faceImages[activeFace]
   const [bg, setBg] = useState<HTMLImageElement | null>(() => {
@@ -42,8 +125,11 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
   useEffect(() => { setStroke(null) }, [activeFace])
 
   function pointerNorm(stage: Konva.Stage | null): number[] | null {
+    // getPointerPosition() is in CONTAINER pixels (Konva does not apply the
+    // stage transform to it), so normalise against the displayed size — not the
+    // 480 logical space the drawn points live in.
     const p = stage?.getPointerPosition()
-    return p ? [p.x / STAGE_W, p.y / STAGE_H] : null
+    return p ? [p.x / display, p.y / display] : null
   }
   function onDown(e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     if (locked) return  // read-only: no select, no draw
@@ -67,10 +153,13 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
   const livePts = stroke ? stroke.map((p, i) => (i % 2 === 0 ? p * STAGE_W : p * STAGE_H)) : []
 
   return (
+    <div ref={wrapRef} className="w-full flex justify-center">
     <Stage
       ref={stageRef as never}
-      width={STAGE_W}
-      height={STAGE_H}
+      width={display}
+      height={display}
+      scaleX={scale}
+      scaleY={scale}
       onMouseDown={onDown}
       onMouseMove={onMove}
       onMouseUp={onUp}
@@ -111,5 +200,6 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
         )}
       </Layer>
     </Stage>
+    </div>
   )
 }

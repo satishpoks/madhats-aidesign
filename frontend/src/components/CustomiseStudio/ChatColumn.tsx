@@ -707,9 +707,12 @@ export function ChatColumn() {
           </div>
         )}
 
-        {/* Voice: centered mic — hold SPACE (or press-and-hold the mic) to talk */}
+        {/* Voice: hold the key (or press-and-hold the mic) to talk. Deliberately a
+            single compact ROW — as a centred stack with halo rings, a big label,
+            a kbd chip and an "or type" line it ate ~140px of the chat column,
+            which is the scarcest space on this screen. */}
         {speech.supported && (
-          <div className="flex flex-col items-center gap-1.5 pt-1">
+          <div className="flex items-center justify-center gap-2">
             <button
               type="button"
               onPointerDown={e => { e.preventDefault(); if (!sending) speech.start() }}
@@ -719,30 +722,32 @@ export function ChatColumn() {
               disabled={sending}
               aria-label={speech.listening ? 'Listening — release to send' : `Hold ${speech.keyLabel} or press and hold to speak`}
               title={speech.listening ? 'Release to send' : `Hold ${speech.keyLabel} to speak`}
-              className="relative flex items-center justify-center w-14 h-14 rounded-full bg-accent text-white shadow-lg shadow-accent/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="relative flex items-center justify-center w-7 h-7 flex-shrink-0 rounded-full bg-accent text-white shadow shadow-accent/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {/* pulse / halo rings */}
+              {/* pulse halo — only while listening, so it costs no idle space */}
               <span
                 className={`absolute inset-0 rounded-full bg-accent/30 ${speech.listening ? 'animate-ping' : ''}`}
                 aria-hidden="true"
               />
-              <span className="absolute -inset-2 rounded-full border border-accent/20" aria-hidden="true" />
-              <span className="absolute -inset-4 rounded-full border border-accent/10" aria-hidden="true" />
               {/* mic icon */}
-              <svg viewBox="0 0 24 24" className="relative w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2}>
+              <svg viewBox="0 0 24 24" className="relative w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2}>
                 <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" stroke="none" />
                 <path d="M5 10a7 7 0 0 0 14 0" strokeLinecap="round" />
                 <line x1="12" y1="19" x2="12" y2="22" strokeLinecap="round" />
                 <line x1="8" y1="22" x2="16" y2="22" strokeLinecap="round" />
               </svg>
             </button>
-            <p className="text-sm font-semibold text-textPrimary mt-1.5">
-              {speech.listening ? 'Listening… release to send' : `Hold ${speech.keyLabel} to Talk`}
-            </p>
-            <kbd className="px-2 py-0.5 text-[11px] font-medium border border-border rounded bg-base text-textMuted">
-              {speech.keyLabel}
-            </kbd>
-            <p className="text-xs text-textMuted">or type</p>
+            {speech.listening ? (
+              <p className="text-xs font-semibold text-textPrimary">Listening… release to send</p>
+            ) : (
+              <p className="text-xs text-textMuted">
+                Hold{' '}
+                <kbd className="px-1.5 py-0.5 text-[10px] font-medium border border-border rounded bg-base text-textMuted">
+                  {speech.keyLabel}
+                </kbd>{' '}
+                to talk, or type
+              </p>
+            )}
           </div>
         )}
 

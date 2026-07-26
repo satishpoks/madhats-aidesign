@@ -15,11 +15,11 @@ export function StoreHeader({ subtitle }: { subtitle?: string }) {
 
   return (
     <header
-      className="border-b border-border px-6 py-3.5 flex items-center gap-3 flex-shrink-0"
+      className="border-b border-border px-6 py-2 flex items-center gap-3 flex-shrink-0"
       style={headerStyle}
     >
       {brand.logo_url ? (
-        <img src={brand.logo_url} alt={storeName || 'MAD HATS'} className="h-16 w-auto object-contain" />
+        <img src={brand.logo_url} alt={storeName || 'MAD HATS'} className="h-8 w-auto object-contain" />
       ) : (
         <span className="font-extrabold text-lg tracking-wide">
           {storeName || 'MAD HATS'}

@@ -14,6 +14,24 @@ export function dataUrlToFile(dataUrl: string, name: string): File {
  * photo background + colour tint). See flattenStage. */
 export const FLATTEN_HIDE_NAME = 'flatten-hide'
 
+/**
+ * Every export is this many pixels on a side, whatever the screen.
+ *
+ * The on-screen stage is now sized to the viewport (CanvasStage scales the fixed
+ * 480 logical space), so a hardcoded pixelRatio would make a laptop's layout
+ * guide smaller than a desktop's. Deriving the ratio from the stage's live width
+ * pins the output instead — and it still evaluates to the historical `2` when
+ * the stage happens to render at 480.
+ */
+export const EXPORT_EDGE_PX = 960
+
+/** pixelRatio that renders `stage` at EXPORT_EDGE_PX, unless one is passed. */
+function exportRatio(stage: Konva.Stage, pixelRatio?: number): number {
+  if (pixelRatio !== undefined) return pixelRatio
+  const w = stage.width() || 480
+  return EXPORT_EDGE_PX / w
+}
+
 /** Konva `name` for UI-only overlays (e.g. the bg-remove badge) that must NEVER
  * appear in ANY export — neither the layout guide nor the WYSIWYG preview. */
 export const EXPORT_HIDE_NAME = 'export-hide'
@@ -44,12 +62,13 @@ function hideByName(stage: Konva.Stage, names: string[]): Konva.Node[] {
  * Nodes are restored after export (in a finally) so the on-screen canvas is
  * unchanged.
  */
-export function flattenStage(stage: Konva.Stage, pixelRatio = 2): string {
+export function flattenStage(stage: Konva.Stage, pixelRatio?: number): string {
+  const ratio = exportRatio(stage, pixelRatio)
   const hidden = hideByName(stage, [FLATTEN_HIDE_NAME, EXPORT_HIDE_NAME])
   try {
     // Re-render the scene with the background hidden before rasterising.
     stage.draw()
-    return stage.toDataURL({ pixelRatio, mimeType: 'image/png' })
+    return stage.toDataURL({ pixelRatio: ratio, mimeType: 'image/png' })
   } finally {
     hidden.forEach(n => n.show())
     stage.draw()
@@ -62,12 +81,13 @@ export function flattenStage(stage: Konva.Stage, pixelRatio = 2): string {
  * export emailed to the customer as their own layout (distinct from the
  * decorations-only layout guide the image model consumes).
  */
-export function flattenFull(stage: Konva.Stage, pixelRatio = 2): string {
+export function flattenFull(stage: Konva.Stage, pixelRatio?: number): string {
+  const ratio = exportRatio(stage, pixelRatio)
   // Keep the product photo + tint, but still drop UI-only overlays (bg-remove badge).
   const hidden = hideByName(stage, [EXPORT_HIDE_NAME])
   try {
     stage.draw()
-    return stage.toDataURL({ pixelRatio, mimeType: 'image/png' })
+    return stage.toDataURL({ pixelRatio: ratio, mimeType: 'image/png' })
   } finally {
     hidden.forEach(n => n.show())
     stage.draw()

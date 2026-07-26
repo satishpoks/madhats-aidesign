@@ -131,7 +131,7 @@ export function FaceThumbnails() {
   }, [])
 
   return (
-    <div className="flex md:flex-col gap-3 p-3">
+    <div className="flex md:flex-col gap-2 p-2 lg:p-3">
       {(FACES as Face[]).map(f => {
         const count = faces[f].length
         const active = activeFace === f
