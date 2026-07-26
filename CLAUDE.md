@@ -544,6 +544,50 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   choke-point guard neutralises the whole class regardless. Regression tests:
   `test_orchestrator_v2.py::test_empty_turn_is_a_noop_and_never_reaches_the_interpreter`
   (backend), `chatStore.test.ts` "blank-turn guard" (frontend).
+- **Adjust panel above the cap + formal v2 register (2026-07-26).**
+  `SelectedToolbar` is now a titled panel that renders **before** `CanvasStage`
+  in `Surface.tsx`'s centre column, `sticky top-0 z-20`, with a solid
+  `bg-accent` header reading `Adjust — Text|Image|Shape|Drawing`. It used to
+  render below the stage inside that scrolling column, so on a phone (the chat
+  already owns `h-[45vh]`) it sat under the fold and selecting an element
+  looked like it did nothing. **Two CSS facts are load-bearing and were both
+  found in-browser, not by the tests** (jsdom performs no layout, so the suite
+  can only pin the class names): (1) `shrink-0` on BOTH the panel root and the
+  new `data-testid="canvas-stage-wrap"` wrapper — without it the fixed 480px
+  Konva stage wins the flex-shrink and the panel collapsed to a **2px accent
+  line**; (2) the controls region is `max-h-[9rem] md:max-h-[45vh]`, because
+  `vh` measures the VIEWPORT while the panel lives in a column that is smaller
+  than the viewport by the chat's 45vh plus two header bars — a flat `45vh`
+  cap is larger than the region it bounds and would let the sticky panel hide
+  the cap outright. Measured live at 1536×639: panel 174px in a 410px column,
+  `flexShrink: 0` on both siblings, mobile clamp ≈172px. Copy follows the
+  panel: `V2_TOOL_TIPS` and `V2_BG_INSTRUCTIONS` say "the **Adjust** panel
+  above the cap" (never a colour — `bg-accent` is `var(--brand-primary)` and
+  themes per store), and `test_v2_copy_guards.py` fails on any v2 string
+  containing "under the cap". The same file guards the **formal register**:
+  the whole v2 canvas conversation was rewritten out of its casual voice, and
+  a `_CASUAL` word-boundary regex list ("pop your", "grab your", "love where",
+  "no worries", "are you after", "tap") pins it. Two chip labels changed
+  (`"No, that's all"`, `"No, it's fine as it is"`) — they resolve by exact
+  literal, so `test_v2_e2e.py`'s walk types them verbatim. **`REQUEST_QUOTE`
+  now promises the finished design WITH the quote**, and
+  `SALES_QUOTE_REQUEST_EMAIL_BODY` tells the team to render it from the admin
+  tools and send it — the promise is kept by a HUMAN, not by code: delivery is
+  untouched and still reference-only (`delivery.py:96-130`). A conditional
+  "with the logo background removed" clause was built and then removed by
+  owner ruling: `collected["logos"][].bg` records the CHIP answer while the
+  render reads the element's `removeBg`, and the manual toggle can diverge
+  them with no way to read the truth at that step (`canvas_design` is
+  persisted only after finalize). Spec/plan:
+  `docs/superpowers/{specs,plans}/2026-07-26-canvas-adjust-panel-and-copy*`.
+  Open tickets: the accent header is a plain `<div>` (not a heading/labelled
+  region) and white-on-accent is ~3.1:1 contrast — spec-mandated and the same
+  combo as the Done button, but unbounded for a store that picks a pale
+  primary; the placement tests assert only the Text and Image header labels;
+  and the **sub-768px stacked layout has never been observed in-browser** (the
+  Chrome extension's `resize_window` is a no-op in this environment and the
+  devtools MCP could not attach), so mobile rests on the clamp arithmetic plus
+  the class-pinning tests.
 - Tests: backend `pytest` 1003 passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline on `master` is 994 (9 new tests since — verified during the TLS-for-all-servers work by stashing the change and re-running, confirming no test flipped status, so the earlier "954" figure recorded here was simply stale). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
