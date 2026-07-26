@@ -156,6 +156,19 @@ targeted edit, not a rename sweep. `MIX_CHIP_LABEL` is referenced by
 > will review it and email you your finished design{bg_note}, along with your
 > quote."
 
+> **Superseded during implementation (2026-07-26).** The conditional `{bg_note}`
+> clause below was built, reviewed, and then removed by owner ruling. Review
+> found that `collected["logos"][].bg` records the customer's *chip answer*,
+> while the render is driven by the canvas element's `removeBg` flag; the two
+> sync only when the chip is tapped, and the logo stays selectable afterwards,
+> so a manual toggle in the Adjust panel diverges them. The true state is not
+> readable at `REQUEST_QUOTE` (`canvas_design` is persisted only after
+> finalize). Rather than state something that can be wrong, the final copy
+> promises the design and the quote with no background clause:
+> *"Your design is ready, {name}. Select "Request a quote" below and our team
+> will review it and email you your finished design, along with your quote."*
+> The rest of this section is retained as the record of what was considered.
+
 ### `{bg_note}` — why it is conditional
 
 If the customer answered "No, it's fine as it is" at `ask_logo_bg`, nothing is
