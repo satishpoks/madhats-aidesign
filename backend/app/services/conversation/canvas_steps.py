@@ -478,10 +478,11 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.LOGO_ADJUST,
-        ask=("Pop your logo on there — I've opened the picker for you. Once "
-             "it's on, drag to move it, pull a corner to resize, or rotate it. "
-             "There's a background-removal toggle in the toolbar if you need "
-             "it. Press Done when the placement looks right."),
+        ask=("I've opened the image picker for you. Once your logo is on the "
+             "cap, drag to move it, pull a corner to resize, or rotate it. "
+             "Select it to open the Adjust panel above the cap, where you'll "
+             "also find the background-removal toggle. Select Done when the "
+             "placement looks right."),
         chips=(Chip("Done", {"logo_placed": True}),),
         slots=("logo_placed",),
         apply=_apply_logo_placed,

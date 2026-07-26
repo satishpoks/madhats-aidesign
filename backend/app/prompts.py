@@ -1083,18 +1083,21 @@ QUOTE_ERROR_HTML = """\
 # --- v2 step-by-step canvas orchestrator copy ---
 V2_TOOL_TIPS = {
     "upload": (
-        'Tap the highlighted "Upload image" button to add your logo. '
+        'Select the highlighted "Upload image" button to add your logo. '
         "Once it's on the cap you can drag it to move it, pull a corner to "
-        "resize, and use the top handle to rotate."
+        "resize, and use the top handle to rotate. Select the logo at any "
+        "time to open the Adjust panel above the cap."
     ),
     "text": (
-        'Tap the highlighted "Add text" button, type your wording, then drag '
-        "to position it.\n"
-        "You can change the font, size and colour from the toolbar under the cap."
+        'Select the highlighted "Add text" button, type your wording, then '
+        "drag to position it.\n"
+        "Select the text to open the Adjust panel above the cap, where you "
+        "can change the font, size and colour."
     ),
     "shape": (
-        'Tap the highlighted "Graphics" button to drop in a shape, then drag '
-        "to position and resize it. Recolour it from the toolbar under the cap."
+        'Select the highlighted "Graphics" button to drop in a shape, then '
+        "drag to position and resize it. Select the shape to open the Adjust "
+        "panel above the cap and recolour it."
     ),
 }
 
@@ -1107,7 +1110,7 @@ V2_TOOL_TIPS = {
 V2_BG_INSTRUCTIONS = (
     "If it does, I'll mark it and we'll knock the background out when we "
     "render your design — the cap on screen won't change. You can also tick "
-    "or untick \"Remove background\" yourself in the toolbar under the cap."
+    'or untick "Remove background" yourself in the Adjust panel above the cap.'
 )
 
 # The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
