@@ -210,7 +210,9 @@ async def test_ask_email_tells_the_customer_a_verification_link_was_sent(monkeyp
                         lambda s, c, email: ("lead-1", True))
     _llm_returns(monkeypatch, {"email": "sam@example.com"})
     res = await o2.handle_message("s1", "sam@example.com")
-    assert res["state"] == S.NEEDED_BY.value
+    # The flow now PARKS on the verification gate rather than walking on to the
+    # next question — but the notice itself is unchanged and still names both.
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
     assert "verification link" in res["reply"]
     assert "sam@example.com" in res["reply"]
 
@@ -262,7 +264,7 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "needed_by": "ASAP", "email_captured": True, "design_confirmed": True,
+        "needed_by": "ASAP", "email_captured": True, "email_verified": True, "design_confirmed": True,
         "final_notes_done": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -351,7 +353,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
                         lambda s, c, e: ("lead-1", True))
     res = await o2.handle_message("s1", "sam@example.com")
     assert store["session"]["collected"]["email_captured"] is True
-    assert res["state"] == S.NEEDED_BY.value
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
 
 
 @pytest.mark.asyncio
@@ -452,7 +454,7 @@ async def test_back_clears_the_last_answer_and_re_asks(monkeypatch):
     store["session"]["collected"].update({
         "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
         "pending_logo": None, "decor_done": True, "decor_placed": True,
-        "quantity": 50, "email_captured": True,
+        "quantity": 50, "email_captured": True, "email_verified": True,
     })
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     out = await o2.handle_back("s1")
@@ -490,7 +492,7 @@ def test_public_data_carries_can_go_back():
     d_mid = o2._public(cs.by_id(S.ASK_QUANTITY),
                        {"name": "Sam", "intro_ack": True, "decor_placed": True,
                         "logos_done": True, "pending_logo": None,
-                        "decor_done": True, "email_captured": True})
+                        "decor_done": True, "email_captured": True, "email_verified": True})
     assert d_mid["can_go_back"] is True
 
     d_start = o2._public(cs.by_id(S.ASK_NAME), {})
@@ -506,7 +508,7 @@ async def test_back_from_post_decoration_state_undoes_the_decoration_method(monk
     store["session"]["collected"].update({
         "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
         "pending_logo": None, "decor_done": True, "decor_placed": True,
-        "quantity": 50, "email_captured": True,
+        "quantity": 50, "email_captured": True, "email_verified": True,
         # decoration_options mirrors what `_prepare_decoration` would already
         # have loaded on the original forward pass — Back does not (and must
         # not) clear it, only the answer flags derived from it.
@@ -548,7 +550,7 @@ async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monk
 def test_public_flags_back_removes_element_only_mid_element():
     from app.services.conversation import state_machine_v2 as v2
     base = {"name": "Sam", "intro_ack": True, "has_logo": True,
-            "pending_logo": {"face": "front", "placed": True}, "email_captured": True}
+            "pending_logo": {"face": "front", "placed": True}, "email_captured": True, "email_verified": True}
     d_adjust = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
     assert d_adjust["can_go_back"] is True
     assert d_adjust["back_removes_element"] is True
@@ -557,14 +559,14 @@ def test_public_flags_back_removes_element_only_mid_element():
     d_plain = o2._public(cs.by_id(S.ASK_QUANTITY),
                          {"name": "Sam", "intro_ack": True, "decor_placed": True,
                           "logos_done": True, "pending_logo": None,
-                          "decor_done": True, "email_captured": True})
+                          "decor_done": True, "email_captured": True, "email_verified": True})
     assert d_plain["can_go_back"] is True
     assert d_plain["back_removes_element"] is False
 
 
 def test_public_can_go_back_is_suppressed_while_back_used():
     base = {"name": "Sam", "intro_ack": True, "has_logo": True,
-            "pending_logo": {"face": "front", "placed": True}, "email_captured": True,
+            "pending_logo": {"face": "front", "placed": True}, "email_captured": True, "email_verified": True,
             "_back_used": True}
     d = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
     assert d["can_go_back"] is False
@@ -593,7 +595,7 @@ async def test_final_notes_renders_disclaimer_and_captures_verbatim(monkeypatch)
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
         "has_logo": True, "logos_done": True, "pending_logo": None,
-        "email_captured": True, "lead_id": "L1", "decor_done": True,
+        "email_captured": True, "email_verified": True, "lead_id": "L1", "decor_done": True,
         "quantity": 12, "decoration_done": True, "needed_by": "2-4 weeks",
         "purpose": "team caps", "design_confirmed": True,
     }
@@ -622,7 +624,7 @@ async def test_final_notes_whitespace_only_reasks_rather_than_advancing(monkeypa
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
         "has_logo": True, "logos_done": True, "pending_logo": None,
-        "email_captured": True, "lead_id": "L1", "decor_done": True,
+        "email_captured": True, "email_verified": True, "lead_id": "L1", "decor_done": True,
         "quantity": 12, "decoration_done": True, "needed_by": "2-4 weeks",
         "purpose": "team caps", "design_confirmed": True,
     }
@@ -646,7 +648,7 @@ async def test_final_notes_ask_shows_disclaimer_links(monkeypatch):
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
         "has_logo": True, "logos_done": True, "pending_logo": None,
-        "email_captured": True, "decor_done": True, "quantity": 12,
+        "email_captured": True, "email_verified": True, "decor_done": True, "quantity": 12,
         "decoration_done": True, "needed_by": "2-4 weeks", "purpose": "team caps",
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -677,7 +679,7 @@ async def test_empty_turn_is_a_noop_and_never_reaches_the_interpreter(monkeypatc
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Satish", "has_logo": True,
         "logo_face": "front", "logo_placed": True, "logo_bg": "removed",
-        "logos_done": True, "email_captured": True,
+        "logos_done": True, "email_captured": True, "email_verified": True,
         "_asked": ["ask_name", "show_intro", "ask_has_logo",
                    "ask_logo_placement", "logo_adjust", "ask_logo_bg",
                    "ask_email", "ask_another_logo"],
@@ -724,7 +726,7 @@ async def test_back_at_decor_adjust_removes_the_decor_and_restarts(monkeypatch):
     store["session"]["state"] = S.DECOR_ADJUST.value
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": False,
-        "logos_done": True, "pending_logo": None, "email_captured": True,
+        "logos_done": True, "pending_logo": None, "email_captured": True, "email_verified": True,
         "decor_choice": "text", "decor_face": "back", "decor_placed": True,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -745,10 +747,120 @@ async def test_non_element_back_sets_the_lock_and_carries_no_canvas_op(monkeypat
     store["session"]["collected"].update({
         "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
         "pending_logo": None, "decor_done": True, "decor_placed": True,
-        "quantity": 50, "email_captured": True,
+        "quantity": 50, "email_captured": True, "email_verified": True,
     })
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     out = await o2.handle_back("s1")
     assert out["state"] == S.ASK_QUANTITY.value                # normal rewind
     assert "canvas_ops" not in out["data"]
     assert store["session"]["collected"]["_back_used"] is True
+
+
+# --- the email-verification gate ---------------------------------------------
+# Answering ASK_EMAIL fires a double opt-in verification link. Until the
+# customer opens it the flow must not move on: the gate step
+# AWAIT_EMAIL_VERIFY is unmet, so first-unmet returns it every turn.
+
+
+def _at_email_store():
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "pending_logo": {"face": "front", "placed": True, "bg": "none"},
+    }
+    return store
+
+
+@pytest.mark.asyncio
+async def test_giving_the_email_parks_the_flow_at_the_verification_gate(monkeypatch):
+    store = _at_email_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, e: ("lead-1", True))
+    _no_llm(monkeypatch)                       # direct_answer resolves the address
+
+    res = await o2.handle_message("s1", "sam@example.com")
+
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+    assert store["session"]["collected"]["email_captured"] is True
+    # The address is echoed once, in the notice prepended to the gate's copy.
+    assert "sam@example.com" in res["reply"]
+    # Nothing to answer and no tool: the customer cannot act their way past it.
+    assert res["data"].get("options") is None
+    assert res["data"]["canvas"]["allowed_tools"] == []
+
+
+@pytest.mark.asyncio
+async def test_typing_at_the_gate_never_advances_and_never_calls_the_llm(monkeypatch):
+    store = _at_email_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"]["email_captured"] = True
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    calls = []
+
+    async def _spy(*a, **k):
+        calls.append(a)
+        return {}
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _spy)
+
+    for msg in ("yes I've verified it", "next please", "skip"):
+        res = await o2.handle_message("s1", msg)
+        assert res["state"] == S.AWAIT_EMAIL_VERIFY.value, msg
+    # The gate declares no slots, so there is nothing to interpret — a customer
+    # cannot talk their way past it, and idling here costs no model calls.
+    assert calls == []
+    # The retry copy is what a typed reply gets (the first render already said
+    # a link was sent).
+    assert res["reply"] == prompts.V2_AWAIT_VERIFY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_the_gate_is_skipped_before_the_email_is_captured():
+    """LOAD-BEARING: ask_email is deliberately SATISFIED early in the design
+    (nothing placed yet), so a gate that only read `email_verified` would become
+    first-unmet at the very start of the design phase and block it."""
+    step = cs.by_id(S.AWAIT_EMAIL_VERIFY)
+    assert step.done_when({"flow_mode": "canvas"})               # no email yet
+    assert not step.done_when({"email_captured": True})          # sent, unconfirmed
+    assert step.done_when({"email_captured": True, "email_verified": True})
+
+
+@pytest.mark.asyncio
+async def test_verification_poll_advances_the_flow_once_the_link_is_opened(monkeypatch):
+    store = _at_email_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"]["email_captured"] = True
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    # Not verified yet: a no-op poll (reply=None) that leaves the state alone.
+    res = await o2.check_verification("s1")
+    assert res["reply"] is None
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+    assert store["session"]["state"] == S.AWAIT_EMAIL_VERIFY.value
+
+    # The customer opens the emailed link (leads.py flips this out-of-band).
+    store["session"]["collected"]["email_verified"] = True
+    res = await o2.check_verification("s1")
+    assert res["state"] == S.ASK_ANOTHER_LOGO.value
+    assert store["session"]["state"] == S.ASK_ANOTHER_LOGO.value
+    assert prompts.V2_EMAIL_VERIFIED_ACK in res["reply"]
+
+
+@pytest.mark.asyncio
+async def test_the_verification_poll_delegates_a_non_gate_state_to_v1(monkeypatch):
+    """The shared tail (post-generation VERIFY_EMAIL) is v1's, and the frontend
+    polls the same endpoint there — so a v2 canvas session must not swallow it."""
+    store = _at_email_store()
+    store["session"]["state"] = S.VERIFY_EMAIL.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    seen = []
+
+    async def _v1_check(sid):
+        seen.append(sid)
+        return {"reply": None, "state": S.VERIFY_EMAIL.value, "data": {}}
+    monkeypatch.setattr(o2._v1, "check_verification", _v1_check)
+
+    await o2.check_verification("s1")
+    assert seen == ["s1"]

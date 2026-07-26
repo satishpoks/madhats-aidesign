@@ -46,7 +46,7 @@ def test_logos_done_falls_through_to_decor():
     # loop and the decor loop, so it must be resolved for this test to isolate
     # what it actually targets — that the logo steps themselves are skipped.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos=[{"face": "back", "placed": True}],
-              pending_logo=None, logos_done=True, email_captured=True)
+              pending_logo=None, logos_done=True, email_captured=True, email_verified=True)
     assert v2.next_step(c).id is S.ASK_ADD_DECOR
 
 
@@ -56,13 +56,13 @@ def test_quantity_zero_counts_as_answered():
     # registry) is not the intercept — this must genuinely exercise "0 is a
     # real answer" by landing on the step that follows a satisfied quantity.
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              email_captured=True, quantity=0, decoration_done=True)
+              email_captured=True, email_verified=True, quantity=0, decoration_done=True)
     assert v2.next_step(c).id is S.NEEDED_BY
 
 
 def test_missing_quantity_re_asks():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              email_captured=True)
+              email_captured=True, email_verified=True)
     assert v2.next_step(c).id is S.ASK_QUANTITY
 
 
@@ -90,7 +90,7 @@ def test_email_fires_right_after_the_first_text_element_on_the_text_only_path():
 def test_email_step_is_satisfied_once_captured():
     c = _seed(name="Sam", intro_ack=True, has_logo=True,
               pending_logo={"face": "front", "placed": True, "bg": "none"},
-              email_captured=True)
+              email_captured=True, email_verified=True)
     assert v2.next_step(c).id is not S.ASK_EMAIL
 
 
@@ -107,7 +107,7 @@ def test_finalize_unreachable_without_email_captured():
 
 def test_finalize_reached_when_everything_done():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True, decor_done=True,
-              quantity=50, decoration_done=True, email_captured=True, needed_by="ASAP",
+              quantity=50, decoration_done=True, email_captured=True, email_verified=True, needed_by="ASAP",
               purpose="team caps", design_confirmed=True, final_notes_done=True,
               quote_requested=True)
     assert v2.next_step(c).id is S.FINALIZE_CANVAS
@@ -126,7 +126,7 @@ def _seed_at_review(**over):
     c = _seed(name="Sam", intro_ack=True, has_logo=True,
               pending_logo={"face": "front", "placed": True, "bg": "none"},
               logos_done=True, decor_done=True, quantity=50, decoration_done=True,
-              email_captured=True, needed_by="ASAP", purpose="team caps")
+              email_captured=True, email_verified=True, needed_by="ASAP", purpose="team caps")
     c.update(over)
     return c
 
@@ -206,7 +206,8 @@ def test_section_for_maps_every_step_to_its_section():
     expected = {
         S.ASK_NAME: 0, S.SHOW_INTRO: 0,
         S.ASK_HAS_LOGO: 1, S.ASK_LOGO_PLACEMENT: 1, S.LOGO_ADJUST: 1,
-        S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.ASK_ANOTHER_LOGO: 1,
+        S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.AWAIT_EMAIL_VERIFY: 1,
+        S.ASK_ANOTHER_LOGO: 1,
         S.ASK_ADD_DECOR: 2, S.ASK_DECOR_PLACEMENT: 2, S.DECOR_ADJUST: 2,
         S.ASK_ANYTHING_ELSE: 2,
         S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,
@@ -561,7 +562,7 @@ def test_needed_by_has_a_progress_slot_immediately_before_purpose():
 def test_needed_by_is_asked_after_email_and_before_purpose():
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True,
               decor_done=True, quantity=50, decoration_done=True,
-              email_captured=True)
+              email_captured=True, email_verified=True)
     assert v2.next_step(c).id is S.NEEDED_BY
     c["needed_by"] = "ASAP"
     assert v2.next_step(c).id is S.ASK_PURPOSE
@@ -575,7 +576,7 @@ def test_needed_by_is_not_satisfied_by_an_empty_answer():
     needs. The step's own comment already claims "any non-empty answer"."""
     c = _seed(name="Sam", intro_ack=True, has_logo=True, logos_done=True,
               decor_done=True, quantity=50, decoration_done=True,
-              email_captured=True, needed_by="")
+              email_captured=True, email_verified=True, needed_by="")
     assert v2.next_step(c).id is S.NEEDED_BY
     c["needed_by"] = None
     assert v2.next_step(c).id is S.NEEDED_BY
@@ -678,7 +679,7 @@ def test_next_step_honours_a_reordering_config():
     cfg = _flow(("ask_purpose", True), ("ask_quantity", True))
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
-         "email_captured": True}
+         "email_captured": True, "email_verified": True}
     assert v2.next_step(c).id is S.ASK_QUANTITY          # default order
     assert v2.next_step(c, cfg).id is S.ASK_PURPOSE      # configured order
 
@@ -693,7 +694,7 @@ def test_next_step_skips_a_disabled_step():
     # step. Seeding keeps ask_purpose the only variable, which is the claim.
     c = {"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
          "logos_done": True, "pending_logo": None, "decor_done": True,
-         "quantity": 12, "decoration_done": True, "email_captured": True,
+         "quantity": 12, "decoration_done": True, "email_captured": True, "email_verified": True,
          "needed_by": "ASAP", "design_confirmed": True, "final_notes_done": True,
          "quote_requested": True}
     assert v2.next_step(c).id is S.ASK_PURPOSE           # asked by default
@@ -725,7 +726,7 @@ def test_last_answered_is_the_previous_question_step():
     # Answered up to quantity; the step before the current unmet one is quantity.
     c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
               pending_logo=None, decor_done=True, quantity=50,
-              decor_placed=True, email_captured=True)
+              decor_placed=True, email_captured=True, email_verified=True)
     # current unmet is ASK_DECORATION; last answered is ASK_QUANTITY.
     assert v2.next_step(c).id is S.ASK_DECORATION
     assert v2.last_answered_step(c).id is S.ASK_QUANTITY
@@ -736,7 +737,7 @@ def test_last_answered_never_targets_ask_email():
     # slots (email — already absent) cannot un-answer it: it is never a target.
     c = _seed(name="Sam", intro_ack=True, has_logo=True,
               pending_logo={"face": "front", "placed": True, "bg": "none"},
-              email_captured=True, logos_done=True, decor_done=True, quantity=12,
+              email_captured=True, email_verified=True, logos_done=True, decor_done=True, quantity=12,
               decor_placed=True)
     tgt = v2.last_answered_step(c)
     assert tgt is None or tgt.id is not S.ASK_EMAIL
@@ -749,7 +750,7 @@ def test_last_answered_step_can_target_ask_decoration_when_past_it():
     # flip done_when, since it also reads the derived `decoration_done` flag.
     c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
               pending_logo=None, decor_done=True, decor_placed=True,
-              quantity=50, email_captured=True,
+              quantity=50, email_captured=True, email_verified=True,
               decoration_types=["Embroidery"], decoration_done=True,
               decoration_type="embroidery")
     assert v2.next_step(c).id is S.NEEDED_BY
@@ -786,7 +787,7 @@ def test_final_notes_sits_between_review_and_quote():
     # After the design is confirmed at REVIEW_DESIGN, the next step is the
     # colour-disclaimer/final-notes step, then the quote request.
     c = _seed(name="Sam", intro_ack=True, has_logo=True,
-              pending_logo=None, logos_done=True, email_captured=True,
+              pending_logo=None, logos_done=True, email_captured=True, email_verified=True,
               decor_done=True, quantity=12, decoration_done=True,
               needed_by="2-4 weeks", purpose="team caps", design_confirmed=True)
     assert v2.next_step(c).id is S.ASK_FINAL_NOTES

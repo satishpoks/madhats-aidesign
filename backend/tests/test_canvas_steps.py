@@ -15,6 +15,10 @@ def test_registry_declares_the_v2_flow_in_order():
     assert [s.id for s in cs.REGISTRY] == [
         S.ASK_NAME, S.SHOW_INTRO, S.ASK_HAS_LOGO,
         S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST, S.ASK_LOGO_BG, S.ASK_EMAIL,
+        # The verification gate sits IMMEDIATELY after ask_email: that adjacency
+        # is what makes the double opt-in blocking. A step spliced between them
+        # would be answerable before the address is confirmed.
+        S.AWAIT_EMAIL_VERIFY,
         S.ASK_ANOTHER_LOGO,
         S.ASK_ADD_DECOR, S.ASK_DECOR_PLACEMENT, S.DECOR_ADJUST, S.ASK_ANYTHING_ELSE,
         S.ASK_QUANTITY, S.ASK_DECORATION, S.ASK_DECORATION_MIX,
@@ -456,7 +460,7 @@ def _quantity_done() -> dict:
     # intercept first and the test would prove nothing about its real subject.
     return {"name": "Sam", "intro_ack": True, "has_logo": False,
             "logos_done": True, "pending_logo": None, "decor_done": True,
-            "quantity": 50, "email_captured": True}
+            "quantity": 50, "email_captured": True, "email_verified": True}
 
 
 def test_decoration_is_asked_after_quantity_and_before_email():
@@ -607,7 +611,7 @@ def test_prepare_loads_the_stores_active_methods_once(monkeypatch):
 
 def test_a_store_with_no_decoration_methods_skips_the_step(monkeypatch):
     """No options means no chips and no way to answer — that would dead-end the
-    funnel just before needed_by (email_captured=True, seeded by
+    funnel just before needed_by (email_captured=True, email_verified=True, seeded by
     _quantity_done, already satisfies ask_email earlier in the registry)."""
     monkeypatch.setattr("app.services.decoration_types.list_types",
                         lambda *a, **k: [])

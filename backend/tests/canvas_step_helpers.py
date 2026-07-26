@@ -51,6 +51,10 @@ def satisfy(c: dict, step) -> None:
         c["decoration_mix_note"] = "embroidered logo, printed text"
     elif step.id is S.ASK_EMAIL:
         c["email_captured"] = True
+    elif step.id is S.AWAIT_EMAIL_VERIFY:
+        # No customer turn satisfies the gate — only the out-of-band link click,
+        # which leads.py records as collected.email_verified.
+        c["email_verified"] = True
     elif step.id is S.NEEDED_BY:
         c["needed_by"] = "2-4 weeks"
     elif step.id is S.ASK_PURPOSE:

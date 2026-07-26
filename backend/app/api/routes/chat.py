@@ -18,6 +18,7 @@ from app.services.conversation.orchestrator import (
     handle_message,
 )
 from app.services.conversation.orchestrator_v2 import (
+    check_verification as check_verification_v2,
     handle_back as handle_back_v2,
     handle_message as handle_message_v2,
 )
@@ -52,15 +53,21 @@ def _persist_live_canvas_design(session_id: str, canvas_design: dict | None) -> 
          .eq("id", session_id).execute())
 
 
+def _is_v2_canvas(session_id: str) -> bool:
+    """Whether this session is routed by v2 — the flag on AND a canvas flow."""
+    if not settings.canvas_orchestrator_v2:
+        return False
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        return False
+    return ((res.data[0].get("collected") or {}).get("flow_mode") == "canvas")
+
+
 async def _dispatch(session_id: str, message: str) -> dict:
     """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else)."""
-    if settings.canvas_orchestrator_v2:
-        sb = get_supabase()
-        res = sb.table("design_sessions").select("collected").eq("id", session_id).limit(1).execute()
-        if res.data:
-            collected = res.data[0].get("collected") or {}
-            if collected.get("flow_mode") == "canvas":
-                return await handle_message_v2(session_id, message)
+    if _is_v2_canvas(session_id):
+        return await handle_message_v2(session_id, message)
     return await handle_message(session_id, message)
 
 
@@ -92,13 +99,21 @@ async def chat_back(session_id: str) -> ChatResponse:
 
 @router.get("/chat/{session_id}/verification", response_model=VerificationPollResponse)
 async def poll_verification(session_id: str) -> VerificationPollResponse:
-    """Cheap poll used by the chat while it waits at VERIFY_EMAIL.
+    """Cheap poll used by the chat while it waits for the emailed link.
 
     Not rate-limited (the client polls every few seconds) — it only reads and,
     at most once, advances the conversation past verification.
+
+    Dispatched like a chat turn: a v2 canvas session waits MID-design at
+    AWAIT_EMAIL_VERIFY, which v1 knows nothing about. v2's own check delegates
+    any other state back to v1, so the shared post-generation VERIFY_EMAIL wait
+    still works for canvas sessions that reach it.
     """
     try:
-        result = await check_verification(session_id)
+        if _is_v2_canvas(session_id):
+            result = await check_verification_v2(session_id)
+        else:
+            result = await check_verification(session_id)
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
     return VerificationPollResponse(**result)

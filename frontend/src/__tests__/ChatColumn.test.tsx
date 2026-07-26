@@ -134,6 +134,70 @@ describe('ChatColumn', () => {
     expect(goBack).toHaveBeenCalledTimes(1) // no confirm step
   })
 
+  describe('await_email_verify (the double opt-in gate)', () => {
+    // The backend's gate step declares no slots, so nothing the customer sends
+    // can advance it. The UI must not invite them to try.
+    function atTheGate() {
+      useChatStore.getState().hydrate(
+        [{ role: 'assistant', content: 'I have sent a verification link' }] as never,
+        'await_email_verify',
+        { canvas: { allowed_tools: [] } },
+      )
+    }
+
+    it('locks the composer and refuses to send anything', async () => {
+      atTheGate()
+      render(<ChatColumn />)
+
+      const input = screen.getByPlaceholderText(/type your message/i)
+      expect(input).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+
+      // Belt and braces: even if the disabled attribute were bypassed, the
+      // submit handler must drop the turn.
+      fireEvent.change(input, { target: { value: 'let me through' } })
+      fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
+      await waitFor(() => expect(sendChat).not.toHaveBeenCalled())
+    })
+
+    it('explains what to do, and hides Back so the flow cannot be rewound past it', () => {
+      atTheGate()
+      useChatStore.setState({ canGoBack: true, backRemovesElement: false })
+      render(<ChatColumn />)
+
+      expect(screen.getByRole('status')).toHaveTextContent(/confirm your email/i)
+      expect(screen.getByText(/spam folder/i)).toBeInTheDocument()
+      expect(screen.queryByText('↩ Back')).not.toBeInTheDocument()
+    })
+
+    it('polls for the out-of-band verification while it waits', async () => {
+      vi.useFakeTimers()
+      try {
+        atTheGate()
+        const poll = vi.fn()
+        useChatStore.setState({ pollVerification: poll })
+        render(<ChatColumn />)
+        expect(poll).not.toHaveBeenCalled()
+        act(() => { vi.advanceTimersByTime(4000) })
+        expect(poll).toHaveBeenCalledWith('sess-1')
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('re-enables the composer once verification releases the gate', () => {
+      atTheGate()
+      const { rerender } = render(<ChatColumn />)
+      expect(screen.getByPlaceholderText(/type your message/i)).toBeDisabled()
+
+      act(() => { useChatStore.setState({ chatState: 'ask_another_logo' }) })
+      rerender(<ChatColumn />)
+
+      expect(screen.getByPlaceholderText(/type your message/i)).not.toBeDisabled()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+  })
+
   it('resets an open Back confirm when the chat state changes, so it cannot reappear unbidden later', async () => {
     const goBack = vi.fn()
     useChatStore.setState({

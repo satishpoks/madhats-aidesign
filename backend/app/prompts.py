@@ -1153,6 +1153,30 @@ V2_EMAIL_VERIFY_NOTICE = (
     "confirm your address so we can email your finished design there."
 )
 
+# The gate's own copy, appended to the notice above on the turn the link goes
+# out. The flow STOPS here until the customer opens it (AWAIT_EMAIL_VERIFY is
+# unmet until collected.email_verified), so this must set that expectation
+# rather than imply the conversation is still moving.
+V2_AWAIT_VERIFY = (
+    "I'll wait here until that's confirmed — the moment you open the link we'll "
+    "carry straight on with your design."
+)
+
+# Shown when the customer types at the gate instead of opening the link. The
+# step declares no slots, so nothing they say is interpreted; this is the only
+# reply they can get, which is why it has to be the useful one (spam folder).
+V2_AWAIT_VERIFY_RETRY = (
+    "I do need your address confirmed before we continue. Please open the "
+    "verification link I've sent you — if it hasn't arrived, please check your "
+    "spam folder."
+)
+
+# Prepended to the next step's copy when the out-of-band verification lands
+# (orchestrator_v2.check_verification). The customer confirmed in another tab or
+# on their phone, so the chat has to acknowledge it before asking the next
+# question — otherwise the thread just jumps.
+V2_EMAIL_VERIFIED_ACK = "Thank you — your email address is confirmed."
+
 # The pre-quote colour-accuracy disclaimer (v2 canvas ASK_FINAL_NOTES). The two
 # reference links are admin-configurable per store (branding.colour_disclaimer_text);
 # these are neutral placeholders used until an admin sets real ones. Copy must not

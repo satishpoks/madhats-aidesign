@@ -268,6 +268,53 @@ async def handle_back(session_id: str) -> dict:
                           data=_public(nxt, collected, flow_config))
 
 
+async def check_verification(session_id: str) -> dict:
+    """Poll target while a v2 canvas session waits at AWAIT_EMAIL_VERIFY.
+
+    The gate is the one step no customer turn can satisfy: it clears only when
+    the emailed link is opened, which flips ``collected.email_verified`` from the
+    leads route. The still-open tab polls this every few seconds; once the flag
+    lands we resolve the next unmet step and append ONLY the assistant's line —
+    a phantom user turn would appear in the thread as something the customer
+    never said.
+
+    Returns ``reply=None`` (nothing changed) until verification lands. Any state
+    outside the gate is delegated to v1, which owns the shared post-generation
+    VERIFY_EMAIL wait the frontend polls with the same endpoint.
+    """
+    sb = get_supabase()
+    res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
+    if not res.data:
+        raise SessionNotFound(session_id)
+    session = res.data[0]
+    current = S(session["state"])
+
+    if current is not S.AWAIT_EMAIL_VERIFY:
+        return await _v1.check_verification(session_id)
+
+    collected: dict = session.get("collected") or {}
+    store = get_store(session.get("store_id")) if session.get("store_id") else None
+    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
+    step = cs.by_id(current)
+
+    if not collected.get("email_verified"):
+        return {"reply": None, "state": current.value,
+                "data": _public(step, collected, flow_config)}
+
+    persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
+    next_ = v2.next_step(collected, flow_config)
+    if next_.prepare:
+        next_.prepare(collected, store)
+        next_ = v2.next_step(collected, flow_config)
+    reply = v2.reply_for(next_, collected, persona=persona,
+                         intro=canvas_intro_text(store),
+                         ack=prompts.V2_EMAIL_VERIFIED_ACK,
+                         colour_note=colour_disclaimer_text(
+                             store, collected.get("name") or "there"))
+    return await _persist(sb, session_id, collected, next_, reply, current.value,
+                          next_.id, user_message=None, config=flow_config)
+
+
 async def _stall(sb, session_id, collected, step, state_before, message,
                  *, config: dict | None = None) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
@@ -290,26 +337,33 @@ async def _stall(sb, session_id, collected, step, state_before, message,
 
 
 async def _persist(sb, session_id, collected, step, reply, state_before, new_state,
-                   *, user_message: str = "", data: dict | None = None,
+                   *, user_message: str | None = "", data: dict | None = None,
                    config: dict | None = None) -> dict:
-    """Write the state + both chat rows, and shape the response.
+    """Write the state + the chat rows, and shape the response.
 
     `step` is the step the session now RESTS on (None only for the capped
     QUOTE_REQUESTED handoff, which supplies its own `data`). `config` is the
     store's canvas_flow — only consulted for the `_public` fallback below (an
     explicit `data=` always wins), so `can_go_back` in that fallback is scoped
     to the same config-composed registry as the turn that produced it.
+
+    `user_message=None` writes the assistant row ONLY, for a turn the customer
+    didn't take (check_verification, which advances off an out-of-band email
+    click). `""` is different and still writes an empty user row — that's the
+    GREETING kickoff's existing shape.
     """
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
          "updated_at": datetime.now(timezone.utc).isoformat()}
     ).eq("id", session_id).execute()
-    sb.table("chat_messages").insert([
+    rows = [] if user_message is None else [
         {"session_id": session_id, "role": "user", "content": user_message,
          "state_before": state_before, "state_after": state_before},
+    ]
+    rows.append(
         {"session_id": session_id, "role": "assistant", "content": reply,
-         "state_before": state_before, "state_after": new_state.value},
-    ]).execute()
+         "state_before": state_before, "state_after": new_state.value})
+    sb.table("chat_messages").insert(rows).execute()
     if data is None:
         data = _public(step, collected, config) if step else {}
     return {"reply": reply, "state": new_state.value, "data": data}

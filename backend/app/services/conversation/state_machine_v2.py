@@ -190,6 +190,9 @@ _PROGRESS_ANCHORS: dict[S, S] = {
     # placed) — it is not a numbered step of its own, so it must not move the
     # counter backward relative to whatever design step is in progress.
     S.ASK_EMAIL: S.ASK_LOGO_PLACEMENT,
+    # The verification wait is the second beat of the email ask, not a step of
+    # its own — the counter must sit still while the customer checks their inbox.
+    S.AWAIT_EMAIL_VERIFY: S.ASK_LOGO_PLACEMENT,
 }
 _PROGRESS_PATH: list[S] = [
     S.ASK_NAME, S.SHOW_INTRO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
@@ -205,7 +208,8 @@ _SECTIONS: list[str] = [
 _STEP_SECTION: dict[S, int] = {
     S.ASK_NAME: 0, S.SHOW_INTRO: 0,
     S.ASK_HAS_LOGO: 1, S.ASK_LOGO_PLACEMENT: 1, S.LOGO_ADJUST: 1,
-    S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.ASK_ANOTHER_LOGO: 1,
+    S.ASK_LOGO_BG: 1, S.ASK_EMAIL: 1, S.AWAIT_EMAIL_VERIFY: 1,
+    S.ASK_ANOTHER_LOGO: 1,
     S.ASK_ADD_DECOR: 2, S.ASK_DECOR_PLACEMENT: 2, S.DECOR_ADJUST: 2,
     S.ASK_ANYTHING_ELSE: 2,
     S.ASK_QUANTITY: 3, S.ASK_DECORATION: 3, S.ASK_DECORATION_MIX: 3,

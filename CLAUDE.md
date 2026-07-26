@@ -630,7 +630,57 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   deselect. MIN is a usability floor, not a fit guarantee — on a very short
   window the column scrolls a little rather than shrinking to something you
   can't design on. Drag/select/transform re-verified at scale 0.76.
-- Tests: backend `pytest` 1003 passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline on `master` is 994 (9 new tests since — verified during the TLS-for-all-servers work by stashing the change and re-running, confirming no test flipped status, so the earlier "954" figure recorded here was simply stale). Frontend: full `vitest run` is not reliably re-measurable in one pass on this Windows host (stalls — a known tinypool flake, see below); the Windows-stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing. Last full-run figure on record: `vitest run` 221 passing (2 pre-existing `adminQuotes` failures, unrelated — missing Router context; on Windows an intermittent tinypool "Worker exited" flake can appear in the full run — rerun focused).
+- **v2 email verification is now a HARD gate (2026-07-26).** Answering
+  `ask_email` fires the double opt-in link and the flow **stops** — it no longer
+  walks on with an unconfirmed address. One new registry step,
+  `AWAIT_EMAIL_VERIFY` (`await_email_verify`), sits **immediately after**
+  `ask_email` (that adjacency is the whole mechanism, and
+  `test_registry_declares_the_v2_flow_in_order` pins it). It is a **wait, not a
+  question**: no chips, no slots — so `orchestrator_v2` never calls the
+  interpreter there, nothing the customer types is read, and any typed turn just
+  re-renders it (`ask_retry` = `V2_AWAIT_VERIFY_RETRY`, the spam-folder line).
+  Idling at the gate therefore costs zero model calls.
+  **`done_when=lambda c: not c.get("email_captured") or c.get("email_verified")`
+  — the `not email_captured` half is LOAD-BEARING, not defensive:** `ask_email`
+  is deliberately *satisfied* early in the design (nothing placed yet), so a gate
+  reading `email_verified` alone becomes first-unmet at the START of the design
+  phase and blocks it before the address was ever asked for.
+  The only exit is the real click: `leads.py::_mark_session_verified` flips
+  `collected.email_verified`, and the tab's existing 4s poll
+  (`GET /chat/{id}/verification`) advances the thread via a new
+  `orchestrator_v2.check_verification`, which **delegates any non-gate state
+  straight to v1** (the shared post-generation `VERIFY_EMAIL` wait uses the same
+  endpoint, so v2 must not swallow it) and is dispatched from
+  `chat.py::poll_verification` through the extracted `_is_v2_canvas` helper.
+  It persists the **assistant row only** (`_persist(user_message=None)` — a new
+  sentinel distinct from `""`, which the GREETING kickoff still uses to write an
+  empty user row): a phantom user turn would show in the thread as something the
+  customer never said. Reply = `V2_EMAIL_VERIFIED_ACK` + the next step's copy,
+  one message.
+  **Frontend** (`ChatColumn`, the only component v2 canvas renders — `ChatPanel`
+  is `view==='session'`): `awaitingEmailVerify` → `inputLocked` disables the
+  text box, Send, mic, every chip row and the Continue affordance, hides Back
+  (nothing to rewind *to*, and the point is that nothing moves), and shows a
+  `role="status"` waiting panel. `handleSubmit`/`handleChip` re-check the lock,
+  so bypassing `disabled` still drops the turn. The poll effect now fires for
+  `verify_email` **or** `await_email_verify`.
+  Verified live end-to-end (state driven to the gate + `email_verified` flipped
+  exactly as `leads.py` writes them, since Resend's sandbox 403s a `+alias`
+  address): input/Send/mic all `disabled:true`, no Back, no chips, tool rail
+  dead, and the release landed within one poll cycle with the ack + next
+  question as a single assistant message.
+  **Fixture consequence for every future v2 test:** `email_captured: True` alone
+  now parks a session at the gate. "Past the email step" means
+  `email_captured` **and** `email_verified` — 13 fixtures across
+  `test_orchestrator_v2`/`test_state_machine_v2`/`test_canvas_steps`/`test_v2_e2e`/
+  `test_request_quote_step` were updated, plus `canvas_step_helpers.satisfy`.
+  Known gaps (both pre-existing, now reachable at a new state): the v2 **resume**
+  gap means reloading at the gate rehydrates no `canvas` directive, so the canvas
+  shows v1's "Design locked in — finishing up" strip over a live design; and
+  there is **no in-chat "resend the link"** affordance — if the email never
+  arrives the customer must reload, since `POST /leads/verify/send` needs a
+  `lead_id` the browser is never given. Worth adding if support tickets appear.
+- Tests: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).

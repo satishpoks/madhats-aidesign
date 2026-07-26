@@ -541,6 +541,25 @@ REGISTRY: tuple[Step, ...] = (
             not _has_first_element(c) and not _design_phase_done(c)),
     ),
     Step(
+        id=S.AWAIT_EMAIL_VERIFY,
+        # A wait, not a question: no chips and no slots, so there is nothing for
+        # the customer to answer and nothing for the interpreter to read. Any
+        # typed turn re-renders this step (see ask_retry), which is exactly the
+        # "cannot move past" the double opt-in needs. It clears only when
+        # leads.py flips collected.email_verified out-of-band and the frontend's
+        # verification poll advances the flow (orchestrator_v2.check_verification).
+        ask=prompts.V2_AWAIT_VERIFY,
+        ask_retry=prompts.V2_AWAIT_VERIFY_RETRY,
+        # `not email_captured` is LOAD-BEARING, not defensive. ASK_EMAIL is
+        # deliberately SATISFIED early in the design (nothing placed yet, see its
+        # done_when), so a gate reading email_verified alone would become
+        # first-unmet at the START of the design phase and block it before the
+        # address was ever asked for. Unmet only in the window between the link
+        # going out and the customer opening it.
+        done_when=lambda c: (not c.get("email_captured")
+                             or bool(c.get("email_verified"))),
+    ),
+    Step(
         id=S.ASK_ANOTHER_LOGO,
         ask="That's saved. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),

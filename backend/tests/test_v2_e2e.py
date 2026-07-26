@@ -70,6 +70,12 @@ def _new_store():
     }
 
 
+# Walk sentinel: "the customer opens the emailed verification link", which is
+# not a chat turn at all. Identity-compared (`is`), so it can never collide with
+# a real message.
+_OPENS_THE_LINK = object()
+
+
 def test_v2_no_longer_uses_the_shared_keyword_matchers():
     """v1 keeps is_affirmative/is_negative (it still routes on them); v2 must
     not import them. `is_negative` matches by substring, so "another" reads as
@@ -124,7 +130,11 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Front",                   S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
         ("Yes, remove background",  S.ASK_EMAIL),          # first element placed
-        ("sam@example.com",         S.ASK_ANOTHER_LOGO),
+        # Giving the address sends the double opt-in link and PARKS the flow —
+        # nothing the customer types moves it on (the gate declares no slots).
+        ("sam@example.com",         S.AWAIT_EMAIL_VERIFY),
+        ("are we done yet?",        S.AWAIT_EMAIL_VERIFY),   # still parked
+        (_OPENS_THE_LINK,           S.ASK_ANOTHER_LOGO),     # out-of-band click
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
@@ -145,7 +155,15 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
 
     res = None
     for msg, expected in walk:
-        res = await o2.handle_message("s1", msg)
+        if msg is _OPENS_THE_LINK:
+            # Not a customer turn: the emailed link is opened in another tab and
+            # leads.py records it on the session; the chat's own poll is what
+            # advances the thread. Driven here so the walk proves the ONLY way
+            # past the gate is a real verification.
+            store["session"]["collected"]["email_verified"] = True
+            res = await o2.check_verification("s1")
+        else:
+            res = await o2.handle_message("s1", msg)
         assert res["state"] == expected.value, f"{msg!r} -> {res['state']}"
         # Every v2-owned turn must carry a directive. A null one means "not a v2
         # turn" to the frontend, which then falls back to v1's whole-rail gating
@@ -202,7 +220,7 @@ async def test_v2_mix_branch_asks_the_customer_to_describe_it(monkeypatch):
     store["session"]["collected"].update(
         {"name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
          "pending_logo": None, "decor_done": True, "quantity": 12,
-         "email_captured": True}
+         "email_captured": True, "email_verified": True}
     )
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
@@ -266,7 +284,7 @@ async def test_needed_by_accepts_a_free_text_date_voice_path(monkeypatch):
     store["session"]["collected"].update({
         "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
         "pending_logo": None, "decor_done": True, "quantity": 12,
-        "decoration_done": True, "email_captured": True,
+        "decoration_done": True, "email_captured": True, "email_verified": True,
     })
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
 
@@ -324,6 +342,16 @@ def _at_email_store(brand: dict | None):
     return store
 
 
+async def _verify_and_poll(store):
+    """The beat that now follows answering ASK_EMAIL: the turn parks on the
+    verification gate, and only the out-of-band link click (which leads.py
+    records as collected.email_verified) releases it. These config tests are
+    about where routing goes AFTER the email, so they have to walk through it."""
+    assert store["session"]["state"] == S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"]["email_verified"] = True
+    return await o2.check_verification("s1")
+
+
 def _wire(monkeypatch, store, brand: dict | None):
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
@@ -359,6 +387,7 @@ async def test_orchestrator_threads_store_canvas_flow_config(monkeypatch):
     seen = _wire(monkeypatch, store, {"canvas_flow": cfg})
 
     out = await o2.handle_message("s1", "sam@example.com")
+    out = await _verify_and_poll(store)
 
     assert seen["config"] == cfg
     assert out["state"] == S.FINALIZE_CANVAS.value
@@ -372,6 +401,7 @@ async def test_orchestrator_without_canvas_flow_is_unchanged(monkeypatch):
     seen = _wire(monkeypatch, store, {})
 
     out = await o2.handle_message("s1", "sam@example.com")
+    out = await _verify_and_poll(store)
 
     assert seen["config"] is None
     assert out["state"] == S.ASK_PURPOSE.value

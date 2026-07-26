@@ -61,3 +61,37 @@ async def test_dispatch_v1_when_flag_off(monkeypatch):
     monkeypatch.setattr(chat_route, "handle_message", fake_v1)
     await chat_route._dispatch("session-id-2", "hello")
     assert called.get("v1") is True
+
+
+@pytest.mark.asyncio
+async def test_verification_poll_dispatches_to_v2_for_a_canvas_session(monkeypatch):
+    """The mid-design AWAIT_EMAIL_VERIFY wait is v2's; v1 has no such state, so
+    polling it through v1 would leave the gate closed forever."""
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB())
+
+    called = {}
+
+    async def fake_v2(sid):
+        called["v2"] = sid
+        return {"reply": None, "state": S.AWAIT_EMAIL_VERIFY.value, "data": {}}
+
+    monkeypatch.setattr(chat_route, "check_verification_v2", fake_v2)
+    await chat_route.poll_verification("session-id-3")
+    assert called.get("v2") == "session-id-3"
+
+
+@pytest.mark.asyncio
+async def test_verification_poll_stays_on_v1_when_the_flag_is_off(monkeypatch):
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", False)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _FakeSB())
+
+    called = {}
+
+    async def fake_v1(sid):
+        called["v1"] = sid
+        return {"reply": None, "state": S.VERIFY_EMAIL.value, "data": {}}
+
+    monkeypatch.setattr(chat_route, "check_verification", fake_v1)
+    await chat_route.poll_verification("session-id-4")
+    assert called.get("v1") == "session-id-4"

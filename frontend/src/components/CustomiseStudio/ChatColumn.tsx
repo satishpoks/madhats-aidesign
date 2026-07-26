@@ -216,6 +216,15 @@ export function ChatColumn() {
   const awaitingVerification =
     !designReleased && (genStatus === 'done' || chatState === 'verify_email')
 
+  // v2 canvas: the double opt-in gate. The verification link has gone out and
+  // the flow is PARKED mid-design until the customer opens it — the backend's
+  // gate step declares no slots, so nothing typed here can advance it. Locking
+  // the composer is what makes that honest: an enabled box invites the customer
+  // to answer a question that no longer moves, which reads as a broken bot.
+  // Only pollVerification (above) releases it.
+  const awaitingEmailVerify = chatState === 'await_email_verify'
+  const inputLocked = sending || awaitingEmailVerify
+
   // The backend only sets data.composite_preview: true for the
   // composite_preview state (see orchestrator.py _state_data_extra), so the
   // chat state name is an equivalent, already-exposed signal — no need to
@@ -322,11 +331,15 @@ export function ChatColumn() {
     }
   }, [sessionId, triggerRegeneration, startRegeneration, advanceRegeneration])
 
-  // While waiting at verify_email, poll for the out-of-band email verification
-  // (the customer clicks the emailed link, possibly in another tab/device) and
-  // surface the confirmation in the thread the moment it lands.
+  // While waiting for the emailed link, poll for the out-of-band verification
+  // (the customer clicks it, possibly in another tab/device) and surface the
+  // confirmation in the thread the moment it lands. Two states wait on it:
+  // v1's post-generation 'verify_email', and the v2 canvas flow's mid-design
+  // 'await_email_verify' — which is a HARD gate (see awaitingEmailVerify), so
+  // this poll is the only thing that can move the conversation on.
   useEffect(() => {
-    if (!sessionId || chatState !== 'verify_email') return
+    if (!sessionId) return
+    if (chatState !== 'verify_email' && chatState !== 'await_email_verify') return
     const id = setInterval(() => {
       void pollVerification(sessionId)
     }, 4000)
@@ -357,13 +370,13 @@ export function ChatColumn() {
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const text = inputText.trim()
-    if (!text || !sessionId || sending) return
+    if (!text || !sessionId || inputLocked) return
     setInputText('')
     void sendMessage(sessionId, text)
   }
 
   function handleChip(text: string) {
-    if (!sessionId || sending) return
+    if (!sessionId || inputLocked) return
     void sendMessage(sessionId, text)
   }
 
@@ -375,7 +388,7 @@ export function ChatColumn() {
     (transcript: string) => {
       setInputText(prev => (prev ? `${prev} ${transcript}` : transcript))
     },
-    { enabled: !sending },
+    { enabled: !inputLocked },
   )
 
   // Surface a blocked/unavailable mic through the shared error banner so the
@@ -384,7 +397,7 @@ export function ChatColumn() {
     if (speech.error) setError(speech.error)
   }, [speech.error, setError])
 
-  const isStatementOnly = continuable && !sending
+  const isStatementOnly = continuable && !sending && !awaitingEmailVerify
 
   // ---------------------------------------------------------------------------
   // Render
@@ -499,6 +512,28 @@ export function ChatColumn() {
         {/* Special state: generation + preview */}
         {(chatState === 'generating' || triggerGeneration) && <GenerationPanel />}
 
+        {/* v2 canvas: the email-verification gate. Everything below is disabled
+            while this shows, so it has to say what the customer must do and that
+            it resolves by itself — the poll picks the click up within seconds. */}
+        {awaitingEmailVerify && (
+          <div
+            role="status"
+            className="flex items-start gap-3 p-4 bg-surface border border-border rounded-xl"
+          >
+            <span className="mt-0.5 w-4 h-4 flex-shrink-0 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-textPrimary">
+                Waiting for you to confirm your email
+              </p>
+              <p className="text-xs text-textMuted">
+                Open the verification link we've just sent you and we'll carry on
+                from here — no need to reload. If it hasn't arrived, please check
+                your spam folder.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Email is captured inline from the chat input (asked in the
             'generating' message) — no separate contact form. */}
 
@@ -529,7 +564,7 @@ export function ChatColumn() {
               <button
                 key={`${sw.hex}-${sw.name}`}
                 onClick={() => handleChip(sw.name)}
-                disabled={sending}
+                disabled={inputLocked}
                 aria-label={sw.name}
                 className="flex items-center gap-2 px-3 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -561,14 +596,14 @@ export function ChatColumn() {
                 type="color"
                 value={customColour}
                 onChange={e => setCustomColour(e.target.value)}
-                disabled={sending}
+                disabled={inputLocked}
                 aria-label="Pick a custom hat colour"
                 className="w-6 h-6 p-0 border-0 bg-transparent cursor-pointer"
               />
             </label>
             <button
               onClick={() => handleChip(customColour)}
-              disabled={sending}
+              disabled={inputLocked}
               className="px-4 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Use this colour
@@ -590,7 +625,7 @@ export function ChatColumn() {
                     <button
                       key={opt}
                       onClick={() => toggleDeco(opt)}
-                      disabled={sending}
+                      disabled={inputLocked}
                       aria-pressed={on}
                       className={`px-4 py-2 rounded-full text-sm transition-colors disabled:opacity-50 ${
                         on
@@ -611,7 +646,7 @@ export function ChatColumn() {
             )}
             <button
               onClick={submitDeco}
-              disabled={sending}
+              disabled={inputLocked}
               className="self-start px-5 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors"
             >
               Continue
@@ -636,7 +671,7 @@ export function ChatColumn() {
         {/* Correction affordance: undo the last answered step and be re-asked
             it. Hidden when there's nothing to undo (backend-driven) or while
             a send is in flight. */}
-        {sessionId && canGoBack && !sending && (
+        {sessionId && canGoBack && !sending && !awaitingEmailVerify && (
           confirmingBack && backRemovesElement ? (
             <div className="self-start flex flex-wrap items-center gap-2 text-xs text-textMuted">
               <span>Remove this element and start it over?</span>
@@ -670,7 +705,7 @@ export function ChatColumn() {
               <button
                 key={opt}
                 onClick={() => handleChip(opt)}
-                disabled={sending}
+                disabled={inputLocked}
                 className="px-4 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {opt}
@@ -685,7 +720,7 @@ export function ChatColumn() {
               <button
                 key={opt}
                 onClick={() => handleChip(opt)}
-                disabled={sending}
+                disabled={inputLocked}
                 className="px-4 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {opt}
@@ -699,7 +734,7 @@ export function ChatColumn() {
           <div className="flex">
             <button
               onClick={() => handleChip('ok')}
-              disabled={sending}
+              disabled={inputLocked}
               className="px-5 py-2 bg-surface border border-accent rounded-full text-sm text-accent hover:bg-accent hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Continue
@@ -715,11 +750,11 @@ export function ChatColumn() {
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"
-              onPointerDown={e => { e.preventDefault(); if (!sending) speech.start() }}
+              onPointerDown={e => { e.preventDefault(); if (!inputLocked) speech.start() }}
               onPointerUp={() => speech.stop()}
               onPointerLeave={() => { if (speech.listening) speech.stop() }}
               onPointerCancel={() => speech.stop()}
-              disabled={sending}
+              disabled={inputLocked}
               aria-label={speech.listening ? 'Listening — release to send' : `Hold ${speech.keyLabel} or press and hold to speak`}
               title={speech.listening ? 'Release to send' : `Hold ${speech.keyLabel} to speak`}
               className="relative flex items-center justify-center w-7 h-7 flex-shrink-0 rounded-full bg-accent text-white shadow shadow-accent/30 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -759,12 +794,12 @@ export function ChatColumn() {
             value={inputText}
             onChange={e => setInputText(e.target.value)}
             placeholder={speech.listening ? 'Listening…' : 'Type your message…'}
-            disabled={sending}
+            disabled={inputLocked}
             className="flex-1 bg-surface border border-border rounded-full px-5 py-3 text-sm text-textPrimary placeholder:text-textMuted focus:outline-none focus:border-accent disabled:opacity-50 transition-colors"
           />
           <button
             type="submit"
-            disabled={sending || !inputText.trim()}
+            disabled={inputLocked || !inputText.trim()}
             className="bg-accent hover:bg-accentHover text-white px-6 py-3 rounded-full text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Send

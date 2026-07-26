@@ -53,6 +53,11 @@ class ConversationState(str, Enum):
     ASK_FINAL_NOTES = "ask_final_notes"   # v2: colour disclaimer + final notes before quote
     ASK_DECORATION = "ask_decoration"
     ASK_DECORATION_MIX = "ask_decoration_mix"   # v2 only; v1 never routes here
+    # v2 only: the hard wait after the verification link is sent. Distinct from
+    # VERIFY_EMAIL (v1's post-generation wait) on purpose — this one sits
+    # MID-design and v1 must never route to it, or its own tail handling would
+    # be captured by v2's registry.
+    AWAIT_EMAIL_VERIFY = "await_email_verify"
     NEEDED_BY = "needed_by"                      # v2 only: "when do you want it by?" (before purpose)
     ASK_NOTES = "ask_notes"
     ASK_CHANGE_METHOD = "ask_change_method"
