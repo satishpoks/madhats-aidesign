@@ -1117,8 +1117,8 @@ V2_BG_INSTRUCTIONS = (
 # is a sentinel (unlock every tool), not one of the real canvas tools those
 # tips describe.
 V2_REWORK_INSTRUCTIONS = (
-    "Every tool is open again — move, resize, add, or remove anything you "
-    "like, then tap Done when you're happy."
+    "Every tool is open again — move, resize, add or remove anything you "
+    "need, then select Done when you're happy with it."
 )
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
@@ -1126,17 +1126,18 @@ V2_REWORK_INSTRUCTIONS = (
 # keep going." — no greeting, no question — and their reply ("ok") was stored
 # as their name.
 V2_ASK_NAME = (
-    "Hi! I'm {persona}, your AI design assistant — I'll help you put your "
-    "design straight onto the cap. First up, what's your name?"
+    "Welcome — I'm {persona}, your design assistant. I'll take you through "
+    "putting your design onto the cap. To begin, may I have your name?"
 )
 
 V2_ASK_NAME_RETRY = (
-    "Sorry, I didn't catch that — what name should I put on your design brief?"
+    "Apologies, I didn't catch that — what name should I put on your design "
+    "brief?"
 )
 
 V2_DEFAULT_INTRO = (
-    "Welcome! I'll help you put your design straight onto the cap. We'll add "
-    "your logo first, then any text or graphics, and I'll guide you through "
+    "Welcome. I'll help you put your design onto the cap. We'll start with "
+    "your logo, then add any text or graphics, and I'll guide you through "
     "each tool as we go."
 )
 
@@ -1147,8 +1148,8 @@ V2_DEFAULT_INTRO = (
 # inbox). The address is already in the chat thread (they just typed it), so
 # echoing it here is not new PII — and it is never written to logs.
 V2_EMAIL_VERIFY_NOTICE = (
-    "Thanks! I've just sent a verification link to {email} — tap it to confirm "
-    "your address so we can email your finished design there."
+    "Thank you. I've sent a verification link to {email} — please open it to "
+    "confirm your address so we can email your finished design there."
 )
 
 # The pre-quote colour-accuracy disclaimer (v2 canvas ASK_FINAL_NOTES). The two
@@ -1159,14 +1160,14 @@ V2_DEFAULT_COLOUR_EMBROIDERY_URL = "https://example.com/embroidery-chart"
 V2_DEFAULT_COLOUR_PRINT_URL = "https://example.com/print-colour-guide"
 
 V2_COLOUR_DISCLAIMER = (
-    "One quick note before we send this over, {name} — screen colours aren't "
-    "always exact. What you see is a guide; our team matches your design to the "
-    "closest embroidery and print colours.\n\n"
+    "One note before we send this over, {name} — screen colours aren't "
+    "always exact. What you see is a guide; our team matches your design to "
+    "the closest embroidery and print colours.\n\n"
     "Reference charts — embroidery: {embroidery_url} · print: {print_url}\n\n"
     "If you already have a specific print colour (CMYK or Pantone) or an "
-    "embroidery thread number, pop it below and we'll use it — otherwise we'll "
-    "pick the closest match.\n\n"
-    "Any final notes or pointers for the team? Type them here, or tap "
+    "embroidery thread number, please enter it below and we'll use it — "
+    "otherwise we'll match as closely as we can.\n\n"
+    "Any final notes for the team? Type them here, or select "
     '"Nothing to add".'
 )
 
@@ -1193,21 +1194,23 @@ Customer message:
 """
 
 V2_STALL_REPLY = (
-    "Sorry — I didn't quite catch that. Could you say it once more?"
+    "Apologies — I didn't quite catch that. Could you say it once more?"
 )
 
 V2_NUDGE_REPLY = (
-    "Sorry, I'm having trouble reading that one. Tap one of the buttons below "
-    "and we'll keep moving."
+    "Apologies, I'm having trouble reading that one. Please select one of "
+    "the options below and we'll continue."
 )
 
 V2_BACK_RESTART_ACK = (
-    "No worries — I've removed that one so you can start it over."
+    "Of course — I've removed that one so you can start it again."
 )
 
-V2_ACK_PROMPT = """You are {persona}, a friendly cap-design assistant.
+V2_ACK_PROMPT = """You are {persona}, a professional cap-design assistant.
 
-Write ONE short, warm sentence acknowledging what the customer just told you. Then stop.
+Write ONE short, courteous sentence acknowledging what the customer just told you. Then stop.
+
+Keep it businesslike — no slang, no exclamation marks.
 
 Do NOT ask a question. Do NOT give instructions. Do NOT mention buttons or tools — that copy is added separately.
 

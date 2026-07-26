@@ -48,3 +48,17 @@ def test_the_adjust_panel_is_named_where_the_customer_needs_it():
     for key in ("text", "shape"):
         assert "Adjust panel above the cap" in prompts.V2_TOOL_TIPS[key]
     assert "Adjust panel above the cap" in prompts.V2_BG_INSTRUCTIONS
+
+
+# Phrases from the pre-2026-07-26 casual register. Not a style engine — just a
+# pin on the specific wording that was rewritten, so a later hand-edit that
+# reintroduces the old voice fails loudly instead of shipping.
+_CASUAL = ("pop your", "pop it", "grab your", "love where", "no worries",
+           "are you after", "tap ")
+
+
+def test_v2_copy_stays_out_of_the_casual_register():
+    for s in _v2_copy_strings():
+        low = s.lower()
+        for phrase in _CASUAL:
+            assert phrase not in low, f"casual phrasing {phrase!r} in: {s!r}"

@@ -160,7 +160,7 @@ async def test_two_failures_nudge_toward_the_chips(monkeypatch):
     _no_llm(monkeypatch)
     res = await o2.handle_message("s1", "go on then")
     assert res["reply"] == prompts.V2_NUDGE_REPLY
-    assert res["data"]["options"] == ["Yes, another logo", "No, that's it"]
+    assert res["data"]["options"] == ["Yes, another logo", "No, that's all"]
 
 
 @pytest.mark.asyncio
@@ -656,7 +656,7 @@ async def test_final_notes_ask_shows_disclaimer_links(monkeypatch):
 
     assert store["session"]["state"] == S.ASK_FINAL_NOTES.value
     assert prompts.V2_DEFAULT_COLOUR_EMBROIDERY_URL in out["reply"]
-    assert "closest match" in out["reply"]
+    assert "match as closely as we can" in out["reply"]
     assert out["data"]["options"] == ["Nothing to add"]
 
 

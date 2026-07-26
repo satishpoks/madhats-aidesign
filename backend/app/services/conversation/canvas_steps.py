@@ -436,7 +436,7 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.SHOW_INTRO,
-        ask="{intro}\n\nReady? Tap continue when you are.",
+        ask="{intro}\n\nWhen you're ready, please select Continue.",
         continuable=True,
         slots=(),                              # ack-only: any reply satisfies it
         apply=_apply_intro,
@@ -444,7 +444,7 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_HAS_LOGO,
-        ask="Great, {name}! Do you have a logo or image you'd like on the cap?",
+        ask="Thank you, {name}. Do you have a logo or image you'd like on the cap?",
         chips=(Chip("Yes, I have a logo", {"has_logo": True}),
                Chip("No — text only", {"has_logo": False})),
         slots=("has_logo",),
@@ -506,7 +506,7 @@ REGISTRY: tuple[Step, ...] = (
         # pending_logo["bg"] routes but nothing on the RENDER path reads it, so
         # "Yes, I've ticked it" without ticking silently rendered no knockout.
         chips=(Chip("Yes, remove background", {"logo_bg": "removed"}),
-               Chip("No, it's fine as is", {"logo_bg": "none"})),
+               Chip("No, it's fine as it is", {"logo_bg": "none"})),
         slots=("logo_bg",),
         apply=_apply_logo_bg,
         ops=_ops_logo_bg,
@@ -525,9 +525,9 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_EMAIL,
-        ask=("Love where this is going, {name}! While you keep designing, could "
-             "I grab your email so I can save your progress and send your "
-             "finished design over?"),
+        ask=("You're making good progress, {name}. Could I take your email "
+             "address so I can save your progress and send your finished "
+             "design through?"),
         slots=("email",),
         apply=_apply_email,
         direct_answer=_direct_email,
@@ -542,9 +542,9 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_ANOTHER_LOGO,
-        ask="Locked that in. Would you like to add another logo?",
+        ask="That's saved. Would you like to add another logo?",
         chips=(Chip("Yes, another logo", {"another_logo": True}),
-               Chip("No, that's it", {"another_logo": False})),
+               Chip("No, that's all", {"another_logo": False})),
         slots=("another_logo",),
         apply=_apply_another_logo,
         done_when=lambda c: not _logos_open(c) or c.get("another_logo") is not None,
@@ -579,7 +579,7 @@ REGISTRY: tuple[Step, ...] = (
         id=S.DECOR_ADJUST,
         # reply_for prepends the tip for the tool actually chosen (text vs
         # shape), which is why this copy is only the tail of the sentence.
-        ask="Press Done when you're happy with it.",
+        ask="Select Done when you're happy with it.",
         chips=(Chip("Done", {"decor_placed": True}),),
         slots=("decor_placed",),
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("decor_placed")),
@@ -605,7 +605,7 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_QUANTITY,
-        ask="How many caps are you after?",
+        ask="How many caps do you need?",
         chips=(Chip("1", {"quantity": 1}),
                Chip("2-11", {"quantity": 2}),
                Chip("12-49", {"quantity": 12}),
@@ -624,10 +624,10 @@ REGISTRY: tuple[Step, ...] = (
         # ChatColumn only renders its own "each extra decoration adds to the
         # cost" line when 2+ chips are ticked (a v1 multi-select path), which
         # can never happen here.
-        ask=("How would you like this decorated? Pick the one that suits — our "
-             f"team will confirm what works best for your artwork. Tap "
-             f"'{MIX_CHIP_LABEL}' if you need more than one method, just note "
-             "that mixing costs more per hat."),
+        ask=("How would you like this decorated? Please choose the method "
+             "that suits — our team will confirm what works best for your "
+             f"artwork. Select '{MIX_CHIP_LABEL}' if you need more than one "
+             "method; please note that mixing costs more per hat."),
         chips_from=_decoration_chips,
         slots=("decoration_types", "decoration_mix"),
         prepare=_prepare_decoration,
@@ -643,9 +643,9 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_DECORATION_MIX,
-        ask=("No problem — tell me which methods you'd like and where each one "
-             "goes, and I'll pass it straight to the team. (Mixing methods does "
-             "add to the cost per hat.)"),
+        ask=("Certainly — please tell me which methods you'd like and where "
+             "each one goes, and I'll pass that straight to the team. "
+             "(Mixing methods does add to the cost per hat.)"),
         # decoration_mix is a slot of this step, not just of ASK_DECORATION: it
         # is what lets the customer back out ("actually, just embroidery") after
         # tapping the mix chip. Only the asking step may clear a settled flag —
@@ -687,16 +687,16 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_PURPOSE,
-        ask="Last thing — if you don't mind me asking, what's the hat for?",
+        ask="Finally, may I ask what the caps are for?",
         slots=("purpose",),
         direct_answer=_direct_purpose,
         done_when=lambda c: bool(c.get("purpose")),
     ),
     Step(
         id=S.REVIEW_DESIGN,
-        ask=("Before I send this to our team, {name} — take a moment to look "
-             "over your design across all the views. Happy with it, or would "
-             "you like to rework anything?"),
+        ask=("Before I send this to our team, {name}, please take a moment "
+             "to review your design across all the views. Are you happy "
+             "with it, or would you like to rework anything?"),
         chips=(Chip("Looks great, send it", {"design_confirmed": True}),
                Chip("I'd like to rework it", {"design_rework": True})),
         slots=("design_confirmed", "design_rework"),
@@ -707,8 +707,8 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.REWORK_CANVAS,
-        ask=("Go ahead — tweak anything you like on the canvas, then press Done "
-             "and I'll bring you back to the review."),
+        ask=("Please adjust anything you'd like on the canvas, then select "
+             "Done and I'll bring you back to the review."),
         chips=(Chip("Done", {"design_rework": False}),),
         slots=("design_rework",),
         # Unmet only while reworking. `design_rework` is this step's own slot, so
@@ -733,8 +733,8 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.REQUEST_QUOTE,
-        ask=("Your design's ready to go, {name}! Tap below to send it to our "
-             "team — they'll put together a quote and get back to you."),
+        ask=("Your design is ready, {name}. Select \"Request a quote\" below "
+             "and our team will review it and prepare a quote."),
         chips=(Chip("Request a quote", {"quote_requested": True}),),
         slots=("quote_requested",),
         apply=_apply_request_quote,
@@ -742,7 +742,7 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.FINALIZE_CANVAS,
-        ask="Perfect — putting your design together now…",
+        ask="Thank you — I'm putting your design together now…",
         # Terminal: never satisfied, so the router returns it once every earlier
         # step is done. The finalize route (-> GENERATING) resolves it.
         done_when=lambda c: False,

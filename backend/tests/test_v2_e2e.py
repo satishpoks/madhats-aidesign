@@ -128,8 +128,8 @@ async def test_full_v2_walk_using_the_exact_chip_labels(monkeypatch):
         ("Yes, another logo",       S.ASK_LOGO_PLACEMENT),   # THE bug
         ("Back",                    S.LOGO_ADJUST),
         ("Done",                    S.ASK_LOGO_BG),
-        ("No, it's fine as is",     S.ASK_ANOTHER_LOGO),
-        ("No, that's it",           S.ASK_ADD_DECOR),
+        ("No, it's fine as it is",  S.ASK_ANOTHER_LOGO),
+        ("No, that's all",          S.ASK_ADD_DECOR),
         ("Add text",                S.ASK_DECOR_PLACEMENT),
         ("Left",                    S.DECOR_ADJUST),
         ("Done",                    S.ASK_ANYTHING_ELSE),

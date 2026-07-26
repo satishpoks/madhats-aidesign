@@ -288,7 +288,7 @@ def test_canvas_directive_is_none_for_a_shared_tail_state():
 
 def test_public_data_chips_come_from_the_registry():
     d = v2.public_data_for(cs.by_id(S.ASK_ANOTHER_LOGO), {})
-    assert d["options"] == ["Yes, another logo", "No, that's it"]
+    assert d["options"] == ["Yes, another logo", "No, that's all"]
 
 
 def test_public_data_marks_the_intro_continuable_and_finalize_triggering():
@@ -321,7 +321,7 @@ def test_the_ack_can_never_paraphrase_the_tip_away():
 
 def test_reply_falls_back_to_bare_copy_without_an_ack():
     out = _reply(S.ASK_QUANTITY)
-    assert out == "How many caps are you after?"
+    assert out == "How many caps do you need?"
 
 
 def test_reply_interpolates_name_persona_and_intro():

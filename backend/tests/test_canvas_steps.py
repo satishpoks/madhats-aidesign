@@ -95,7 +95,7 @@ def test_every_offered_chip_is_understood(step, chip):
 def test_the_exact_bug_yes_another_logo_is_not_a_decline():
     step = cs.by_id(S.ASK_ANOTHER_LOGO)
     assert v2.resolve_chip(step, "Yes, another logo", {}) == {"another_logo": True}
-    assert v2.resolve_chip(step, "No, that's it", {}) == {"another_logo": False}
+    assert v2.resolve_chip(step, "No, that's all", {}) == {"another_logo": False}
 
 
 def test_chip_match_is_case_and_whitespace_insensitive():
@@ -436,7 +436,7 @@ def test_logo_bg_declined_still_satisfies_the_step():
     c = {"name": "Sam", "intro_ack": True, "has_logo": True,
          "pending_logo": {"face": "front", "placed": True}}
     step = cs.by_id(S.ASK_LOGO_BG)
-    fields = v2.resolve_chip(step, "No, it's fine as is", c)
+    fields = v2.resolve_chip(step, "No, it's fine as it is", c)
     assert fields == {"logo_bg": "none"}
     c.update(fields)
     step.apply(c, fields, {})
@@ -636,7 +636,7 @@ def test_decoration_bookkeeping_is_not_interpreter_writable():
 def test_ask_logo_bg_chips_no_longer_ask_the_customer_to_tick():
     step = cs.by_id(S.ASK_LOGO_BG)
     labels = [c.label for c in step.chips]
-    assert labels == ["Yes, remove background", "No, it's fine as is"]
+    assert labels == ["Yes, remove background", "No, it's fine as it is"]
     assert "tick" not in step.ask.lower()
 
 
