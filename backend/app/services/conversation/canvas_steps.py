@@ -258,6 +258,23 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
     c.pop("email", None)   # the lead owns the address; don't persist it here too
 
 
+def bg_note_for(collected: dict) -> str:
+    """The background clause for REQUEST_QUOTE's copy, or "" when none applies.
+
+    "Remove background" is a per-logo MARK: only logos the customer flagged are
+    knocked out at render. So a blanket "without the background" would be false
+    for a customer who answered "No, it's fine as it is" — this reads the real
+    state instead. Pure: `reply_for` calls it with `collected` alone.
+    """
+    logos = [l for l in (collected.get("logos") or []) if l]
+    pending = collected.get("pending_logo")
+    if pending:
+        logos.append(pending)
+    if any(l.get("bg") == "removed" for l in logos):
+        return ", with the logo background removed"
+    return ""
+
+
 MIX_CHIP_LABEL = "I want a mix"
 
 
@@ -734,7 +751,8 @@ REGISTRY: tuple[Step, ...] = (
     Step(
         id=S.REQUEST_QUOTE,
         ask=("Your design is ready, {name}. Select \"Request a quote\" below "
-             "and our team will review it and prepare a quote."),
+             "and our team will review it and email you your finished "
+             "design{bg_note}, along with your quote."),
         chips=(Chip("Request a quote", {"quote_requested": True}),),
         slots=("quote_requested",),
         apply=_apply_request_quote,

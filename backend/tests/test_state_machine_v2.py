@@ -826,3 +826,29 @@ def test_no_config_can_reach_finalize_without_email():
         for flags in itertools.product([True, False], repeat=len(order)):
             cfg = _flow(*zip(order, flags))
             assert v2.next_step(c, cfg).id is S.ASK_EMAIL
+
+
+def test_request_quote_promises_the_design_and_the_quote():
+    out = _reply(S.REQUEST_QUOTE, {"name": "Sam"})
+    assert "finished design" in out
+    assert "quote" in out
+
+
+def test_request_quote_promises_the_knockout_only_when_one_was_asked_for():
+    """A customer who declined background removal must not be told their
+    background was removed — the render only knocks out what was flagged."""
+    asked = _reply(S.REQUEST_QUOTE,
+                   {"name": "Sam", "logos": [{"face": "front", "bg": "removed"}]})
+    assert "with the logo background removed" in asked
+
+    declined = _reply(S.REQUEST_QUOTE,
+                      {"name": "Sam", "logos": [{"face": "front", "bg": "none"}]})
+    assert "background" not in declined
+    assert "finished design, along with your quote" in declined
+
+
+def test_bg_note_reads_a_still_pending_logo_too():
+    """Defensive: by REQUEST_QUOTE the loop has banked every logo into `logos`,
+    but reading pending_logo as well cannot be wrong and cannot be stale."""
+    assert cs.bg_note_for({"pending_logo": {"bg": "removed"}}) != ""
+    assert cs.bg_note_for({"pending_logo": None, "logos": []}) == ""

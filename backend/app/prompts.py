@@ -807,12 +807,13 @@ QUOTE_REFERENCE_EMAIL_SUBJECT = "We've received your request — your MadHats re
 
 QUOTE_REFERENCE_EMAIL_BODY = """Hi {name},
 
-Thanks for your request! We've received your design and our team is on it.
+Thank you for your request. We've received your design and our team is
+reviewing it.
 
 Your reference is: {reference_code}
 
-Quote the reference above if you get in touch. We'll be in contact soon with a
-quote for your caps.
+Please quote the reference above if you get in touch. We'll be in touch soon
+with your finished design and a quote for your caps.
 
 — Ricardo, MadHats AI Design Studio
 """
