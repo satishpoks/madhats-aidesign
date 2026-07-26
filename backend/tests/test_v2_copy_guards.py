@@ -4,6 +4,8 @@ These are cheap regression pins on things that are easy to reintroduce by
 hand-editing one constant: copy that points at the toolbar's OLD position, and
 casual phrasing the brand has moved away from.
 """
+import re
+
 from app import prompts
 from app.services.conversation import canvas_steps as cs
 
@@ -53,12 +55,21 @@ def test_the_adjust_panel_is_named_where_the_customer_needs_it():
 # Phrases from the pre-2026-07-26 casual register. Not a style engine — just a
 # pin on the specific wording that was rewritten, so a later hand-edit that
 # reintroduces the old voice fails loudly instead of shipping.
+#
+# Matched on a leading word boundary rather than as a plain substring: a plain
+# `"tap " in low` check requires a literal trailing space, so it missed "Tap.",
+# "Tap!" and "tapping" (no space follows "tap" in any of those). Anchoring only
+# on the left edge (`\btap`) still catches all of those — "tapping" starts with
+# "tap" at a word boundary — while a real word boundary on the left keeps it
+# from firing inside an unrelated word like "stapler".
 _CASUAL = ("pop your", "pop it", "grab your", "love where", "no worries",
-           "are you after", "tap ")
+           "are you after", "tap")
+
+_CASUAL_PATTERNS = [(phrase, re.compile(r"\b" + re.escape(phrase))) for phrase in _CASUAL]
 
 
 def test_v2_copy_stays_out_of_the_casual_register():
     for s in _v2_copy_strings():
         low = s.lower()
-        for phrase in _CASUAL:
-            assert phrase not in low, f"casual phrasing {phrase!r} in: {s!r}"
+        for phrase, pattern in _CASUAL_PATTERNS:
+            assert not pattern.search(low), f"casual phrasing {phrase!r} in: {s!r}"

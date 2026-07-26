@@ -46,13 +46,23 @@ export function SelectedToolbar() {
   // which on a phone (chat already owns 45vh) put it under the fold entirely.
   // The controls region scrolls within itself so a wrapped toolbar can never
   // push the cap off-screen.
+  //
+  // The mobile cap below is a fixed rem value, not a vh percentage: `vh` is a
+  // fraction of the VIEWPORT, not of this column. On a phone this column is
+  // smaller than the viewport by the chat's own `h-[45vh]` plus the
+  // StoreHeader and MilestoneBar on top of it, so `max-h-[45vh]` here is
+  // larger than the space actually available — and because the root is
+  // `sticky top-0`, an over-cap panel stays pinned for the whole scroll range
+  // and the cap is never revealed. `max-h-[9rem]` is sized to what's actually
+  // left in that region; the roomier `md:max-h-[45vh]` is kept for desktop,
+  // where the canvas column is not squeezed by a stacked mobile chat.
   return (
     <div data-testid="adjust-panel"
       className="sticky top-0 z-20 w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
       <div className="bg-accent text-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
         Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
       </div>
-      <div className="flex flex-wrap items-center gap-2 p-3 max-h-[45vh] overflow-y-auto">
+      <div className="flex flex-wrap items-center gap-2 p-3 max-h-[9rem] md:max-h-[45vh] overflow-y-auto">
       {el.type === 'text' && (
         <>
           <input value={el.content ?? ''} onChange={e => update(el.id, { content: e.target.value })}

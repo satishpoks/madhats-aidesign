@@ -83,6 +83,14 @@ describe('Adjust panel', () => {
     expect(screen.getByTestId('adjust-panel').className).toContain('shrink-0')
   })
 
+  test('bounds the controls region tightly on mobile, roomier on desktop (jsdom performs no layout, so this pins the classes rather than the rendered height)', () => {
+    selectText()
+    render(<SelectedToolbar />)
+    const controls = screen.getByTestId('adjust-panel').querySelector('.overflow-y-auto')
+    expect(controls?.className).toContain('max-h-[9rem]')
+    expect(controls?.className).toContain('md:max-h-[45vh]')
+  })
+
   test('renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
     useChatStore.setState({
       chatState: 'logo_adjust',

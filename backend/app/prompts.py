@@ -200,7 +200,7 @@ EMAIL_SEND_FAILED_RETRY = (
 
 # Canvas refine → quote handoff (deterministic, not LLM-worded).
 CANVAS_QUOTE_ASK = (
-    "Love it! Would you like to request a quote for this design so our team can "
+    "Would you like to request a quote for this design so the team can "
     "finalise pricing and next steps?"
 )
 CANVAS_QUOTE_YES = (
@@ -456,9 +456,9 @@ CONFIRM_BRIEF_MESSAGE = (
 )
 
 GENERATION_BLOCKED_ASIDE = (
-    "You've reached today's design limit, so I can't spin up a fresh render right "
-    "now — but I've got your brief saved and the MadHats team will follow up about "
-    "your design."
+    "You've reached today's design limit, so I'm unable to generate a further "
+    "render at this time. Your brief has been saved, and the team will follow "
+    "up with you about your design."
 )
 
 # ---------------------------------------------------------------------------
@@ -838,8 +838,9 @@ Decoration method(s): {decoration}
 Notes:
 {notes}
 
-All uploaded design components are attached. Prepare and send the quote directly
-to the customer, quoting the reference above.
+All uploaded design components are attached. Render the finished design from the
+admin tools and send it to the customer together with the quote, quoting the
+reference above.
 """
 
 GENERATION_ALERT_EMAIL_SUBJECT = "Action needed: design generation failed — {product_name}"
@@ -1137,9 +1138,8 @@ V2_ASK_NAME_RETRY = (
 )
 
 V2_DEFAULT_INTRO = (
-    "Welcome. I'll help you put your design onto the cap. We'll start with "
-    "your logo, then add any text or graphics, and I'll guide you through "
-    "each tool as we go."
+    "Let's get started. We'll begin with your logo, then move on to any text "
+    "or graphics, and I'll guide you through each tool along the way."
 )
 
 # Shown the instant the customer gives their email at ASK_EMAIL. The address is
