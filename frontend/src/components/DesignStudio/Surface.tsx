@@ -301,7 +301,7 @@ export function DesignStudioSurface() {
             reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           {(isV2 ? v2Editing : unlocked) && <SelectedToolbar />}
-          <div data-testid="canvas-stage-wrap" className="w-full flex justify-center">
+          <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
             <CanvasStage stageRef={stageRef} locked={stageLocked} />
           </div>
           {canvasDirective?.showDone && (

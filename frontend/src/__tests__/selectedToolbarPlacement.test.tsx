@@ -70,6 +70,19 @@ describe('Adjust panel', () => {
     expect(screen.getByTestId('adjust-panel').className).toContain('sticky')
   })
 
+  test('its root does not shrink in the flex column (jsdom performs no layout, so this pins the class that prevents the collapse rather than the collapse itself)', () => {
+    // The centre column in Surface.tsx is a flex column whose other child, the
+    // canvas-stage wrapper, contains a fixed-size Konva stage that resists
+    // shrinking. Flex items default to shrink:1, so without `shrink-0` the
+    // flex algorithm squashes this panel — the shrinkable sibling — down to
+    // near-zero height (it rendered as a ~2px accent line in the browser).
+    // jsdom never runs layout, so no test here can observe the squashed
+    // height directly; this pins the class responsible instead.
+    selectText()
+    render(<SelectedToolbar />)
+    expect(screen.getByTestId('adjust-panel').className).toContain('shrink-0')
+  })
+
   test('renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
     useChatStore.setState({
       chatState: 'logo_adjust',

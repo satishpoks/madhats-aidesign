@@ -48,7 +48,7 @@ export function SelectedToolbar() {
   // push the cap off-screen.
   return (
     <div data-testid="adjust-panel"
-      className="sticky top-0 z-20 w-full bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
+      className="sticky top-0 z-20 w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
       <div className="bg-accent text-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
         Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
       </div>
