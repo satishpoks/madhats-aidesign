@@ -1,5 +1,20 @@
+import { useEffect, useRef, useState } from 'react'
 import { useCanvasStore, LINE_SHAPES } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
+
+/** The panel may never eat more than this share of the column it shares with
+ *  the cap. A share, not a fixed height, because the column's height is
+ *  viewport-derived. */
+const MAX_SHARE = 1 / 3
+/** Floor, so the cap is never so tight the panel is unusable — below this it
+ *  scrolls internally instead of shrinking further. */
+const MIN_MAX_H = 72
+/** Below this COLUMN width the group captions are dropped to tooltips. Measured
+ *  off the column, not a Tailwind breakpoint: `xl:` and friends key off the
+ *  VIEWPORT, but the pressure here is the column's own width — the studio is a
+ *  three-column layout, so a 1536px window still leaves this column ~400-500px
+ *  and the captions would have stayed visible exactly where they cost most. */
+const COMPACT_BELOW = 640
 
 /** Header label per element type — the panel names what it is adjusting, so a
  *  customer who selects something knows the panel that just appeared is for it. */
@@ -17,6 +32,40 @@ export function SelectedToolbar() {
   const reorder = useCanvasStore(s => s.reorder)
 
   const el = faces[activeFace].find(e => e.id === selectedId)
+
+  // Cap the controls region at a share of the column, MEASURED. The previous
+  // `max-h-[9rem] md:max-h-[45vh]` could not be right on both: `vh` is a
+  // fraction of the VIEWPORT, but this panel lives in a column shorter than the
+  // viewport by the chat and two header bars, so `45vh` exceeded the region it
+  // was bounding — and because the root is `sticky top-0`, an over-cap panel
+  // stays pinned for the whole scroll range and the cap never comes back.
+  // Measuring removes the guess and needs no breakpoint.
+  //
+  // No feedback loop: the column's height comes from the flex row above it
+  // (viewport-derived, content-independent), so the panel resizing can never
+  // change the number it just read — the same property CanvasStage relies on.
+  // Both observers are feature-detected: jsdom ships neither, and constructing
+  // one unconditionally throws through every test that mounts Surface.
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [maxH, setMaxH] = useState<number | null>(null)
+  const [compact, setCompact] = useState(true)   // assume tight until measured
+  useEffect(() => {
+    const col = rootRef.current?.parentElement
+    if (!col) return
+    const measure = () => {
+      setMaxH(Math.max(MIN_MAX_H, Math.round(col.clientHeight * MAX_SHARE)))
+      setCompact(col.clientWidth < COMPACT_BELOW)
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    ro?.observe(col)
+    window.addEventListener('resize', measure)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure) }
+    // Keyed on the selected element: with nothing selected this component
+    // renders null, so there is no DOM and no parent to measure. Re-running as
+    // the panel mounts is what gets the first measurement at all.
+  }, [el?.id])
+
   if (!el) return null
 
   // --- Universal transform helpers (rotate / move / size) ---
@@ -47,28 +96,25 @@ export function SelectedToolbar() {
   // The controls region scrolls within itself so a wrapped toolbar can never
   // push the cap off-screen.
   //
-  // The mobile cap below is a fixed rem value, not a vh percentage: `vh` is a
-  // fraction of the VIEWPORT, not of this column. On a phone this column is
-  // smaller than the viewport by the chat's own `h-[45vh]` plus the
-  // StoreHeader and MilestoneBar on top of it, so `max-h-[45vh]` here is
-  // larger than the space actually available — and because the root is
-  // `sticky top-0`, an over-cap panel stays pinned for the whole scroll range
-  // and the cap is never revealed. `max-h-[9rem]` is sized to what's actually
-  // left in that region; the roomier `md:max-h-[45vh]` is kept for desktop,
-  // where the canvas column is not squeezed by a stacked mobile chat.
+  // Everything here is deliberately DENSE: this panel shares a column with the
+  // cap, and CanvasStage sizes the cap from the height left over beside it —
+  // so every pixel the panel takes is a pixel off the design surface. At its
+  // old sizing it measured ~174px in a 410px column, which drove the stage
+  // onto its 280px floor.
   return (
-    <div data-testid="adjust-panel"
+    <div ref={rootRef} data-testid="adjust-panel"
       className="sticky top-0 z-20 w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
-      <div className="bg-accent text-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide">
+      <div className="bg-accent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide">
         Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
       </div>
-      <div className="flex flex-wrap items-center gap-2 p-3 max-h-[9rem] md:max-h-[45vh] overflow-y-auto">
+      <div className="flex flex-wrap items-center gap-1.5 p-2 overflow-y-auto"
+        style={maxH ? { maxHeight: maxH } : undefined}>
       {el.type === 'text' && (
         <>
           <input value={el.content ?? ''} onChange={e => update(el.id, { content: e.target.value })}
-            className="bg-base border border-border rounded px-2 py-1 text-sm text-textPrimary" aria-label="Text content" />
+            className="bg-base border border-border rounded px-1.5 py-0.5 text-xs text-textPrimary w-28" aria-label="Text content" />
           <select value={el.font ?? 'Arial'} onChange={e => update(el.id, { font: e.target.value })}
-            className="bg-base border border-border rounded px-2 py-1 text-sm max-w-[9rem]" aria-label="Font"
+            className="bg-base border border-border rounded px-1.5 py-0.5 text-xs max-w-[7rem]" aria-label="Font"
             style={{ fontFamily: el.font ?? 'Arial' }}>
             <optgroup label="Standard">
               {WEB_SAFE_FONTS.map(f => (
@@ -82,21 +128,21 @@ export function SelectedToolbar() {
             </optgroup>
           </select>
           <input type="color" value={el.colour ?? '#ffffff'} onChange={e => update(el.id, { colour: e.target.value })}
-            className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Text colour" />
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Font size">
+            className="w-6 h-6 p-0 border-0 bg-transparent" aria-label="Text colour" />
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Font size">
             <span aria-hidden="true">A</span>
-            <input type="range" min={12} max={96} value={el.fontSize ?? 36}
+            <input type="range" className="w-20" min={12} max={96} value={el.fontSize ?? 36}
               onChange={e => update(el.id, { fontSize: Number(e.target.value) })} aria-label="Font size" />
           </label>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Curve the text">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Curve the text">
             <span aria-hidden="true">Curve</span>
-            <input type="range" min={-100} max={100} step={5} value={el.curve ?? 0}
+            <input type="range" className="w-20" min={-100} max={100} step={5} value={el.curve ?? 0}
               onChange={e => update(el.id, { curve: Number(e.target.value) })} aria-label="Curve text" />
           </label>
         </>
       )}
       {el.type === 'image' && (
-        <label className="flex items-center gap-1.5 text-sm text-textPrimary"
+        <label className="flex items-center gap-1.5 text-xs text-textPrimary"
           title="Flag this image so the design team knocks out its background when producing the artwork">
           <input type="checkbox" checked={!!el.removeBg}
             onChange={e => update(el.id, { removeBg: e.target.checked })} />
@@ -104,47 +150,47 @@ export function SelectedToolbar() {
         </label>
       )}
       {el.type === 'drawing' && (
-        <label className="flex items-center gap-1 text-xs text-textMuted" title="Stroke colour">
+        <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Stroke colour">
           <span>Colour</span>
           <input type="color" value={el.stroke ?? '#111827'} onChange={e => update(el.id, { stroke: e.target.value })}
-            className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Stroke colour" />
+            className="w-6 h-6 p-0 border-0 bg-transparent" aria-label="Stroke colour" />
         </label>
       )}
       {el.type === 'shape' && (LINE_SHAPES.includes(el.shapeKind ?? 'rect') ? (
         <>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Colour">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Colour">
             <span>Colour</span>
             <input type="color" value={el.fill ?? '#111827'} onChange={e => update(el.id, { fill: e.target.value })}
-              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Shape colour" />
+              className="w-6 h-6 p-0 border-0 bg-transparent" aria-label="Shape colour" />
           </label>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Thickness">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Thickness">
             <span>Width</span>
-            <input type="range" min={2} max={30} value={el.strokeWidth ?? 6}
+            <input type="range" className="w-20" min={2} max={30} value={el.strokeWidth ?? 6}
               onChange={e => update(el.id, { strokeWidth: Number(e.target.value) })} aria-label="Line thickness" />
           </label>
         </>
       ) : (
         <>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Fill colour">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Fill colour">
             <span>Fill</span>
             <input type="color" value={el.fill ?? '#2563eb'} onChange={e => update(el.id, { fill: e.target.value, filled: true })}
-              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Fill colour" />
+              className="w-6 h-6 p-0 border-0 bg-transparent" aria-label="Fill colour" />
           </label>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Border colour">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Border colour">
             <span>Border</span>
             <input type="color" value={el.stroke ?? '#111827'} onChange={e => update(el.id, { stroke: e.target.value })}
-              className="w-8 h-8 p-0 border-0 bg-transparent" aria-label="Border colour" />
+              className="w-6 h-6 p-0 border-0 bg-transparent" aria-label="Border colour" />
           </label>
-          <label className="flex items-center gap-1 text-xs text-textMuted" title="Border width">
+          <label className="flex items-center gap-1 text-[11px] text-textMuted" title="Border width">
             <span>W</span>
-            <input type="range" min={0} max={24} value={el.strokeWidth ?? 0}
+            <input type="range" className="w-20" min={0} max={24} value={el.strokeWidth ?? 0}
               onChange={e => update(el.id, { strokeWidth: Number(e.target.value) })} aria-label="Border width" />
           </label>
           <button
             onClick={() => update(el.id, el.filled === false
               ? { filled: true }
               : { filled: false, strokeWidth: Math.max(el.strokeWidth ?? 0, 4) })}
-            className="px-2 py-1 text-xs border border-border rounded"
+            className="px-1.5 py-0.5 text-xs border border-border rounded"
             title="Toggle filled / outline"
           >
             {el.filled === false ? 'Outline' : 'Filled'}
@@ -156,10 +202,10 @@ export function SelectedToolbar() {
       {/* Rotate — curved arrows (⟲/⟳), unmistakably a rotate control and
           never confusable with Move's straight directional arrows or Layer
           order's forward/back glyphs below. */}
-      <Group label="Rotate">
+      <Group compact={compact} label="Rotate">
         <button onClick={() => rotateBy(-45)} className={btn} title="Rotate 45° left" aria-label="Rotate left 45 degrees">⟲</button>
         <input type="number" value={Math.round(el.rotation ?? 0)} onChange={e => update(el.id, { rotation: norm360(Number(e.target.value) || 0) })}
-          className="w-14 bg-base border border-border rounded px-1 py-1.5 text-sm text-textPrimary"
+          className="w-11 bg-base border border-border rounded px-1 py-0.5 text-xs text-textPrimary"
           aria-label="Rotation degrees" title="Set an exact rotation in degrees" />
         <button onClick={() => rotateBy(45)} className={btn} title="Rotate 45° right" aria-label="Rotate right 45 degrees">⟳</button>
         <button onClick={() => update(el.id, { rotation: 0 })} className={`${btn} text-xs`} title="Reset rotation to 0°" aria-label="Reset rotation">Reset</button>
@@ -170,7 +216,7 @@ export function SelectedToolbar() {
       {/* Move — plain directional arrows, nudging POSITION. Deliberately a
           different glyph family from Rotate (⟲/⟳) and Layer order (▲▼ below)
           so the three controls can never be mistaken for each other. */}
-      <Group label="Move">
+      <Group compact={compact} label="Move">
         <button onClick={() => nudge(-NUDGE, 0)} className={btn} title="Move left" aria-label="Nudge left">←</button>
         <button onClick={() => nudge(0, -NUDGE)} className={btn} title="Move up" aria-label="Nudge up">↑</button>
         <button onClick={() => nudge(0, NUDGE)} className={btn} title="Move down" aria-label="Nudge down">↓</button>
@@ -180,7 +226,7 @@ export function SelectedToolbar() {
       {canResize && (
         <>
           <Sep />
-          <Group label="Size">
+          <Group compact={compact} label="Size">
             <button onClick={() => resize(1 / SIZE_FACTOR)} className={btn} title="Make smaller" aria-label="Decrease size">−</button>
             <button onClick={() => resize(SIZE_FACTOR)} className={btn} title="Make larger" aria-label="Increase size">+</button>
           </Group>
@@ -194,7 +240,7 @@ export function SelectedToolbar() {
           bug this fix corrects). "Forward" = toward the top of the stack (in
           front of whatever is on top of it); "Back" = toward the bottom —
           unrelated to on-screen position, which is what Move controls. */}
-      <Group label="Layer order">
+      <Group compact={compact} label="Layer order">
         <button onClick={() => reorder(el.id, 'up')} className={`${btn} text-xs`}
           title="Bring this element forward, in front of whatever is on top of it" aria-label="Bring forward">▲Fwd</button>
         <button onClick={() => reorder(el.id, 'down')} className={`${btn} text-xs`}
@@ -203,9 +249,9 @@ export function SelectedToolbar() {
 
       <Sep />
 
-      <Group label="Actions">
+      <Group compact={compact} label="Actions">
         <button onClick={() => duplicate(el.id)} className={btn} title="Duplicate this element" aria-label="Duplicate">Duplicate</button>
-        <button onClick={() => remove(el.id)} className="px-2 py-1 text-sm text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
+        <button onClick={() => remove(el.id)} className="px-1.5 py-0.5 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors"
           title="Delete this element" aria-label="Delete">Delete</button>
       </Group>
       </div>
@@ -217,10 +263,13 @@ export function SelectedToolbar() {
  *  group of controls is visually separated and machine-labelled (role="group"
  *  + aria-label) as well as sighted-labelled (the caption) — and wraps as a
  *  unit on narrow widths instead of its buttons scattering individually. */
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
+function Group({ label, compact, children }:
+  { label: string; compact: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1" role="group" aria-label={label}>
-      <span className="text-[10px] uppercase tracking-wide text-textMuted leading-none">{label}</span>
+    <div className="flex flex-col gap-0.5" role="group" aria-label={label} title={label}>
+      <span className={compact
+        ? 'hidden'
+        : 'block text-[10px] uppercase tracking-wide text-textMuted leading-none'}>{label}</span>
       <div className="flex items-center gap-1">{children}</div>
     </div>
   )
@@ -232,4 +281,4 @@ function Sep() {
   return <div className="hidden sm:block w-px self-stretch bg-border" aria-hidden="true" />
 }
 
-const btn = 'px-2 py-1 text-sm border border-border rounded hover:border-accent transition-colors'
+const btn = 'px-1.5 py-0.5 text-xs border border-border rounded hover:border-accent transition-colors'

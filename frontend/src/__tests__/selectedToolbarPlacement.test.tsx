@@ -83,12 +83,51 @@ describe('Adjust panel', () => {
     expect(screen.getByTestId('adjust-panel').className).toContain('shrink-0')
   })
 
-  test('bounds the controls region tightly on mobile, roomier on desktop (jsdom performs no layout, so this pins the classes rather than the rendered height)', () => {
+  test('bounds the controls region by MEASURING its column, not by a breakpoint class', () => {
+    // The clamp used to be `max-h-[9rem] md:max-h-[45vh]`, and neither half
+    // could be right: `vh` is a fraction of the VIEWPORT, but this panel lives
+    // in a column shorter than the viewport by the chat and two header bars, so
+    // `45vh` exceeded the region it was bounding — and the root is `sticky`, so
+    // an over-cap panel stays pinned and the cap never comes back. The cap is
+    // now a measured share of the parent column, which needs no breakpoint.
     selectText()
     render(<SelectedToolbar />)
     const controls = screen.getByTestId('adjust-panel').querySelector('.overflow-y-auto')
-    expect(controls?.className).toContain('max-h-[9rem]')
-    expect(controls?.className).toContain('md:max-h-[45vh]')
+    expect(controls).toBeTruthy()
+    expect(controls?.className).not.toContain('max-h-[9rem]')
+    expect(controls?.className).not.toContain('45vh')
+  })
+
+  test('falls back to the MIN floor when the column reports no height (jsdom reports 0 for every element, which is exactly the degenerate case)', () => {
+    // jsdom performs no layout, so `clientHeight` is 0 — the measured share is
+    // 0 and the floor is what survives. That makes this the one piece of the
+    // clamp arithmetic jsdom CAN verify: that a zero/unknown column can never
+    // produce a zero-height, unusable controls region.
+    selectText()
+    render(<SelectedToolbar />)
+    const controls = screen.getByTestId('adjust-panel')
+      .querySelector('.overflow-y-auto') as HTMLElement
+    expect(controls.style.maxHeight).toBe('72px')
+  })
+
+  test('drops the group captions to tooltips on a narrow column, keeping them for screen readers', () => {
+    // The captions (ROTATE / MOVE / SIZE …) each add a line above their button
+    // row — measured live at 24px of the panel's height, in a column whose
+    // leftover height is what sizes the cap. They are hidden by a MEASURED
+    // column width rather than a Tailwind breakpoint: `xl:` keys off the
+    // VIEWPORT, but this is a three-column layout, so a 1536px window still
+    // leaves this column ~400-500px — the captions would have stayed visible
+    // exactly where they cost the most. jsdom reports clientWidth 0, i.e. the
+    // narrow case. `role="group"` + `aria-label` are unconditional, so nothing
+    // is lost to assistive tech, and `title` keeps the label discoverable.
+    selectText()
+    render(<SelectedToolbar />)
+    const rotate = screen.getByRole('group', { name: 'Rotate' })
+    const caption = Array.from(rotate.querySelectorAll('span'))
+      .find(s => s.textContent === 'Rotate')
+    expect(caption?.className).toBe('hidden')
+    expect(caption?.className).not.toContain('xl:')
+    expect(rotate.getAttribute('title')).toBe('Rotate')
   })
 
   test('renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
