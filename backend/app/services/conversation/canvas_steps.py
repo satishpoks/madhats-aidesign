@@ -212,6 +212,48 @@ def _ops_logo_bg(c: dict, f: dict) -> list[dict]:
              "patch": {"removeBg": True}}]
 
 
+def observe_canvas(collected: dict, canvas_design: dict | None) -> bool:
+    """Read a manually-ticked "Remove background" off the frontend's live canvas.
+
+    The mirror of `_ops_logo_bg`: that writes the tick FOR the customer when they
+    tap the chip; this reads a tick they made THEMSELVES, so ASK_LOGO_BG can be
+    skipped instead of asking a question they have already answered on screen.
+    Without it the toggle is invisible to the backend — `removeBg` lives only in
+    the frontend store until finalize.
+
+    The anchor is positional because there is no element id yet (`canvas_design`
+    is written at finalize): the LAST UNLOCKED image on the pending logo's face —
+    the same rule `canvasStore.patchPendingLogo` / `lockPlaced` use. Any other
+    rule reads a PREVIOUS logo on a second pass of the loop, since each completed
+    logo is locked.
+
+    One-way and idempotent by design: it only ever writes "removed", and never
+    over an existing answer. Returns True only when it wrote.
+    """
+    pending = _pending(collected)
+    face = pending.get("face")
+    if not face or "bg" in pending:
+        return False                  # nothing in progress, or already answered
+    if not isinstance(canvas_design, dict):
+        return False
+    faces = canvas_design.get("faces")
+    if not isinstance(faces, dict):
+        return False
+    elements = faces.get(face)
+    if not isinstance(elements, list):
+        return False
+    for el in reversed(elements):
+        if not isinstance(el, dict):
+            continue
+        if el.get("type") != "image" or el.get("locked"):
+            continue
+        if not el.get("removeBg"):
+            return False              # this IS the pending logo, and it's unticked
+        collected.setdefault("pending_logo", {})["bg"] = "removed"
+        return True
+    return False
+
+
 def _apply_another_logo(c: dict, f: dict, s: dict) -> None:
     """The entire loop mechanism, declared next to the step it belongs to.
 
