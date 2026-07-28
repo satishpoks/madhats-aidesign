@@ -26,6 +26,7 @@ def _v2_copy_strings() -> list[str]:
         prompts.V2_REWORK_INSTRUCTIONS,
         prompts.V2_ASK_NAME,
         prompts.V2_ASK_NAME_RETRY,
+        prompts.V2_ASK_EMAIL_RETRY,
         prompts.V2_DEFAULT_INTRO,
         prompts.V2_EMAIL_VERIFY_NOTICE,
         prompts.V2_COLOUR_DISCLAIMER,

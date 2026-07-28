@@ -30,9 +30,55 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 def extract_email(message: str) -> str | None:
-    """Return the first email-looking token in the message, or None."""
+    """Return the first email-looking token in the message, or None.
+
+    Deliberately LOOSE and deliberately unchanged: v1 and the v2 Haiku-outage
+    fallback use it to answer "did the customer give us an address yet?", where
+    over-rejecting a real address is worse than passing a bad one along. Callers
+    that are about to STORE the result validate it with `is_valid_email`.
+    """
     match = _EMAIL_RE.search(message or "")
     return match.group(0) if match else None
+
+
+# Anchored counterpart to `_EMAIL_RE` above — the one used to decide whether an
+# address may be written to the `leads` table. Same shape as
+# `admin_stores.py:_EMAIL_RE`, which is already stricter than the
+# customer-facing extractor: exactly one `@`, no whitespace anywhere, a
+# non-empty local part, and a domain carrying at least one dot. The remaining
+# rules (dot placement, TLD length, RFC length caps) are explicit checks below
+# rather than more regex, because a regex that encodes all of them is
+# unreviewable and this is a security boundary. No `email_validator` dependency:
+# the goal is "cannot store junk", not RFC 5322 completeness.
+_VALID_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+_MAX_EMAIL_LEN = 254        # RFC 5321 forward-path limit
+_MAX_LOCAL_LEN = 64         # RFC 5321 local-part limit
+
+
+def is_valid_email(address: str | None) -> bool:
+    """Whether `address` is well-formed enough to store and send to.
+
+    Strict by design — it never trims, so a caller decides for itself whether a
+    stray space is a typo to forgive or input to reject. `canvas_steps._apply_email`
+    strips first; `_direct_email` feeds it an already-tokenised match.
+    """
+    if not address or not isinstance(address, str):
+        return False
+    if len(address) > _MAX_EMAIL_LEN:
+        return False
+    if not _VALID_EMAIL_RE.fullmatch(address):
+        return False
+    if ".." in address:
+        return False
+    local, _, domain = address.partition("@")
+    if len(local) > _MAX_LOCAL_LEN:
+        return False
+    if local.startswith(".") or local.endswith("."):
+        return False
+    if domain.startswith(".") or domain.endswith("."):
+        return False
+    return len(domain.rsplit(".", 1)[-1]) >= 2
 
 
 def hash_token(token: str) -> str:

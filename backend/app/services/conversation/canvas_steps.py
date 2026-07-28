@@ -288,9 +288,23 @@ def _apply_anything_else(c: dict, f: dict, s: dict) -> None:
 def _apply_email(c: dict, f: dict, s: dict) -> None:
     """Double opt-in capture. `email_captured` is set ONLY here, and only after a
     real capture — which is what makes FINALIZE_CANVAS unreachable without a
-    lead. On failure nothing is set, so ask_email re-asks itself."""
-    email = f.get("email")
-    if not email:
+    lead. On failure nothing is set, so ask_email re-asks itself (with
+    ASK_EMAIL.ask_retry, so the customer is told the address looked wrong).
+
+    Format is checked HERE because this is the only place the address becomes
+    durable: `validate_fields` passes the `email` slot through untouched (no
+    enum, no coercion), so on the healthy path the interpreter's string went
+    straight into the `leads` INSERT. Worse in dev/CI, where
+    `capture_lead_and_verify` reports success with no provider configured — a
+    malformed address was marked captured and the customer was marched to the
+    verification gate behind a link that could never arrive.
+    """
+    raw = f.get("email")
+    # `validate_fields` gives `email` no coercion, so the interpreter could hand
+    # back a non-string; `.strip()` on one would 500 the turn.
+    email = raw.strip() if isinstance(raw, str) else ""
+    if not leads_service.is_valid_email(email):
+        c.pop("email", None)      # don't leave a rejected address on the session
         return
     lead_id, ok = leads_service.capture_lead_and_verify(s, c, email)
     if lead_id:
@@ -462,8 +476,11 @@ def _direct_purpose(message: str) -> dict:
 
 
 def _direct_email(message: str) -> dict:
+    # `extract_email` is an UNANCHORED search, so it happily pulls "a@b.c" out of
+    # prose. Validated here too — an interpreter outage must not become a way
+    # around the capture-site check.
     email = leads_service.extract_email(message)
-    return {"email": email} if email else {}
+    return {"email": email} if email and leads_service.is_valid_email(email) else {}
 
 
 REGISTRY: tuple[Step, ...] = (
@@ -570,6 +587,11 @@ REGISTRY: tuple[Step, ...] = (
         ask=("Great job, {name}. Please enter your email address so I can save "
              "your design, provide you a reference code and send you your "
              "artwork and quotation."),
+        # A rejected address (malformed, or refused by the provider) leaves
+        # done_when unmet, so this step becomes first-unmet again. Without retry
+        # copy the customer sees the identical question and no hint that
+        # anything was wrong.
+        ask_retry=prompts.V2_ASK_EMAIL_RETRY,
         slots=("email",),
         apply=_apply_email,
         direct_answer=_direct_email,

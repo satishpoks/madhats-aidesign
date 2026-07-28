@@ -1166,6 +1166,16 @@ V2_ASK_NAME_RETRY = (
     "brief?"
 )
 
+# Shown when the address the customer gave was rejected — a malformed string, or
+# one a configured provider refused. Says WHAT was wrong: re-rendering the same
+# full-length question reads as the bot ignoring them. Formal register, and it
+# never quotes the address back (PII stays out of the reply the same way it
+# stays out of the logs).
+V2_ASK_EMAIL_RETRY = (
+    "Apologies, that email address doesn't look quite right. Please check it "
+    "and enter it again so I can send your design and quotation."
+)
+
 V2_DEFAULT_INTRO = (
     "Let's get started. We'll begin with your logo, then move on to any text "
     "or graphics, and I'll guide you through each tool along the way."
