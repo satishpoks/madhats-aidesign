@@ -13,6 +13,12 @@ export type ShapeKind =
 /** Line-like shapes have no fill/outline concept — a single colour + width. */
 export const LINE_SHAPES: ShapeKind[] = ['line', 'arrow', 'doubleArrow']
 
+/** The literal a freshly added text element carries. Exported because
+ *  SelectedToolbar's autofocus guard compares against it — as two separate
+ *  string literals they drift, and the guard then silently fails open to
+ *  "never autofocus", which no test would catch. */
+export const TEXT_PLACEHOLDER = 'Your text'
+
 export interface CanvasElement {
   id: string
   type: 'text' | 'image' | 'shape' | 'drawing'

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useCanvasStore, LINE_SHAPES } from '../../store/canvasStore'
+import { useCanvasStore, LINE_SHAPES, TEXT_PLACEHOLDER } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
 
 /** The panel may never eat more than this share of the column it shares with
@@ -47,6 +47,7 @@ export function SelectedToolbar() {
   // Both observers are feature-detected: jsdom ships neither, and constructing
   // one unconditionally throws through every test that mounts Surface.
   const rootRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLInputElement>(null)
   const [maxH, setMaxH] = useState<number | null>(null)
   const [compact, setCompact] = useState(true)   // assume tight until measured
   useEffect(() => {
@@ -64,6 +65,18 @@ export function SelectedToolbar() {
     // Keyed on the selected element: with nothing selected this component
     // renders null, so there is no DOM and no parent to measure. Re-running as
     // the panel mounts is what gets the first measurement at all.
+  }, [el?.id])
+
+  // Focus+select ONLY while the content is still the untouched placeholder, so
+  // a freshly added element can be typed straight over. Re-selecting an element
+  // the customer already edited must not steal focus — on a phone that pops the
+  // keyboard over the canvas. Keyed on the id alone: the guard goes false on the
+  // first keystroke, so re-running per character would be pointless churn.
+  useEffect(() => {
+    if (el?.type !== 'text' || el.content !== TEXT_PLACEHOLDER) return
+    contentRef.current?.focus()
+    contentRef.current?.select()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [el?.id])
 
   if (!el) return null
@@ -111,8 +124,18 @@ export function SelectedToolbar() {
         style={maxH ? { maxHeight: maxH } : undefined}>
       {el.type === 'text' && (
         <>
-          <input value={el.content ?? ''} onChange={e => update(el.id, { content: e.target.value })}
-            className="bg-base border border-border rounded px-1.5 py-0.5 text-xs text-textPrimary w-28" aria-label="Text content" />
+          {/* The content field is the point of a text element, so it gets its
+              own full-width labelled row above the styling controls. It used to
+              be a 112px unlabelled box wedged between the font dropdown and the
+              sliders, which customers did not find. `basis-full` makes it claim
+              a whole line of the wrapping flex row. */}
+          <label className="basis-full flex flex-col gap-0.5">
+            <span className="text-[10px] uppercase tracking-wide text-textMuted leading-none">Your text</span>
+            <input ref={contentRef} value={el.content ?? ''}
+              onChange={e => update(el.id, { content: e.target.value })}
+              className="w-full bg-base border border-accent rounded px-2 py-1 text-sm text-textPrimary focus:outline-none focus:ring-2 focus:ring-accent/40"
+              aria-label="Text content" />
+          </label>
           <select value={el.font ?? 'Arial'} onChange={e => update(el.id, { font: e.target.value })}
             className="bg-base border border-border rounded px-1.5 py-0.5 text-xs max-w-[7rem]" aria-label="Font"
             style={{ fontFamily: el.font ?? 'Arial' }}>

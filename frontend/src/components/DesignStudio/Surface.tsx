@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type Konva from 'konva'
 import { useSessionStore } from '../../store/sessionStore'
-import { useCanvasStore, FACES, type Face } from '../../store/canvasStore'
+import { useCanvasStore, FACES, type Face, TEXT_PLACEHOLDER } from '../../store/canvasStore'
 import { useChatStore } from '../../store/chatStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
@@ -107,7 +107,7 @@ export function DesignStudioSurface() {
   useEffect(() => {
     if (canvasDirective?.autoOpen === 'upload') fileRef.current?.click()
     if (canvasDirective?.autoOpen === 'shape') setGraphicsOpen(true)
-    if (canvasDirective?.autoOpen === 'text') addText('Your text')
+    if (canvasDirective?.autoOpen === 'text') addText(TEXT_PLACEHOLDER)
   }, [canvasDirective?.autoOpen, canvasDirective?.targetFace, addText])
 
   // v2: lock whatever was just placed as soon as the flow leaves an editing
@@ -322,7 +322,7 @@ export function DesignStudioSurface() {
 
         {/* Right rail — tools + render */}
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
-          <ToolRail onAddText={() => addText('Your text')} onUploadClick={() => fileRef.current?.click()}
+          <ToolRail onAddText={() => addText(TEXT_PLACEHOLDER)} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
             colourways={colourways} onRender={() => void doRender()} rendering={rendering}
             // v2: finalize is chat-driven (`triggerFinalize`), not a manual click —
