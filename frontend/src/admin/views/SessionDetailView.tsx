@@ -22,6 +22,23 @@ const BRIEF_FIELDS: { key: string; label: string }[] = [
   { key: 'remove_bg', label: 'Remove background' },
 ]
 
+/**
+ * Resolve the background-removal flag for the brief card.
+ *
+ * Canvas sessions record it PER ELEMENT (`elements[].remove_bg`) — the field
+ * the render acts on. The top-level `collected.remove_bg` is the v1 chat flag
+ * and is never set for a canvas session, so reading only that made this row
+ * show "—" for every canvas design. Exported for test.
+ */
+export function removeBgValue(collected: Record<string, unknown>): boolean | undefined {
+  const elements = collected?.elements
+  if (Array.isArray(elements) && elements.length > 0) {
+    return elements.some((el) => Boolean((el as { remove_bg?: boolean })?.remove_bg))
+  }
+  const legacy = collected?.remove_bg
+  return typeof legacy === 'boolean' ? legacy : undefined
+}
+
 function fmt(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—'
   if (typeof v === 'boolean') return v ? 'Yes' : 'No'
@@ -120,7 +137,9 @@ export function SessionDetailView() {
 
   const lead = detail.leads[0]
   const displayName = lead?.name || lead?.email || 'Anonymous visitor'
-  const briefRows = BRIEF_FIELDS.filter((f) => detail.collected[f.key] !== undefined)
+  const briefValue = (key: string): unknown =>
+    key === 'remove_bg' ? removeBgValue(detail.collected) : detail.collected[key]
+  const briefRows = BRIEF_FIELDS.filter((f) => briefValue(f.key) !== undefined)
   const pinCount = Array.isArray(detail.collected.pin_annotations)
     ? (detail.collected.pin_annotations as unknown[]).length
     : 0
@@ -267,7 +286,7 @@ export function SessionDetailView() {
                 {briefRows.map((f) => (
                   <div key={f.key} className="flex items-center justify-between py-2">
                     <dt className="text-[12px] text-[#6b6b80]">{f.label}</dt>
-                    <dd className="text-[13px] font-medium text-[#1a1a2e]">{fmt(detail.collected[f.key])}</dd>
+                    <dd className="text-[13px] font-medium text-[#1a1a2e]">{fmt(briefValue(f.key))}</dd>
                   </div>
                 ))}
                 {pinCount > 0 && (
