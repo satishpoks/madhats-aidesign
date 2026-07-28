@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from app.api.deps import require_store
 from app.config import settings
 from app.db import get_supabase
-from app.services import canvas_describe, prompt_builder
+from app.services import canvas_describe, profanity, prompt_builder
 from app.storage import generate_signed_url, media_url, upload_asset
 from app.models.canvas import CanvasFinalizeRequest, CreateCanvasSessionRequest
 from app.models.session import (
@@ -224,6 +224,32 @@ async def finalize_canvas(
     collected = session.get("collected") or {}
 
     elements, description = canvas_describe.canvas_to_elements(body.canvas_design)
+
+    # STRICT on the product, unlike chat. Anything here is rendered by the image
+    # model and then produced as physical artwork, so BOTH tiers are blocked —
+    # not just slurs. Runs before every write and before the reference/sales
+    # side-effects below, so a rejected design notifies nobody.
+    for el in elements:
+        if el.get("type") != "text":
+            continue
+        content = el.get("content") or ""
+        if profanity.scan(content) != "clean":
+            log.info("canvas_finalize_rejected_profanity",
+                     terms=profanity.find_terms(content))   # terms only — no PII
+            raise HTTPException(
+                status_code=422,
+                detail=(f'We can\'t put "{content}" on a product. '
+                        "Please edit that text and try again."),
+            )
+    for note in (collected.get("brief_notes") or []):
+        if profanity.scan(str(note)) != "clean":
+            log.info("canvas_finalize_rejected_profanity_note",
+                     terms=profanity.find_terms(str(note)))
+            raise HTTPException(
+                status_code=422,
+                detail="Please reword your note to the team and try again.",
+            )
+
     collected["elements"] = elements
     collected["design_description"] = {"summary": description} if description else None
     collected["flow_mode"] = "canvas"

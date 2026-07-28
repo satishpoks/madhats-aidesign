@@ -380,3 +380,50 @@ def test_canvas_request_entry_path_defaults_non_null():
     req = CreateCanvasSessionRequest(product_id="p1")
     assert req.entry_path == "canvas_first"
     assert req.entry_path is not None
+
+
+def _design_with_text(content: str) -> dict:
+    return {"colourway": None, "faces": {
+        "front": [{"id": "e1", "type": "text", "content": content,
+                   "x": 0.5, "y": 0.4, "width": 0.3, "height": 0.1,
+                   "rotation": 0, "zIndex": 0}],
+        "back": [], "left": [], "right": []}}
+
+
+def test_finalize_rejects_obscene_cap_text(client, seeded_store_headers, canvas_session_id):
+    """Cap text reaches the AI render and then physical production artwork."""
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": _design_with_text("SHIT HAPPENS")},
+                    headers=seeded_store_headers)
+    assert r.status_code == 422
+    assert "SHIT HAPPENS" in r.json()["detail"]   # names it so it can be edited
+
+
+def test_finalize_rejection_writes_nothing(client, seeded_store_headers, canvas_session_id):
+    """The gate runs before the collected write and before the sales notify."""
+    client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                json={"canvas_design": _design_with_text("SHIT HAPPENS")},
+                headers=seeded_store_headers)
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    assert not (row.get("collected") or {}).get("canvas_finalized")
+    assert row.get("canvas_design") is None
+
+
+def test_finalize_accepts_clean_cap_text(client, seeded_store_headers, canvas_session_id, monkeypatch):
+    # Mirrors test_finalize_routes_to_decoration's mocking: finalize_canvas
+    # continues past the profanity gate into the v1 decoration-outro routing,
+    # which otherwise calls out to decoration_types.list_types (real Supabase).
+    import app.services.decoration_types as deco_svc
+    import app.services.conversation.intent_extractor as ie
+
+    monkeypatch.setattr(deco_svc, "list_types", lambda s, active_only=False: [])
+
+    async def _reply(*a, **k):
+        return "Anything else?"
+
+    monkeypatch.setattr(ie, "generate_reply", _reply)
+
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": _design_with_text("MADHATS CREW")},
+                    headers=seeded_store_headers)
+    assert r.status_code == 200
