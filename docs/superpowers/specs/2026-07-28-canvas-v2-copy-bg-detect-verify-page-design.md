@@ -287,9 +287,17 @@ Inline styles only, consistent with the rest of these documents.
 
 - Success page renders a configured store's name and primary colour, and does
   not contain `#ff5c00` or "MAD HATS".
-- An unconfigured store (or no store) renders byte-identical to the MadHats
-  defaults — the same "unconfigured is unchanged" bar the branding work held
-  itself to.
+- An unconfigured store (or no store) renders the MadHats lockup and
+  `#ff5c00` — i.e. **branding is a no-op** for a store that has configured
+  none.
+
+  Note this is deliberately *weaker* than the "byte-identical to before" bar
+  the per-store branding work held itself to, and it has to be: the highlighted
+  callout is new copy for **every** customer, branded or not. Byte-identical to
+  today's page is not achievable and not wanted. The default header block must
+  still be a **literal** ("MAD HATS" / "AI Design Studio"), never derived from
+  `store_name` — `"MadHats".upper()` is `"MADHATS"`, with no space, which is
+  the exact trap `email.py:205` already documents.
 - A store lookup that raises still returns HTTP 200 with the default-themed
   success page, and the verification is still committed.
 - The close message is present on the success page.
