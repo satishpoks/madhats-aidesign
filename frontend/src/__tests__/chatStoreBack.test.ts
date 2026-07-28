@@ -9,10 +9,12 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { useChatStore } from '../store/chatStore'
+import { useCanvasStore } from '../store/canvasStore'
 import { sendBack } from '../lib/api'
 
 beforeEach(() => {
   useChatStore.getState().reset()
+  useCanvasStore.getState().reset()
   vi.clearAllMocks()
 })
 
@@ -47,6 +49,31 @@ test('goBack is a no-op while a send is already in flight', async () => {
   useChatStore.setState({ sending: true })
   await useChatStore.getState().goBack('sess-1')
   expect(sendBack).not.toHaveBeenCalled()
+})
+
+test('goBack applies the canvas_ops that remove the restarted element', async () => {
+  // Back at an element-adjust step (logo_adjust / ask_logo_bg / decor_adjust)
+  // rewinds the chat AND removes the in-progress element from the canvas — the
+  // backend ships the remove op, so goBack must apply it like sendMessage does.
+  // Without this the conversation restarts the element while the old one stays
+  // on the cap and gets flattened into the layout guide.
+  const c = useCanvasStore.getState()
+  c.setActiveFace('back')
+  c.addImage('logo.png')
+  expect(useCanvasStore.getState().faces.back).toHaveLength(1)
+
+  vi.mocked(sendBack).mockResolvedValue({
+    reply: "No problem — let's start that one again.",
+    state: 'ask_logo_placement',
+    data: {
+      can_go_back: false,
+      canvas_ops: [{ target: { kind: 'pending_logo', face: 'back' }, remove: true }],
+    },
+  } as never)
+
+  await useChatStore.getState().goBack('sess-1')
+
+  expect(useCanvasStore.getState().faces.back).toHaveLength(0)
 })
 
 test('applyResponse sets backRemovesElement from data.back_removes_element', () => {

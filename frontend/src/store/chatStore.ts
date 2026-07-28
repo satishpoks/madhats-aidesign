@@ -230,6 +230,13 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     set({ sending: true })
     try {
       const res = await sendBack(sessionId)
+      // Back at an element-adjust step is "remove this element and start it
+      // over" — the backend ships the remove op in `canvas_ops`. Applied here,
+      // not inside applyResponse, so ops stay at the response handlers that
+      // actually carry them (same placement + before-set() ordering as
+      // sendMessage). Without it the chat restarted the element while the old
+      // one stayed on the cap and got flattened into the layout guide.
+      applyCanvasOps(parseCanvasOps(res.data as Record<string, unknown>))
       get().applyResponse(res.reply, res.state, res.data as Record<string, unknown>)
     } finally {
       set({ sending: false })
