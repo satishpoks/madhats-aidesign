@@ -28,9 +28,17 @@ SEVERE = "severe"
 #: They are printable: blocking a cap reading "HELL RAISERS" is a worse outcome
 #: for the store than letting it through, and the cap path is a hard stop at the
 #: very end of the funnel. Tune this set, not the matching logic.
+#: NOTE: bare "dick" is deliberately excluded — it collides with the given
+#: name/nickname for "Richard" and with the AU retail brand "Dick Smith", and
+#: this is a personalised-cap business where a customer's own name is
+#: expected input ("Cap for Dick" must stay clean). "dickhead" is unambiguous
+#: and is kept.
+#: NOTE: "bitch" is kept despite colliding with the kennel-club term for a
+#: female dog ("Best in Show Bitch 2026") — the profane reading dominates
+#: commercially; this is a deliberate trade-off, not an oversight.
 MILD_TERMS: frozenset[str] = frozenset({
     "arse", "arsehole", "ass", "asshole", "bastard", "bitch", "bollocks",
-    "dick", "dickhead", "dumbass", "fuck", "fucked", "fucker", "fucking",
+    "dickhead", "dumbass", "fuck", "fucked", "fucker", "fucking",
     "piss", "pissed", "prick", "shit", "shite", "shitty", "slut", "twat",
     "wanker", "whore",
     # Explicit obfuscations — listed, never derived. A general leet-normalising
@@ -52,6 +60,19 @@ MILD_TERMS: frozenset[str] = frozenset({
 #:
 #: Same word-boundary rules apply — check for reclaimed/homographic terms that
 #: appear inside ordinary words before adding them.
+#: NOTE: "spic" is deliberately excluded — it collides with the idiom/cleaning
+#: brand "spic and span" (the same reasoning that already excluded the "spick"
+#: spelling; keeping one spelling and not the other was inconsistent).
+#: "tranny"/"trannies" are deliberately excluded — in Australian/British
+#: usage they are common automotive slang for "transmission" ("V8 tranny
+#: swap weekend", "manual tranny ute club"), and MadHats is an AU shop where
+#: car-club/ute merch is a plausible order category. This is a KNOWN, DELIBERATE
+#: coverage gap in the gender-identity slur category, not an oversight — do not
+#: re-add without a same-tier-safe way to disambiguate context. "faggot"/
+#: "faggots" are kept despite colliding with the traditional British/Irish
+#: meatball dish ("faggots and peas") — that dish is rare in Australia and the
+#: slur reading dominates overwhelmingly for cap text; this is a deliberate
+#: trade-off, not an oversight.
 SEVERE_TERMS: frozenset[str] = frozenset({
     # Anti-Black
     "nigger", "nigga", "niggers", "niggas", "n1gger",
@@ -59,7 +80,7 @@ SEVERE_TERMS: frozenset[str] = frozenset({
     # Anti-Asian
     "gook", "slanteye", "dothead",
     # Anti-Hispanic/Latino
-    "spic", "wetback", "beaner",
+    "wetback", "beaner",
     # Anti-Middle Eastern / anti-Arab
     "raghead", "towelhead", "camel jockey",
     # Anti-South Asian
@@ -73,12 +94,20 @@ SEVERE_TERMS: frozenset[str] = frozenset({
     # Sexual-orientation
     "faggot", "faggots",
     # Gender-identity
-    "tranny", "trannies", "shemale", "shemales",
+    "shemale", "shemales",
 })
 
 
 def _pattern(terms: frozenset[str]) -> re.Pattern | None:
-    """One alternation, longest-first so "fucking" wins over "fuck".
+    """One alternation over all terms, matched with word-boundary lookarounds.
+
+    Sorting longest-first is NOT load-bearing for overlapping terms like
+    "fuck"/"fucking": the trailing `(?!\\w)` lookahead already rejects a
+    "fuck" match sitting inside "fucking" (the next character is a word
+    character), so the engine backtracks to the "fucking" alternative
+    regardless of alternation order. The sort is harmless and kept for
+    readability/determinism (e.g. stable regex source across `_rebuild()`
+    calls), not correctness.
 
     `(?<!\\w)` / `(?!\\w)` rather than `\\b`: several terms end in a non-word
     character (`f**k`), and `\\b` after `*` asserts the opposite of what is
@@ -127,7 +156,13 @@ def scan(text: str | None) -> str:
 
 
 def find_terms(text: str | None) -> list[str]:
-    """Matched terms, lowercased and de-duplicated, in first-appearance order.
+    """Matched terms, lowercased and de-duplicated.
+
+    Ordering is TIER-first, not text-position-first: every severe match (each
+    in first-appearance order) is returned before any mild match (each in its
+    own first-appearance order) — mirroring `scan()`'s severe-outranks-mild
+    rule. E.g. `"this is shit you <severe-term>"` returns
+    `["<severe-term>", "shit"]`, not `["shit", "<severe-term>"]`.
 
     Safe to log: terms only, never the surrounding message (security rule 10).
     """

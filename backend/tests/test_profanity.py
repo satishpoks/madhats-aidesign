@@ -79,3 +79,54 @@ def test_the_severe_list_is_populated():
 def test_scan_never_raises_on_odd_input():
     for value in (None, "", "   ", "🎩", "a" * 10_000):
         assert profanity.scan(value) in {"clean", "mild", "severe"}
+
+
+# --- Fix round 1: false-positive collisions found in review -----------------
+#
+# Each of these previously matched (wrongly) and would have blocked a paying
+# customer's ordinary message; "tranny"/"spic" would have DECLINED the chat
+# turn outright since they were SEVERE. Removed from the term sets rather
+# than downgraded — downgrading "tranny"/"spic" to MILD would still block cap
+# text, which is the same customer-facing failure at the print-order step.
+@pytest.mark.parametrize("text", [
+    "V8 tranny swap weekend",
+    "manual tranny ute club",
+    "Spic and span cleaning co",
+    "Cap for Dick",
+])
+def test_removed_collision_terms_now_scan_clean(text):
+    assert profanity.scan(text) == "clean"
+
+
+# --- Coverage over the REAL severe list, without hardcoding slurs in the ---
+# --- assertions themselves. A typo, stray case/whitespace, or an entry     -
+# --- that quietly fails to match would previously go undetected.          -
+def test_severe_terms_are_lowercase_stripped_and_nonempty():
+    for term in profanity.SEVERE_TERMS:
+        assert term, "SEVERE_TERMS contains an empty entry"
+        assert term == term.lower(), f"not lowercase: {term!r}"
+        assert term == term.strip(), f"has stray whitespace: {term!r}"
+
+
+def test_severe_terms_meet_a_minimum_count():
+    # Guards against an accidental near-empty list slipping past
+    # test_the_severe_list_is_populated (which only checks non-empty).
+    assert len(profanity.SEVERE_TERMS) >= 20
+
+
+def test_every_real_severe_term_scans_severe():
+    """Iterates the actual SEVERE_TERMS set — no slur is hardcoded here."""
+    for term in profanity.SEVERE_TERMS:
+        assert profanity.scan(f"you {term} really") == "severe", (
+            f"a SEVERE_TERMS entry failed to scan as severe: {term!r}"
+        )
+
+
+def test_find_terms_orders_severe_before_mild_regardless_of_text_position(
+    severe_sentinel,
+):
+    """Ordering is tier-first, not text-position-first (see find_terms docstring)."""
+    assert profanity.find_terms(f"this is shit you {severe_sentinel}") == [
+        severe_sentinel,
+        "shit",
+    ]
