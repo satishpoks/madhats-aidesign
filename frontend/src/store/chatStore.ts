@@ -192,9 +192,17 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2: [],
     }))
     try {
-      // On a describe-a-change turn, send the live canvas so the backend edits
-      // against what's on screen (accumulated edits), not the last saved design.
-      const liveDesign = get().chatState === 'describe_changes'
+      // Send the live canvas on exactly two turns:
+      //  - describe_changes: so an edit resolves against what's on screen
+      //    (accumulated edits), not the last saved design.
+      //  - logo_adjust: the "Done" turn closing logo placement. The backend
+      //    reads a self-ticked "Remove background" off it (canvas_steps.
+      //    observe_canvas) and skips ask_logo_bg. removeBg lives only in this
+      //    store until finalize, so this turn is the only chance to see it.
+      // Deliberately narrow — a blob on an unrelated turn is a way to overwrite
+      // saved work, which is why chat.py's persist path is scoped just as hard.
+      const st = get().chatState
+      const liveDesign = (st === 'describe_changes' || st === 'logo_adjust')
         ? useCanvasStore.getState().toCanvasDesign()
         : undefined
       const res = await sendChat(sessionId, text, liveDesign)
