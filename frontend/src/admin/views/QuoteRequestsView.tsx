@@ -33,6 +33,19 @@ export function QuoteRequestsView() {
     { key: 'phone', header: 'Phone', render: (r) => (r.phone ? `${r.phone}${r.notify_by_phone ? ' 📞' : ''}` : '—') },
     { key: 'product', header: 'Product', render: (r) => r.product ?? '—' },
     { key: 'decoration', header: 'Decoration', render: (r) => r.decoration_type ?? '—' },
+    {
+      key: 'artwork',
+      header: 'Artwork',
+      render: (r) => {
+        const n = (r.elements ?? []).filter((e) => e.remove_bg).length
+        return n ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+            title="The customer asked for the background to be knocked out of this artwork">
+            Remove BG{n > 1 ? ` ×${n}` : ''}
+          </span>
+        ) : '—'
+      },
+    },
     { key: 'qty', header: 'Qty', render: (r) => (r.quantity ?? '—') },
     { key: 'needed_by', header: 'Needed by', render: (r) => r.needed_by ?? '—' },
     { key: 'purpose', header: 'Purpose', render: (r) => r.purpose ?? '—' },

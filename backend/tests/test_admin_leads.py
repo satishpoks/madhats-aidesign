@@ -127,7 +127,11 @@ def _quote_tables():
              "collected": {"decoration_type": "embroidery", "quantity": 60,
                            "needed_by": "2-4 weeks", "purpose": "team event",
                            "brief_notes": ["Decoration method: embroidery"],
-                           "uploaded_asset_path": "uploads/logo.png"}}
+                           "uploaded_asset_path": "uploads/logo.png",
+                           "elements": [
+                               {"type": "logo", "content": "uploaded logo/artwork",
+                                "remove_bg": True, "canvas": {"face": "front"}},
+                           ]}}
     sess2 = {"id": "sess-2", "share_token": "tok-2", "product_ref": {},
              "collected": {"quantity": 12}}
     sess1["store_id"] = "store-1"
@@ -172,6 +176,24 @@ def test_v2_requested_leads_appear_without_quote_confirmed(admin_client, monkeyp
     refs = {row.get("reference_code") for row in r.json()}
     assert "MH-REQ222" in refs        # quote_requested-only lead is listed
     assert len(r.json()) == 2         # the neither-flag lead stays hidden
+
+
+def test_quote_rows_expose_per_element_background_removal(admin_client, monkeypatch):
+    _patch_sb(monkeypatch, _quote_tables())
+    r = admin_client.get("/admin/quote-requests",
+                         headers={"X-Admin-Secret": "test-secret-123"})
+    row = next(x for x in r.json() if x["lead_id"] == "lead-1")
+    flagged = [e for e in row["elements"] if e["remove_bg"]]
+    assert flagged and flagged[0]["face"] == "front"
+
+
+def test_quote_row_elements_carry_no_customer_pii(admin_client, monkeypatch):
+    _patch_sb(monkeypatch, _quote_tables())
+    r = admin_client.get("/admin/quote-requests",
+                         headers={"X-Admin-Secret": "test-secret-123"})
+    row = next(x for x in r.json() if x["lead_id"] == "lead-1")
+    for el in row["elements"]:
+        assert set(el) == {"kind", "label", "face", "remove_bg"}
 
 
 def test_components_endpoint_lists_download_urls(admin_client, monkeypatch):

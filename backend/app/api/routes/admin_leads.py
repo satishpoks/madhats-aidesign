@@ -30,6 +30,24 @@ def _store_id_for_session(session_id: str | None) -> str | None:
     return res.data[0].get("store_id") if res.data else None
 
 
+def _element_summary(collected: dict) -> list[dict]:
+    """PII-free per-element detail for the quote row.
+
+    Content only — never customer identity — matching this payload's existing
+    boundary. `remove_bg` is read from the element (what the render acts on),
+    never from `collected["logos"][].bg`, which is the chip answer.
+    """
+    out = []
+    for el in collected.get("elements") or []:
+        out.append({
+            "kind": el.get("type") or "element",
+            "label": el.get("content") or "",
+            "face": (el.get("canvas") or {}).get("face") or el.get("placement_zone"),
+            "remove_bg": bool(el.get("remove_bg")),
+        })
+    return out
+
+
 @router.get("/admin/quote-requests")
 async def list_quote_requests(ctx: AdminContext = Depends(require_admin_ctx)) -> list[dict]:
     sb = get_supabase()
@@ -86,6 +104,7 @@ async def list_quote_requests(ctx: AdminContext = Depends(require_admin_ctx)) ->
                 "needed_by": collected.get("needed_by"),
                 "purpose": collected.get("purpose"),
                 "notes": "; ".join(str(n) for n in (collected.get("brief_notes") or [])) or None,
+                "elements": _element_summary(collected),
                 "share_token": session.get("share_token"),
             }
         )

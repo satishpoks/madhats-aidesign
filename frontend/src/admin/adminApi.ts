@@ -59,6 +59,14 @@ export interface UpdateSubmissionBody {
   reviewer_notes?: string
 }
 
+/** Per-element detail for a quote row. PII-free by construction on the server. */
+export interface QuoteElement {
+  kind: string
+  label: string
+  face: string | null
+  remove_bg: boolean
+}
+
 export interface QuoteRequest {
   lead_id: string
   session_id: string
@@ -79,6 +87,7 @@ export interface QuoteRequest {
   needed_by?: string | null
   purpose?: string | null
   notes?: string | null
+  elements?: QuoteElement[]
   share_token: string | null
 }
 
