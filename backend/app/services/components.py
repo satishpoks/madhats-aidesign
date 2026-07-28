@@ -10,6 +10,11 @@ from __future__ import annotations
 
 _FACES = ("front", "back", "left", "right")
 
+#: Shouted in the label because it is an INSTRUCTION to the person opening the
+#: attachment, not a description. Declared here rather than inline because the
+#: de-dupe below has to recognise it to carry it across a collision.
+_BG_MARKER = " — BACKGROUND TO BE REMOVED"
+
 
 def _is_storage_path(value) -> bool:
     return bool(value) and isinstance(value, str) and not value.startswith("http")
@@ -34,7 +39,7 @@ def _element_label(index: int, el: dict) -> str:
     face = (el.get("canvas") or {}).get("face") or el.get("placement_zone")
     label = f"Element {index} — {kind}" + (f" ({face})" if face else "")
     if el.get("remove_bg"):
-        label += " — BACKGROUND TO BE REMOVED"
+        label += _BG_MARKER
     return label
 
 
@@ -83,11 +88,21 @@ def enumerate_components(collected: dict, generation: dict | None = None) -> lis
     # LAST element's assetPath — emitting the same path twice and giving the
     # sales email two attachments with an identical filename (delivery.py derives
     # the filename from the path).
-    seen: set[str] = set()
+    #
+    # The dropped duplicate's LABEL can still carry information the retained one
+    # doesn't: the generic "Uploaded logo/artwork" entry always sorts first, so a
+    # plain first-wins de-dupe silently discarded the element label's
+    # background-removal marker — the one thing on the attachment the print team
+    # has to act on. Keep the first entry's position and text, and merge the
+    # marker onto it.
+    seen: dict[str, dict] = {}
     deduped: list[dict] = []
     for item in out:
-        if item["path"] in seen:
+        first = seen.get(item["path"])
+        if first is not None:
+            if _BG_MARKER in item["label"] and _BG_MARKER not in first["label"]:
+                first["label"] += _BG_MARKER
             continue
-        seen.add(item["path"])
+        seen[item["path"]] = item
         deduped.append(item)
     return deduped

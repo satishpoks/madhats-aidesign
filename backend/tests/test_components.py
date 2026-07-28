@@ -92,3 +92,37 @@ def test_external_urls_are_still_excluded():
     out = components.enumerate_components({"elements": [
         _canvas_element(assetPath="https://cdn.example.com/x.png")]})
     assert not any("example.com" in c["path"] for c in out)
+
+
+def test_dedupe_never_drops_the_background_removal_marker():
+    """The collision above is the COMMON case on a single-logo canvas design:
+    `uploaded_asset_path` equals the last element's `assetPath`, and the generic
+    "Uploaded logo/artwork" entry sorts first — so keeping the first occurrence
+    silently discarded the element label's `— BACKGROUND TO BE REMOVED`, which
+    is the entire signal the print team acts on.
+    """
+    collected = {"uploaded_asset_path": "uploads/logo.png",
+                 "elements": [_canvas_element(remove_bg=True)]}
+    out = components.enumerate_components(collected)
+    paths = [c["path"] for c in out]
+
+    assert paths.count("uploads/logo.png") == 1        # still deduped
+    assert "Uploaded" in out[0]["label"]               # ordering unchanged
+    assert "BACKGROUND TO BE REMOVED" in out[0]["label"]
+
+
+def test_dedupe_does_not_invent_the_marker_when_no_element_is_flagged():
+    collected = {"uploaded_asset_path": "uploads/logo.png",
+                 "elements": [_canvas_element(remove_bg=False)]}
+    out = components.enumerate_components(collected)
+    assert "BACKGROUND" not in out[0]["label"].upper()
+
+
+def test_the_marker_is_merged_only_onto_the_colliding_entry():
+    """A second, unrelated component must not pick the marker up."""
+    collected = {"uploaded_asset_path": "uploads/logo.png",
+                 "canvas_layouts": {"front": "uploads/lay_f.png"},
+                 "elements": [_canvas_element(remove_bg=True)]}
+    out = components.enumerate_components(collected)
+    lay = next(c for c in out if c["path"] == "uploads/lay_f.png")
+    assert "BACKGROUND" not in lay["label"].upper()
