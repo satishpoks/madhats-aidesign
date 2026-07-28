@@ -864,3 +864,65 @@ async def test_the_verification_poll_delegates_a_non_gate_state_to_v1(monkeypatc
 
     await o2.check_verification("s1")
     assert seen == ["s1"]
+
+
+# --- Task 4: chat-side lenient guard (abuse decline) --------------------------
+
+def _mid_flow_store():
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "logos_done": True, "logos": [{"face": "front", "placed": True}],
+        "decor_done": True,
+    }
+    return store
+
+
+@pytest.mark.asyncio
+async def test_severe_abuse_re_renders_the_step_and_ingests_nothing(monkeypatch):
+    """A slur must not advance the flow, and must not reach the interpreter."""
+    from app.services import profanity
+
+    store = _mid_flow_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    async def _boom(*a, **k):
+        raise AssertionError("interpreter must not run on a declined turn")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    res = await o2.handle_message("s1", "you are a <slur>")
+
+    assert res["state"] == S.ASK_QUANTITY.value
+    assert prompts.V2_ABUSE_DECLINE in res["reply"]
+    assert "quantity" not in store["session"]["collected"]
+
+
+@pytest.mark.asyncio
+async def test_mild_profanity_does_not_block_the_funnel(monkeypatch):
+    """Venting must not dead-end a sale — a mild turn is processed normally."""
+    from app.services import profanity
+
+    store = _mid_flow_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "mild")
+    _llm_returns(monkeypatch, {"quantity": 50})
+
+    res = await o2.handle_message("s1", "50 of the bloody things")
+
+    assert prompts.V2_ABUSE_DECLINE not in res["reply"]
+    assert res["state"] != S.ASK_QUANTITY.value
+
+
+@pytest.mark.asyncio
+async def test_the_decline_is_a_normal_reply_not_an_error(monkeypatch):
+    """A 422 renders as an error banner and reads as a broken app."""
+    from app.services import profanity
+
+    store = _mid_flow_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    res = await o2.handle_message("s1", "abuse")
+    assert isinstance(res.get("reply"), str) and res["reply"]

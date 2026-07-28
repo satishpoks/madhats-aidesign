@@ -1197,6 +1197,14 @@ V2_AWAIT_VERIFY_RETRY = (
     "spam folder."
 )
 
+# Shown when a customer turn contains a slur or hate term. The flow does NOT
+# advance and nothing is ingested — this is a boundary, not a rejection of the
+# customer. Formal register, matching the rest of v2 (test_v2_copy_guards).
+V2_ABUSE_DECLINE = (
+    "I am not able to continue with that language, but I am happy to keep "
+    "helping with your design."
+)
+
 # Prepended to the next step's copy when the out-of-band verification lands
 # (orchestrator_v2.check_verification). The customer confirmed in another tab or
 # on their phone, so the chat has to acknowledge it before asking the next

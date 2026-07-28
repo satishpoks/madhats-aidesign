@@ -16,9 +16,12 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import structlog
+
 from app import prompts
 from app.config import settings
 from app.db import get_supabase
+from app.services import profanity
 from app.services.branding import canvas_intro_text, colour_disclaimer_text
 from app.services.stores import get_store
 from app.services.conversation import canvas_steps as cs
@@ -27,6 +30,8 @@ from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation import orchestrator as _v1
 from app.services.conversation.orchestrator import SessionNotFound, _can_start_design
 from app.services.conversation.state_machine import ConversationState as S
+
+log = structlog.get_logger()
 
 _NUDGE_AFTER = 2
 
@@ -94,6 +99,23 @@ async def handle_message(session_id: str, message: str,
                              colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply, state_before,
                               current, user_message=message,
+                              data=_public(step, collected, flow_config))
+
+    # Severe abuse (slurs / hate terms) is declined WITHOUT advancing: re-render
+    # the current step exactly as the blank-turn guard above does, ingesting
+    # nothing, so no slot is written and first-unmet routing cannot move. Mild
+    # profanity deliberately falls straight through — a frustrated customer
+    # venting must not dead-end a sale.
+    #
+    # A normal reply, never a 422: an error banner reads as a broken app rather
+    # than a boundary. `find_terms` logs the matched TERM only — never the
+    # message, name or email (security rule 10).
+    if profanity.scan(message) == "severe":
+        log.info("v2_turn_declined_abuse", terms=profanity.find_terms(message))
+        reply = f"{prompts.V2_ABUSE_DECLINE} " + v2.reply_for(
+            step, collected, persona=persona, intro=intro, colour_note=colour_note)
+        return await _persist(sb, session_id, collected, step, reply.strip(),
+                              state_before, current, user_message=message,
                               data=_public(step, collected, flow_config))
 
     # A real forward answer re-enables Back: the single-step lock is per-Back.
