@@ -18,6 +18,7 @@ from app.services.conversation.orchestrator import (
     handle_message,
 )
 from app.services.conversation.orchestrator_v2 import (
+    _ABUSE_EXEMPT_STEPS,  # noqa: PLC2701 — one definition, two consumers (see below)
     check_verification as check_verification_v2,
     handle_back as handle_back_v2,
     handle_message as handle_message_v2,
@@ -68,19 +69,31 @@ def _is_v2_canvas(session_id: str) -> bool:
 
 
 def _v2_canvas_owns_turn(session_id: str) -> bool:
-    """Whether v2 will handle this turn ITSELF, rather than delegating to v1.
+    """Whether v2 will decline this turn ITSELF, so the LLM gate can stand down.
 
-    Strictly narrower than `_is_v2_canvas`, and the difference is the whole
-    point: `orchestrator_v2.handle_message` delegates any state outside
-    `V2_OWNED` straight to v1 (its very first branch), which is ~50 lines BEFORE
-    its severe-abuse decline. So for every shared tail state a canvas session
-    rests in after the design phase — offer_refine, describe_changes,
-    confirm_canvas_edit, verify_email, generating, quote_requested — there is no
-    decline guard at all, and a bypass keyed on flow_mode alone would hand the
-    message to v1 unmoderated (it lands verbatim in `brief_notes`).
+    Two ways v2 can fail to guard a turn, and BOTH must answer False here —
+    this predicate gates a moderation bypass, so anything it gets wrong is a
+    turn nobody moderates:
 
-    Only used to gate the moderation bypass below, which must therefore be true
-    only where v2's own guard actually runs.
+    1. `orchestrator_v2.handle_message` delegates any state outside `V2_OWNED`
+       straight to v1 (its very first branch), ~50 lines BEFORE its severe-abuse
+       decline. So for every shared tail state a canvas session rests in after
+       the design phase — offer_refine, describe_changes, confirm_canvas_edit,
+       verify_email, generating, quote_requested — there is no decline guard at
+       all, and a bypass keyed on flow_mode alone would hand the message to v1
+       unmoderated (it lands verbatim in `brief_notes`).
+    2. Within `V2_OWNED`, the identity steps ASK_NAME / ASK_EMAIL are exempted
+       from v2's own decline (`_ABUSE_EXEMPT_STEPS`, imported rather than
+       re-typed so the two cannot drift), because `paki`/`heeb` are in
+       SEVERE_TERMS and are also real surnames. Reporting True there turned
+       "v2 handles it" into "nobody handles it": no decline AND no `check_text`,
+       so the message still reached `interpret_turn_v2` — which is handed EVERY
+       writable slot regardless of step, letting `final_notes` be banked at the
+       name question and later appended verbatim into `brief_notes` -> the sales
+       email. Running the LLM gate there is safe for exactly the customers the
+       exemption protects: `moderation.py` instructs the judge that names,
+       emails and phone numbers are SAFE, so a surname passes while a slur used
+       as abuse is still caught.
     """
     if not settings.canvas_orchestrator_v2:
         return False
@@ -96,7 +109,7 @@ def _v2_canvas_owns_turn(session_id: str) -> bool:
         state = ConversationState(row.get("state"))
     except ValueError:
         return False
-    return state in V2_OWNED
+    return state in V2_OWNED and state not in _ABUSE_EXEMPT_STEPS
 
 
 async def _dispatch(session_id: str, message: str,
@@ -119,14 +132,10 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
     # clean/mild common case never touches the DB here.
     #
     # The bypass is deliberately keyed on `_v2_canvas_owns_turn`, NOT on "is
-    # this a v2 canvas session": v2 delegates every state outside V2_OWNED to
-    # v1, whose handler has no decline guard, so bypassing there would let a
-    # slur through into `brief_notes`. Within V2_OWNED, one narrow class of turn
-    # is bypassed WITHOUT a decline by design — the identity steps ASK_NAME and
-    # ASK_EMAIL, which orchestrator_v2 exempts so a real surname (or an address
-    # containing one) can't dead-end the first two questions. Those turns write
-    # only the name/email slot, never free text into the brief, and running the
-    # LLM gate there would 422 exactly the customers the exemption exists for.
+    # this a v2 canvas session": that predicate is False wherever v2 will not
+    # decline the turn itself — the shared tail states it delegates to v1, and
+    # the identity steps it exempts (see its docstring). Both must fall through
+    # to `check_text`, or nothing moderates them.
     #
     # v1 has no decline guard at all, so a non-canvas session with the same
     # message still runs check_text and still 422s — that's the whole reason

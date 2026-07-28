@@ -271,3 +271,117 @@ def test_v2_canvas_session_in_a_shared_tail_state_is_still_moderated(monkeypatch
 
     assert resp.status_code == 422
     assert calls == [1]
+
+
+# --- Security residual: the identity-step exemption removed BOTH gates --------
+#
+# `orchestrator_v2._ABUSE_EXEMPT_STEPS` skips v2's OWN severe-abuse decline at
+# ASK_NAME / ASK_EMAIL, because `paki` and `heeb` are in SEVERE_TERMS and are
+# also real surnames. Those two states ARE in V2_OWNED, so the route-level
+# bypass fired too — leaving a severe message at the first two questions with no
+# moderation of any kind, free to reach `interpret_turn_v2` (which is handed
+# EVERY writable slot regardless of step) and bank e.g. `final_notes`, which
+# `_apply_final_notes` later appends verbatim into `brief_notes` -> the sales
+# email. The LLM gate must run at exactly the steps v2 declines to guard.
+
+def _identity_step_canvas_store(state: str):
+    """A v2 canvas session sitting on one of the two exempted identity steps."""
+    return {
+        "session": {
+            "id": "s1",
+            "state": state,
+            "collected": {"flow_mode": "canvas"},
+        }
+    }
+
+
+def test_exempt_step_set_is_imported_not_duplicated():
+    """One definition, two consumers. A second copy in chat.py would drift from
+    the orchestrator's the first time a step is added to (or removed from) the
+    exemption, silently reopening this hole."""
+    from app.api.routes import chat as chat_route
+    from app.services.conversation import orchestrator_v2 as o2
+
+    assert chat_route._ABUSE_EXEMPT_STEPS is o2._ABUSE_EXEMPT_STEPS
+
+
+@pytest.mark.parametrize("state", ["ask_name", "ask_email"])
+def test_v2_identity_steps_are_still_moderated(state, monkeypatch, moderation_client):
+    """A severe message at ASK_NAME / ASK_EMAIL must reach `check_text`.
+
+    v2 exempts these two steps from its own decline, so if the route bypassed
+    them as well there would be no gate at all.
+    """
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.moderation import ModerationError
+
+    store = _identity_step_canvas_store(state)
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    calls = []
+
+    async def _flag(_text):
+        calls.append(1)
+        raise ModerationError("flagged by content safety filter")
+    monkeypatch.setattr(chat_route, "check_text", _flag)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "you are a <slur>"})
+
+    assert resp.status_code == 422
+    assert calls == [1]
+
+
+@pytest.mark.parametrize("state", ["ask_name", "ask_email"])
+def test_v2_identity_steps_owns_turn_is_false(state, monkeypatch):
+    """The unit the route gate is built on: v2 does NOT own an exempt turn,
+    because its handler deliberately declines to guard it."""
+    from app.api.routes import chat as chat_route
+
+    store = _identity_step_canvas_store(state)
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+
+    assert chat_route._v2_canvas_owns_turn("s1") is False
+
+
+def test_a_real_surname_at_ask_name_still_gets_through(monkeypatch, moderation_client):
+    """The whole reason the exemption exists. `check_text` now runs — and
+    moderation.py explicitly instructs the judge that names are SAFE — so a
+    customer whose surname collides with a term in SEVERE_TERMS passes the gate
+    and the flow advances, with no decline prepended."""
+    from app import prompts
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.conversation import intent_extractor as ie
+    from app.services.conversation import orchestrator_v2 as o2
+
+    store = _identity_step_canvas_store("ask_name")
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(o2, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    calls = []
+
+    async def _ok(_text):
+        calls.append(1)
+    monkeypatch.setattr(chat_route, "check_text", _ok)
+
+    async def _interpret(_step, _msg, _collected):
+        return {"name": "Paki"}
+    monkeypatch.setattr(ie, "interpret_turn_v2", _interpret)
+
+    async def _ack(*_a, **_k):
+        return ""
+    monkeypatch.setattr(ie, "write_ack", _ack)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "Paki"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert calls == [1], "the LLM gate must run at the identity steps"
+    assert prompts.V2_ABUSE_DECLINE not in body["reply"]
+    assert store["session"]["collected"]["name"] == "Paki"
