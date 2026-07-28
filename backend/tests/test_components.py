@@ -33,3 +33,49 @@ def test_enumerate_components_covers_every_source():
 
 def test_enumerate_components_empty_without_render():
     assert components.enumerate_components({}, None) == []
+
+
+def _canvas_element(**over):
+    """Shaped exactly as canvas_describe._element writes it (camelCase asset)."""
+    el = {"type": "logo", "content": "uploaded logo/artwork",
+          "assetPath": "uploads/logo.png", "remove_bg": False,
+          "placement_zone": "front", "canvas": {"face": "front"}}
+    el.update(over)
+    return el
+
+
+def test_camelcase_assetpath_is_found():
+    """canvas_describe writes assetPath; reading only asset_path meant canvas
+    elements appeared in no admin list and no sales attachment."""
+    out = components.enumerate_components({"elements": [_canvas_element()]})
+    assert any(c["path"] == "uploads/logo.png" for c in out)
+
+
+def test_v1_snake_case_asset_path_still_works():
+    out = components.enumerate_components({"elements": [
+        {"type": "logo", "asset_path": "uploads/old.png"}]})
+    assert any(c["path"] == "uploads/old.png" for c in out)
+
+
+def test_flagged_element_label_says_the_background_must_be_removed():
+    out = components.enumerate_components({"elements": [_canvas_element(remove_bg=True)]})
+    label = next(c["label"] for c in out if c["path"] == "uploads/logo.png")
+    assert "BACKGROUND TO BE REMOVED" in label
+
+
+def test_unflagged_element_label_does_not():
+    out = components.enumerate_components({"elements": [_canvas_element(remove_bg=False)]})
+    label = next(c["label"] for c in out if c["path"] == "uploads/logo.png")
+    assert "BACKGROUND" not in label.upper()
+
+
+def test_label_names_the_face():
+    out = components.enumerate_components({"elements": [_canvas_element()]})
+    label = next(c["label"] for c in out if c["path"] == "uploads/logo.png")
+    assert "front" in label.lower()
+
+
+def test_external_urls_are_still_excluded():
+    out = components.enumerate_components({"elements": [
+        _canvas_element(assetPath="https://cdn.example.com/x.png")]})
+    assert not any("example.com" in c["path"] for c in out)

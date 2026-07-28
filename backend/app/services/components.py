@@ -15,6 +15,29 @@ def _is_storage_path(value) -> bool:
     return bool(value) and isinstance(value, str) and not value.startswith("http")
 
 
+def _element_asset_path(el: dict):
+    """`canvas_describe._element` writes camelCase `assetPath`; v1-shaped
+    elements use `asset_path`. Reading only the snake form is why per-element
+    canvas assets appeared in no admin component list and no sales attachment.
+    """
+    return el.get("assetPath") or el.get("asset_path")
+
+
+def _element_label(index: int, el: dict) -> str:
+    """Name the element and its face, and shout the background flag.
+
+    Reads `remove_bg` — the field `prompt_builder` reads to instruct the render
+    — never `collected["logos"][].bg`, which records the chip answer and is
+    documented as able to diverge from the toggle.
+    """
+    kind = el.get("type") or "element"
+    face = (el.get("canvas") or {}).get("face") or el.get("placement_zone")
+    label = f"Element {index} — {kind}" + (f" ({face})" if face else "")
+    if el.get("remove_bg"):
+        label += " — BACKGROUND TO BE REMOVED"
+    return label
+
+
 def enumerate_components(collected: dict, generation: dict | None = None) -> list[dict]:
     """Every downloadable component for a session, as ``{"label", "path"}``.
 
@@ -42,9 +65,9 @@ def enumerate_components(collected: dict, generation: dict | None = None) -> lis
             out.append({"label": f"Layout guide — {face}", "path": p})
 
     for i, el in enumerate(collected.get("elements") or [], start=1):
-        p = el.get("asset_path")
+        p = _element_asset_path(el)
         if _is_storage_path(p):
-            out.append({"label": f"Element {i} asset", "path": p})
+            out.append({"label": _element_label(i, el), "path": p})
 
     if generation:
         views = generation.get("view_images") or {}
