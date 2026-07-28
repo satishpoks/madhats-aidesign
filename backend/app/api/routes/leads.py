@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import html as html_lib
 from datetime import datetime, timezone
+from string import Template
 
 import jwt
 import structlog
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from app import prompts
@@ -72,19 +74,50 @@ async def send_verification(body: VerifySendRequest) -> dict:
     return {"sent": True}
 
 
+def _brand_bits(store: dict | None, base_url: str) -> tuple[str, str]:
+    """(primary_colour, header_html) for the verification pages.
+
+    Falls back to the MadHats lockup for a store with no brand — and the lockup
+    is a literal, never store_name.upper(), which would render "MADHATS".
+    """
+    if not store:
+        return "#ff5c00", prompts.VERIFY_HEADER_DEFAULT_HTML
+    from app.services.branding import public_brand  # noqa: PLC0415 — import cycle
+
+    brand = store.get("brand") or {}
+    colour = brand.get("primary_colour") or "#ff5c00"
+    name = html_lib.escape(store.get("name") or "MadHats")
+    logo = public_brand(brand, base_url).get("logo_url")
+    if logo:
+        header = (f'<img src="{html_lib.escape(logo, quote=True)}" alt="{name}" '
+                  f'style="max-height:40px;display:block;" />')
+    else:
+        header = ('<div style="font-size:20px;font-weight:bold;color:#ffffff;'
+                  f'letter-spacing:0.5px;">{name}</div>')
+    return colour, header
+
+
 def _error_page(message: str) -> HTMLResponse:
     """A friendly HTML page for a bad/expired/used verification link.
 
     The customer clicks this link in their inbox, so every outcome must render
-    as a browser page — never raw JSON or a stack trace.
+    as a browser page — never raw JSON or a stack trace. Always the MadHats
+    defaults: an expired/invalid token is rejected before any lead is loaded,
+    so there is no store to theme from.
     """
     return HTMLResponse(
-        prompts.VERIFICATION_ERROR_HTML.format(message=message), status_code=400
+        Template(prompts.VERIFICATION_ERROR_HTML).substitute(
+            message=message,
+            store_name="MadHats",
+            primary_colour="#ff5c00",
+            header_html=prompts.VERIFY_HEADER_DEFAULT_HTML,
+        ),
+        status_code=400,
     )
 
 
 @router.get("/leads/verify/{token}", response_class=HTMLResponse)
-async def confirm_verification(token: str) -> HTMLResponse:
+async def confirm_verification(request: Request, token: str) -> HTMLResponse:
     try:
         payload = jwt.decode(token, settings.admin_secret, algorithms=["HS256"])
     except jwt.ExpiredSignatureError:
@@ -152,9 +185,32 @@ async def confirm_verification(token: str) -> HTMLResponse:
             log.error("resume_email_failed", lead_id=lead_id, error_type=type(exc).__name__)
 
     log.info("lead_verified", lead_id=lead_id, session_id=session_id)
+
+    # Theme the landing page to the session's store, the same way the emails
+    # that led here are themed. STRICTLY best-effort: the verification is
+    # already committed above, so a branding failure must never downgrade a
+    # success into an error page.
+    store = None
+    try:
+        sess = (sb.table("design_sessions").select("store_id")
+                .eq("id", session_id).limit(1).execute())
+        store_id = sess.data[0].get("store_id") if sess.data else None
+        if store_id:
+            from app.services.stores import get_store
+
+            store = get_store(store_id)
+    except Exception as exc:  # noqa: BLE001 — cosmetic only
+        log.warning("verify_page_branding_failed", session_id=session_id,
+                    error_type=type(exc).__name__)
+    colour, header = _brand_bits(store, str(request.base_url))
+
     # Confirmation only — NO design image/preview here. The design is delivered
     # exclusively via the preview email dispatched above.
-    return HTMLResponse(prompts.VERIFICATION_SUCCESS_HTML)
+    return HTMLResponse(Template(prompts.VERIFICATION_SUCCESS_HTML).substitute(
+        store_name=html_lib.escape((store or {}).get("name") or "MadHats"),
+        primary_colour=colour,
+        header_html=header,
+    ))
 
 
 def _mark_session_verified(sb, session_id: str) -> None:

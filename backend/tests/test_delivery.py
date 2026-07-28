@@ -115,6 +115,13 @@ def _lead_row(**overrides):
     return row
 
 
+class _FakeRequest:
+    """Stand-in for FastAPI's injected Request — confirm_verification only
+    reads .base_url (via _brand_bits) to build a /media logo URL."""
+
+    base_url = "http://testserver/"
+
+
 def _generation_row(**overrides):
     row = {
         "id": "gen-1",
@@ -367,7 +374,7 @@ def test_verify_route_triggers_send(monkeypatch):
 
     import asyncio
 
-    html = asyncio.run(leads_routes.confirm_verification(token))
+    html = asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert html.status_code == 200
     assert lead["email_verified"] is True
@@ -407,7 +414,7 @@ def test_verify_early_sends_resume_email(monkeypatch):
 
     import asyncio
 
-    html = asyncio.run(leads_routes.confirm_verification(token))
+    html = asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert html.status_code == 200
     assert lead["email_verified"] is True
@@ -466,7 +473,7 @@ def test_resume_email_uses_store_branding(monkeypatch):
 
     import asyncio
 
-    asyncio.run(leads_routes.confirm_verification(token))
+    asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert len(resume_calls) == 1
     _, kwargs = resume_calls[0]
@@ -505,7 +512,7 @@ def test_resume_email_falls_back_to_defaults_without_store(monkeypatch):
 
     import asyncio
 
-    asyncio.run(leads_routes.confirm_verification(token))
+    asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert len(resume_calls) == 1
     _, kwargs = resume_calls[0]
@@ -546,7 +553,7 @@ def test_resume_email_skipped_for_v2_canvas_sessions(monkeypatch):
 
     import asyncio
 
-    html = asyncio.run(leads_routes.confirm_verification(token))
+    html = asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert html.status_code == 200
     assert lead["email_verified"] is True
@@ -587,7 +594,7 @@ def test_resume_email_still_sent_for_v1_canvas_sessions(monkeypatch):
 
     import asyncio
 
-    asyncio.run(leads_routes.confirm_verification(token))
+    asyncio.run(leads_routes.confirm_verification(_FakeRequest(), token))
 
     assert len(resume_calls) == 1
 

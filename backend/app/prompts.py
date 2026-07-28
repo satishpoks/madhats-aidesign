@@ -868,27 +868,37 @@ already verified — no further action needed beyond regenerating.
 # it only confirms the email and promises the design by email shortly.
 # ---------------------------------------------------------------------------
 
+# The default header lockup, used when no store brand is configured. A LITERAL,
+# never derived from store_name: "MadHats".upper() is "MADHATS" (no space), the
+# same trap email.py:205 documents.
+VERIFY_HEADER_DEFAULT_HTML = (
+    '<div style="font-size:20px;font-weight:bold;color:#ffffff;'
+    'letter-spacing:0.5px;">MAD HATS</div>\n'
+    '          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>'
+)
+
 VERIFICATION_SUCCESS_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Email verified — MadHats</title>
+  <title>Email verified — $store_name</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
     <tr><td align="center" style="padding:40px 16px;">
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-        <tr><td style="background:#ff5c00;padding:18px 28px;">
-          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
-          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        <tr><td style="background:$primary_colour;padding:18px 28px;">
+          $header_html
         </td></tr>
         <tr><td style="padding:40px 28px;text-align:center;">
           <div style="font-size:44px;line-height:1;">&#9989;</div>
           <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Your email is now verified</h1>
           <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming — we'll send your design across shortly. Keep an eye on your inbox.</p>
-          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:12px 0 0 0;">You can close this page and head back to the chat.</p>
+          <div style="margin:26px 0 0 0;padding:14px 18px;background:#f3f4f6;border-left:4px solid $primary_colour;border-radius:6px;text-align:left;">
+            <p style="font-size:15px;line-height:22px;color:#1a1a2e;font-weight:700;margin:0;">You can close this page now and head back to the chat.</p>
+          </div>
         </td></tr>
       </table>
     </td></tr>
@@ -897,27 +907,30 @@ VERIFICATION_SUCCESS_HTML = """\
 </html>
 """
 
-# Filled with .format(message=...) for expired / invalid / already-used links.
+# Substituted with $message (plus $store_name/$primary_colour/$header_html) for
+# expired / invalid / already-used links. Always renders on the MadHats defaults:
+# two of the three branches reject the token before any lead is loaded, so there
+# is no store to resolve, and the third is not worth a DB round-trip for a
+# dead-end page. See the spec's error-page note.
 VERIFICATION_ERROR_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Verification problem — MadHats</title>
+  <title>Verification problem — $store_name</title>
 </head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" height="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;min-height:100vh;">
     <tr><td align="center" style="padding:40px 16px;">
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-        <tr><td style="background:#ff5c00;padding:18px 28px;">
-          <div style="font-size:20px;font-weight:bold;color:#ffffff;letter-spacing:0.5px;">MAD HATS</div>
-          <div style="font-size:12px;color:#ffd9b2;">AI Design Studio</div>
+        <tr><td style="background:$primary_colour;padding:18px 28px;">
+          $header_html
         </td></tr>
         <tr><td style="padding:40px 28px;text-align:center;">
           <div style="font-size:44px;line-height:1;">&#9888;&#65039;</div>
           <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">We couldn't verify that link</h1>
-          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">{message}</p>
+          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">$message</p>
         </td></tr>
       </table>
     </td></tr>
