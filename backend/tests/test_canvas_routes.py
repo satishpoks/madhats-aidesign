@@ -328,6 +328,29 @@ def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_hea
     assert row["canvas_design"] == design
 
 
+def test_quote_reply_does_not_claim_the_email_is_unconfirmed(
+        client, seeded_store_headers, canvas_session_id, monkeypatch):
+    """v2 cannot reach finalize with an unconfirmed address — AWAIT_EMAIL_VERIFY
+    gates it — so promising delivery 'once you confirm' is false."""
+    monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    row["collected"] = {**(row.get("collected") or {}),
+                        "quote_requested": True, "reference_code": "MH-BCDFGH"}
+
+    design = {"colourway": None,
+              "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
+                                   "x": 0.5, "y": 0.4, "width": 0.2, "height": 0.1,
+                                   "rotation": 0, "zIndex": 0}],
+                        "back": [], "left": [], "right": []}}
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": design}, headers=seeded_store_headers)
+
+    assert r.status_code == 200
+    reply = r.json()["reply"]
+    assert "once you confirm" not in reply.lower()
+    assert "We've also emailed it to you." in reply
+
+
 def test_v2_finalize_converges_the_quote_confirmation(client, seeded_store_headers, canvas_session_id, monkeypatch):
     """Finalize is the THIRD convergence point for the quote confirmation
     (C2/C3). The canvas — elements, layout guides, previews — only exists as of

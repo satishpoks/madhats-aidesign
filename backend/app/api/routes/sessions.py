@@ -280,7 +280,7 @@ async def finalize_canvas(
             reply = (
                 f"All done — your request is in! Your reference is {reference}. "
                 "Our team will be in touch with a quote soon. We've also emailed "
-                "it to you once you confirm your address."
+                "it to you."
             )
         else:
             reply = (
