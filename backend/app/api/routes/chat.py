@@ -71,7 +71,7 @@ def _is_v2_canvas(session_id: str) -> bool:
 def _v2_canvas_owns_turn(session_id: str) -> bool:
     """Whether v2 will decline this turn ITSELF, so the LLM gate can stand down.
 
-    Two ways v2 can fail to guard a turn, and BOTH must answer False here —
+    Three ways v2 can fail to guard a turn, and ALL must answer False here —
     this predicate gates a moderation bypass, so anything it gets wrong is a
     turn nobody moderates:
 
@@ -94,6 +94,13 @@ def _v2_canvas_owns_turn(session_id: str) -> bool:
        exemption protects: `moderation.py` instructs the judge that names,
        emails and phone numbers are SAFE, so a surname passes while a slur used
        as abuse is still caught.
+    3. `GREETING` is technically in `V2_OWNED`, but `handle_message` returns
+       from its GREETING branch (the kickoff) roughly 40 lines BEFORE the
+       decline guard, so the guard never runs there either — even though
+       GREETING is not in `_ABUSE_EXEMPT_STEPS`. This is included for honesty
+       of the invariant, not because the turn is exploitable: that branch
+       calls no interpreter and persists `user_message=""`, so the text is
+       discarded either way.
     """
     if not settings.canvas_orchestrator_v2:
         return False
@@ -109,7 +116,8 @@ def _v2_canvas_owns_turn(session_id: str) -> bool:
         state = ConversationState(row.get("state"))
     except ValueError:
         return False
-    return state in V2_OWNED and state not in _ABUSE_EXEMPT_STEPS
+    return (state in V2_OWNED and state not in _ABUSE_EXEMPT_STEPS
+            and state is not ConversationState.GREETING)
 
 
 async def _dispatch(session_id: str, message: str,

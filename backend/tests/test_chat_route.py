@@ -347,6 +347,23 @@ def test_v2_identity_steps_owns_turn_is_false(state, monkeypatch):
     assert chat_route._v2_canvas_owns_turn("s1") is False
 
 
+def test_v2_greeting_state_owns_turn_is_false(monkeypatch):
+    """GREETING is in V2_OWNED, but `handle_message_v2` returns from its
+    GREETING branch well before the severe-abuse decline guard runs, so v2
+    does not actually guard that turn either — even though it is not one of
+    the `_ABUSE_EXEMPT_STEPS`. Not currently exploitable (that branch calls no
+    interpreter and persists `user_message=""`, discarding the text), but the
+    predicate's own invariant — "True only where v2's decline guard runs" —
+    must hold precisely."""
+    from app.api.routes import chat as chat_route
+
+    store = _identity_step_canvas_store("greeting")
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+
+    assert chat_route._v2_canvas_owns_turn("s1") is False
+
+
 def test_a_real_surname_at_ask_name_still_gets_through(monkeypatch, moderation_client):
     """The whole reason the exemption exists. `check_text` now runs — and
     moderation.py explicitly instructs the judge that names are SAFE — so a
