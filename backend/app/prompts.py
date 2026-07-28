@@ -1128,8 +1128,8 @@ V2_REWORK_INSTRUCTIONS = (
 # keep going." — no greeting, no question — and their reply ("ok") was stored
 # as their name.
 V2_ASK_NAME = (
-    "Welcome — I'm {persona}, your design assistant. I'll take you through "
-    "putting your design onto the cap. To begin, may I have your name?"
+    "Welcome! I'm {persona}, your design assistant. I'll help bring your cap "
+    "design to life. May I please know your name?"
 )
 
 V2_ASK_NAME_RETRY = (

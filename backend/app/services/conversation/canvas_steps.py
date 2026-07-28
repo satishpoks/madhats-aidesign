@@ -525,9 +525,9 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_EMAIL,
-        ask=("You're making good progress, {name}. Could I take your email "
-             "address so I can save your progress and send your finished "
-             "design through?"),
+        ask=("Great job, {name}. Please enter your email address so I can save "
+             "your design, provide you a reference code and send you your "
+             "artwork and quotation."),
         slots=("email",),
         apply=_apply_email,
         direct_answer=_direct_email,
