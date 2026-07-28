@@ -69,4 +69,38 @@ describe('SelectedToolbar variants', () => {
     render(<SelectedToolbar />)
     expect(screen.getByTestId('adjust-panel').className).toContain('sticky')
   })
+
+  // I6: the rail panel mounts BELOW ToolRail inside an overflow-y-auto column
+  // and takes no height cap, so on a short column it can appear at or past the
+  // fold with no scroll cue — the same "selecting an element did nothing" bug
+  // the placement work exists to fix.
+  describe('rail variant scrolls itself into view', () => {
+    const original = Element.prototype.scrollIntoView
+
+    afterEach(() => {
+      if (original) Element.prototype.scrollIntoView = original
+      // @ts-expect-error — restore jsdom's default (absent on some elements)
+      else delete Element.prototype.scrollIntoView
+    })
+
+    it('calls scrollIntoView({ block: "nearest" }) on mount', () => {
+      const spy = vi.fn()
+      Element.prototype.scrollIntoView = spy
+      render(<SelectedToolbar variant="rail" />)
+      expect(spy).toHaveBeenCalledWith({ block: 'nearest' })
+    })
+
+    it('does not scroll the stacked variant, which is sticky at the top already', () => {
+      const spy = vi.fn()
+      Element.prototype.scrollIntoView = spy
+      render(<SelectedToolbar variant="stacked" />)
+      expect(spy).not.toHaveBeenCalled()
+    })
+
+    it('mounts without throwing when scrollIntoView is absent (jsdom)', () => {
+      // @ts-expect-error — jsdom leaves this undefined on some element types
+      delete Element.prototype.scrollIntoView
+      expect(() => render(<SelectedToolbar variant="rail" />)).not.toThrow()
+    })
+  })
 })

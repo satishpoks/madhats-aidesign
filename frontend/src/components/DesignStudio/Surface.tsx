@@ -39,7 +39,14 @@ export function DesignStudioSurface() {
   // — the stage and the element toolbar must be read-only for it. Previously
   // both were hardcoded open for every v2 turn (`isV2 ? false : !unlocked`),
   // so a placed element stayed draggable through the wrap-up questions.
-  const v2Editing = isV2 && canvasDirective!.allowedTools.length > 0
+  // A finalize that FAILED (e.g. the cap-text profanity gate 422s with "please
+  // edit that text and try again") must re-open the canvas. At FINALIZE_CANVAS
+  // the step declares no tool, so the directive gives `allowedTools: []` — the
+  // stage is read-only, the Adjust panel is unmounted and the finalize effect
+  // has already locked every element. Without this the customer is told to edit
+  // text they physically cannot touch. Cleared when a retry starts.
+  const [finalizeFailed, setFinalizeFailed] = useState(false)
+  const v2Editing = isV2 && (canvasDirective!.allowedTools.length > 0 || finalizeFailed)
   const stageLocked = isV2 ? !v2Editing : !unlocked
 
   const isDesktop = useIsDesktop()
@@ -211,7 +218,7 @@ export function DesignStudioSurface() {
 
   async function doRender() {
     if (!sessionId || rendering) return
-    setRendering(true); setError(null)
+    setRendering(true); setError(null); setFinalizeFailed(false)
     try {
       // Flatten the CURRENT active face, then each other decorated face. Konva
       // renders one stage; switch faces, let it paint, flatten. Simplest: flatten
@@ -261,11 +268,22 @@ export function DesignStudioSurface() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
       setRendering(false)
-      // A failed finalize must be retryable: without resetting this guard,
-      // `triggerFinalize` never changes (it's already true from the chat
-      // reaching FINALIZE_CANVAS) so the effect above would never fire
-      // doRender() again, and the v2 render button is permanently disabled
+      // A failed finalize must be retryable AND actionable. The gate's own
+      // message ("please edit that text and try again") is only followable if
+      // the canvas comes back to life: the finalize effect locked every element
+      // and FINALIZE_CANVAS's directive hands over no tool, so the stage is
+      // read-only and the Adjust panel unmounted. Unlock, drop the finalize
+      // trigger, and flag the failure so `v2Editing` re-opens the stage +
+      // panel until the customer retries.
+      //
+      // Re-arming the ref matters on its own too: `triggerFinalize` never
+      // changes by itself (it's already true from the chat reaching
+      // FINALIZE_CANVAS) so the effect above would never fire doRender() again,
+      // and the v2 render button is permanently disabled
       // (`rendered={isV2 ? true : rendered}`) — leaving no way back in.
+      setFinalizeFailed(true)
+      unlockAll()
+      useChatStore.setState({ triggerFinalize: false })
       finalizeStarted.current = false
     }
   }

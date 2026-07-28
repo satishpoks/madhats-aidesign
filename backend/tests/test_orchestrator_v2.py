@@ -926,3 +926,72 @@ async def test_the_decline_is_a_normal_reply_not_an_error(monkeypatch):
 
     res = await o2.handle_message("s1", "abuse")
     assert isinstance(res.get("reply"), str) and res["reply"]
+
+
+# --- I5: the identity steps are exempt from the severe decline ----------------
+#
+# OWNER RULING: "paki" and "heeb" stay in SEVERE_TERMS — they are kept for the
+# cap path — but ASK_NAME and ASK_EMAIL are exempted, because both are also real
+# surnames and the decline never advances: a customer called Paki, or one whose
+# address contains their Heeb surname, would be permanently stuck on the FIRST
+# question of the flow with no chip to escape via. These tests use the REAL
+# scanner (no monkeypatched scan) — that is the point.
+
+@pytest.mark.asyncio
+async def test_a_real_surname_that_scans_severe_still_answers_ask_name(monkeypatch):
+    from app.services import profanity
+
+    assert profanity.scan("Paki") == "severe"      # the trap being exempted
+
+    store = _new_store()
+    store["session"]["state"] = S.ASK_NAME.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)          # direct_answer resolves the name deterministically
+
+    res = await o2.handle_message("s1", "Paki")
+
+    assert prompts.V2_ABUSE_DECLINE not in res["reply"]
+    assert store["session"]["collected"]["name"] == "Paki"
+    assert res["state"] != S.ASK_NAME.value        # the flow advanced
+
+
+@pytest.mark.asyncio
+async def test_an_address_containing_a_surname_still_answers_ask_email(monkeypatch):
+    from app.services import profanity
+
+    assert profanity.scan("s.heeb@example.com") == "severe"
+
+    store = _new_store()
+    store["session"]["state"] = S.ASK_EMAIL.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True, "logos_done": True,
+                                     "logos": [{"face": "front", "placed": True}],
+                                     "decor_done": True, "quantity": 50,
+                                     "decoration_type": "embroidery"}
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: ("lead-1", True))
+    _no_llm(monkeypatch)          # direct_answer extracts the address itself
+
+    res = await o2.handle_message("s1", "s.heeb@example.com")
+
+    assert prompts.V2_ABUSE_DECLINE not in res["reply"]
+    assert store["session"]["collected"]["email_captured"] is True
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+
+
+@pytest.mark.asyncio
+async def test_the_same_severe_term_still_declines_at_every_other_step(monkeypatch):
+    """The exemption is scoped to the identity steps and nothing else."""
+    store = _mid_flow_store()                      # rests at ASK_QUANTITY
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    async def _boom(*a, **k):
+        raise AssertionError("interpreter must not run on a declined turn")
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _boom)
+
+    res = await o2.handle_message("s1", "Paki")
+
+    assert prompts.V2_ABUSE_DECLINE in res["reply"]
+    assert res["state"] == S.ASK_QUANTITY.value
+    assert "quantity" not in store["session"]["collected"]

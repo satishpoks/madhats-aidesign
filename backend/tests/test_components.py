@@ -75,6 +75,19 @@ def test_label_names_the_face():
     assert "front" in label.lower()
 
 
+def test_the_same_path_is_never_emitted_twice():
+    """`uploaded_asset_path` is overwritten by every /uploads/logo call, so it
+    ends up equal to the LAST element's assetPath — which emitted a duplicate
+    sales-email attachment with an identical filename (the filename is derived
+    from the path). First occurrence wins, so the stable ordering is kept."""
+    collected = {"uploaded_asset_path": "uploads/logo.png",
+                 "elements": [_canvas_element()]}
+    out = components.enumerate_components(collected)
+    paths = [c["path"] for c in out]
+    assert paths.count("uploads/logo.png") == 1
+    assert "Uploaded" in out[0]["label"]        # first occurrence retained
+
+
 def test_external_urls_are_still_excluded():
     out = components.enumerate_components({"elements": [
         _canvas_element(assetPath="https://cdn.example.com/x.png")]})

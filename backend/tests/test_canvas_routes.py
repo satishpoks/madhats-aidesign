@@ -409,6 +409,35 @@ def test_finalize_rejection_writes_nothing(client, seeded_store_headers, canvas_
     assert row.get("canvas_design") is None
 
 
+def test_finalize_does_not_scan_internal_brief_notes(client, seeded_store_headers,
+                                                     canvas_session_id, monkeypatch):
+    """OWNER RULING: notes are internal and never printed, so finalize must not
+    gate on them. Chat deliberately allows mild profanity through, and
+    `_apply_final_notes` / `_apply_decoration_mix` write that text into
+    `brief_notes` verbatim — so a note gate rejected the job AFTER the customer
+    had their reference code, with no UI to reword it and no sales notification.
+    """
+    import app.services.decoration_types as deco_svc
+    import app.services.conversation.intent_extractor as ie
+
+    monkeypatch.setattr(deco_svc, "list_types", lambda s, active_only=False: [])
+
+    async def _reply(*a, **k):
+        return "Anything else?"
+
+    monkeypatch.setattr(ie, "generate_reply", _reply)
+
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    row["collected"] = {**(row.get("collected") or {}),
+                        "brief_notes": ["Customer final notes: this shit better be quick"]}
+
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": _design_with_text("MADHATS CREW")},
+                    headers=seeded_store_headers)
+    assert r.status_code == 200
+    assert client._fake.design_sessions.rows[canvas_session_id]["collected"]["canvas_finalized"]
+
+
 def test_finalize_accepts_clean_cap_text(client, seeded_store_headers, canvas_session_id, monkeypatch):
     # Mirrors test_finalize_routes_to_decoration's mocking: finalize_canvas
     # continues past the profanity gate into the v1 decoration-outro routing,

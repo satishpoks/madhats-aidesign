@@ -77,4 +77,17 @@ def enumerate_components(collected: dict, generation: dict | None = None) -> lis
             if _is_storage_path(p):
                 out.append({"label": f"Rendered — {face}", "path": p})
 
-    return out
+    # De-dupe by path, first occurrence wins (so the stable source ordering
+    # above is preserved). `collected["uploaded_asset_path"]` is overwritten by
+    # every /uploads/logo call, so on a multi-logo design it ends up equal to the
+    # LAST element's assetPath — emitting the same path twice and giving the
+    # sales email two attachments with an identical filename (delivery.py derives
+    # the filename from the path).
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for item in out:
+        if item["path"] in seen:
+            continue
+        seen.add(item["path"])
+        deduped.append(item)
+    return deduped

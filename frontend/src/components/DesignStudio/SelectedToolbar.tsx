@@ -81,6 +81,26 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
     // the panel mounts is what gets the first measurement at all.
   }, [el?.id, variant])
 
+  // Rail variant only: the panel mounts BELOW <ToolRail> inside an
+  // overflow-y-auto column and deliberately takes no height cap, so on a short
+  // column (ToolRail alone is ~290px of a ~410px column, more with a colourway
+  // row) a newly-shown panel can land at or past the fold with no scroll cue —
+  // verbatim the "selecting an element looks like it did nothing" bug this
+  // panel's placement work exists to fix. Bring it into view when it appears.
+  // `block: 'nearest'` so an already-visible panel doesn't jump.
+  //
+  // Feature-detected like the observers above: jsdom leaves scrollIntoView
+  // undefined on some element types, and calling it unconditionally throws
+  // through every test that mounts this panel. The stacked variant is sticky at
+  // the top of its own column and must not scroll.
+  useEffect(() => {
+    if (variant !== 'rail') return
+    const node = rootRef.current
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest' })
+    }
+  }, [el?.id, variant])
+
   // Focus+select ONLY while the content is still the untouched placeholder, so
   // a freshly added element can be typed straight over. Re-selecting an element
   // the customer already edited must not steal focus — on a phone that pops the

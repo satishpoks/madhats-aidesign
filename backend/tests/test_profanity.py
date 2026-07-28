@@ -98,6 +98,26 @@ def test_removed_collision_terms_now_scan_clean(text):
     assert profanity.scan(text) == "clean"
 
 
+# --- Final whole-branch review (I4): three more MILD entries collided as ------
+# --- WHOLE WORDS with plausible cap text for this business. Removed, not ------
+# --- downgraded: MILD already blocks the cap path, which is the failure. ------
+@pytest.mark.parametrize("text", [
+    "NSW CRICKET ASS.",          # standard AU club abbreviation for Association
+    "FCK",                       # FC København / FC Kaiserslautern
+    "FCK 1992",
+    "Fuk Cheung",                # common Cantonese given-name/surname element
+])
+def test_word_list_collisions_with_ordinary_cap_text_scan_clean(text):
+    assert profanity.scan(text) == "clean"
+
+
+def test_the_unambiguous_neighbours_of_the_removed_terms_are_kept():
+    """Removing "ass"/"fck"/"fuk" must not silently take the real terms with them."""
+    for text in ("you asshole", "what a dumbass", "fuck this", "fucking useless",
+                 "what a prick"):
+        assert profanity.scan(text) == "mild", text
+
+
 # --- Coverage over the REAL severe list, without hardcoding slurs in the ---
 # --- assertions themselves. A typo, stray case/whitespace, or an entry     -
 # --- that quietly fails to match would previously go undetected.          -

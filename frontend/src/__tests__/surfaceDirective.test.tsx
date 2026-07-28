@@ -44,6 +44,11 @@ function stubCanvasContext(): CanvasRenderingContext2D {
 
 HTMLCanvasElement.prototype.getContext = ((() => stubCanvasContext()) as unknown) as typeof HTMLCanvasElement.prototype.getContext
 
+// jsdom's toDataURL is "not implemented" (it logs and returns undefined), which
+// makes doRender's flatten loop blow up before it ever reaches finalizeCanvas —
+// so any test that puts an element on a face and then finalizes must stub it.
+HTMLCanvasElement.prototype.toDataURL = ((() => 'data:image/png;base64,iVBORw0KGgo=') as unknown) as typeof HTMLCanvasElement.prototype.toDataURL
+
 beforeEach(() => {
   useChatStore.getState().reset()
   useCanvasStore.getState().reset()
@@ -239,6 +244,44 @@ test('rework: unlock_all directive unlocks the canvas and Done sends chat, not f
 
   expect(sendChat).toHaveBeenCalledWith('s1', 'done', undefined)
   expect(finalizeCanvas).not.toHaveBeenCalled()
+})
+
+test('a FAILED finalize re-opens the canvas so the rejected text can be edited', async () => {
+  // C3: the cap-text profanity gate 422s with "please edit that text and try
+  // again" — but FINALIZE_CANVAS declares no tool, so the directive gives
+  // allowedTools: [] (stage read-only, Adjust panel unmounted) and the finalize
+  // effect has already lockAll()'d every element. The customer was told to edit
+  // text they physically could not touch.
+  vi.mocked(finalizeCanvas).mockClear()
+  vi.mocked(finalizeCanvas).mockRejectedValueOnce(
+    new Error('We can\'t put "SHIT HAPPENS" on a product. Please edit that text and try again.'))
+
+  useCanvasStore.getState().addText('SHIT HAPPENS')
+  const id = useCanvasStore.getState().faces.front[0].id
+
+  useChatStore.setState({
+    chatState: 'finalize_canvas',
+    canvasDirective: { allowedTools: [], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+    triggerFinalize: true,
+  } as never)
+
+  const { rerender } = render(<DesignStudioSurface />)
+  // doRender's per-face export waits on two nested requestAnimationFrames per
+  // decorated face (~32ms in jsdom), so a 0ms settle would leave the render
+  // mid-flight — and its continuation would then land in the NEXT test.
+  await act(async () => { await new Promise(r => setTimeout(r, 150)) })
+  rerender(<DesignStudioSurface />)
+
+  // The gate's message is surfaced...
+  expect(screen.getByRole('alert')).toHaveTextContent(/edit that text/i)
+  // ...and the canvas is editable again: every element unlocked, and the
+  // Adjust panel reachable once the offending element is selected.
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(false)
+  expect(useChatStore.getState().triggerFinalize).toBe(false)
+
+  act(() => { useCanvasStore.getState().select(id) })
+  rerender(<DesignStudioSurface />)
+  expect(screen.getByLabelText('Text content')).toBeInTheDocument()
 })
 
 test('a second trigger_finalize re-arms and fires again', async () => {

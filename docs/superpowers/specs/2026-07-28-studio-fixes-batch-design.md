@@ -149,16 +149,30 @@ New copy constant in `prompts.py`, subject to the existing
 
 ### Cap path — strict
 
-In `sessions.py::finalize_canvas`, scan every text element's content plus the
-notes, **before any DB write and before any lead/sales side-effect**.
+In `sessions.py::finalize_canvas`, scan every text element's content **before
+this route's own writes and before any lead/sales side-effect**.
 
 - Any hit, `mild` or `severe`, returns 422 naming the offending element so the
   customer knows what to edit.
-- `Surface.tsx:271-279`'s existing error banner already surfaces it; no new
-  frontend surface is needed.
+- `Surface.tsx`'s existing error banner already surfaces it. The finalize error
+  path additionally re-opens the canvas (unlock every element, clear the
+  finalize trigger) — at `FINALIZE_CANVAS` the step declares no tool, so the
+  directive leaves the stage read-only and the Adjust panel unmounted, and
+  without the re-open the customer is told to edit text they cannot touch.
 
 Ordering matters: finalize triggers reference-code minting and the sales email.
 The scan must precede all of it or a rejected design still notifies sales.
+
+**`collected["brief_notes"]` is deliberately NOT scanned** (owner ruling,
+2026-07-28). Notes are internal text for the design team and are never printed
+on the product; chat deliberately lets mild profanity through, and
+`canvas_steps._apply_final_notes` / `_apply_decoration_mix` write that customer
+text into `brief_notes` verbatim. A note gate therefore accepted the note, showed
+the customer their reference code, and then 422'd at finalize — with no UI to
+reword it (the note is persisted, "Try again" repeats the same call, Back clears
+slots only) and with sales never notified. A severe note is already declined at
+the moment it is typed, by the chat guard. The cap-text scan stays strictly
+gated on both tiers.
 
 ### Logging
 

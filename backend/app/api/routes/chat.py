@@ -22,6 +22,8 @@ from app.services.conversation.orchestrator_v2 import (
     handle_back as handle_back_v2,
     handle_message as handle_message_v2,
 )
+from app.services.conversation.state_machine import ConversationState
+from app.services.conversation.state_machine_v2 import V2_OWNED
 from app.services import profanity
 from app.services.moderation import ModerationError, check_text
 
@@ -65,6 +67,38 @@ def _is_v2_canvas(session_id: str) -> bool:
     return ((res.data[0].get("collected") or {}).get("flow_mode") == "canvas")
 
 
+def _v2_canvas_owns_turn(session_id: str) -> bool:
+    """Whether v2 will handle this turn ITSELF, rather than delegating to v1.
+
+    Strictly narrower than `_is_v2_canvas`, and the difference is the whole
+    point: `orchestrator_v2.handle_message` delegates any state outside
+    `V2_OWNED` straight to v1 (its very first branch), which is ~50 lines BEFORE
+    its severe-abuse decline. So for every shared tail state a canvas session
+    rests in after the design phase — offer_refine, describe_changes,
+    confirm_canvas_edit, verify_email, generating, quote_requested — there is no
+    decline guard at all, and a bypass keyed on flow_mode alone would hand the
+    message to v1 unmoderated (it lands verbatim in `brief_notes`).
+
+    Only used to gate the moderation bypass below, which must therefore be true
+    only where v2's own guard actually runs.
+    """
+    if not settings.canvas_orchestrator_v2:
+        return False
+    sb = get_supabase()
+    res = (sb.table("design_sessions").select("state, collected")
+           .eq("id", session_id).limit(1).execute())
+    if not res.data:
+        return False
+    row = res.data[0]
+    if (row.get("collected") or {}).get("flow_mode") != "canvas":
+        return False
+    try:
+        state = ConversationState(row.get("state"))
+    except ValueError:
+        return False
+    return state in V2_OWNED
+
+
 async def _dispatch(session_id: str, message: str,
                     canvas_design: dict | None = None) -> dict:
     """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else).
@@ -81,17 +115,26 @@ async def _dispatch(session_id: str, message: str,
 @limiter.limit(settings.rate_limit_str)
 async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResponse:
     # Our own pure scanner (in-memory, no DB) runs FIRST. Only when it flags
-    # SEVERE do we pay for the DB round-trip in `_is_v2_canvas` — the clean/mild
-    # common case never touches the DB here. When both are true, v2's own
-    # guard in handle_message_v2 declines the turn (normal 200 reply, flow does
-    # not advance) so the LLM moderation gate is redundant for it and skipped.
-    # v1 has no such guard, so a non-canvas session with the same message still
-    # runs check_text and still 422s — that's the whole reason this is ANDed
-    # with the v2 check rather than replacing check_text outright. Content the
+    # SEVERE do we pay for the DB round-trip in `_v2_canvas_owns_turn` — the
+    # clean/mild common case never touches the DB here.
+    #
+    # The bypass is deliberately keyed on `_v2_canvas_owns_turn`, NOT on "is
+    # this a v2 canvas session": v2 delegates every state outside V2_OWNED to
+    # v1, whose handler has no decline guard, so bypassing there would let a
+    # slur through into `brief_notes`. Within V2_OWNED, one narrow class of turn
+    # is bypassed WITHOUT a decline by design — the identity steps ASK_NAME and
+    # ASK_EMAIL, which orchestrator_v2 exempts so a real surname (or an address
+    # containing one) can't dead-end the first two questions. Those turns write
+    # only the name/email slot, never free text into the brief, and running the
+    # LLM gate there would 422 exactly the customers the exemption exists for.
+    #
+    # v1 has no decline guard at all, so a non-canvas session with the same
+    # message still runs check_text and still 422s — that's the whole reason
+    # this is ANDed rather than replacing check_text outright. Content the
     # scanner doesn't recognise (graphic violence, sexual content, illegal
     # material) never short-circuits: it always reaches check_text.
     bypass_moderation = False
-    if profanity.scan(body.message) == "severe" and _is_v2_canvas(session_id):
+    if profanity.scan(body.message) == "severe" and _v2_canvas_owns_turn(session_id):
         bypass_moderation = True
         log.info("chat_moderation_bypassed_severe_v2_canvas",
                  terms=profanity.find_terms(body.message))

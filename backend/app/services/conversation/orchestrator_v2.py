@@ -35,6 +35,19 @@ log = structlog.get_logger()
 
 _NUDGE_AFTER = 2
 
+#: The two steps where a REAL PERSON'S IDENTITY is the expected answer, so the
+#: severe-abuse decline must not fire. `SEVERE_TERMS` carries terms that are also
+#: genuine surnames ("Paki" is a well-known Māori surname; "Heeb" is Swiss/
+#: German), and because the decline never advances, such a customer would be
+#: permanently blocked at the FIRST question — or at the email step by their own
+#: address ("s.heeb@example.com") — with no chip to escape via. The terms stay in
+#: the list (owner ruling); the identity steps are exempted instead.
+#:
+#: Safe because these turns write only the `name`/`email` slot — each already
+#: guarded by its own step's apply/direct-answer — never free text into
+#: `brief_notes`. Knock-on: `find_terms` no longer logs a surname at these steps.
+_ABUSE_EXEMPT_STEPS: frozenset[S] = frozenset({S.ASK_NAME, S.ASK_EMAIL})
+
 
 def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
     """`v2.public_data_for` plus `can_go_back` (whether `Back` has anywhere to
@@ -110,7 +123,10 @@ async def handle_message(session_id: str, message: str,
     # A normal reply, never a 422: an error banner reads as a broken app rather
     # than a boundary. `find_terms` logs the matched TERM only — never the
     # message, name or email (security rule 10).
-    if profanity.scan(message) == "severe":
+    #
+    # ASK_NAME / ASK_EMAIL are exempt (see _ABUSE_EXEMPT_STEPS): a real surname
+    # would otherwise dead-end the first two questions of the flow.
+    if step.id not in _ABUSE_EXEMPT_STEPS and profanity.scan(message) == "severe":
         log.info("v2_turn_declined_abuse", terms=profanity.find_terms(message))
         reply = f"{prompts.V2_ABUSE_DECLINE} " + v2.reply_for(
             step, collected, persona=persona, intro=intro, colour_note=colour_note)

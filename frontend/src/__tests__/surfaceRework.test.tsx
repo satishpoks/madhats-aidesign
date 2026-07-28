@@ -12,6 +12,7 @@ import { DesignStudioSurface } from '../components/DesignStudio/Surface'
 import { useChatStore } from '../store/chatStore'
 import { useSessionStore } from '../store/sessionStore'
 import { useCanvasStore } from '../store/canvasStore'
+import { finalizeCanvas } from '../lib/api'
 
 // jsdom has no real <canvas> 2D backend, so stub getContext with a permissive
 // no-op 2D context (same shape as surfaceDirective.test.tsx) — a real Konva
@@ -37,6 +38,12 @@ function stubCanvasContext(): CanvasRenderingContext2D {
 }
 HTMLCanvasElement.prototype.getContext = ((() => stubCanvasContext()) as unknown) as typeof HTMLCanvasElement.prototype.getContext
 
+// jsdom's toDataURL is "not implemented" — without this the flatten loop blows
+// up and doRender lands in its catch, which now (deliberately) unlocks the
+// canvas so a rejected finalize is editable again. This test is about the
+// rework RE-OPEN path, so the finalize below must not fail.
+HTMLCanvasElement.prototype.toDataURL = ((() => 'data:image/png;base64,iVBORw0KGgo=') as unknown) as typeof HTMLCanvasElement.prototype.toDataURL
+
 beforeEach(() => {
   useChatStore.getState().reset()
   useCanvasStore.getState().reset()
@@ -48,6 +55,10 @@ test('finalize then rework re-open unlocks every element', async () => {
   // triggerFinalize back to false (canvas re-opens) → unlockAll must run.
   useCanvasStore.getState().addText('hi')
   const id = useCanvasStore.getState().faces.front[0].id
+  // Hold the finalize in flight: on success `applyResponse` drops
+  // trigger_finalize, which is itself the re-open this test wants to drive
+  // deliberately (below) rather than have arrive as a side effect.
+  vi.mocked(finalizeCanvas).mockImplementation(() => new Promise(() => {}))
 
   useChatStore.setState({
     chatState: 'generating',
@@ -55,7 +66,8 @@ test('finalize then rework re-open unlocks every element', async () => {
     triggerFinalize: true,
   } as never)
   const { rerender } = render(<DesignStudioSurface />)
-  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+  // The per-face export waits on two nested rAFs (~32ms in jsdom).
+  await act(async () => { await new Promise(r => setTimeout(r, 150)) })
   // The finalize branch locked everything.
   expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
 

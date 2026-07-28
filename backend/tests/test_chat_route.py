@@ -133,6 +133,18 @@ def _canvas_store():
     }
 
 
+def _tail_state_canvas_store():
+    """A v2 canvas session resting in a SHARED TAIL state (post-design).
+
+    `offer_refine` is not in V2_OWNED, so orchestrator_v2 delegates the turn to
+    v1 before ever reaching its decline guard — which is why the moderation
+    bypass must not fire here.
+    """
+    store = _canvas_store()
+    store["session"]["state"] = "offer_refine"
+    return store
+
+
 def _v1_store():
     return {
         "session": {
@@ -224,6 +236,38 @@ def test_v2_canvas_session_non_severe_content_still_moderated(monkeypatch, moder
     monkeypatch.setattr(chat_route, "check_text", _flag)
 
     resp = moderation_client.post("/chat/s1", json={"message": "graphic content"})
+
+    assert resp.status_code == 422
+    assert calls == [1]
+
+
+def test_v2_canvas_session_in_a_shared_tail_state_is_still_moderated(monkeypatch, moderation_client):
+    """C1 (security regression): the bypass was keyed on flow_mode alone.
+
+    `orchestrator_v2.handle_message` delegates any state outside `V2_OWNED`
+    straight to v1 BEFORE its decline guard, so at every post-design tail state
+    (offer_refine, describe_changes, verify_email, generating, quote_requested)
+    a severe message both skipped `check_text` AND got no decline — landing
+    verbatim in `brief_notes`. Before this branch that request 422'd; it must
+    422 again.
+    """
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.moderation import ModerationError
+
+    store = _tail_state_canvas_store()
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    calls = []
+
+    async def _flag(_text):
+        calls.append(1)
+        raise ModerationError("flagged by content safety filter")
+    monkeypatch.setattr(chat_route, "check_text", _flag)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "you are a <slur>"})
 
     assert resp.status_code == 422
     assert calls == [1]

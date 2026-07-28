@@ -36,15 +36,24 @@ SEVERE = "severe"
 #: NOTE: "bitch" is kept despite colliding with the kennel-club term for a
 #: female dog ("Best in Show Bitch 2026") — the profane reading dominates
 #: commercially; this is a deliberate trade-off, not an oversight.
+#: NOTE: bare "ass" is deliberately excluded — "ASS." is the standard Australian
+#: club abbreviation for *Association* ("NSW CRICKET ASS."), and club merch is
+#: core business here. "asshole"/"dumbass" are unambiguous and are kept.
+#: NOTE: "fck" and "fuk" are deliberately excluded — "FCK" is the official
+#: abbreviation of FC København and FC Kaiserslautern (football-club headwear is
+#: squarely in market), and "Fuk" is a common Cantonese given-name/surname
+#: element ("Fuk Cheung"), which is expected input in a personalised-cap
+#: business. The remaining obfuscations below carry a non-word character or a
+#: digit, so they cannot collide with an ordinary word.
 MILD_TERMS: frozenset[str] = frozenset({
-    "arse", "arsehole", "ass", "asshole", "bastard", "bitch", "bollocks",
+    "arse", "arsehole", "asshole", "bastard", "bitch", "bollocks",
     "dickhead", "dumbass", "fuck", "fucked", "fucker", "fucking",
     "piss", "pissed", "prick", "shit", "shite", "shitty", "slut", "twat",
     "wanker", "whore",
     # Explicit obfuscations — listed, never derived. A general leet-normalising
     # pass would reintroduce exactly the false positives the word boundaries
     # exist to prevent.
-    "f*ck", "f**k", "fck", "fuk", "sh*t", "sh1t", "b*tch", "a**hole",
+    "f*ck", "f**k", "sh*t", "sh1t", "b*tch", "a**hole",
 })
 
 #: Slurs and hate terms — declined on sight in chat, and blocked on the product.

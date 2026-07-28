@@ -225,10 +225,20 @@ async def finalize_canvas(
 
     elements, description = canvas_describe.canvas_to_elements(body.canvas_design)
 
-    # STRICT on the product, unlike chat. Anything here is rendered by the image
-    # model and then produced as physical artwork, so BOTH tiers are blocked —
-    # not just slurs. Runs before every write and before the reference/sales
-    # side-effects below, so a rejected design notifies nobody.
+    # STRICT on the product, unlike chat. CAP TEXT is rendered by the image model
+    # and then produced as physical artwork, so BOTH tiers are blocked — not just
+    # slurs. Runs before this route's own writes and before the reference/sales
+    # side-effects below, so a rejected design notifies nobody. (It is not the
+    # session's first write — /canvas-layouts already stored the flattened guides
+    # on `collected` earlier in the flow — but nothing downstream acts on those.)
+    #
+    # `collected["brief_notes"]` is deliberately NOT scanned here. Notes are
+    # internal text for the design team and are never printed on the product, mild
+    # profanity is deliberately allowed through the chat, and a severe note is
+    # already declined at the moment it is typed by the chat guard. Scanning them
+    # here rejected a job AFTER the customer had been given their reference code
+    # and told the request was in, with no UI to reword the note and no sales
+    # notification — an unrecoverable dead end. Do not restore it.
     for el in elements:
         if el.get("type") != "text":
             continue
@@ -241,15 +251,6 @@ async def finalize_canvas(
                 detail=(f'We can\'t put "{content}" on a product. '
                         "Please edit that text and try again."),
             )
-    for note in (collected.get("brief_notes") or []):
-        if profanity.scan(str(note)) != "clean":
-            log.info("canvas_finalize_rejected_profanity_note",
-                     terms=profanity.find_terms(str(note)))
-            raise HTTPException(
-                status_code=422,
-                detail="Please reword your note to the team and try again.",
-            )
-
     collected["elements"] = elements
     collected["design_description"] = {"summary": description} if description else None
     collected["flow_mode"] = "canvas"
