@@ -1,5 +1,18 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+
+// Same shape as adjustPanelPlacement.test.tsx's helper — kept local to this
+// file rather than shared, since each caller must remember to clean it up in
+// its own afterEach (matchMedia must never leak into another file's tests).
+function setMatchMedia(matches: boolean) {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true, configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches, media: query, onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn(),
+    })),
+  })
+}
 
 vi.mock('../lib/api', () => ({
   sendChat: vi.fn().mockResolvedValue({ reply: 'ok', state: 'ask_another_logo', data: {} }),
@@ -130,16 +143,62 @@ describe('Adjust panel', () => {
     expect(rotate.getAttribute('title')).toBe('Rotate')
   })
 
-  test('renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
-    useChatStore.setState({
-      chatState: 'logo_adjust',
-      canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
-    } as never)
-    selectText()
-    render(<DesignStudioSurface />)
-    const panel = screen.getByTestId('adjust-panel')
-    const stage = screen.getByTestId('canvas-stage-wrap')
-    // DOCUMENT_POSITION_FOLLOWING means `stage` comes after `panel` in the document.
-    expect(panel.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  describe('placement is viewport-dependent (2026-07-28: the panel moved into the rail on desktop)', () => {
+    afterEach(() => {
+      // Never let a mocked matchMedia leak into another file's tests.
+      // @ts-expect-error — restore jsdom's default (absent)
+      delete window.matchMedia
+    })
+
+    test('MOBILE: renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
+      setMatchMedia(false)   // md query does not match -> useIsDesktop() === false
+      useChatStore.setState({
+        chatState: 'logo_adjust',
+        canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+      } as never)
+      selectText()
+      render(<DesignStudioSurface />)
+      const panel = screen.getByTestId('adjust-panel')
+      const stage = screen.getByTestId('canvas-stage-wrap')
+      // DOCUMENT_POSITION_FOLLOWING means `stage` comes after `panel` in the document.
+      expect(panel.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    test('DESKTOP: renders in the tool rail, AFTER the cap', () => {
+      setMatchMedia(true)   // md query matches -> useIsDesktop() === true
+      useChatStore.setState({
+        chatState: 'logo_adjust',
+        canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+      } as never)
+      selectText()
+      render(<DesignStudioSurface />)
+      const panel = screen.getByTestId('adjust-panel')
+      const stage = screen.getByTestId('canvas-stage-wrap')
+      // DOCUMENT_POSITION_PRECEDING means `stage` comes before `panel` in the
+      // document — the rail mount sits after ToolRail, in the third column.
+      expect(panel.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+      // And it really is inside the rail column, not just later in the DOM by
+      // accident: it shares a parent with the "+ Add text" tool button.
+      const toolRailButton = screen.getByText('+ Add text')
+      expect(toolRailButton.closest('.md\\:border-l')?.contains(panel)).toBe(true)
+    })
+
+    test('exactly one adjust-panel node exists at a time, in both viewports', () => {
+      useChatStore.setState({
+        chatState: 'logo_adjust',
+        canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+      } as never)
+      selectText()
+
+      setMatchMedia(false)
+      const mobile = render(<DesignStudioSurface />)
+      expect(screen.getAllByTestId('adjust-panel')).toHaveLength(1)
+      mobile.unmount()
+
+      setMatchMedia(true)
+      const desktop = render(<DesignStudioSurface />)
+      expect(screen.getAllByTestId('adjust-panel')).toHaveLength(1)
+      desktop.unmount()
+    })
   })
 })
