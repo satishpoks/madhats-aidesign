@@ -81,7 +81,13 @@ test('v2: SelectedToolbar mounts so a selected element is editable', () => {
   expect(screen.getByLabelText('Font')).toBeInTheDocument()
 })
 
-test('clicking Done locks the just-placed element (IMPORTANT 3)', async () => {
+test('clicking Done locks the just-placed element — when the DIRECTIVE leaves the editing step', async () => {
+  // The lock is anchored to the directive, never to the Done button. postDone
+  // used to call lockPlaced() itself; that locked the element BEFORE
+  // chatStore.sendMessage read the canvas blob, which is what broke the
+  // self-ticked background detection (see the blob test below). Clicking Done
+  // must therefore leave the element alone; the lock lands when the reply moves
+  // the flow off an editing step.
   useChatStore.setState({
     chatState: 'logo_adjust',
     canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Drag to move it', showDone: true },
@@ -90,15 +96,66 @@ test('clicking Done locks the just-placed element (IMPORTANT 3)', async () => {
   const id = useCanvasStore.getState().faces.front[0].id
   expect(useCanvasStore.getState().faces.front[0].locked).toBeFalsy()
 
-  render(<DesignStudioSurface />)
+  const { rerender } = render(<DesignStudioSurface />)
   fireEvent.click(screen.getByRole('button', { name: /^done$/i }))
-
-  // lockPlaced() runs synchronously inside postDone, before the (mocked)
-  // sendMessage network round-trip resolves.
-  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
   // Let the mocked sendChat promise's async continuation settle inside an
   // act() so its state update doesn't land after the test body.
   await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+  // Still unlocked: ASK_LOGO_BG keeps the upload tool open on purpose, so the
+  // logo stays selectable and the "Remove background" toggle stays reachable.
+  act(() => {
+    useChatStore.setState({
+      chatState: 'ask_logo_bg',
+      canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Does it have a background?', showDone: false },
+    } as never)
+  })
+  rerender(<DesignStudioSurface />)
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBeFalsy()
+
+  // The next step hands over no tools — that is what locks the placed element.
+  act(() => {
+    useChatStore.setState({
+      chatState: 'ask_another_logo',
+      canvasDirective: { allowedTools: [], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+    } as never)
+  })
+  rerender(<DesignStudioSurface />)
+  expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.locked).toBe(true)
+})
+
+test('canvas Done sends the live canvas with the just-placed logo still UNLOCKED', async () => {
+  // THE BUG this branch's headline feature died on: postDone() called
+  // lockPlaced() synchronously before sendMessage, and chatStore.sendMessage
+  // reads toCanvasDesign() synchronously too — so every element in the blob was
+  // already locked:true. canvas_steps.observe_canvas skips locked images, so a
+  // self-ticked "Remove background" was invisible on the canvas Done button
+  // path, which is the path LOGO_ADJUST's own copy points at ("Select Done when
+  // the placement looks right"). Two pre-existing bugs rode on the same line:
+  // a locked element is unselectable (so the manual toggle was unreachable) and
+  // _ops_logo_bg's canvas op targets the last UNLOCKED image, so it no-opped.
+  vi.mocked(sendChat).mockClear()
+  useChatStore.setState({
+    chatState: 'logo_adjust',
+    canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Drag it', showDone: true },
+  } as never)
+  useCanvasStore.getState().addImage('logo.png', 1)
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().updateElement(id, { removeBg: true })
+
+  render(<DesignStudioSurface />)
+  fireEvent.click(screen.getByRole('button', { name: /^done$/i }))
+  await act(async () => { await new Promise(r => setTimeout(r, 0)) })
+
+  expect(sendChat).toHaveBeenCalledTimes(1)
+  const design = vi.mocked(sendChat).mock.calls[0][2]
+  expect(design).toBeTruthy()
+  const logo = design!.faces.front.find(e => e.id === id)
+  expect(logo).toBeTruthy()
+  // The two facts observe_canvas needs: unlocked (so it is the pending logo)
+  // and ticked (so it writes pending_logo["bg"] = "removed").
+  expect(logo!.locked).toBeFalsy()
+  expect(logo!.removeBg).toBe(true)
 })
 
 test('answering Done via the chat chip also locks the placed element', () => {

@@ -53,6 +53,17 @@ def test_the_adjust_panel_is_named_where_the_customer_needs_it():
     assert "Adjust panel above the cap" in prompts.V2_BG_INSTRUCTIONS
 
 
+def test_the_background_ack_says_marked_not_removed():
+    """Ticking "Remove background" is a MARK, not an edit: the canvas is
+    unchanged and the knockout happens at render. An ack claiming the background
+    was already removed contradicts both V2_BG_INSTRUCTIONS (two definitions
+    above) and the cap the customer is looking at while reading it."""
+    low = prompts.V2_BG_ALREADY_REMOVED.lower()
+    assert "marked" in low
+    assert "already removed" not in low
+    assert "removed the background" not in low
+
+
 # Phrases from the pre-2026-07-26 casual register. Not a style engine — just a
 # pin on the specific wording that was rewritten, so a later hand-edit that
 # reintroduces the old voice fails loudly instead of shipping.

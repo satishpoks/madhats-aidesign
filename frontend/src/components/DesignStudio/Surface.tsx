@@ -111,11 +111,12 @@ export function DesignStudioSurface() {
   }, [canvasDirective?.autoOpen, canvasDirective?.targetFace, addText])
 
   // v2: lock whatever was just placed as soon as the flow leaves an editing
-  // step. Anchoring this to the DIRECTIVE rather than to the Done button is
-  // what makes it correct for every way the customer can answer: the canvas
-  // Done button, the chat's "Done" chip, or typing "done". The chip calls
-  // sendMessage directly and never went through postDone/lockPlaced, so the
-  // chat replied "Locked that in" while the logo stayed draggable.
+  // step. This is the SOLE locker — anchoring it to the DIRECTIVE rather than
+  // to the Done button is what makes it correct for every way the customer can
+  // answer: the canvas Done button, the chat's "Done" chip, or typing "done".
+  // The chip calls sendMessage directly and never went through
+  // postDone/lockPlaced, so the chat replied "Locked that in" while the logo
+  // stayed draggable. postDone must NOT lock as well — see the note there.
   // `v2Editing` (not `showDone`) is the trigger because ASK_LOGO_PLACEMENT
   // hands over the upload tool without a Done button — it's still an editing
   // step. Idempotent: leaving a non-editing step has nothing new to lock.
@@ -158,10 +159,17 @@ export function DesignStudioSurface() {
   }, [triggerFinalize])
 
   function postDone() {
-    // Spec: "Done" locks the just-placed layer in as the flow advances. Each
-    // step adds then locks, so "lock every still-unlocked element" is
-    // equivalent to "lock the element just placed in this step".
-    lockPlaced()
+    // Deliberately does NOT lock: the directive effect above is the single,
+    // authoritative locker for every answer path (this button, the chat "Done"
+    // chip, typing "done"). Locking here as well was not merely redundant — it
+    // was destructive. chatStore.sendMessage reads
+    // `useCanvasStore.getState().toCanvasDesign()` SYNCHRONOUSLY on a
+    // `logo_adjust` turn, so a lock on the line above would land first and ship
+    // an all-locked blob; `canvas_steps.observe_canvas` skips locked images, so
+    // a customer's own "Remove background" tick was invisible on exactly the
+    // path LOGO_ADJUST's copy points at. (It also locked the element out of
+    // selection, putting the manual toggle out of reach, and made
+    // `_ops_logo_bg`'s "last unlocked image" canvas op a no-op.)
     const sid = useSessionStore.getState().sessionId
     if (sid) void useChatStore.getState().sendMessage(sid, 'done')
   }

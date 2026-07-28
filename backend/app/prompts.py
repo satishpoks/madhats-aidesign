@@ -1132,9 +1132,13 @@ V2_BG_INSTRUCTIONS = (
 # in the Adjust panel themselves, so ASK_LOGO_BG is skipped rather than asked.
 # Concatenated verbatim (never through a model), like the tool tips: the whole
 # value is that the customer sees their own action reflected back accurately.
+# Says MARKED, never "removed" — same standing rule as V2_BG_INSTRUCTIONS above.
+# Ticking the box sets a flag; nothing is processed, the cap on screen still
+# shows the background, and the knockout happens at render. Claiming otherwise
+# is contradicted by what the customer is looking at as they read it.
 V2_BG_ALREADY_REMOVED = (
-    "I can see you've already removed the background on that logo, so I'll "
-    "skip that question."
+    "I can see you've already marked that logo's background for removal, so "
+    "I'll skip that question."
 )
 
 # The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"

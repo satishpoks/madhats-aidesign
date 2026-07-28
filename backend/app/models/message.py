@@ -5,9 +5,15 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
-    # The frontend's live canvas (a CanvasDesign blob) on a describe-a-change
-    # turn, so an edit resolves against what's on screen, not the last saved
-    # design. Ignored except at DESCRIBE_CHANGES on a canvas session.
+    # The frontend's live canvas (a CanvasDesign blob), sent on the two turns
+    # that need to see what's on screen rather than the last saved design.
+    # Canvas sessions only; ignored on every other state and flow:
+    #   - DESCRIBE_CHANGES (and REWORK_CANVAS): an edit resolves against the
+    #     live canvas, and the blob is persisted as the new base (chat.py
+    #     `_persist_live_canvas_design`).
+    #   - LOGO_ADJUST: the "Done" turn closing logo placement — read (never
+    #     persisted) for a self-ticked "Remove background", which lives only in
+    #     the frontend store until finalize (canvas_steps.observe_canvas).
     canvas_design: dict | None = None
 
 
