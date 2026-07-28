@@ -64,10 +64,15 @@ def _is_v2_canvas(session_id: str) -> bool:
     return ((res.data[0].get("collected") or {}).get("flow_mode") == "canvas")
 
 
-async def _dispatch(session_id: str, message: str) -> dict:
-    """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else)."""
+async def _dispatch(session_id: str, message: str,
+                    canvas_design: dict | None = None) -> dict:
+    """Route a chat turn to v2 (canvas sessions, flag on) or v1 (everything else).
+
+    `canvas_design` reaches v2 ONLY. v1's handle_message takes no blob and its
+    signature is deliberately untouched — v1 is the retained backup path.
+    """
     if _is_v2_canvas(session_id):
-        return await handle_message_v2(session_id, message)
+        return await handle_message_v2(session_id, message, canvas_design)
     return await handle_message(session_id, message)
 
 
@@ -81,7 +86,7 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
 
     _persist_live_canvas_design(session_id, body.canvas_design)
     try:
-        result = await _dispatch(session_id, body.message)
+        result = await _dispatch(session_id, body.message, body.canvas_design)
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
 

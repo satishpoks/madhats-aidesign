@@ -1115,6 +1115,15 @@ V2_BG_INSTRUCTIONS = (
     'or untick "Remove background" yourself in the Adjust panel above the cap.'
 )
 
+# Prepended to the next step's copy when the customer ticked "Remove background"
+# in the Adjust panel themselves, so ASK_LOGO_BG is skipped rather than asked.
+# Concatenated verbatim (never through a model), like the tool tips: the whole
+# value is that the customer sees their own action reflected back accurately.
+V2_BG_ALREADY_REMOVED = (
+    "I can see you've already removed the background on that logo, so I'll "
+    "skip that question."
+)
+
 # The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
 # is a sentinel (unlock every tool), not one of the real canvas tools those
 # tips describe.

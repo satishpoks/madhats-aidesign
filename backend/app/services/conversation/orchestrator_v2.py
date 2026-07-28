@@ -45,7 +45,8 @@ def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
     return data
 
 
-async def handle_message(session_id: str, message: str) -> dict:
+async def handle_message(session_id: str, message: str,
+                         canvas_design: dict | None = None) -> dict:
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
     if not res.data:
@@ -137,6 +138,14 @@ async def handle_message(session_id: str, message: str) -> dict:
     collected.update(fields)
     if step.apply:
         step.apply(collected, fields, session)
+    # The customer may have ticked "Remove background" in the Adjust panel
+    # themselves. That lives only in the frontend store until finalize, so the
+    # live canvas blob (sent on this turn only) is the sole way to see it.
+    # AFTER apply — on the Done turn it is _apply_logo_placed that marks the
+    # logo placed — and BEFORE next_step, because the write satisfies
+    # ASK_LOGO_BG.done_when and that is what makes first-unmet skip it.
+    # observe_canvas is self-guarding; no step check belongs here.
+    bg_auto_marked = cs.observe_canvas(collected, canvas_design)
     # Canvas mutations this answer implies. Computed from the step just
     # ANSWERED (not the next one), so it must be read before next_step
     # re-resolves.
@@ -170,6 +179,10 @@ async def handle_message(session_id: str, message: str) -> dict:
 
     reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack,
                         colour_note=colour_note)
+    if bg_auto_marked:
+        # Say what we noticed. Without this the background question simply
+        # vanishes, which reads as the bot skipping a step at random.
+        reply = f"{prompts.V2_BG_ALREADY_REMOVED} {reply}".strip()
     if step.id is S.ASK_EMAIL and collected.get("email_captured"):
         # The double opt-in verification email just went out (from _apply_email).
         # Prepend a notice so the customer knows to expect it and why — without

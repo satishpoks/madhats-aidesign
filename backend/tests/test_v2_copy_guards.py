@@ -22,6 +22,7 @@ def _v2_copy_strings() -> list[str]:
     out.extend(prompts.V2_TOOL_TIPS.values())
     out.extend([
         prompts.V2_BG_INSTRUCTIONS,
+        prompts.V2_BG_ALREADY_REMOVED,
         prompts.V2_REWORK_INSTRUCTIONS,
         prompts.V2_ASK_NAME,
         prompts.V2_ASK_NAME_RETRY,
