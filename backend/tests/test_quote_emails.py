@@ -52,3 +52,20 @@ def test_sales_request_email_no_recipient_returns_false(monkeypatch):
     monkeypatch.setattr(email_service, "_dispatch", lambda *a, **k: True)
     assert email_service.send_quote_request_to_sales(
         None, "MH-X", "MadHats", "a@b.com", {}, []) is False
+
+
+def test_sales_email_body_carries_the_background_removal_flag(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(
+        email_service, "_dispatch",
+        lambda to, subj, html, attachments=None: sent.update(html=html) or True,
+    )
+
+    email_service.send_quote_request_to_sales(
+        recipient="sales@example.com", store_name="MadHats",
+        customer_email="c@example.com", reference_code="MH-ABCDEF",
+        collected={"elements": [
+            {"type": "logo", "content": "uploaded logo/artwork",
+             "remove_bg": True, "canvas": {"face": "front"}}]},
+    )
+    assert "BACKGROUND TO BE REMOVED" in sent["html"]

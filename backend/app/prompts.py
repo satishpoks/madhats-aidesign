@@ -821,7 +821,7 @@ with your finished design and a quote for your caps.
 # Internal sales notification — an explicit customer quote request. Summary only;
 # the uploaded components ride along as attachments (see email.send_quote_request_to_sales).
 # Filled with .format(reference_code=, store_name=, customer_email=, quantity=,
-# needed_by=, purpose=, decoration=, notes=).
+# needed_by=, purpose=, decoration=, design_breakdown=, notes=).
 SALES_QUOTE_REQUEST_EMAIL_SUBJECT = "Quote request {reference_code} — {store_name}"
 
 SALES_QUOTE_REQUEST_EMAIL_BODY = """A customer requested a quote via the AI Design Studio.
@@ -834,6 +834,9 @@ Quantity: {quantity}
 Needed by: {needed_by}
 Purpose: {purpose}
 Decoration method(s): {decoration}
+
+Design elements:
+{design_breakdown}
 
 Notes:
 {notes}

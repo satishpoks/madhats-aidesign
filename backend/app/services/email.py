@@ -339,6 +339,7 @@ def send_quote_request_to_sales(
         needed_by=collected.get("needed_by", "—"),
         purpose=collected.get("purpose", "—"),
         decoration=collected.get("decoration_type", "—"),
+        design_breakdown=design_summary.design_breakdown(collected),
         notes=notes,
     )
     html = "<pre style='font-family:inherit;white-space:pre-wrap'>" + html_lib.escape(text) + "</pre>"

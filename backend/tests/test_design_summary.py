@@ -7,6 +7,7 @@ the retired flat placement_zone/placement_position/design_description fields.
 from __future__ import annotations
 
 from app.services import design_summary as ds
+from app.services.design_summary import design_breakdown
 
 
 def test_primary_placement_reads_first_elements_placement():
@@ -83,3 +84,34 @@ def test_summarise_elements_falls_back_to_flat_design_description():
 
 def test_summarise_elements_empty_when_nothing_present():
     assert ds.summarise_elements({}) == ""
+
+
+def test_breakdown_marks_the_element_needing_background_removal():
+    out = design_breakdown({"elements": [
+        {"type": "logo", "content": "uploaded logo/artwork",
+         "remove_bg": True, "canvas": {"face": "front"}},
+    ]})
+    assert "BACKGROUND TO BE REMOVED" in out
+    assert "front" in out.lower()
+
+
+def test_breakdown_leaves_unflagged_elements_unmarked():
+    out = design_breakdown({"elements": [
+        {"type": "logo", "content": "uploaded logo/artwork",
+         "remove_bg": False, "canvas": {"face": "front"}},
+    ]})
+    assert "BACKGROUND" not in out.upper()
+
+
+def test_breakdown_lists_every_element():
+    out = design_breakdown({"elements": [
+        {"type": "text", "content": "MADHATS", "canvas": {"face": "front"}},
+        {"type": "logo", "content": "uploaded logo/artwork",
+         "remove_bg": True, "canvas": {"face": "back"}},
+    ]})
+    assert "MADHATS" in out
+    assert len([ln for ln in out.splitlines() if ln.strip()]) == 2
+
+
+def test_breakdown_with_no_elements_is_a_dash():
+    assert design_breakdown({}) == "—"

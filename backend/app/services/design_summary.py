@@ -132,3 +132,32 @@ def summarise_elements(collected: dict) -> str:
     if isinstance(design, dict) and design.get("summary"):
         return design["summary"]
     return ""
+
+
+def design_breakdown(collected: dict) -> str:
+    """One line per design element for the INTERNAL sales notification.
+
+    Separate from `customer_brief`, which is customer-facing and deliberately
+    drops production detail. This one exists to carry that detail — above all
+    the background-removal flag, which previously reached no admin surface at
+    all and left sales quoting a job without knowing the artwork needed
+    knocking out.
+
+    Reads `remove_bg` (what the render acts on), never
+    `collected["logos"][].bg` (the chip answer, documented as divergent).
+    """
+    lines: list[str] = []
+    for i, el in enumerate(collected.get("elements") or [], start=1):
+        etype = el.get("type") or "element"
+        content = el.get("content") or ""
+        face = (el.get("canvas") or {}).get("face") or el.get("placement_zone") or ""
+        bits = [f"{i}. {etype}"]
+        if content:
+            bits.append(f'"{content}"' if etype == "text" else content)
+        if face:
+            bits.append(f"on the {face}")
+        line = " — ".join([bits[0], ", ".join(bits[1:])]) if len(bits) > 1 else bits[0]
+        if el.get("remove_bg"):
+            line += "  ** BACKGROUND TO BE REMOVED **"
+        lines.append(line)
+    return "\n".join(lines) if lines else "—"
