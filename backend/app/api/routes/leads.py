@@ -97,6 +97,16 @@ def _brand_bits(store: dict | None, base_url: str) -> tuple[str, str]:
     return colour, header
 
 
+def _default_success_html() -> str:
+    """The MadHats-default rendering of the success page — the fallback used
+    whenever branding it to the session's store fails for any reason."""
+    return Template(prompts.VERIFICATION_SUCCESS_HTML).substitute(
+        store_name="MadHats",
+        primary_colour="#ff5c00",
+        header_html=prompts.VERIFY_HEADER_DEFAULT_HTML,
+    )
+
+
 def _error_page(message: str) -> HTMLResponse:
     """A friendly HTML page for a bad/expired/used verification link.
 
@@ -187,30 +197,36 @@ async def confirm_verification(request: Request, token: str) -> HTMLResponse:
     log.info("lead_verified", lead_id=lead_id, session_id=session_id)
 
     # Theme the landing page to the session's store, the same way the emails
-    # that led here are themed. STRICTLY best-effort: the verification is
-    # already committed above, so a branding failure must never downgrade a
-    # success into an error page.
-    store = None
+    # that led here are themed. STRICTLY best-effort, end to end: the
+    # verification is already committed above, so ANY failure between here and
+    # the rendered HTML — resolving the store, building the logo/header markup
+    # in _brand_bits (a malformed store["brand"] can raise there too, not just
+    # a raising get_store), or substituting the template — must still yield a
+    # 200 with the MadHats defaults. Never downgrade a success into an error
+    # page over cosmetics.
     try:
         sess = (sb.table("design_sessions").select("store_id")
                 .eq("id", session_id).limit(1).execute())
         store_id = sess.data[0].get("store_id") if sess.data else None
+        store = None
         if store_id:
             from app.services.stores import get_store
 
             store = get_store(store_id)
-    except Exception as exc:  # noqa: BLE001 — cosmetic only
+        colour, header = _brand_bits(store, str(request.base_url))
+        html_out = Template(prompts.VERIFICATION_SUCCESS_HTML).substitute(
+            store_name=html_lib.escape((store or {}).get("name") or "MadHats"),
+            primary_colour=colour,
+            header_html=header,
+        )
+    except Exception as exc:  # noqa: BLE001 — cosmetic only, must not fail verification
         log.warning("verify_page_branding_failed", session_id=session_id,
                     error_type=type(exc).__name__)
-    colour, header = _brand_bits(store, str(request.base_url))
+        html_out = _default_success_html()
 
     # Confirmation only — NO design image/preview here. The design is delivered
     # exclusively via the preview email dispatched above.
-    return HTMLResponse(Template(prompts.VERIFICATION_SUCCESS_HTML).substitute(
-        store_name=html_lib.escape((store or {}).get("name") or "MadHats"),
-        primary_colour=colour,
-        header_html=header,
-    ))
+    return HTMLResponse(html_out)
 
 
 def _mark_session_verified(sb, session_id: str) -> None:

@@ -125,6 +125,23 @@ def test_a_store_lookup_that_raises_still_verifies(monkeypatch):
     assert "#ff5c00" in resp.text
 
 
+def test_a_store_with_a_malformed_brand_still_verifies(monkeypatch):
+    """get_store succeeds (unlike test_a_store_lookup_that_raises_still_verifies,
+    which covers get_store itself raising) but returns a store whose "brand" is
+    not a dict — e.g. data corruption that bypassed validate_brand. _brand_bits
+    calls brand.get(...) on it, which raises AttributeError on a str. That must
+    still fall back to the MadHats defaults and return 200, not 500."""
+    _setup(monkeypatch, {"store_id": "store-1"},
+           {"id": "store-1", "name": "Acme Caps", "brand": "not-a-dict"})
+
+    resp = client.get(f"/leads/verify/{_token()}")
+
+    assert resp.status_code == 200
+    assert "Your email is now verified" in resp.text
+    assert "#ff5c00" in resp.text
+    assert "MAD HATS" in resp.text
+
+
 def test_the_close_message_is_highlighted_on_the_success_page(monkeypatch):
     _setup(monkeypatch, {"store_id": None}, None)
 
