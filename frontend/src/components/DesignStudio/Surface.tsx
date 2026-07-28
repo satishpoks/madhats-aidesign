@@ -11,6 +11,7 @@ import { GraphicsPicker } from './GraphicsPicker'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
+import { useIsDesktop } from '../../lib/useIsDesktop'
 
 export function DesignStudioSurface() {
   const sessionId = useSessionStore(s => s.sessionId)
@@ -40,6 +41,9 @@ export function DesignStudioSurface() {
   // so a placed element stayed draggable through the wrap-up questions.
   const v2Editing = isV2 && canvasDirective!.allowedTools.length > 0
   const stageLocked = isV2 ? !v2Editing : !unlocked
+
+  const isDesktop = useIsDesktop()
+  const showAdjust = isV2 ? v2Editing : unlocked
 
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -308,7 +312,7 @@ export function DesignStudioSurface() {
             phone; it returns null until an element is selected, so nothing is
             reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          {(isV2 ? v2Editing : unlocked) && <SelectedToolbar />}
+          {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
           <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
             <CanvasStage stageRef={stageRef} locked={stageLocked} />
           </div>
@@ -335,6 +339,16 @@ export function DesignStudioSurface() {
             // finalize -> quote prematurely), so hide it entirely.
             hideRender={canvasDirective?.unlockAll === true}
             allowedTools={allowedTools} highlightTool={highlightTool} />
+          {/* Desktop home for the Adjust panel: the free space below "Design
+              saved". The rail root is content-sized (no h-full — adding one
+              would push this off-screen via mt-auto on the Done button), so
+              this simply follows it. The wrapper mirrors ToolRail's own width
+              and padding so the column width is class-driven, not content-driven. */}
+          {showAdjust && isDesktop && (
+            <div className="w-full md:w-44 lg:w-52 xl:w-64 px-3 xl:px-4 pb-3">
+              <SelectedToolbar variant="rail" />
+            </div>
+          )}
         </div>
       </div>
 

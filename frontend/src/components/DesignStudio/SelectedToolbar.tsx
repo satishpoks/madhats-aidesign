@@ -22,7 +22,10 @@ const ADJUST_LABELS: Record<string, string> = {
   text: 'Text', image: 'Image', shape: 'Shape', drawing: 'Drawing',
 }
 
-export function SelectedToolbar() {
+/** `stacked` shares the centre column with the cap (mobile) — capped and
+ *  sticky. `rail` sits in the tool rail below the Done button (desktop), where
+ *  it competes with nothing, so it takes no height cap and needs no sticky. */
+export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 'stacked' } = {}) {
   const activeFace = useCanvasStore(s => s.activeFace)
   const faces = useCanvasStore(s => s.faces)
   const selectedId = useCanvasStore(s => s.selectedId)
@@ -54,7 +57,18 @@ export function SelectedToolbar() {
     const col = rootRef.current?.parentElement
     if (!col) return
     const measure = () => {
-      setMaxH(Math.max(MIN_MAX_H, Math.round(col.clientHeight * MAX_SHARE)))
+      // Only the stacked variant caps its height: there it steals pixels from
+      // the cap, which CanvasStage sizes from the leftover column height. In the
+      // rail there is no cap beside it — the column's own overflow-y-auto
+      // handles a long panel.
+      //
+      // The rail wrapper is content-SIZED in height, so measuring it would be a
+      // feedback loop (panel height -> wrapper height -> panel height). Its
+      // WIDTH is class-driven and independent, so `compact` is safe to measure
+      // in both variants.
+      setMaxH(variant === 'rail'
+        ? null
+        : Math.max(MIN_MAX_H, Math.round(col.clientHeight * MAX_SHARE)))
       setCompact(col.clientWidth < COMPACT_BELOW)
     }
     measure()
@@ -65,7 +79,7 @@ export function SelectedToolbar() {
     // Keyed on the selected element: with nothing selected this component
     // renders null, so there is no DOM and no parent to measure. Re-running as
     // the panel mounts is what gets the first measurement at all.
-  }, [el?.id])
+  }, [el?.id, variant])
 
   // Focus+select ONLY while the content is still the untouched placeholder, so
   // a freshly added element can be typed straight over. Re-selecting an element
@@ -116,11 +130,12 @@ export function SelectedToolbar() {
   // onto its 280px floor.
   return (
     <div ref={rootRef} data-testid="adjust-panel"
-      className="sticky top-0 z-20 w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm">
+      className={`${variant === 'stacked' ? 'sticky top-0 z-20 ' : ''}w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm`}>
       <div className="bg-accent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide">
         Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
       </div>
-      <div className="flex flex-wrap items-center gap-1.5 p-2 overflow-y-auto"
+      <div data-testid="adjust-controls"
+        className="flex flex-wrap items-center gap-1.5 p-2 overflow-y-auto"
         style={maxH ? { maxHeight: maxH } : undefined}>
       {el.type === 'text' && (
         <>
