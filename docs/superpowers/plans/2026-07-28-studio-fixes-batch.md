@@ -65,21 +65,34 @@ The trailing clause is false. In v2 the `AWAIT_EMAIL_VERIFY` hard gate means the
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `backend/tests/test_canvas_routes.py`, immediately after the existing
-quote-reference test (near line 325):
+Add to `backend/tests/test_canvas_routes.py`, immediately after
+`test_v2_finalize_is_quote_gated_and_never_generates` (which ends near line 330).
+It asserts on the actual response body — the fixtures and setup below are copied
+from that test, which already drives this exact code path.
 
 ```python
-def test_quote_reply_does_not_claim_the_email_is_unconfirmed(client, monkeypatch):
+def test_quote_reply_does_not_claim_the_email_is_unconfirmed(
+        client, seeded_store_headers, canvas_session_id, monkeypatch):
     """v2 cannot reach finalize with an unconfirmed address — AWAIT_EMAIL_VERIFY
     gates it — so promising delivery 'once you confirm' is false."""
-    from app.api.routes import sessions as sessions_mod
+    monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    row["collected"] = {**(row.get("collected") or {}),
+                        "quote_requested": True, "reference_code": "MH-BCDFGH"}
 
-    src = inspect.getsource(sessions_mod.finalize_canvas)
-    assert "once you confirm your address" not in src
-    assert "We've also emailed it to you." in src
+    design = {"colourway": None,
+              "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
+                                   "x": 0.5, "y": 0.4, "width": 0.2, "height": 0.1,
+                                   "rotation": 0, "zIndex": 0}],
+                        "back": [], "left": [], "right": []}}
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": design}, headers=seeded_store_headers)
+
+    assert r.status_code == 200
+    reply = r.json()["reply"]
+    assert "once you confirm" not in reply.lower()
+    assert "We've also emailed it to you." in reply
 ```
-
-Add `import inspect` to the test file's imports if not already present.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -777,62 +790,48 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `backend/tests/test_canvas_routes.py`, matching the existing
-canvas-finalize test setup in that file:
+Add to `backend/tests/test_canvas_routes.py`. The fixtures (`client`,
+`seeded_store_headers`, `canvas_session_id`) and the
+`client._fake.design_sessions.rows[…]` reload idiom are the ones that file
+already uses — see `test_v2_finalize_is_quote_gated_and_never_generates`.
 
 ```python
-def test_finalize_rejects_obscene_cap_text(client, canvas_session):
-    """Cap text reaches the AI render and then production artwork."""
-    body = {"canvas_design": {"colourway": None, "faces": {
-        "front": [{"id": "e1", "type": "text", "content": "SHIT HAPPENS",
+def _design_with_text(content: str) -> dict:
+    return {"colourway": None, "faces": {
+        "front": [{"id": "e1", "type": "text", "content": content,
                    "x": 0.5, "y": 0.4, "width": 0.3, "height": 0.1,
                    "rotation": 0, "zIndex": 0}],
-        "back": [], "left": [], "right": [],
-    }}}
-    res = client.post(f"/sessions/{canvas_session['id']}/canvas-finalize",
-                      json=body, headers=STORE_HEADERS)
-    assert res.status_code == 422
-    detail = res.json()["detail"]
-    assert "SHIT HAPPENS" in detail   # names the element so it can be edited
+        "back": [], "left": [], "right": []}}
 
 
-def test_finalize_rejection_happens_before_any_write_or_sales_email(
-        client, canvas_session, monkeypatch):
-    """A rejected design must not mint a reference or notify sales."""
-    import app.services.delivery as delivery_mod
+def test_finalize_rejects_obscene_cap_text(client, seeded_store_headers, canvas_session_id):
+    """Cap text reaches the AI render and then physical production artwork."""
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": _design_with_text("SHIT HAPPENS")},
+                    headers=seeded_store_headers)
+    assert r.status_code == 422
+    assert "SHIT HAPPENS" in r.json()["detail"]   # names it so it can be edited
 
-    def _boom(*a, **k):
-        raise AssertionError("sales must not be notified for a rejected design")
-    monkeypatch.setattr(delivery_mod, "notify_sales_quote_request", _boom,
-                        raising=False)
 
-    body = {"canvas_design": {"colourway": None, "faces": {
-        "front": [{"id": "e1", "type": "text", "content": "SHIT HAPPENS",
-                   "x": 0.5, "y": 0.4, "width": 0.3, "height": 0.1,
-                   "rotation": 0, "zIndex": 0}],
-        "back": [], "left": [], "right": [],
-    }}}
-    client.post(f"/sessions/{canvas_session['id']}/canvas-finalize",
-                json=body, headers=STORE_HEADERS)
-
-    row = _reload_session(canvas_session["id"])
+def test_finalize_rejection_writes_nothing(client, seeded_store_headers, canvas_session_id):
+    """The gate runs before the collected write and before the sales notify."""
+    client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                json={"canvas_design": _design_with_text("SHIT HAPPENS")},
+                headers=seeded_store_headers)
+    row = client._fake.design_sessions.rows[canvas_session_id]
     assert not (row.get("collected") or {}).get("canvas_finalized")
+    assert row.get("canvas_design") is None
 
 
-def test_finalize_accepts_clean_cap_text(client, canvas_session):
-    body = {"canvas_design": {"colourway": None, "faces": {
-        "front": [{"id": "e1", "type": "text", "content": "MADHATS CREW",
-                   "x": 0.5, "y": 0.4, "width": 0.3, "height": 0.1,
-                   "rotation": 0, "zIndex": 0}],
-        "back": [], "left": [], "right": [],
-    }}}
-    res = client.post(f"/sessions/{canvas_session['id']}/canvas-finalize",
-                      json=body, headers=STORE_HEADERS)
-    assert res.status_code == 200
+def test_finalize_accepts_clean_cap_text(client, seeded_store_headers, canvas_session_id):
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": _design_with_text("MADHATS CREW")},
+                    headers=seeded_store_headers)
+    assert r.status_code == 200
 ```
 
-Reuse whatever session fixture / store-header constant / reload helper the file
-already defines rather than inventing new ones.
+If the seeded session already carries a `canvas_design`, assert it is *unchanged*
+rather than `None` in the second test.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
