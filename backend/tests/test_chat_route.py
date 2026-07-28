@@ -65,3 +65,165 @@ def test_chat_post_resolves_body_not_422(client):
     resp = client.post("/chat/nonexistent-session-id", json={"message": "hi"})
 
     assert resp.status_code == 404
+
+
+# --- Task 4 fix round 1: severe-abuse moderation short-circuit (route level) --
+#
+# `check_text` runs BEFORE `_dispatch` and raises a 422 on flagged content —
+# for a v2 canvas session that pre-empts `handle_message_v2`'s own decline
+# guard (tested at the orchestrator layer in test_orchestrator_v2.py), so a
+# real slur never reaches it and the customer sees an error banner instead of
+# the graceful decline. These tests drive the real POST /chat/{session_id}
+# route (not handle_message directly) to prove the fix at the layer the
+# customer actually hits.
+
+class _StatefulTable:
+    """A `_FakeTable` that persists writes back onto a shared `store` dict,
+    mirroring the pattern in tests/test_orchestrator_v2.py so the real
+    orchestrator_v2.handle_message can run end-to-end against it."""
+
+    def __init__(self, store, name):
+        self.store, self.name = store, name
+
+    def select(self, *_a, **_k):
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def limit(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        if self.name == "design_sessions":
+            return type("R", (), {"data": [self.store["session"]]})()
+        return type("R", (), {"data": []})()
+
+    def update(self, patch):
+        self.store["session"].update(patch)
+        return self
+
+    def insert(self, rows):
+        return self
+
+
+class _StatefulSupabase:
+    def __init__(self, store):
+        self.store = store
+
+    def table(self, name):
+        return _StatefulTable(self.store, name)
+
+
+def _canvas_store():
+    return {
+        "session": {
+            "id": "s1",
+            "state": "ask_quantity",
+            "collected": {
+                "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                "has_logo": True, "logos_done": True,
+                "logos": [{"face": "front", "placed": True}],
+                "decor_done": True,
+            },
+        }
+    }
+
+
+def _v1_store():
+    return {
+        "session": {
+            "id": "s1",
+            "state": "ask_quantity",
+            "collected": {"flow_mode": "session", "name": "Sam"},
+        }
+    }
+
+
+@pytest.fixture()
+def moderation_client(monkeypatch):
+    from app.main import app
+
+    with TestClient(app, raise_server_exceptions=True) as c:
+        yield c
+
+
+def test_v2_canvas_session_severe_message_bypasses_moderation(monkeypatch, moderation_client):
+    """A v2 canvas session sending a severe message gets a normal 200 decline
+    reply, not a 422 — and check_text is never called."""
+    from app import prompts
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.conversation import orchestrator_v2 as o2
+
+    store = _canvas_store()
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(o2, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    async def _boom(*_a, **_k):
+        raise AssertionError("check_text must not be called on a v2 severe short-circuit")
+    monkeypatch.setattr(chat_route, "check_text", _boom)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "you are a <slur>"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert prompts.V2_ABUSE_DECLINE in body["reply"]
+    assert body["state"] == "ask_quantity"
+    assert "quantity" not in store["session"]["collected"]
+
+
+def test_v1_session_severe_message_still_422(monkeypatch, moderation_client):
+    """A non-canvas (v1) session with the same severe message must still go
+    through check_text and still 422 — v1 has no decline guard."""
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.moderation import ModerationError
+
+    store = _v1_store()
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "severe")
+
+    calls = []
+
+    async def _flag(_text):
+        calls.append(1)
+        raise ModerationError("flagged by content safety filter")
+    monkeypatch.setattr(chat_route, "check_text", _flag)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "you are a <slur>"})
+
+    assert resp.status_code == 422
+    assert calls == [1]
+
+
+def test_v2_canvas_session_non_severe_content_still_moderated(monkeypatch, moderation_client):
+    """The short-circuit is narrow: content our own scanner calls clean/mild
+    (e.g. graphic violence, sexual content — outside our word list) must still
+    reach check_text and still 422, even on a v2 canvas session."""
+    from app.api.routes import chat as chat_route
+    from app.services import profanity
+    from app.services.moderation import ModerationError
+
+    store = _canvas_store()
+    monkeypatch.setattr(chat_route.settings, "canvas_orchestrator_v2", True)
+    monkeypatch.setattr(chat_route, "get_supabase", lambda: _StatefulSupabase(store))
+    monkeypatch.setattr(profanity, "scan", lambda t: "clean")
+
+    calls = []
+
+    async def _flag(_text):
+        calls.append(1)
+        raise ModerationError("flagged by content safety filter")
+    monkeypatch.setattr(chat_route, "check_text", _flag)
+
+    resp = moderation_client.post("/chat/s1", json={"message": "graphic content"})
+
+    assert resp.status_code == 422
+    assert calls == [1]

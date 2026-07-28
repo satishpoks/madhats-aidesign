@@ -22,6 +22,7 @@ from app.services.conversation.orchestrator_v2 import (
     handle_back as handle_back_v2,
     handle_message as handle_message_v2,
 )
+from app.services import profanity
 from app.services.moderation import ModerationError, check_text
 
 router = APIRouter(tags=["chat"])
@@ -79,10 +80,26 @@ async def _dispatch(session_id: str, message: str,
 @router.post("/chat/{session_id}", response_model=ChatResponse)
 @limiter.limit(settings.rate_limit_str)
 async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResponse:
-    try:
-        await check_text(body.message)
-    except ModerationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # Our own pure scanner (in-memory, no DB) runs FIRST. Only when it flags
+    # SEVERE do we pay for the DB round-trip in `_is_v2_canvas` — the clean/mild
+    # common case never touches the DB here. When both are true, v2's own
+    # guard in handle_message_v2 declines the turn (normal 200 reply, flow does
+    # not advance) so the LLM moderation gate is redundant for it and skipped.
+    # v1 has no such guard, so a non-canvas session with the same message still
+    # runs check_text and still 422s — that's the whole reason this is ANDed
+    # with the v2 check rather than replacing check_text outright. Content the
+    # scanner doesn't recognise (graphic violence, sexual content, illegal
+    # material) never short-circuits: it always reaches check_text.
+    bypass_moderation = False
+    if profanity.scan(body.message) == "severe" and _is_v2_canvas(session_id):
+        bypass_moderation = True
+        log.info("chat_moderation_bypassed_severe_v2_canvas",
+                 terms=profanity.find_terms(body.message))
+    if not bypass_moderation:
+        try:
+            await check_text(body.message)
+        except ModerationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     _persist_live_canvas_design(session_id, body.canvas_design)
     try:
