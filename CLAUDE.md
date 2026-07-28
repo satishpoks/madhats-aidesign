@@ -680,7 +680,71 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
   there is **no in-chat "resend the link"** affordance — if the email never
   arrives the customer must reload, since `POST /leads/verify/send` needs a
   `lead_id` the browser is never given. Worth adding if support tickets appear.
-- Tests: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
+- **The canvas can now ANSWER a step, not just receive ops (2026-07-28).** The
+  background-removal toggle was write-only from the backend's side: `_ops_logo_bg`
+  ticks it FOR the customer when they tap the chip, but a customer who ticked it
+  themselves was still asked. `canvas_steps.observe_canvas(collected, canvas_design)`
+  is the read direction — a pure function over plain dicts that finds the **last
+  unlocked image on the pending logo's face** (the same anchor `canvasStore`'s
+  `patchPendingLogo`/`lockPlaced` use, because there is still no element id: the
+  blob is only persisted at finalize) and, if it carries `removeBg`, writes
+  `pending_logo["bg"]="removed"`. That write satisfies `ASK_LOGO_BG.done_when`,
+  so **first-unmet routing skips the step by itself** — no branch, no back-edge,
+  and `orchestrator_v2` calls it unconditionally (a step-id guard there would be
+  a second source of truth that can drift from the frontend's send condition).
+  It is one-way: only ever writes `"removed"`, never over an existing answer.
+  The `return False` INSIDE its scan loop is load-bearing — the first unlocked
+  image found scanning backwards IS the pending logo, so an unticked one means
+  "not ticked"; a `continue` would scan back to an older, locked, already-handled
+  logo and answer with its setting.
+  **The live canvas is now sent on TWO turns, not one:** `chatStore.sendMessage`
+  attaches `toCanvasDesign()` at `describe_changes` (unchanged) **and**
+  `logo_adjust`. `_dispatch`/`handle_message_v2` thread it to v2 only — v1's
+  `handle_message` deliberately takes no blob — and `chat.py`'s
+  `_persist_live_canvas_design` is untouched, so a `logo_adjust` blob is read
+  but never written to `design_sessions.canvas_design`.
+  **The landmine this shipped with, found only by the whole-branch review:**
+  `Surface.postDone()` called `lockPlaced()` BEFORE `sendMessage`, and
+  `sendMessage` reads `toCanvasDesign()` **synchronously** — so the blob shipped
+  fully locked and `observe_canvas` never fired on the canvas **Done button**
+  path (roughly half of live traffic; the step renders both a button and a chat
+  chip). Neither suite caught it: the backend tests hand `observe_canvas` an
+  unlocked element directly, and `surfaceDirective.test.tsx` drove `sendMessage`
+  directly, i.e. the chip path. Fixed by **deleting `lockPlaced()` from
+  `postDone`** — the directive effect (`Surface.tsx`, `if (isV2 && !v2Editing)
+  lockPlaced()`) was already the authoritative locker for every answer path, as
+  its own comment says. That deletion also repaired two PRE-EXISTING bugs on the
+  button path: a locked element is unselectable, so the manual toggle the step's
+  copy points at was unreachable, and `_ops_logo_bg`'s op silently no-opped
+  (`patchPendingLogo` uses the same last-unlocked scan). Consequence to know:
+  the button path's lock now happens on the reply rather than optimistically
+  before the request, converging onto the chip path. **Any future test of a
+  canvas turn must exercise the real button, not `sendMessage` directly** —
+  that gap is exactly what hid this.
+  Copy: `V2_BG_ALREADY_REMOVED` says "already **marked** that logo's background
+  for removal" — never "removed". Nothing is removed at tick time and the cap on
+  screen does not change; `test_v2_copy_guards.py` now pins the word.
+  Open ticket: if the customer UNTICKS after the auto-mark, `pending_logo["bg"]`
+  stays `"removed"` and the step is permanently satisfied, while the render reads
+  `el.removeBg` — widening the divergence this file already documents.
+- **The verification landing page is store-branded (2026-07-28); the error page
+  deliberately is not.** `VERIFICATION_SUCCESS_HTML` is a `string.Template` shell
+  (not `.format()` — these are CSS blobs full of literal braces) taking
+  `$store_name`/`$primary_colour`/`$header_html`, resolved in
+  `leads.confirm_verification` (which now takes `request: Request` for
+  `media_url`'s base). The default header is a **literal** `VERIFY_HEADER_DEFAULT_HTML`,
+  never `store_name.upper()` — `"MadHats".upper()` is `"MADHATS"`, no space, the
+  trap `email.py:205` already documents. The whole resolve-and-render block sits
+  inside one best-effort `try`: the verification is COMMITTED before the page
+  renders, so any branding failure must still return 200 with the MadHats
+  defaults — `_default_success_html()` is built from literals so the fallback
+  itself cannot throw. `_error_page` always renders defaults: two of its three
+  branches reject the token before a lead is loaded, and the third isn't worth a
+  DB round-trip for a dead-end page. **No Close button and no JavaScript** —
+  browsers block `window.close()` on a tab the user opened themselves, which is
+  what clicking an email link does, so the requirement is a highlighted callout
+  ("You can close this page now and head back to the chat") instead.
+- Tests: backend `pytest` **1057** passing (was 1028 before the 2026-07-28 batch); frontend `npx vitest run src/__tests__` is **249 passing, 2 failing** (was 246/2). Older note follows: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
