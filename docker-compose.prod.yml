@@ -166,32 +166,25 @@ services:
         sleep 180;
         done
 
-  # Nightly catalogue refresh — 00:00 Australia/Sydney.
+  # Catalogue FETCH arm — this container does the Shopify request, because the
+  # backend's HTTP client is refused by Shopify's edge from a hosting ASN while
+  # this image's curl is not (same droplet, same IP; measured 2026-07-29 —
+  # backend burst 6x429, this image burst 6x200). See scripts/catalogue-sync.sh
+  # and app/services/catalogue_ingest.py for the full measurements.
   #
-  # The delay is computed by the BACKEND, not here. This image is Alpine and
-  # ships no tzdata: `TZ=Australia/Sydney date` prints UTC, so midnight
-  # arithmetic in this shell would fire at 10:00 Sydney — silently, and looking
-  # correct in the logs. Verified 2026-07-29. The endpoint returns a bare
-  # integer for the same reason there is no jq in this image.
+  # It carries no schedule: no tzdata in this image, so it cannot know when
+  # midnight Sydney is. The backend decides who is due; this polls and fetches.
+  #
+  # The image's ENTRYPOINT is curl itself, hence the explicit override.
   catalogue-sync:
     image: curlimages/curl:8.11.1
     restart: unless-stopped
     env_file: .env
     depends_on:
       - backend
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >
-        while true; do
-        secs=$$(curl -fsS -H "X-Admin-Secret: $${ADMIN_SECRET}"
-        http://backend:8000/admin/catalogue/seconds-until-next-sync 2>/dev/null || echo 900);
-        case "$$secs" in ''|*[!0-9]*) secs=900 ;; esac;
-        sleep "$$secs";
-        curl -fsS -m 1800 -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
-        http://backend:8000/admin/catalogue/sync-all > /dev/null 2>&1 || true;
-        sleep 60;
-        done
+    volumes:
+      - ./scripts/catalogue-sync.sh:/usr/local/bin/catalogue-sync.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/catalogue-sync.sh"]
 
 volumes:
   caddy_data:

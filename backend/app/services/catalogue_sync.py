@@ -255,17 +255,25 @@ async def sync_store_catalogue(store: dict) -> dict:
 
     products = await _fetch_products(domain)
     rows = [r for p in products if (r := _to_row(store["id"], domain, p))]
-    skipped = len(products) - len(rows)
+    return replace_catalogue(store["id"], rows, fetched=len(products))
 
+
+def replace_catalogue(store_id: str, rows: list[dict], *, fetched: int) -> dict:
+    """Swap a store's catalogue for `rows`. The ONLY writer of product_references.
+
+    Called both by the direct fetch path and by the sidecar ingest commit, so
+    the delete/insert semantics stay in one place.
+    """
     sb = get_supabase()
-    sb.table("product_references").delete().eq("store_id", store["id"]).execute()
+    sb.table("product_references").delete().eq("store_id", store_id).execute()
     if rows:
         # chunked insert to stay well under payload limits
         for i in range(0, len(rows), 100):
             sb.table("product_references").insert(rows[i : i + 100]).execute()
 
-    log.info("catalogue_synced", store_id=store["id"], imported=len(rows), skipped=skipped)
-    return {"fetched": len(products), "imported": len(rows), "skipped": skipped}
+    skipped = fetched - len(rows)
+    log.info("catalogue_synced", store_id=store_id, imported=len(rows), skipped=skipped)
+    return {"fetched": fetched, "imported": len(rows), "skipped": skipped}
 
 
 async def sync_all_stores() -> dict:

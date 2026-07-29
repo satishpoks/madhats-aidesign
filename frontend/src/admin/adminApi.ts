@@ -35,10 +35,11 @@ export interface CreateStoreBody {
   brand?: Record<string, unknown>
 }
 
+/** The sync is queued for the catalogue-sync sidecar, which does the fetching
+ *  the backend cannot do itself — so there are no counts to return here. */
 export interface SyncResult {
-  fetched: number
-  imported: number
-  skipped: number
+  status: string
+  detail?: string
 }
 
 export interface Submission {

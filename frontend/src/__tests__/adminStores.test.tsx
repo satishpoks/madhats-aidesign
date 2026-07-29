@@ -39,13 +39,16 @@ describe('StoresView', () => {
     ))
   })
 
-  it('syncs a store and shows counts', async () => {
+  // No counts to show: the backend cannot fetch the Shopify feed itself (its
+  // HTTP client is refused from a hosting ASN), so the button queues the
+  // catalogue-sync sidecar and the honest feedback is "queued".
+  it('queues a sync and says so', async () => {
     vi.mocked(listStores).mockResolvedValue([store])
-    vi.mocked(syncStore).mockResolvedValue({ fetched: 10, imported: 8, skipped: 2 })
+    vi.mocked(syncStore).mockResolvedValue({ status: 'queued' })
     render(<StoresView />)
     await waitFor(() => expect(screen.getByText('madhats')).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /sync/i }))
     await waitFor(() => expect(syncStore).toHaveBeenCalledWith('st-1'))
-    await waitFor(() => expect(screen.getByText(/imported 8/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/queued/i)).toBeInTheDocument())
   })
 })

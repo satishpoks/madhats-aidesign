@@ -5,6 +5,7 @@ POST /admin/stores/{id}/sync to pull its Shopify catalogue.
 """
 from __future__ import annotations
 
+import json
 import re
 import secrets
 
@@ -16,11 +17,8 @@ from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, 
 from app.db import get_supabase
 from app.models.store import CreateStoreRequest, StoreResponse, SyncResponse, UpdateStoreRequest
 from app.services.branding import validate_brand
-from app.services.catalogue_sync import (
-    seconds_until_next_sync,
-    sync_all_stores,
-    sync_store_catalogue,
-)
+from app.services import catalogue_ingest
+from app.services.catalogue_sync import seconds_until_next_sync
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 from app.storage import media_url, upload_asset
 
@@ -29,6 +27,13 @@ log = structlog.get_logger()
 
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _load_store(store_id: str) -> dict:
+    res = get_supabase().table("stores").select("*").eq("id", store_id).limit(1).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Store not found")
+    return res.data[0]
 
 
 def _gen_public_key(slug: str) -> str:
@@ -72,44 +77,119 @@ async def list_stores(ctx: AdminContext = Depends(require_admin_ctx)) -> list[di
     return rows
 
 
-@router.post("/admin/stores/{store_id}/sync", response_model=SyncResponse)
+@router.post("/admin/stores/{store_id}/sync", status_code=202)
 async def sync_store(store_id: str, ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
+    """Queue a catalogue refresh for the sidecar's next poll.
+
+    This used to fetch inline and return counts. It cannot any more: the
+    backend container's HTTP client is refused by Shopify's edge from a hosting
+    ASN (see catalogue_ingest). The fetch happens in the sidecar, so the only
+    honest answer here is "queued".
+    """
     assert_store_allowed(ctx, store_id)
-    sb = get_supabase()
-    res = sb.table("stores").select("*").eq("id", store_id).limit(1).execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Store not found")
-    store = res.data[0]
+    store = _load_store(store_id)
     if not store.get("shopify_domain"):
         raise HTTPException(status_code=400, detail="Store has no shopify_domain to sync from")
 
-    try:
-        return await sync_store_catalogue(store)
-    except Exception as exc:  # noqa: BLE001
-        log.error("catalogue_sync_failed", store_id=store_id, error=str(exc))
-        raise HTTPException(status_code=502, detail=f"Catalogue sync failed: {exc}") from exc
+    catalogue_ingest.enqueue(store_id)
+    return {
+        "status": "queued",
+        "detail": "The catalogue-sync sidecar will fetch this store on its next poll.",
+    }
 
 
-@router.post("/admin/catalogue/sync-all")
+@router.post("/admin/catalogue/sync-all", status_code=202)
 async def sync_all_catalogues(ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
-    """Nightly refresh entry point — sync every active store in one call.
+    """Queue every syncable store for the sidecar's next poll."""
+    require_super(ctx)
+    sb = get_supabase()
+    rows = sb.table("stores").select("id, shopify_domain, status").execute().data or []
+    queued = [r["id"] for r in rows if r.get("shopify_domain") and r.get("status") == "active"]
+    for store_id in queued:
+        catalogue_ingest.enqueue(store_id)
+    return {"status": "queued", "stores": len(queued)}
 
-    Always 200: per-store outcomes are in `results`, so a single broken feed
-    surfaces as `ok: false` for that store rather than failing the whole run.
+
+# --------------------------------------------------------------------------
+# Sidecar ingest. These three are called BY the catalogue-sync container, which
+# does the fetching this service cannot do itself — see catalogue_ingest for
+# the measurements behind that. Plain text where the sidecar has to parse the
+# response: that image is busybox with no jq.
+# --------------------------------------------------------------------------
+
+@router.get("/admin/catalogue/sync-targets", response_class=PlainTextResponse)
+async def catalogue_sync_targets(ctx: AdminContext = Depends(require_admin_ctx)) -> str:
+    """Stores due for a fetch right now, one `<store_id> <base_url>` per line.
+
+    Empty body means nothing to do. Handing a target out claims it, so a poll
+    that overlaps a still-running fetch will not start the same store twice.
     """
     require_super(ctx)
-    return await sync_all_stores()
+    targets = catalogue_ingest.claim_targets()
+    # EVERY line ends with \n, including the last. POSIX `read` returns
+    # non-zero at EOF on an unterminated final line, so the sidecar's
+    # `while read` would skip it — silently syncing nothing, with no error to
+    # find. Verified in busybox. Pinned by test_sync_targets_are_newline_terminated.
+    return "".join(f"{t['store_id']} {t['base']}\n" for t in targets)
+
+
+@router.post("/admin/stores/{store_id}/catalogue/pages/{page}", response_class=PlainTextResponse)
+async def catalogue_ingest_page(
+    store_id: str,
+    page: int,
+    request: Request,
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> str:
+    """Buffer one fetched page. Body is the raw products.json for that page.
+
+    Returns the product count as plain text; the sidecar compares it to the
+    page limit to decide whether to ask for another page.
+    """
+    require_super(ctx)
+    store = _load_store(store_id)
+    try:
+        payload = json.loads(await request.body())
+    except json.JSONDecodeError as exc:
+        catalogue_ingest.abandon(store_id)
+        raise HTTPException(status_code=400, detail="body is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        catalogue_ingest.abandon(store_id)
+        raise HTTPException(status_code=400, detail="expected a products.json object")
+    return str(catalogue_ingest.ingest_page(store, page, payload))
+
+
+@router.post("/admin/stores/{store_id}/catalogue/commit", response_model=SyncResponse)
+async def catalogue_commit(
+    store_id: str, ctx: AdminContext = Depends(require_admin_ctx)
+) -> dict:
+    """Swap the store's catalogue for the buffered pages. Nothing is written
+    before this call, so an interrupted fetch leaves the live data alone."""
+    require_super(ctx)
+    store = _load_store(store_id)
+    try:
+        return catalogue_ingest.commit(store)
+    except (LookupError, ValueError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/admin/stores/{store_id}/catalogue/abandon", status_code=204)
+async def catalogue_abandon(
+    store_id: str, ctx: AdminContext = Depends(require_admin_ctx)
+) -> None:
+    """Sidecar's fetch failed part way — drop the partial buffer."""
+    require_super(ctx)
+    catalogue_ingest.abandon(store_id)
 
 
 @router.get("/admin/catalogue/seconds-until-next-sync", response_class=PlainTextResponse)
 async def catalogue_seconds_until_next_sync(
     ctx: AdminContext = Depends(require_admin_ctx),
 ) -> str:
-    """Seconds until the next 00:00 Australia/Sydney, as plain text.
+    """Seconds until the next 00:00 Australia/Sydney — ops introspection.
 
-    The `catalogue-sync` sidecar sleeps on this. Plain text, not JSON, because
-    that image is busybox with no jq — `secs=$(curl ...)` has to be a bare
-    integer. See `seconds_until_next_sync` for why the clock lives here.
+    Nothing depends on this: the sidecar polls `sync-targets` and the backend
+    decides when a store is due. Kept because "when does it next run" is the
+    first question anyone asks of a nightly job.
     """
     require_super(ctx)
     return str(seconds_until_next_sync())

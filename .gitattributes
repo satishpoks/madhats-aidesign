@@ -1,0 +1,5 @@
+# Shell scripts MUST keep LF endings. scripts/catalogue-sync.sh is bind-mounted
+# into a Linux container; a CRLF checkout makes the shebang `#!/bin/sh\r` and
+# the container dies with "bad interpreter" — which reads like a broken image,
+# not a line-ending problem.
+*.sh text eol=lf

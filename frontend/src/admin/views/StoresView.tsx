@@ -48,8 +48,12 @@ export function StoresView() {
     setSyncingId(id)
     setError(null)
     try {
-      const res = await syncStore(id)
-      setSyncMsg((prev) => ({ ...prev, [id]: `fetched ${res.fetched}, imported ${res.imported}, skipped ${res.skipped}` }))
+      // The backend cannot fetch the Shopify feed itself (its HTTP client is
+      // refused from a hosting ASN), so this queues the catalogue-sync sidecar
+      // rather than returning counts. Nothing to poll for yet — the run takes
+      // under a minute and replaces the catalogue in one commit.
+      await syncStore(id)
+      setSyncMsg((prev) => ({ ...prev, [id]: 'Queued — the sync runs within a minute' }))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Sync failed')
     } finally {
