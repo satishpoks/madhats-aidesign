@@ -817,9 +817,12 @@ stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked i
 ```bash
 git pull
 # project-root .env must have (prod values):
+#   STUDIO_HOST=madhats.getaiconsult.com.au        # hostnames Caddy ROUTES on;
+#   API_HOST=api.madhats.getaiconsult.com.au       # must equal nginx server_name
 #   VITE_API_BASE_URL=https://api.madhats.getaiconsult.com.au   # baked into the bundle
 #   EMAIL_VERIFY_BASE_URL=https://api.madhats.getaiconsult.com.au
 #   STUDIO_BASE_URL=https://madhats.getaiconsult.com.au
+#   (staging uses mhstaging.* / api.mhstaging.* in all five — they must agree)
 #   VITE_STORE_KEY=mh_pk_madhats_local
 #   ALLOWED_ORIGINS=*                    # still open; tightening is a separate change
 #   (ACME_EMAIL is NO LONGER USED — nginx holds the certs now. Harmless if left.)
@@ -889,9 +892,13 @@ frontend`. Env is only read at container **start**, so always
   bound where nginx expects it. `docker compose -f docker-compose.prod.yml ps`,
   then `curl -sI -H 'Host: madhats.getaiconsult.com.au' http://127.0.0.1:8480/`
   from the box — that is the exact hop nginx makes.
-- **404 from Caddy on every request (nginx itself is fine)** → nginx is not
-  passing `proxy_set_header Host $host`. Caddy routes by hostname and matches
-  neither site block without the real Host header.
+- **Blank page / empty response, nginx itself fine** → Caddy got a Host it has
+  no site block for, and a Host mismatch returns **HTTP 200 with an empty body,
+  not a 404** (verified) — so there is no error anywhere to follow. Two causes:
+  nginx is not passing `proxy_set_header Host $host`, or `STUDIO_HOST`/`API_HOST`
+  in `.env` don't exactly match the nginx `server_name`. Check with
+  `curl -sS -H 'Host: <your host>' http://127.0.0.1:8480/ | head -c 50` — empty
+  output means the hostname is wrong.
 - **Certificate errors / renewal fails** → certs now live in nginx
   (`/etc/letsencrypt/`), not the `caddy_data` volume. Check
   `sudo certbot certificates` and `sudo systemctl status certbot.timer`. Caddy

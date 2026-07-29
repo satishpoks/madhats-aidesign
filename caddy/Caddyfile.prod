@@ -1,4 +1,4 @@
-# Production request routing — BEHIND an existing host nginx.
+# Production/staging request routing — BEHIND an existing host nginx.
 #
 # TOPOLOGY (changed 2026-07-29). nginx on the host owns :80 and :443 and is the
 # TLS terminator; this Caddy no longer does either:
@@ -12,6 +12,32 @@
 # is `http://`-scoped, which tells Caddy to serve plain HTTP and never attempt
 # ACME. There is consequently no `email` / ACME_EMAIL setting any more — see
 # docker-compose.prod.yml.
+#
+# ---------------------------------------------------------------------------
+# HOSTNAMES ARE ENVIRONMENT VARIABLES, not literals (changed 2026-07-29, after a
+# deploy to the staging hostnames matched nothing and died silently here).
+#
+#   STUDIO_HOST   e.g. mhstaging.getaiconsult.com.au
+#   API_HOST      e.g. api.mhstaging.getaiconsult.com.au
+#
+# CADDY ROUTES BY HOSTNAME. If these do not EXACTLY match the `server_name` in
+# the nginx vhost, every request dies HERE even though nginx is perfectly
+# healthy. VERIFIED BEHAVIOUR: an unmatched Host does NOT 404 — Caddy returns
+# HTTP 200 WITH AN EMPTY BODY, i.e. a blank page. That is far more confusing
+# than an error, and it presents as "nginx is not directing the domain to
+# docker", pointing the investigation at the wrong layer entirely. The two
+# files must agree; nginx has no env substitution, so its copy is edited by
+# hand (see nginx/madhats.conf.example).
+#
+# They must also match the host part of VITE_API_BASE_URL / EMAIL_VERIFY_BASE_URL
+# / STUDIO_BASE_URL in .env — and VITE_API_BASE_URL is COMPILED INTO the frontend
+# bundle, so changing hostnames means REBUILDING the frontend, not just
+# recreating it.
+#
+# docker-compose.prod.yml enforces both with `${...:?}`: an unset value would
+# expand to a bare `http://` site address, which Caddy rejects at parse time, so
+# the proxy fails to boot loudly instead of serving blank pages in production.
+# ---------------------------------------------------------------------------
 #
 # The `caddy_data` volume is retained. It no longer holds Let's Encrypt certs,
 # but Caddy still writes state there; removing it is a separate change.
@@ -55,14 +81,14 @@
 #    fresh rate-limit bucket per request. See nginx/madhats.conf.example.
 # ---------------------------------------------------------------------------
 
-http://madhats.getaiconsult.com.au {
+http://{$STUDIO_HOST} {
 	reverse_proxy frontend:5173 {
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-For {http.request.header.X-Real-IP}
 	}
 }
 
-http://api.madhats.getaiconsult.com.au {
+http://{$API_HOST} {
 	reverse_proxy backend:8000 {
 		header_up X-Forwarded-Proto https
 		header_up X-Forwarded-For {http.request.header.X-Real-IP}
@@ -71,9 +97,9 @@ http://api.madhats.getaiconsult.com.au {
 
 # --- Legacy plain-HTTP ports: redirect-only, temporary ------------------------
 # Verification and quote links ALREADY DELIVERED to customers point at
-# http://madhats.getaiconsult.com.au:8000/... with signed tokens. Dropping these
-# ports would dead-end every one of them. {uri} preserves path AND query, so the
-# tokens survive the redirect.
+# http://<studio host>:8000/... with signed tokens. Dropping these ports would
+# dead-end every one of them. {uri} preserves path AND query, so the tokens
+# survive the redirect.
 #
 # These stay bound DIRECTLY to the host (docker-compose.prod.yml still publishes
 # 8000 and 5173 publicly) rather than going through nginx: nginx owns 80/443
@@ -81,12 +107,14 @@ http://api.madhats.getaiconsult.com.au {
 # Caddy serves them over plain HTTP and attempts no certificate.
 #
 # REMOVE once outstanding tokens have expired: the longest-lived is the quote
-# token at QUOTE_TOKEN_TTL_SECONDS = 2592000 (30 days).
+# token at QUOTE_TOKEN_TTL_SECONDS = 2592000 (30 days). On a BRAND-NEW
+# environment no such links exist yet, so these two blocks (and their port
+# mappings) can be dropped immediately.
 
 :8000 {
-	redir https://api.madhats.getaiconsult.com.au{uri} permanent
+	redir https://{$API_HOST}{uri} permanent
 }
 
 :5173 {
-	redir https://madhats.getaiconsult.com.au{uri} permanent
+	redir https://{$STUDIO_HOST}{uri} permanent
 }

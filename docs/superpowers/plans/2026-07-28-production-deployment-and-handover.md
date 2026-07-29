@@ -352,6 +352,8 @@ deployment delays are "waiting for someone to grant access".
 | `CHATBOT_PERSONA_NAME` | `Ricardo` | ☐ |
 | `CANVAS_ORCHESTRATOR_V2` | per decision 1.2.4 | ☐ |
 | `ACME_EMAIL` | ⚪ **no longer used** (2026-07-29) — nginx holds the certs; blank is harmless | ☐ |
+| `STUDIO_HOST` | 🔴 **required** — hostname Caddy routes on; must equal the nginx `server_name` exactly | ☐ |
+| `API_HOST` | 🔴 **required** — ditto for the backend host. Mismatch = blank pages, not an error | ☐ |
 | `TRUSTED_PROXY_HOSTS` | 🔴 **leave BLANK** — compose sets it itself, next to the port mapping that justifies it | ☐ |
 | `TLS_PROXY_HOST` | unused in prod (static build, no HMR) | ☐ |
 
@@ -447,7 +449,9 @@ openssl rand -hex 32
   curl -sI -H 'Host: madhats.getaiconsult.com.au'     http://127.0.0.1:8480/
   curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8480/health
   ```
-  > A 404 here means nginx is not sending `proxy_set_header Host $host`.
+  > An EMPTY 200 here (not a 404 — verified) means Caddy has no site block for
+  > that Host: either nginx isn't sending `proxy_set_header Host $host`, or
+  > `STUDIO_HOST`/`API_HOST` don't match the nginx `server_name`.
 - ☐ **7.2c** 🔴 Caddy's plain-HTTP port is **loopback-only** — `docker compose -f
   docker-compose.prod.yml ps` must show `127.0.0.1:8480->80/tcp`, never
   `0.0.0.0:8480`. A public bind exposes the whole site in cleartext AND makes
@@ -626,7 +630,7 @@ profile, with a **real inbox you control**:
   | Browser calls `localhost:8000` | stale `VITE_API_BASE_URL` baked in | rebuild frontend |
   | Widespread 429s | same as above, or the nginx `X-Real-IP` relay is broken | §7.5, §7.2b |
   | `502 Bad Gateway` from nginx | compose stack down, or Caddy not on `127.0.0.1:8480` | §7.2b |
-  | `404` on everything, nginx itself healthy | nginx missing `proxy_set_header Host $host` | §7.2b |
+  | Blank page / empty 200, nginx healthy | Host mismatch at Caddy (`STUDIO_HOST`/`API_HOST` vs `server_name`) | §7.2b |
   | Cert expired / renewal failing | certbot timer (certs are nginx's now, not `caddy_data`) | §7.2 |
   | Designs never delivered | Gemini quota 429 / watchdog down | §4.3.5, §10.3 |
   | Customers can't finish the funnel | verification email in spam | §4.4 |

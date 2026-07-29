@@ -1,11 +1,38 @@
 # MadHats AI Design Studio — host nginx vhosts.
 #
-# Install on the production box as a NEW site file, leaving every existing nginx
-# site untouched:
+# ############################################################################
+# # STEP 0 — SET YOUR HOSTNAMES. Everything else fails silently if you don't. #
+# ############################################################################
+#
+# This file ships with the STAGING hostnames. nginx has no environment-variable
+# substitution, so unlike caddy/Caddyfile.prod (which reads $STUDIO_HOST /
+# $API_HOST) these are literals you edit by hand — in `server_name` below, and
+# in the certbot command further down.
+#
+#   staging: mhstaging.getaiconsult.com.au / api.mhstaging.getaiconsult.com.au
+#   prod:    madhats.getaiconsult.com.au   / api.madhats.getaiconsult.com.au
+#
+# THEY MUST MATCH, EXACTLY AND IN ALL THREE PLACES:
+#   1. `server_name` here
+#   2. STUDIO_HOST / API_HOST in .env  (Caddy routes on these)
+#   3. the host part of VITE_API_BASE_URL / EMAIL_VERIFY_BASE_URL /
+#      STUDIO_BASE_URL in .env
+#
+# Get (1) wrong and nginx never selects this vhost. Get (2) wrong and nginx
+# forwards correctly but Caddy serves a BLANK PAGE — verified: an unmatched Host
+# returns HTTP 200 with an empty body, NOT a 404, so there is no error anywhere
+# to go on. BOTH present as "nginx is not directing the domain to docker", which
+# is why this warning is the first thing in the file.
+#
+# Install as a NEW site file, leaving every existing nginx site untouched:
 #
 #   sudo cp nginx/madhats.conf.example /etc/nginx/sites-available/madhats.conf
 #   sudo ln -s /etc/nginx/sites-available/madhats.conf /etc/nginx/sites-enabled/
-#   # (RHEL/Alma/Rocky: drop it in /etc/nginx/conf.d/madhats.conf instead — no symlink)
+#   # (RHEL/Alma/Rocky: drop it in /etc/nginx/conf.d/madhats.conf instead — no
+#   #  symlink. On those distros nginx.conf does NOT include sites-enabled at
+#   #  all, so a symlink there is silently ignored. Verify either way with:
+#   #    sudo nginx -T | grep server_name.*getaiconsult
+#   #  If that prints nothing, nginx never read this file.)
 #   sudo nginx -t && sudo systemctl reload nginx
 #
 # WHY THIS EXISTS: ports 80 and 443 on this box are already owned by nginx, so
@@ -21,7 +48,7 @@
 # proxy config, and converting the :80 block into a 301 to https:
 #
 #   sudo certbot --nginx --redirect \
-#     -d madhats.getaiconsult.com.au -d api.madhats.getaiconsult.com.au
+#     -d mhstaging.getaiconsult.com.au -d api.mhstaging.getaiconsult.com.au
 #
 # (`--redirect` avoids the interactive prompt and is the behaviour we want: after
 # issuance, plain HTTP should redirect, not serve.)
@@ -45,8 +72,8 @@
 #   * The frontend bundle has https://api.madhats… COMPILED IN, so the browser
 #     calls HTTPS no matter which scheme served the page.
 # Test this stage with curl, not a browser:
-#   curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8480/health
-#   curl -sI http://api.madhats.getaiconsult.com.au/health
+#   curl -sI -H 'Host: api.mhstaging.getaiconsult.com.au' http://127.0.0.1:8480/health
+#   curl -sI http://api.mhstaging.getaiconsult.com.au/health
 
 # ---------------------------------------------------------------------------
 # The three proxy_set_header lines below are LOAD-BEARING, not boilerplate.
@@ -54,7 +81,9 @@
 #
 #   Host              — Caddy routes by hostname. Without the real Host header
 #                       it sees nginx's default and matches NEITHER site block,
-#                       so every request 404s at the proxy.
+#                       so every request hits Caddy with the wrong Host and
+#                       comes back as an empty HTTP 200 (a blank page, not a
+#                       404 — there is no error to notice).
 #
 #   X-Forwarded-Proto — the backend rebuilds every private-asset URL (product
 #                       photos, brand logo, admin thumbnails, quote components)
@@ -80,7 +109,7 @@
 server {
     listen 80;
     listen [::]:80;
-    server_name madhats.getaiconsult.com.au api.madhats.getaiconsult.com.au;
+    server_name mhstaging.getaiconsult.com.au api.mhstaging.getaiconsult.com.au;
 
     # certbot --nginx replaces this block's contents with a 301 to https and
     # adds the TLS server block. Until then it proxies over plain HTTP so you
@@ -124,10 +153,10 @@ server {
 #     listen 443 ssl;
 #     listen [::]:443 ssl;
 #     http2 on;
-#     server_name madhats.getaiconsult.com.au api.madhats.getaiconsult.com.au;
+#     server_name mhstaging.getaiconsult.com.au api.mhstaging.getaiconsult.com.au;
 #
-#     ssl_certificate     /etc/letsencrypt/live/madhats.getaiconsult.com.au/fullchain.pem;
-#     ssl_certificate_key /etc/letsencrypt/live/madhats.getaiconsult.com.au/privkey.pem;
+#     ssl_certificate     /etc/letsencrypt/live/mhstaging.getaiconsult.com.au/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/mhstaging.getaiconsult.com.au/privkey.pem;
 #
 #     location / {
 #         proxy_pass http://127.0.0.1:8480;

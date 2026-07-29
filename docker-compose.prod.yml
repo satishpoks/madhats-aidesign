@@ -116,6 +116,22 @@ services:
       # and already-delivered customer email links point at them.
       - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d
       - "5173:5173" # legacy redirect only — see Caddyfile.prod, remove after 30d
+    environment:
+      # The hostnames Caddy routes on. NOT optional and NOT defaulted: Caddy
+      # matches by hostname, and a wrong value does NOT 404 (verified): Caddy
+      # returns HTTP 200 with an EMPTY BODY, so you get blank pages while nginx
+      # looks perfectly healthy — a failure that reads as "nginx isn't
+      # forwarding to docker" and sends you debugging the wrong layer.
+      #
+      # These MUST EXACTLY match the `server_name` in the nginx vhost AND the
+      # host part of VITE_API_BASE_URL / EMAIL_VERIFY_BASE_URL / STUDIO_BASE_URL.
+      # VITE_API_BASE_URL is compiled into the bundle, so changing hostnames
+      # means REBUILDING the frontend, not just recreating it.
+      #
+      #   staging: mhstaging.getaiconsult.com.au / api.mhstaging.getaiconsult.com.au
+      #   prod:    madhats.getaiconsult.com.au   / api.madhats.getaiconsult.com.au
+      STUDIO_HOST: ${STUDIO_HOST:?set STUDIO_HOST in .env - the studio hostname Caddy routes on, e.g. mhstaging.getaiconsult.com.au. It must match the nginx server_name exactly}
+      API_HOST: ${API_HOST:?set API_HOST in .env - the backend hostname Caddy routes on, e.g. api.mhstaging.getaiconsult.com.au. It must match the nginx server_name exactly}
     volumes:
       - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
       # Retained. No longer holds Let's Encrypt certificates (nginx owns TLS
