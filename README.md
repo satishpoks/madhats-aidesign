@@ -124,6 +124,8 @@ See `.env.example` for the full list.
 | `IMAGE_PROVIDER_PREVIEW` / `IMAGE_PROVIDER_FINAL` | Adapter: `gemini_flash` \| `gemini_pro` \| `stub` |
 | `RESEND_API_KEY` / `SALES_NOTIFICATION_EMAIL` | Email + sales lead routing |
 | `STUDIO_BASE_URL` | Frontend origin for the "make some edits" link in the preview email |
+| `STUDIO_HOST` / `API_HOST` | Hostnames Caddy routes on (prod stack). Must equal the nginx `server_name` exactly — see Deployment |
+| `VITE_API_BASE_URL` | Backend URL the browser calls. **Compiled into the bundle at build time** — rebuild to change |
 | `ADMIN_SECRET` | Gates `/admin/*` routes (`X-Admin-Secret` header) |
 | `RATE_LIMIT_RPM` / `SIGNED_URL_TTL` / `ALLOWED_ORIGINS` | Rate limit, signed-URL TTL, CORS |
 | `SENTRY_DSN` | Error tracking (optional) |
@@ -144,12 +146,67 @@ All gated by the `X-Admin-Secret` header.
 
 ---
 
+## Deployment (staging / production)
+
+Runs on a self-hosted Docker box. **The box's own nginx owns `:80`/`:443` and
+terminates TLS** (those ports were already in use, so the stack's Caddy can
+neither bind them nor run an ACME challenge). nginx proxies both hostnames to
+Caddy on `127.0.0.1:8480`; Caddy only routes by hostname to the containers:
+
+```
+browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8480 --> frontend / backend
+```
+
+Certificates are certbot's (`sudo certbot certificates`), not Caddy's.
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+| Environment | Studio | API |
+|---|---|---|
+| staging | `mhstaging.getaiconsult.com.au` | `api.mhstaging.getaiconsult.com.au` |
+| production | `madhats.getaiconsult.com.au` | `api.madhats.getaiconsult.com.au` |
+
+**Three things bite here, in order of how often:**
+
+1. **`VITE_API_BASE_URL` is compiled into the frontend bundle at build time.**
+   Changing it needs `up -d --build frontend` — recreating alone leaves the old
+   URL baked in and every API call fails.
+2. **Hostnames must match in five places** — `STUDIO_HOST`/`API_HOST` (Caddy
+   routes on these), the nginx `server_name`, and the host part of
+   `VITE_API_BASE_URL`/`EMAIL_VERIFY_BASE_URL`/`STUDIO_BASE_URL`. A mismatch
+   makes Caddy return **HTTP 200 with an empty body — a blank page, not a 404**,
+   so there is no error anywhere to follow.
+3. **The deployed nginx vhost is certbot-managed. Edit it in place**; never
+   re-copy `nginx/madhats.conf.example` over it, or you destroy the TLS blocks
+   and must re-issue (into Let's Encrypt's 5-per-week limit).
+
+Verify each hop separately when something is off:
+
+```bash
+curl -sS -H 'Host: api.<your-host>' http://127.0.0.1:8480/health   # Caddy
+curl -sS https://api.<your-host>/health                             # through nginx
+```
+
+Full runbook, gotchas and the forwarded-header invariants: **CLAUDE.md §13c**.
+
+---
+
 ## Running Tests
 
 ```bash
-cd backend && pytest -q          # 111 tests
-cd frontend && npx vitest run    # 65 tests  (npm test = watch mode)
+cd backend && CANVAS_ORCHESTRATOR_V2=false pytest -q   # ~1172 passing
+cd frontend && npx vitest run src/__tests__            # ~273 passing (npm test = watch mode)
+cd frontend && npx vitest run src/admin                # ~59 passing
 ```
+
+The `CANVAS_ORCHESTRATOR_V2=false` prefix is deliberate: the repo-root `.env`
+defaults it to `true`, which flips a few unrelated tests red. The five v2-only
+suites (`test_orchestrator_v2`, `test_v2_e2e`, `test_v2_copy_guards`,
+`test_state_machine_v2`, `test_canvas_steps`) are run with the flag **on**.
+Counts drift — re-measure by stashing rather than trusting the number here.
 
 ---
 

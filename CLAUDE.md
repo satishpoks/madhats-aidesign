@@ -775,10 +775,18 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 > those ports were already taken, so Caddy could neither bind them nor run an
 > ACME HTTP-01 challenge). nginx proxies both hostnames to Caddy on
 > `127.0.0.1:8480`; Caddy issues no certificates and now only routes by
-> hostname to the frontend and backend containers over the compose network —
-> frontend at `https://madhats.getaiconsult.com.au`, backend at
-> `https://api.madhats.getaiconsult.com.au`. Chain:
+> hostname to the frontend and backend containers over the compose network.
+> Chain:
 > `browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8480 --> containers`.
+> **Verified working end-to-end on the staging box, 2026-07-29.**
+>
+> **The hostnames are env vars, not literals** (`STUDIO_HOST` / `API_HOST`), so
+> one Caddyfile serves both environments — staging is
+> `mhstaging.getaiconsult.com.au` / `api.mhstaging.getaiconsult.com.au`, prod is
+> `madhats.*` / `api.madhats.*`. They must EXACTLY match the nginx `server_name`
+> and the host part of `VITE_API_BASE_URL` / `EMAIL_VERIFY_BASE_URL` /
+> `STUDIO_BASE_URL`. Unset fails loudly at boot (`ambiguous site definition:
+> http://`); *wrong* fails silently — see the blank-page gotcha below.
 > The nginx vhost is `nginx/madhats.conf.example` (install as a new site file;
 > every other nginx site is untouched). Plain-HTTP `:8000`/`:5173` still answer
 > **bound directly by Caddy, not through nginx**, but only as temporary 301
@@ -888,6 +896,16 @@ frontend`. Env is only read at container **start**, so always
   frontend origin; fix `.env`, recreate backend.
 - "Blocked request … host not allowed" → dev server only; set `ALLOWED_HOSTS=*`
   and recreate, or switch to the static prod build (no host check).
+- **The deployed nginx vhost is `sites-available/madhats-aidesignstudio.conf`
+  and is CERTBOT-MANAGED. Edit it in place; never re-copy it from the repo** —
+  certbot has written the `listen 443 ssl` block and cert paths into it, and
+  overwriting destroys them and forces a re-issue into the 5/week limit.
+  `nginx/madhats.conf.example` is the template for a *fresh* box only.
+- **Live bug worth recognising: nginx forwards, but to the WRONG service.**
+  The box's copy had `proxy_pass http://127.0.0.1:8080` from before the 8480
+  move, so the staging domain served whatever else owned 8080 — under our TLS
+  cert. Reads exactly like "nginx isn't routing to docker". Check the port in
+  the deployed file first, not the repo's.
 - **502 Bad Gateway from nginx** → the compose stack is down, or Caddy is not
   bound where nginx expects it. `docker compose -f docker-compose.prod.yml ps`,
   then `curl -sI -H 'Host: madhats.getaiconsult.com.au' http://127.0.0.1:8480/`
@@ -941,6 +959,15 @@ frontend`. Env is only read at container **start**, so always
 - **Mixed-content errors after deploy** → the frontend was recreated but not
   rebuilt, so the old `http://` API URL is still compiled into the bundle.
   `up -d --build frontend`.
+- **Testing proxy behaviour empirically** (how the header/hostname invariants
+  above were actually proven, rather than reasoned about): run an isolated
+  `caddy:2.8-alpine` + `mendhak/http-https-echo:31` pair on a spare loopback
+  port and `curl -H "Host: …"` at it. Two traps found doing exactly that:
+  **(1) a Caddyfile with ONE site block omits the host matcher entirely**, so
+  every Host matches and a one-block test "proves" the opposite of the truth —
+  always test with both site blocks. **(2) Docker Desktop on this Windows host
+  cannot bind-mount from the agent scratchpad temp path** ("not a directory");
+  write the test Caddyfile into a dir under the repo instead (and `rm -rf` it).
 - **`docker run -v` fails or mounts the wrong path on Windows/Git Bash** → prefix
   with `MSYS_NO_PATHCONV=1`, e.g.
   `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile`

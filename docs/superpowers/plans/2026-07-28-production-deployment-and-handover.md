@@ -137,6 +137,12 @@ deployment delays are "waiting for someone to grant access".
 > ports were already in use, so Caddy could not bind them or run ACME). nginx
 > proxies both hostnames to Caddy on `127.0.0.1:8480`; Caddy is the only
 > *container* publishing ports, and now only routes by hostname.
+>
+> **This topology is live-verified on the STAGING box (2026-07-29)** —
+> `mhstaging.getaiconsult.com.au` / `api.mhstaging.getaiconsult.com.au`, certs
+> issued by certbot, full chain working. Production (`madhats.*`) is the same
+> stack with different `STUDIO_HOST`/`API_HOST` values, so the checklist below
+> applies to both; where it says a hostname, substitute the environment's.
 
 ### 3.1 Machine 🔴
 
