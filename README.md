@@ -38,7 +38,9 @@ The customer can say "go back" at any step. Generated concepts are **previews on
 | Email | Resend (`RESEND_API_KEY`) |
 | Rate limiting | slowapi · **Observability** Sentry + structlog |
 
-**Multi-tenant (pooled):** one backend + one database serve many Shopify stores. A `stores` table holds each tenant; `store_id` scopes products and sessions. Each storefront widget sends its publishable key as the `X-Store-Key` header. Provider API keys are shared (env vars), never per-store. Onboard a store with `POST /admin/stores` then `POST /admin/stores/{id}/sync` (pulls its `products.json`).
+**Multi-tenant (pooled):** one backend + one database serve many Shopify stores. A `stores` table holds each tenant; `store_id` scopes products and sessions. Each storefront widget sends its publishable key as the `X-Store-Key` header. Provider API keys are shared (env vars), never per-store. Onboard a store with `POST /admin/stores` then `POST /admin/stores/{id}/sync`, which queues a catalogue pull.
+
+**Catalogue sync runs in a sidecar, not the backend.** Shopify's Cloudflare edge refuses the backend container's HTTP client from a hosting ASN (DigitalOcean, Hostinger) while accepting the Alpine-curl `catalogue-sync` sidecar's — from the same host, the same egress IP, seconds apart. It is not rate limiting, not the User-Agent, and not the request flags; all three were measured and ruled out. So the sidecar (`scripts/catalogue-sync.sh`) polls for due stores, fetches each page of `products.json` itself, and posts them back; the backend buffers the pages and writes `product_references` **once, at commit**, so an interrupted fetch leaves the live catalogue untouched. It also refuses to commit an empty catalogue. Every active store with a `shopify_domain` is refreshed automatically at **00:00 Australia/Sydney** — scheduled backend-side, because the sidecar's image has no tzdata.
 
 ---
 
@@ -138,7 +140,8 @@ All gated by the `X-Admin-Secret` header.
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /admin/stores` · `POST /admin/stores/{id}/sync` | Onboard a tenant; sync its `products.json` into the catalogue |
+| `POST /admin/stores` · `POST /admin/stores/{id}/sync` | Onboard a tenant; **queue** a catalogue refresh (the `catalogue-sync` sidecar fetches it — see below) |
+| `GET /admin/catalogue/sync-targets` · `POST /admin/stores/{id}/catalogue/{pages/{n},commit,abandon}` | Called **by** the catalogue-sync sidecar, not by humans: hand out due stores, ingest fetched pages, commit or discard |
 | `GET /admin/prompt-preview/{session_id}` | Show the exact fidelity-locked image prompt that would be sent to Gemini (prompt tuning / debugging) |
 | `POST /admin/deliveries/backfill?limit=&max_age_hours=` | Self-heal sweep: (re)send preview emails for verified leads whose design finished after verification or whose send failed |
 
@@ -163,6 +166,11 @@ Certificates are certbot's (`sudo certbot certificates`), not Caddy's.
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
+
+Besides `caddy`, `backend` and `frontend`, the prod stack runs two `curlimages/curl`
+sidecars: **`watchdog`** (self-heal sweeps every 180s — stalled renders, stranded
+deliveries) and **`catalogue-sync`** (fetches the Shopify catalogue, which the backend
+cannot do itself — see above). Neither exists in the dev stack.
 
 | Environment | Studio | API |
 |---|---|---|

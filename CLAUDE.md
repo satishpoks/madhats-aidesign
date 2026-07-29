@@ -60,7 +60,7 @@ The system serves **multiple Shopify stores** (10+) from one backend + one Supab
 - **Tenant routing:** each store's widget sends its **publishable** key as the `X-Store-Key` header. `app/api/deps.py:require_store` resolves it to a store. `/products` and `/sessions` are tenant-scoped; downstream routes inherit `store_id` from the session.
 - **Per-store config (in `stores` row):** persona name/avatar/greeting, brand (logo/colours/watermark), `allowed_origins`, `sales_notification_email`, `shopify_domain`.
 - **Shared (env vars):** all provider API keys (Gemini/Anthropic/Resend) — never per-store, never in the DB.
-- **Onboarding a store:** `POST /admin/stores` (auto-generates `public_key`) → `POST /admin/stores/{id}/sync` pulls that store's `products.json` into `product_references` (`app/services/catalogue_sync.py`).
+- **Onboarding a store:** `POST /admin/stores` (auto-generates `public_key`) → `POST /admin/stores/{id}/sync`, which **queues** a catalogue pull (`202 {"status":"queued"}`) picked up within ~30s by the `catalogue-sync` sidecar. It does not fetch inline — the backend container is refused by Shopify's edge; see the catalogue-sync entry under "Current implementation state" before changing anything here (`app/services/catalogue_ingest.py`, `scripts/catalogue-sync.sh`).
 - **Known gaps:** CORS is global and currently **open to all origins** — `ALLOWED_ORIGINS` defaults to `*`, which `main.py:build_cors_kwargs` serves via `allow_origin_regex=".*"` (reflects the request Origin, since a literal `*` is illegal with `allow_credentials=True`); set a comma-separated list to lock it down (per-store CORS still not implemented). (`/products` **is** paginated — `{items,total,limit,offset}`, verified against a 1283-product catalogue; the old note here claiming an uncapped 1000-row PostgREST response was stale.)
 
 ---
@@ -298,7 +298,10 @@ npx vitest run                                   # tests (npm test = watch mode,
 ```
 
 **Local default store key (X-Store-Key):** `mh_pk_madhats_local`.
-Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
+Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync` (queues; the
+`catalogue-sync` sidecar fetches within ~30s — it is a **prod-compose service**, so a dev
+stack has no catalogue sync unless you run the script yourself:
+`docker run --rm --network madhats-aidesign_default -e ADMIN_SECRET=… -e POLL_SECONDS=5 -v "$PWD/scripts/catalogue-sync.sh:/s.sh:ro" --entrypoint /bin/sh curlimages/curl:8.11.1 /s.sh`).
 
 ### Current implementation state
 - Frontend is the **Ricardo chatbot** (`frontend/src/components/ChatPanel`), backend-driven via `data.options`/`continuable`; the old mock studio screens are retired. Entry via `?product_id=…` (Shopify widget) or a dev product picker.
@@ -902,6 +905,14 @@ frontend`. Env is only read at container **start**, so always
 `--force-recreate`; hard-refresh the browser (old bundle is cached).
 
 **Gotchas checklist:**
+- **The catalogue stopped refreshing / "Sync catalogue" does nothing** → check
+  `docker compose -f docker-compose.prod.yml logs catalogue-sync`. That sidecar,
+  not the backend, makes the Shopify request (the backend container is refused
+  by Shopify's edge — see the catalogue-sync entry in §13). Silence with no
+  `polling …` line means it never started; `polling` but never a `store …` line
+  means nothing is being queued. It bind-mounts `scripts/catalogue-sync.sh`, so
+  a CRLF checkout of that file kills it with "bad interpreter" (`.gitattributes`
+  pins `*.sh` to LF).
 - `.env*` is git-ignored and excluded from images (`frontend/.dockerignore`) — a
   local `frontend/.env` can never leak into a build.
 - Wrong API host in the browser → rebuild frontend with the right
