@@ -774,11 +774,11 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 > pre-existing nginx owns :80/:443 and terminates TLS** (changed 2026-07-29 —
 > those ports were already taken, so Caddy could neither bind them nor run an
 > ACME HTTP-01 challenge). nginx proxies both hostnames to Caddy on
-> `127.0.0.1:8080`; Caddy issues no certificates and now only routes by
+> `127.0.0.1:8480`; Caddy issues no certificates and now only routes by
 > hostname to the frontend and backend containers over the compose network —
 > frontend at `https://madhats.getaiconsult.com.au`, backend at
 > `https://api.madhats.getaiconsult.com.au`. Chain:
-> `browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8080 --> containers`.
+> `browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8480 --> containers`.
 > The nginx vhost is `nginx/madhats.conf.example` (install as a new site file;
 > every other nginx site is untouched). Plain-HTTP `:8000`/`:5173` still answer
 > **bound directly by Caddy, not through nginx**, but only as temporary 301
@@ -887,7 +887,7 @@ frontend`. Env is only read at container **start**, so always
   and recreate, or switch to the static prod build (no host check).
 - **502 Bad Gateway from nginx** → the compose stack is down, or Caddy is not
   bound where nginx expects it. `docker compose -f docker-compose.prod.yml ps`,
-  then `curl -sI -H 'Host: madhats.getaiconsult.com.au' http://127.0.0.1:8080/`
+  then `curl -sI -H 'Host: madhats.getaiconsult.com.au' http://127.0.0.1:8480/`
   from the box — that is the exact hop nginx makes.
 - **404 from Caddy on every request (nginx itself is fine)** → nginx is not
   passing `proxy_set_header Host $host`. Caddy routes by hostname and matches
@@ -918,7 +918,7 @@ frontend`. Env is only read at container **start**, so always
   `X-Forwarded-For`. Drop either half and the backend sees one address (nginx's)
   for all traffic. Verify end to end, not per-hop: hit the site from two
   different public IPs and confirm they get independent rate-limit budgets.
-- **Removing the `127.0.0.1:` prefix from Caddy's `8080:80` mapping** publishes
+- **Removing the `127.0.0.1:` prefix from Caddy's `8480:80` mapping** publishes
   an unencrypted copy of the entire site *and* — because the backend runs
   `TRUSTED_PROXY_HOSTS: "*"` — lets a direct caller rotate `X-Forwarded-For` for
   a fresh rate-limit bucket per request. Same trap as re-adding `ports:` to
@@ -951,7 +951,7 @@ frontend`. Env is only read at container **start**, so always
   `http://localhost:5173` for that session.
   **On the prod box this is now guaranteed** — nginx holds 80 and 443 — which is
   one more reason the dev stack must never be run there. The prod stack is
-  unaffected: its Caddy binds `127.0.0.1:8080` instead.
+  unaffected: its Caddy binds `127.0.0.1:8480` instead.
 
 ---
 

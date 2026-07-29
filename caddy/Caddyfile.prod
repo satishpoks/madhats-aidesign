@@ -3,7 +3,7 @@
 # TOPOLOGY (changed 2026-07-29). nginx on the host owns :80 and :443 and is the
 # TLS terminator; this Caddy no longer does either:
 #
-#   browser --TLS--> host nginx :443 --plain HTTP--> caddy 127.0.0.1:8080
+#   browser --TLS--> host nginx :443 --plain HTTP--> caddy 127.0.0.1:8480
 #                                                      |-- frontend:5173
 #                                                      `-- backend:8000
 #

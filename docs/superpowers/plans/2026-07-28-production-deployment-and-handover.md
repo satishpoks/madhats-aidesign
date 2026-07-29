@@ -135,7 +135,7 @@ deployment delays are "waiting for someone to grant access".
 > Prod runs on a **self-hosted Docker box**, not Railway. The box's own
 > **nginx** owns `:80`/`:443` and terminates TLS (changed 2026-07-29 — those
 > ports were already in use, so Caddy could not bind them or run ACME). nginx
-> proxies both hostnames to Caddy on `127.0.0.1:8080`; Caddy is the only
+> proxies both hostnames to Caddy on `127.0.0.1:8480`; Caddy is the only
 > *container* publishing ports, and now only routes by hostname.
 
 ### 3.1 Machine 🔴
@@ -158,7 +158,7 @@ deployment delays are "waiting for someone to grant access".
   sudo ufw allow 22 && sudo ufw allow 80 && sudo ufw allow 443
   sudo ufw enable && sudo ufw status verbose
   ```
-  > 80/443 are **nginx's** (it terminates TLS). Do **not** open `8080` — Caddy
+  > 80/443 are **nginx's** (it terminates TLS). Do **not** open `8480` — Caddy
   > binds it on `127.0.0.1` only, and it carries the site in cleartext.
 - ☐ **3.2.2** ⚠️ **Ports 8000 and 5173 are published by the prod Caddy for
   *legacy redirects only*.** If you open them at the firewall, do so knowingly
@@ -444,13 +444,13 @@ openssl rand -hex 32
   > own state only, and pruning it no longer risks the Let's Encrypt limit.
 - ☐ **7.2b** 🔴 The nginx→Caddy hop works and Caddy routes by hostname:
   ```bash
-  curl -sI -H 'Host: madhats.getaiconsult.com.au'     http://127.0.0.1:8080/
-  curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8080/health
+  curl -sI -H 'Host: madhats.getaiconsult.com.au'     http://127.0.0.1:8480/
+  curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8480/health
   ```
   > A 404 here means nginx is not sending `proxy_set_header Host $host`.
 - ☐ **7.2c** 🔴 Caddy's plain-HTTP port is **loopback-only** — `docker compose -f
-  docker-compose.prod.yml ps` must show `127.0.0.1:8080->80/tcp`, never
-  `0.0.0.0:8080`. A public bind exposes the whole site in cleartext AND makes
+  docker-compose.prod.yml ps` must show `127.0.0.1:8480->80/tcp`, never
+  `0.0.0.0:8480`. A public bind exposes the whole site in cleartext AND makes
   `TRUSTED_PROXY_HOSTS: "*"` a rate-limit bypass.
 - ☐ **7.3** 🟡 `http://` redirects to `https://` on both hosts
 - ☐ **7.4** 🟡 No mixed-content warnings anywhere in the studio
@@ -625,7 +625,7 @@ profile, with a **real inbox you control**:
   | No images anywhere, mixed-content errors | `TRUSTED_PROXY_HOSTS` not reaching backend | §7.5 |
   | Browser calls `localhost:8000` | stale `VITE_API_BASE_URL` baked in | rebuild frontend |
   | Widespread 429s | same as above, or the nginx `X-Real-IP` relay is broken | §7.5, §7.2b |
-  | `502 Bad Gateway` from nginx | compose stack down, or Caddy not on `127.0.0.1:8080` | §7.2b |
+  | `502 Bad Gateway` from nginx | compose stack down, or Caddy not on `127.0.0.1:8480` | §7.2b |
   | `404` on everything, nginx itself healthy | nginx missing `proxy_set_header Host $host` | §7.2b |
   | Cert expired / renewal failing | certbot timer (certs are nginx's now, not `caddy_data`) | §7.2 |
   | Designs never delivered | Gemini quota 429 / watchdog down | §4.3.5, §10.3 |

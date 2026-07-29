@@ -92,19 +92,26 @@ services:
   # Hostname routing for both web services. The ONLY container publishing ports.
   #
   # NOT the TLS terminator any more (changed 2026-07-29): the host's existing
-  # nginx owns :80/:443 and terminates TLS, then proxies to 127.0.0.1:8080 here.
+  # nginx owns :80/:443 and terminates TLS, then proxies to 127.0.0.1:8480 here.
   # Caddy therefore issues no certificates and needs no ACME_EMAIL.
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
     ports:
+      # 8480, NOT the conventional 8080: on the production box 8080 was already
+      # taken (docker refused to start — "failed to bind host port
+      # 127.0.0.1:8080: address already in use"), which is normal on a host
+      # whose nginx already reverse-proxies something. The number is arbitrary
+      # and internal — it only has to match `proxy_pass` in the nginx vhost
+      # (nginx/madhats.conf.example). Change both together or nginx 502s.
+      #
       # LOOPBACK-BOUND ON PURPOSE. Only the host's nginx should reach this; the
       # 127.0.0.1 prefix keeps the plain-HTTP hop off the public interface.
-      # Dropping the prefix ("8080:80") would publish an unencrypted copy of the
+      # Dropping the prefix ("8480:80") would publish an unencrypted copy of the
       # whole site — and, because the backend runs TRUSTED_PROXY_HOSTS=*, would
       # also let a direct caller spoof X-Forwarded-For for a fresh rate-limit
       # bucket per request, exactly as the backend `ports:` warning above says.
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8480:80"
       # These two stay PUBLIC: they are redirect-only, nginx does not own them,
       # and already-delivered customer email links point at them.
       - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d

@@ -11,10 +11,10 @@
 # WHY THIS EXISTS: ports 80 and 443 on this box are already owned by nginx, so
 # the compose stack's Caddy cannot bind them and cannot run an ACME HTTP-01
 # challenge. nginx therefore terminates TLS for both MadHats hostnames and
-# proxies to Caddy on 127.0.0.1:8080, which routes by hostname to the frontend
+# proxies to Caddy on 127.0.0.1:8480, which routes by hostname to the frontend
 # and backend containers. See caddy/Caddyfile.prod.
 #
-#   browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8080 --> containers
+#   browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8480 --> containers
 #
 # ORDER OF OPERATIONS: apply the HTTP-only block first, then run certbot, which
 # rewrites this file IN PLACE — adding a `listen 443 ssl` block with the same
@@ -45,7 +45,7 @@
 #   * The frontend bundle has https://api.madhats… COMPILED IN, so the browser
 #     calls HTTPS no matter which scheme served the page.
 # Test this stage with curl, not a browser:
-#   curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8080/health
+#   curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8480/health
 #   curl -sI http://api.madhats.getaiconsult.com.au/health
 
 # ---------------------------------------------------------------------------
@@ -88,7 +88,10 @@ server {
     # "SO WHAT WORKS WHEN" caveat above: assets and API calls still target
     # https, so use curl here, not a browser.
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        # 8480 must match the caddy port mapping in docker-compose.prod.yml.
+        # It is 8480 rather than the conventional 8080 because 8080 was already
+        # in use on the box. Change both files together or this 502s.
+        proxy_pass http://127.0.0.1:8480;
         proxy_http_version 1.1;
 
         proxy_set_header Host              $host;
@@ -127,7 +130,7 @@ server {
 #     ssl_certificate_key /etc/letsencrypt/live/madhats.getaiconsult.com.au/privkey.pem;
 #
 #     location / {
-#         proxy_pass http://127.0.0.1:8080;
+#         proxy_pass http://127.0.0.1:8480;
 #         proxy_http_version 1.1;
 #
 #         proxy_set_header Host              $host;
