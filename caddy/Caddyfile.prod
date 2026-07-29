@@ -1,45 +1,71 @@
-# Production TLS termination.
+# Production request routing — BEHIND an existing host nginx.
 #
-# Certificates are obtained from Let's Encrypt over HTTP-01 automatically, and
-# renewed without a cron job. Caddy also redirects :80 -> :443 by itself.
+# TOPOLOGY (changed 2026-07-29). nginx on the host owns :80 and :443 and is the
+# TLS terminator; this Caddy no longer does either:
 #
-# REQUIRED: the `caddy_data` volume must be mounted at /data. That is where
-# issued certificates and the ACME account key live. Without it every restart
-# re-issues from scratch, and Let's Encrypt's limit of 5 duplicate certificates
-# per week will lock us out of our own domain.
-{
-	# Address Let's Encrypt uses for certificate-expiry notices.
-	#
-	# REQUIRED, and enforced by docker-compose.prod.yml's `${ACME_EMAIL:?...}`.
-	# Caddy's `email` directive rejects an empty argument at PARSE time
-	# ("wrong argument count"), so a blank value does not degrade to "no
-	# notices" — it stops the proxy from starting at all, taking the whole
-	# site down on a fresh deploy. Compose therefore refuses to start with a
-	# clear message rather than letting Caddy fail cryptically.
-	email {$ACME_EMAIL}
-}
+#   browser --TLS--> host nginx :443 --plain HTTP--> caddy 127.0.0.1:8080
+#                                                      |-- frontend:5173
+#                                                      `-- backend:8000
+#
+# Caddy's job is now ONLY hostname routing (which of the two services) plus the
+# legacy plain-HTTP redirects. It issues no certificates: every site block below
+# is `http://`-scoped, which tells Caddy to serve plain HTTP and never attempt
+# ACME. There is consequently no `email` / ACME_EMAIL setting any more — see
+# docker-compose.prod.yml.
+#
+# The `caddy_data` volume is retained. It no longer holds Let's Encrypt certs,
+# but Caddy still writes state there; removing it is a separate change.
+#
+# ---------------------------------------------------------------------------
+# THE FORWARDED HEADERS ARE LOAD-BEARING. Both lines in each block below fix a
+# specific production failure, and both are consequences of nginx (not Caddy)
+# now being the TLS terminator:
+#
+# 1. `header_up X-Forwarded-Proto https`
+#    The nginx -> Caddy hop is plain HTTP, so Caddy would otherwise pass
+#    X-Forwarded-Proto: http to the backend. uvicorn's ProxyHeadersMiddleware
+#    rewrites scope["scheme"] from that header, and app/storage.py:media_url
+#    builds EVERY private-asset URL from request.base_url (~16 call sites: brand
+#    logo, hat-type angles, company graphics, blank-hat composites, session
+#    view_images, admin thumbnails, quote components). Get this wrong and all of
+#    them come back http://, the browser blocks them as mixed content on the
+#    HTTPS page, and the studio renders with no imagery at all.
+#
+#    Setting it explicitly here (rather than relying on Caddy to relay nginx's
+#    value) is deliberate: it is deterministic and does not depend on Caddy's
+#    trusted_proxies defaults, which govern whether an inbound X-Forwarded-*
+#    header from an untrusted peer is honoured or discarded.
+#
+# 2. `header_up X-Forwarded-For {http.request.header.X-Real-IP}`
+#    {remote_host} — what this file used to send — is now the address of the
+#    HOST NGINX, not the customer. Sending it would put every customer in one
+#    rate-limit bucket (ProxyHeadersMiddleware recovers the client IP from
+#    X-Forwarded-For, trusting the LEFTMOST entry), so everyone starts getting
+#    429s under mild load.
+#
+#    X-Real-IP is used as the carrier — NOT X-Forwarded-For — precisely because
+#    Caddy applies its own X-Forwarded-For handling (appending, and discarding
+#    unsolicited inbound values from untrusted peers). X-Real-IP is outside that
+#    machinery, so it arrives verbatim and the placeholder is reliable.
+#
+#    THE TRUST BOUNDARY IS NOW NGINX. This is only safe because the nginx config
+#    sets `proxy_set_header X-Real-IP $remote_addr` — $remote_addr is the real
+#    peer address and REPLACES anything the client sent. If that line is ever
+#    changed to relay a client-supplied value, an attacker can hand themselves a
+#    fresh rate-limit bucket per request. See nginx/madhats.conf.example.
+# ---------------------------------------------------------------------------
 
-# `header_up X-Forwarded-For {remote_host}` REPLACES any client-supplied value
-# with the real peer address, rather than letting one through.
-#
-# This is load-bearing for rate limiting, not decoration. uvicorn's
-# ProxyHeadersMiddleware trusts the LEFTMOST X-Forwarded-For entry (verified:
-# "9.9.9.9, 203.0.113.50" resolves to 9.9.9.9). So if a client-supplied value
-# ever survived to the backend, an attacker could hand themselves a fresh
-# rate-limit bucket per request through the public HTTPS endpoint — the closed
-# port 8000 would not help. Caddy 2.8 already discards unsolicited
-# X-Forwarded-For (verified empirically), but that is a Caddy default our repo
-# never states; this line pins the invariant where it can be read and reviewed.
-
-madhats.getaiconsult.com.au {
+http://madhats.getaiconsult.com.au {
 	reverse_proxy frontend:5173 {
-		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {http.request.header.X-Real-IP}
 	}
 }
 
-api.madhats.getaiconsult.com.au {
+http://api.madhats.getaiconsult.com.au {
 	reverse_proxy backend:8000 {
-		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto https
+		header_up X-Forwarded-For {http.request.header.X-Real-IP}
 	}
 }
 
@@ -49,8 +75,10 @@ api.madhats.getaiconsult.com.au {
 # ports would dead-end every one of them. {uri} preserves path AND query, so the
 # tokens survive the redirect.
 #
-# These blocks are address-only (no hostname), so Caddy serves them over plain
-# HTTP and does not attempt certificates for them.
+# These stay bound DIRECTLY to the host (docker-compose.prod.yml still publishes
+# 8000 and 5173 publicly) rather than going through nginx: nginx owns 80/443
+# only, and these two ports are unclaimed. They are address-only blocks, so
+# Caddy serves them over plain HTTP and attempts no certificate.
 #
 # REMOVE once outstanding tokens have expired: the longest-lived is the quote
 # token at QUOTE_TOKEN_TTL_SECONDS = 2592000 (30 days).

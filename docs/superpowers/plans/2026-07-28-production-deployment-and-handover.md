@@ -88,10 +88,22 @@ deployment delays are "waiting for someone to grant access".
 - ☐ **1.3.2** Frontend production build succeeds locally: `cd frontend && npm run build`
 - ☐ **1.3.3** Prod Caddyfile validates:
   ```bash
-  MSYS_NO_PATHCONV=1 docker run --rm -e ACME_EMAIL=ops@example.com \
+  MSYS_NO_PATHCONV=1 docker run --rm \
     -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" \
     caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile
   ```
+  > Expect the warning `server is listening only on the HTTP port, so no
+  > automatic HTTPS will be applied` — that is CORRECT as of 2026-07-29. The
+  > box's nginx terminates TLS; Caddy is a plain-HTTP hostname router behind it.
+  > `-e ACME_EMAIL=…` is no longer needed (the `email` directive is gone).
+- ☐ **1.3.3b** nginx vhost installed and TLS issued on the box — see
+  `nginx/madhats.conf.example` and CLAUDE.md §13c ("nginx side"):
+  `sudo nginx -t && sudo systemctl reload nginx`, then
+  `sudo certbot --nginx --redirect -d … -d …`.
+  Confirm BOTH hostnames resolve to the box first (Let's Encrypt: 5 duplicate
+  certs/week). certbot rewrites the site file: end state is `http://` → 301 →
+  `https://`, `https://` serves. Pre-certbot, only HTTP answers and it is a
+  connectivity test only — assets/API still target HTTPS, so use `curl -sI`.
 - ☐ **1.3.4** Branch merged to `master` (or the agreed release branch) and tagged, e.g. `git tag v1.0.0-prod && git push --tags`
 
 ---
@@ -120,8 +132,11 @@ deployment delays are "waiting for someone to grant access".
 
 ## §3. Server provisioning
 
-> Prod runs on a **self-hosted Docker box**, not Railway. Caddy is the only
-> service publishing ports.
+> Prod runs on a **self-hosted Docker box**, not Railway. The box's own
+> **nginx** owns `:80`/`:443` and terminates TLS (changed 2026-07-29 — those
+> ports were already in use, so Caddy could not bind them or run ACME). nginx
+> proxies both hostnames to Caddy on `127.0.0.1:8080`; Caddy is the only
+> *container* publishing ports, and now only routes by hostname.
 
 ### 3.1 Machine 🔴
 
@@ -143,6 +158,8 @@ deployment delays are "waiting for someone to grant access".
   sudo ufw allow 22 && sudo ufw allow 80 && sudo ufw allow 443
   sudo ufw enable && sudo ufw status verbose
   ```
+  > 80/443 are **nginx's** (it terminates TLS). Do **not** open `8080` — Caddy
+  > binds it on `127.0.0.1` only, and it carries the site in cleartext.
 - ☐ **3.2.2** ⚠️ **Ports 8000 and 5173 are published by the prod Caddy for
   *legacy redirects only*.** If you open them at the firewall, do so knowingly
   and temporarily (§9.5). They serve 301s to the HTTPS hosts so
@@ -179,10 +196,11 @@ deployment delays are "waiting for someone to grant access".
 
 ## §4. DNS & third-party services
 
-> Do DNS **before** the first deploy. Caddy retries ACME against Let's Encrypt
-> while DNS is unresolved, and that is the fastest way to burn the
-> **duplicate-certificate rate limit (5/week)** and lock yourself out of
-> issuance for the real domain.
+> Do DNS **before** running certbot. Retrying ACME against Let's Encrypt while
+> DNS is unresolved is the fastest way to burn the **duplicate-certificate rate
+> limit (5/week)** and lock yourself out of issuance for the real domain. (As of
+> 2026-07-29 the ACME client is **certbot on the host nginx**, not Caddy — the
+> risk moved, it did not go away.)
 
 ### 4.1 Subdomain records 🔴
 
@@ -197,7 +215,7 @@ deployment delays are "waiting for someone to grant access".
   Both must return the server IP. **Do not proceed until they do.**
 - ☐ **4.1.5** If behind Cloudflare: set the records to **DNS-only (grey cloud)**
   for initial issuance. Orange-cloud proxying intercepts the ACME HTTP-01
-  challenge and Caddy will never get a cert.
+  challenge and certbot will never get a cert.
 
 ### 4.2 Supabase 🔴
 
@@ -333,7 +351,7 @@ deployment delays are "waiting for someone to grant access".
 | `SENTRY_DSN` | | ☐ |
 | `CHATBOT_PERSONA_NAME` | `Ricardo` | ☐ |
 | `CANVAS_ORCHESTRATOR_V2` | per decision 1.2.4 | ☐ |
-| `ACME_EMAIL` | 🔴 **required** — a blank value is a Caddy parse error and the proxy will not boot | ☐ |
+| `ACME_EMAIL` | ⚪ **no longer used** (2026-07-29) — nginx holds the certs; blank is harmless | ☐ |
 | `TRUSTED_PROXY_HOSTS` | 🔴 **leave BLANK** — compose sets it itself, next to the port mapping that justifies it | ☐ |
 | `TLS_PROXY_HOST` | unused in prod (static build, no HMR) | ☐ |
 
@@ -408,20 +426,32 @@ openssl rand -hex 32
 
 ## §7. TLS / SSL
 
-Caddy obtains and renews Let's Encrypt certs automatically. The work is
-verifying it, not configuring it.
+**As of 2026-07-29 TLS lives in the host nginx, not Caddy** (nginx already owned
+`:80`/`:443`). certbot obtains and renews; Caddy issues nothing.
 
 - ☐ **7.1** 🔴 Both hosts serve valid certs:
   ```bash
   curl -vI https://madhats.getaiconsult.com.au 2>&1 | grep -Ei "issuer|expire|subject"
   curl -vI https://api.madhats.getaiconsult.com.au 2>&1 | grep -Ei "issuer|expire|subject"
   ```
-- ☐ **7.2** 🔴 `caddy_data` volume exists and is **never pruned**:
+- ☐ **7.2** 🔴 certbot holds both names and auto-renewal is armed:
   ```bash
-  docker volume ls | grep caddy_data
+  sudo certbot certificates                  # both hostnames listed, not expired
+  sudo systemctl status certbot.timer        # active
+  sudo certbot renew --dry-run               # renewal actually works
   ```
-  > *Symptom if missing:* certs vanish and are re-issued on **every restart**,
-  > burning the Let's Encrypt duplicate limit (5/week) until issuance is blocked.
+  > `caddy_data` is **no longer** where certs live — it is retained for Caddy's
+  > own state only, and pruning it no longer risks the Let's Encrypt limit.
+- ☐ **7.2b** 🔴 The nginx→Caddy hop works and Caddy routes by hostname:
+  ```bash
+  curl -sI -H 'Host: madhats.getaiconsult.com.au'     http://127.0.0.1:8080/
+  curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8080/health
+  ```
+  > A 404 here means nginx is not sending `proxy_set_header Host $host`.
+- ☐ **7.2c** 🔴 Caddy's plain-HTTP port is **loopback-only** — `docker compose -f
+  docker-compose.prod.yml ps` must show `127.0.0.1:8080->80/tcp`, never
+  `0.0.0.0:8080`. A public bind exposes the whole site in cleartext AND makes
+  `TRUSTED_PROXY_HOSTS: "*"` a rate-limit bypass.
 - ☐ **7.3** 🟡 `http://` redirects to `https://` on both hosts
 - ☐ **7.4** 🟡 No mixed-content warnings anywhere in the studio
 - ☐ **7.5** 🔴 **`TRUSTED_PROXY_HOSTS` is reaching the backend:**
@@ -594,8 +624,10 @@ profile, with a **real inbox you control**:
   |---|---|---|
   | No images anywhere, mixed-content errors | `TRUSTED_PROXY_HOSTS` not reaching backend | §7.5 |
   | Browser calls `localhost:8000` | stale `VITE_API_BASE_URL` baked in | rebuild frontend |
-  | Widespread 429s | same as above (shared rate-limit bucket) | §7.5 |
-  | Certs re-issued every restart | `caddy_data` volume pruned | §7.2 |
+  | Widespread 429s | same as above, or the nginx `X-Real-IP` relay is broken | §7.5, §7.2b |
+  | `502 Bad Gateway` from nginx | compose stack down, or Caddy not on `127.0.0.1:8080` | §7.2b |
+  | `404` on everything, nginx itself healthy | nginx missing `proxy_set_header Host $host` | §7.2b |
+  | Cert expired / renewal failing | certbot timer (certs are nginx's now, not `caddy_data`) | §7.2 |
   | Designs never delivered | Gemini quota 429 / watchdog down | §4.3.5, §10.3 |
   | Customers can't finish the funnel | verification email in spam | §4.4 |
   | PostgREST `42703` on generation write | migration unapplied | §4.2.5 |
@@ -805,8 +837,8 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## Appendix B — The five mistakes that cost the most time
 
-1. **Deploying before DNS resolves** → burns the Let's Encrypt duplicate-cert
-   limit (5/week) and blocks issuance for the real domain.
+1. **Running certbot before DNS resolves** → burns the Let's Encrypt
+   duplicate-cert limit (5/week) and blocks issuance for the real domain.
 2. **Recreating instead of rebuilding the frontend** after a `VITE_API_BASE_URL`
    change → total outage that looks like a backend fault.
 3. **`TRUSTED_PROXY_HOSTS` not reaching the backend** → no imagery renders

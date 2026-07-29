@@ -1,0 +1,143 @@
+# MadHats AI Design Studio — host nginx vhosts.
+#
+# Install on the production box as a NEW site file, leaving every existing nginx
+# site untouched:
+#
+#   sudo cp nginx/madhats.conf.example /etc/nginx/sites-available/madhats.conf
+#   sudo ln -s /etc/nginx/sites-available/madhats.conf /etc/nginx/sites-enabled/
+#   # (RHEL/Alma/Rocky: drop it in /etc/nginx/conf.d/madhats.conf instead — no symlink)
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# WHY THIS EXISTS: ports 80 and 443 on this box are already owned by nginx, so
+# the compose stack's Caddy cannot bind them and cannot run an ACME HTTP-01
+# challenge. nginx therefore terminates TLS for both MadHats hostnames and
+# proxies to Caddy on 127.0.0.1:8080, which routes by hostname to the frontend
+# and backend containers. See caddy/Caddyfile.prod.
+#
+#   browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8080 --> containers
+#
+# ORDER OF OPERATIONS: apply the HTTP-only block first, then run certbot, which
+# rewrites this file IN PLACE — adding a `listen 443 ssl` block with the same
+# proxy config, and converting the :80 block into a 301 to https:
+#
+#   sudo certbot --nginx --redirect \
+#     -d madhats.getaiconsult.com.au -d api.madhats.getaiconsult.com.au
+#
+# (`--redirect` avoids the interactive prompt and is the behaviour we want: after
+# issuance, plain HTTP should redirect, not serve.)
+#
+# Confirm both hostnames resolve to this box BEFORE running certbot — retries
+# against an unresolved name are the fastest way to hit Let's Encrypt's rate
+# limit of 5 duplicate certificates per week.
+#
+# SO WHAT WORKS WHEN:
+#
+#   stage              http://…                    https://…
+#   -----------------  --------------------------  -------------------------
+#   before certbot     proxies (see caveat below)  NOT served for these names
+#   after certbot      301 -> https                proxies  <- the end state
+#
+# CAVEAT on the pre-certbot stage — it is a CONNECTIVITY smoke test only, not a
+# working studio, and that is expected rather than a fault:
+#   * Caddy sets X-Forwarded-Proto: https unconditionally (its own hop from here
+#     is always plain HTTP), so the backend builds every asset URL as https://
+#     — and none of those resolve until the certificate exists.
+#   * The frontend bundle has https://api.madhats… COMPILED IN, so the browser
+#     calls HTTPS no matter which scheme served the page.
+# Test this stage with curl, not a browser:
+#   curl -sI -H 'Host: api.madhats.getaiconsult.com.au' http://127.0.0.1:8080/health
+#   curl -sI http://api.madhats.getaiconsult.com.au/health
+
+# ---------------------------------------------------------------------------
+# The three proxy_set_header lines below are LOAD-BEARING, not boilerplate.
+# Each one maps to a specific, already-documented production failure:
+#
+#   Host              — Caddy routes by hostname. Without the real Host header
+#                       it sees nginx's default and matches NEITHER site block,
+#                       so every request 404s at the proxy.
+#
+#   X-Forwarded-Proto — the backend rebuilds every private-asset URL (product
+#                       photos, brand logo, admin thumbnails, quote components)
+#                       from the request scheme. If this says http, the browser
+#                       blocks all of them as mixed content and the studio
+#                       renders with no imagery at all. Caddy re-asserts https
+#                       on its own hop too; both layers must agree.
+#
+#   X-Real-IP         — carries the true client address through to the backend's
+#                       rate limiter. Caddy converts it back into
+#                       X-Forwarded-For (X-Real-IP is used as the carrier
+#                       because Caddy rewrites X-Forwarded-For on its own hop).
+#                       Without it every customer shares one rate-limit bucket
+#                       and starts getting 429s under mild load.
+#
+# SECURITY INVARIANT: X-Real-IP is set from $remote_addr — the real TCP peer —
+# which REPLACES anything the client sent. Never change this to relay a
+# client-supplied header (e.g. $http_x_forwarded_for or $proxy_add_x_forwarded_for
+# in a position that survives): nginx is the trust boundary now, and a spoofable
+# value here is a rate-limit bypass on the public endpoint.
+# ---------------------------------------------------------------------------
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name madhats.getaiconsult.com.au api.madhats.getaiconsult.com.au;
+
+    # certbot --nginx replaces this block's contents with a 301 to https and
+    # adds the TLS server block. Until then it proxies over plain HTTP so you
+    # can smoke-test the nginx -> Caddy -> container path — but see the
+    # "SO WHAT WORKS WHEN" caveat above: assets and API calls still target
+    # https, so use curl here, not a browser.
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Image generation is slow and the studio polls long-running renders.
+        # nginx's 60s default would cut those off mid-flight.
+        proxy_connect_timeout 30s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+
+        # Customers upload logos and artwork; the backend's own size checks
+        # should be what rejects an oversized file, not a 413 from nginx.
+        client_max_body_size 25m;
+    }
+}
+
+# ---------------------------------------------------------------------------
+# TLS blocks. certbot --nginx will generate equivalents automatically; this is
+# what the result should look like if you prefer to write it yourself, or if
+# you already hold a *.getaiconsult.com.au wildcard.
+#
+# Uncomment ONLY if you are not letting certbot manage this file — running both
+# gives you duplicate server blocks for the same name and nginx will warn
+# ("conflicting server name") and ignore one of them.
+# ---------------------------------------------------------------------------
+#
+# server {
+#     listen 443 ssl;
+#     listen [::]:443 ssl;
+#     http2 on;
+#     server_name madhats.getaiconsult.com.au api.madhats.getaiconsult.com.au;
+#
+#     ssl_certificate     /etc/letsencrypt/live/madhats.getaiconsult.com.au/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/madhats.getaiconsult.com.au/privkey.pem;
+#
+#     location / {
+#         proxy_pass http://127.0.0.1:8080;
+#         proxy_http_version 1.1;
+#
+#         proxy_set_header Host              $host;
+#         proxy_set_header X-Real-IP         $remote_addr;
+#         proxy_set_header X-Forwarded-Proto $scheme;
+#
+#         proxy_connect_timeout 30s;
+#         proxy_send_timeout    300s;
+#         proxy_read_timeout    300s;
+#
+#         client_max_body_size 25m;
+#     }
+# }

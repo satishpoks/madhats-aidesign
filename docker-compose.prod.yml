@@ -24,10 +24,10 @@
 #                       kept open for now). Set a comma-separated list to lock
 #                       down; it MUST then include the frontend origin, e.g.
 #                       https://madhats.getaiconsult.com.au
-#   ACME_EMAIL          REQUIRED — Caddy's `email` directive rejects a blank
-#                       value at parse time, so an empty ACME_EMAIL stops the
-#                       proxy booting. This file enforces it with
-#                       `${ACME_EMAIL:?...}` on the caddy service below.
+#   ACME_EMAIL          NO LONGER USED. The host nginx terminates TLS as of
+#                       2026-07-29, so Caddy issues no certificates and the
+#                       `email` directive is gone from Caddyfile.prod. Leaving a
+#                       stale value in .env is harmless; nothing reads it.
 #
 # NOTE: the backend here runs the BUILT image (no source bind-mount), so a CORS
 # *code* change needs a rebuild, not just recreate:
@@ -72,8 +72,9 @@ services:
       args:
         # Compiled into the JS bundle at build time (Vite inlines VITE_*).
         #
-        # `:?` for the same reason as ACME_EMAIL below — a silent default here
-        # is MORE consequential, not less. If .env is missing or mistypes the
+        # `:?` makes compose refuse to build with this message rather than
+        # falling back silently. A silent default here is the single most
+        # consequential one in the file. If .env is missing or mistypes the
         # key, a `:-` fallback builds cleanly, certs issue, and the production
         # bundle calls http://localhost:8000: a total outage that presents as a
         # backend fault. Refusing to build is the cheaper failure.
@@ -88,23 +89,32 @@ services:
     depends_on:
       - backend
 
-  # TLS termination for both web services. The ONLY container publishing ports.
+  # Hostname routing for both web services. The ONLY container publishing ports.
+  #
+  # NOT the TLS terminator any more (changed 2026-07-29): the host's existing
+  # nginx owns :80/:443 and terminates TLS, then proxies to 127.0.0.1:8080 here.
+  # Caddy therefore issues no certificates and needs no ACME_EMAIL.
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
     ports:
-      - "80:80"     # ACME HTTP-01 challenge + redirect to 443
-      - "443:443"
+      # LOOPBACK-BOUND ON PURPOSE. Only the host's nginx should reach this; the
+      # 127.0.0.1 prefix keeps the plain-HTTP hop off the public interface.
+      # Dropping the prefix ("8080:80") would publish an unencrypted copy of the
+      # whole site — and, because the backend runs TRUSTED_PROXY_HOSTS=*, would
+      # also let a direct caller spoof X-Forwarded-For for a fresh rate-limit
+      # bucket per request, exactly as the backend `ports:` warning above says.
+      - "127.0.0.1:8080:80"
+      # These two stay PUBLIC: they are redirect-only, nginx does not own them,
+      # and already-delivered customer email links point at them.
       - "8000:8000" # legacy redirect only — see Caddyfile.prod, remove after 30d
       - "5173:5173" # legacy redirect only — see Caddyfile.prod, remove after 30d
-    environment:
-      # `:?` makes compose refuse to start with this message when the value is
-      # missing. Required because Caddy's `email` directive rejects a blank
-      # argument at parse time — a silent default would take the site down.
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env - Caddy needs it for Let's Encrypt expiry notices}
     volumes:
       - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data      # MANDATORY: issued certs live here
+      # Retained. No longer holds Let's Encrypt certificates (nginx owns TLS
+      # now), but Caddy still keeps state here. Removing it is a separate,
+      # deliberate change — keep it if TLS is ever moved back into Caddy.
+      - caddy_data:/data
       - caddy_config:/config
     depends_on:
       - backend

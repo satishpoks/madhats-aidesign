@@ -770,16 +770,33 @@ Onboard another store: `POST /admin/stores` → `POST /admin/stores/{id}/sync`.
 
 ## 13c. Deployment — Production
 
-> Prod runs on a self-hosted box (Docker), **not** Railway. Caddy is the only
-> service publishing ports; it terminates TLS and reverse-proxies by hostname
-> to the backend and frontend containers over the internal compose network —
+> Prod runs on a self-hosted box (Docker), **not** Railway. **The box's
+> pre-existing nginx owns :80/:443 and terminates TLS** (changed 2026-07-29 —
+> those ports were already taken, so Caddy could neither bind them nor run an
+> ACME HTTP-01 challenge). nginx proxies both hostnames to Caddy on
+> `127.0.0.1:8080`; Caddy issues no certificates and now only routes by
+> hostname to the frontend and backend containers over the compose network —
 > frontend at `https://madhats.getaiconsult.com.au`, backend at
-> `https://api.madhats.getaiconsult.com.au`. Plain-HTTP `:8000`/`:5173` still
-> answer, but only as temporary 301 redirects to the HTTPS hosts (see the
-> "Legacy plain-HTTP ports" block in `caddy/Caddyfile.prod`) — kept solely so
-> already-delivered signed email links (verification, quote) don't dead-end,
-> and slated for removal once those tokens expire. Supabase is the hosted
-> project (URL/keys in `.env`).
+> `https://api.madhats.getaiconsult.com.au`. Chain:
+> `browser --TLS--> nginx :443 --plain HTTP--> caddy 127.0.0.1:8080 --> containers`.
+> The nginx vhost is `nginx/madhats.conf.example` (install as a new site file;
+> every other nginx site is untouched). Plain-HTTP `:8000`/`:5173` still answer
+> **bound directly by Caddy, not through nginx**, but only as temporary 301
+> redirects to the HTTPS hosts (see the "Legacy plain-HTTP ports" block in
+> `caddy/Caddyfile.prod`) — kept solely so already-delivered signed email links
+> (verification, quote) don't dead-end, and slated for removal once those tokens
+> expire. Supabase is the hosted project (URL/keys in `.env`).
+>
+> **Three forwarded headers hold this together, one per known outage.** nginx
+> sets `Host`, `X-Real-IP` and `X-Forwarded-Proto`; Caddy re-asserts
+> `X-Forwarded-Proto: https` (its own hop from nginx is plain HTTP, so it would
+> otherwise report `http` and every image would be mixed-content-blocked) and
+> converts `X-Real-IP` back into `X-Forwarded-For` (`{remote_host}` is now
+> *nginx's* address, which would put every customer in one rate-limit bucket).
+> `X-Real-IP` is the carrier precisely because Caddy rewrites `X-Forwarded-For`
+> on its own hop. **nginx is the trust boundary** — its `X-Real-IP $remote_addr`
+> replaces any client-supplied value; relaying one instead is a rate-limit
+> bypass. Both files document this at length; read them before touching either.
 
 **Golden rule — the frontend API URL is a BUILD-TIME value.** Vite inlines every
 `VITE_*` var into the JS bundle when it builds; a hosted frontend never reads a
@@ -796,7 +813,7 @@ stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked i
 | API URL | runtime env, re-bakeable on restart | **compiled in** — rebuild to change |
 | Backend | `uvicorn --reload` + source bind-mount | image CMD (no reload), no mount |
 
-**Prod deploy (static build + Caddy TLS):**
+**Prod deploy (static build; nginx terminates TLS):**
 ```bash
 git pull
 # project-root .env must have (prod values):
@@ -805,7 +822,7 @@ git pull
 #   STUDIO_BASE_URL=https://madhats.getaiconsult.com.au
 #   VITE_STORE_KEY=mh_pk_madhats_local
 #   ALLOWED_ORIGINS=*                    # still open; tightening is a separate change
-#   ACME_EMAIL=ops@example.com
+#   (ACME_EMAIL is NO LONGER USED — nginx holds the certs now. Harmless if left.)
 #   (TRUSTED_PROXY_HOSTS is set by docker-compose.prod.yml itself — leave it
 #    blank in .env, so the trust stays coupled to the removed port mapping)
 #   (+ SUPABASE_URL/keys, ADMIN_SECRET, provider keys …)
@@ -818,10 +835,26 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml up -d --build frontend
 ```
 
-**Before the first deploy:** confirm `api.madhats.getaiconsult.com.au` resolves to
-the box. Caddy will retry ACME against Let's Encrypt while DNS is unresolved,
-which is the fastest way to hit the duplicate-certificate rate limit (5/week)
-and lock yourself out of issuance for the real domain.
+**nginx side (one-time, then only on config change):**
+```bash
+sudo cp nginx/madhats.conf.example /etc/nginx/sites-available/madhats.conf
+sudo ln -s /etc/nginx/sites-available/madhats.conf /etc/nginx/sites-enabled/
+#   RHEL/Alma/Rocky: drop it in /etc/nginx/conf.d/madhats.conf instead, no symlink
+sudo nginx -t && sudo systemctl reload nginx        # -t first: a bad file kills EVERY site
+sudo certbot --nginx --redirect \
+  -d madhats.getaiconsult.com.au -d api.madhats.getaiconsult.com.au
+```
+certbot rewrites the site file in place: it adds the `listen 443 ssl` block and
+turns the `:80` block into a 301. **End state: `http://` redirects, `https://`
+serves** — same as Caddy used to do. Before certbot runs, only HTTP answers and
+it is a *connectivity* test only (Caddy asserts `X-Forwarded-Proto: https`
+unconditionally, and the bundle's API URL is `https://`, so assets and API calls
+target HTTPS regardless of how the page was loaded — `curl -sI`, not a browser).
+
+**Before running certbot:** confirm both hostnames resolve to the box. Retrying
+ACME against an unresolved name is the fastest way to hit Let's Encrypt's
+duplicate-certificate rate limit (5/week) and lock yourself out of issuance for
+the real domain. (This risk moved from Caddy to certbot; it did not go away.)
 
 **The dev stack (`docker-compose.yml`) is not a supported way to serve
 production — it now carries its own Caddy too, and that breaks the idea
@@ -852,12 +885,23 @@ frontend`. Env is only read at container **start**, so always
   frontend origin; fix `.env`, recreate backend.
 - "Blocked request … host not allowed" → dev server only; set `ALLOWED_HOSTS=*`
   and recreate, or switch to the static prod build (no host check).
-- **Certs vanish / re-issued every restart** → the `caddy_data` volume is missing
-  or was pruned. Issued certs live in `/data`; without the volume every `up`
-  re-issues and burns the Let's Encrypt duplicate limit (5/week).
+- **502 Bad Gateway from nginx** → the compose stack is down, or Caddy is not
+  bound where nginx expects it. `docker compose -f docker-compose.prod.yml ps`,
+  then `curl -sI -H 'Host: madhats.getaiconsult.com.au' http://127.0.0.1:8080/`
+  from the box — that is the exact hop nginx makes.
+- **404 from Caddy on every request (nginx itself is fine)** → nginx is not
+  passing `proxy_set_header Host $host`. Caddy routes by hostname and matches
+  neither site block without the real Host header.
+- **Certificate errors / renewal fails** → certs now live in nginx
+  (`/etc/letsencrypt/`), not the `caddy_data` volume. Check
+  `sudo certbot certificates` and `sudo systemctl status certbot.timer`. Caddy
+  no longer issues anything, so `caddy_data` is irrelevant to TLS.
 - **Product photos, the brand logo and admin thumbnails all vanish, with
-  mixed-content errors in the console** → `TRUSTED_PROXY_HOSTS` is not reaching
-  the backend. `ProxyHeadersMiddleware` rewrites `scope["scheme"]` from
+  mixed-content errors in the console** → first suspect the **nginx→Caddy
+  scheme**: nginx must send `X-Forwarded-Proto $scheme` and Caddy must re-assert
+  `header_up X-Forwarded-Proto https` (its own hop is plain HTTP, so without
+  that line it reports `http` and the whole chain below fires). If both are
+  present, then `TRUSTED_PROXY_HOSTS` is not reaching the backend. `ProxyHeadersMiddleware` rewrites `scope["scheme"]` from
   `X-Forwarded-Proto`, and `app/storage.py:media_url` builds **every**
   private-asset URL from `request.base_url` (~16 call sites: brand logo, hat-type
   angles, company graphics, blank-hat composites, session `view_images`, admin
@@ -869,6 +913,16 @@ frontend`. Env is only read at container **start**, so always
   `request.client.host` is Caddy's container IP and all customers share one
   rate-limit bucket. Check `docker compose exec backend env | grep TRUSTED`. The
   code default is empty (trust nothing) — the compose file is what opts in.
+- **Everyone gets 429s but images are fine** → the `X-Real-IP` relay is broken.
+  nginx sets it from `$remote_addr`; Caddy turns it back into
+  `X-Forwarded-For`. Drop either half and the backend sees one address (nginx's)
+  for all traffic. Verify end to end, not per-hop: hit the site from two
+  different public IPs and confirm they get independent rate-limit budgets.
+- **Removing the `127.0.0.1:` prefix from Caddy's `8080:80` mapping** publishes
+  an unencrypted copy of the entire site *and* — because the backend runs
+  `TRUSTED_PROXY_HOSTS: "*"` — lets a direct caller rotate `X-Forwarded-For` for
+  a fresh rate-limit bucket per request. Same trap as re-adding `ports:` to
+  `backend`, one layer out.
 - **Re-adding `ports:` to backend or frontend in prod** re-exposes that service
   in cleartext, bypassing TLS entirely. On **`backend` specifically** it is
   worse: it also turns that service's `TRUSTED_PROXY_HOSTS: "*"` into a
@@ -884,8 +938,9 @@ frontend`. Env is only read at container **start**, so always
   with `MSYS_NO_PATHCONV=1`, e.g.
   `MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro" caddy:2.8-alpine caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile`
   (`--adapter caddyfile` is needed because the filename isn't literally
-  `Caddyfile`; for `Caddyfile.prod` also pass `-e ACME_EMAIL=…`, since a blank
-  `email` argument is a parse error by design.)
+  `Caddyfile`. The old `-e ACME_EMAIL=…` requirement is **gone** — the `email`
+  directive was removed when nginx took over TLS, so the file now validates with
+  no environment at all.)
 - **`docker compose up` (the DEV stack) now fails outright if host port 80 or 443
   is taken** → the dev stack gained its own `caddy` service binding both. Compose
   aborts the *whole* stack, not just `caddy`, so backend and frontend never
@@ -894,6 +949,9 @@ frontend`. Env is only read at container **start**, so always
   `netstat -ano | findstr ":443"` (PowerShell: `Get-NetTCPConnection -LocalPort 443`)
   and stop it, or comment out the dev `caddy` service and use plain
   `http://localhost:5173` for that session.
+  **On the prod box this is now guaranteed** — nginx holds 80 and 443 — which is
+  one more reason the dev stack must never be run there. The prod stack is
+  unaffected: its Caddy binds `127.0.0.1:8080` instead.
 
 ---
 
