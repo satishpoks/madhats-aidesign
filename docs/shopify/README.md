@@ -3,6 +3,10 @@
 A drop-in button for the Shopify product page. Clicking it opens the AI Design
 Studio for **the product the customer is viewing**, in a new tab.
 
+> Handing this to the store's Shopify developer? Send them
+> `developer-brief.md` — purpose, install, expected behaviour, and how to tell
+> it's working. This file is the technical detail behind it.
+
 ## What the link looks like
 
 ```
@@ -30,18 +34,14 @@ Studio for **the product the customer is viewing**, in a new tab.
 2. **The Studio deployment is built for this store** — its `VITE_STORE_KEY` is
    the store's publishable key. The button carries no store key; the frontend
    already knows which store it is. (One Studio deployment per store.)
-3. You know the **Studio host URL** (e.g. `https://madhats.getaiconsult.com.au`
-   — no port; TLS is terminated by Caddy in front of the Studio).
+3. You know the **Studio host URL** — `https://`, no port, no trailing slash.
+   Prod `https://madhats.getaiconsult.com.au`, staging
+   `https://mhstaging.getaiconsult.com.au`.
 
-> **If the live storefront button still links to the old**
-> `http://madhats.getaiconsult.com.au:5173/...` **URL, it must be repointed to
-> the `https://` URL above.** The old link keeps working *only* for as long as
-> the temporary legacy-redirect blocks in `caddy/Caddyfile.prod` stay in place
-> (kept solely so already-delivered email links don't dead-end). Those blocks
-> are scheduled for removal once outstanding quote/verification tokens expire
-> (see `docs/superpowers/plans/2026-07-25-ssl-all-servers.md`, "Cleanup"). This
-> is not optional — once the redirect blocks are removed, an un-repointed
-> button 404s for every customer who clicks it.
+> **Any button still pointing at the old `http://…:5173` URL must be
+> repointed.** That port only answers as a temporary redirect (the
+> legacy-redirect blocks in `caddy/Caddyfile.prod`, kept so already-delivered
+> email links don't dead-end); once they're removed it 404s for every customer.
 
 ## Install (recommended — Liquid snippet)
 
@@ -80,10 +80,6 @@ in the product's numeric Shopify id yourself:
 
 Find a product's numeric id in the Shopify admin URL
 (`…/products/8123456789`) or via `{{ product.id }}` in a theme.
-
-**Already pasted the old `:5173` link somewhere?** See the note under
-Prerequisites above — repoint it before the legacy redirect is removed, or the
-button 404s.
 
 ## Testing it
 

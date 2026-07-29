@@ -1,31 +1,30 @@
 {%- comment -%}
   MadHats AI Design Studio — "Design This Hat" button
   ---------------------------------------------------------------------------
-  Drop this snippet into a product template/section (or paste it into a
-  theme "Custom Liquid" block on the product page) to add a button that opens
-  the AI Design Studio for the product the customer is currently viewing.
+  Drop this snippet into a product template/section (or paste it into a theme
+  "Custom Liquid" block on the product page) to add a button that opens the AI
+  Design Studio for the product the customer is currently viewing.
 
   It links to:
     {{ STUDIO_URL }}/?product_id={{ product.id }}&variant_id=...&colour=...&source=shopify
 
-  - product_id  = {{ product.id }}  (the stable Shopify product id — the Studio
-                  backend resolves this via product_references.shopify_product_id)
-  - variant_id  = the currently selected variant (kept in sync on variant change)
+  - product_id  = {{ product.id }} — REQUIRED, and it must be the numeric Shopify
+                  id. The backend resolves a numeric id against
+                  product_references.shopify_product_id; the internal DB UUID is
+                  regenerated on every catalogue re-sync, so never hard-code one.
+  - variant_id  = the currently selected variant (kept in sync below)
   - colour      = the value of the product's colour option, if it has one
   - source      = "shopify" (attribution; surfaces in the session's entryContext)
 
-  SETUP: set STUDIO_URL below to your Studio host. Prod example:
-    https://madhats.getaiconsult.com.au
-  No trailing slash.
+  SETUP: set STUDIO_URL below to your Studio host — https, no port, no trailing
+  slash. Prod: https://madhats.getaiconsult.com.au
+             Staging: https://mhstaging.getaiconsult.com.au
 
-  MUST be HTTPS. The storefront is served over HTTPS, so an http:// Studio link
-  is an insecure navigation away from a secure page. The Studio is behind a
-  Caddy TLS proxy on the standard port — there is no port in the URL any more.
-
-  The old http://madhats.getaiconsult.com.au:5173 link still resolves only while
-  the temporary legacy-redirect blocks remain in caddy/Caddyfile.prod (scheduled
-  for removal ~30 days after the TLS cutover). After that it 404s for every
-  customer, so any storefront still using it must be repointed before then.
+  The button carries NO store key: the Studio build already knows which store it
+  is (VITE_STORE_KEY, baked in at build time — one deployment per store). So the
+  Studio you point at must be the build for THIS store, and this store's
+  catalogue must be synced, or the link drops to the dev product picker.
+  See docs/shopify/README.md.
 {%- endcomment -%}
 
 {%- assign STUDIO_URL = 'https://madhats.getaiconsult.com.au' -%}
