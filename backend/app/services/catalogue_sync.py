@@ -6,10 +6,15 @@ and replace that store's catalogue. Provider keys are untouched (shared, env).
 """
 from __future__ import annotations
 
+import asyncio
 import html
+import json
 import re
+from datetime import datetime, time as dtime, timedelta, timezone as _tz
+from functools import lru_cache
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
 
-import httpx
 import structlog
 
 from app.db import get_supabase
@@ -18,6 +23,29 @@ log = structlog.get_logger()
 
 _PAGE_LIMIT = 250
 _MAX_PAGES = 10
+_FETCH_TIMEOUT_SECONDS = 60
+_CURL_BIN = "curl"
+
+# Nightly catalogue refresh runs at 00:00 in this zone.
+SYNC_TIMEZONE_KEY = "Australia/Sydney"
+
+
+@lru_cache(maxsize=1)
+def sync_timezone() -> ZoneInfo:
+    """Resolved lazily, never at import.
+
+    `ZoneInfo` needs a tz database, which Windows does not ship (the `tzdata`
+    package covers it — see pyproject). Resolving at module scope means a
+    missing database takes down every import of this module, and with it the
+    admin routes and app startup, over a once-a-night clock. Fail at the call
+    instead.
+    """
+    return ZoneInfo(SYNC_TIMEZONE_KEY)
+
+
+class CatalogueFetchError(RuntimeError):
+    """A page of a store's Shopify feed could not be fetched."""
+
 
 # Keyword → canonical style slug (best-effort from product type/title).
 _STYLE_KEYWORDS = {
@@ -98,24 +126,100 @@ def _placement_zones(style: str) -> list[str]:
     return ["front_panel", "side", "back"]
 
 
-async def _fetch_products(domain: str) -> list[dict]:
+def _normalise_base(domain: str) -> str:
     base = domain.strip().rstrip("/")
-    if not base.startswith("http"):
-        base = f"https://{base}"
+    return base if base.startswith("http") else f"https://{base}"
+
+
+async def _curl_get_json(url: str) -> dict:
+    """GET `url` with the curl BINARY and parse the JSON body.
+
+    Deliberately NOT httpx. Shopify fronts the storefront with Cloudflare,
+    which scores the caller's TLS fingerprint together with its ASN. From a
+    hosting ASN the Python TLS stack is rejected outright — measured on the
+    production droplet (DigitalOcean SYD1), same host, same egress IP, same
+    URL, seconds apart, 2026-07-29:
+
+        httpx                          -> 429
+        curl_cffi(impersonate="chrome") -> 429
+        curl binary                    -> 200
+
+    The identical httpx call returns 200 from a residential ASN, which is why
+    this only ever fails in production and looks like "the sync is broken" in
+    dev. Swapping this back to httpx for tidiness will silently break the
+    nightly sync on the server; `curl` is installed in backend/Dockerfile for
+    exactly this reason and is not a debugging convenience.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _CURL_BIN,
+            "-sS",                       # quiet, but keep errors on stderr
+            "--compressed",              # the feed is ~2 MB/page uncompressed
+            "--location",
+            "--max-time", str(_FETCH_TIMEOUT_SECONDS),
+            "-H", "Accept: application/json",
+            "-w", "\n%{http_code}",      # status trails the body, after the last \n
+            url,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:     # image built without curl
+        raise CatalogueFetchError(
+            "curl binary not found — backend/Dockerfile must install it"
+        ) from exc
+
+    out, err = await proc.communicate()
+    if proc.returncode != 0:
+        detail = err.decode("utf-8", "replace").strip()[:200]
+        raise CatalogueFetchError(f"curl exited {proc.returncode}: {detail}")
+
+    body, _, status = out.rpartition(b"\n")
+    code = status.decode("ascii", "replace").strip()
+    endpoint = url.split("?", 1)[0]
+    if code != "200":
+        raise CatalogueFetchError(f"HTTP {code} from {endpoint}")
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise CatalogueFetchError(f"non-JSON response from {endpoint}") from exc
+
+
+async def _fetch_products(domain: str) -> list[dict]:
+    base = _normalise_base(domain)
     products: list[dict] = []
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        for page in range(1, _MAX_PAGES + 1):
-            resp = await client.get(
-                f"{base}/products.json", params={"limit": _PAGE_LIMIT, "page": page}
-            )
-            resp.raise_for_status()
-            batch = resp.json().get("products", [])
-            if not batch:
-                break
-            products.extend(batch)
-            if len(batch) < _PAGE_LIMIT:
-                break
+    for page in range(1, _MAX_PAGES + 1):
+        payload = await _curl_get_json(
+            f"{base}/products.json?" + urlencode({"limit": _PAGE_LIMIT, "page": page})
+        )
+        batch = payload.get("products", [])
+        if not batch:
+            break
+        products.extend(batch)
+        if len(batch) < _PAGE_LIMIT:
+            break
     return products
+
+
+def seconds_until_next_sync(now: datetime | None = None) -> int:
+    """Whole seconds from `now` until the next 00:00 in SYNC_TIMEZONE.
+
+    Computed here, in Python, because the scheduler sidecar's image
+    (curlimages/curl, Alpine) ships NO tzdata: `TZ=Australia/Sydney date`
+    prints UTC there. Any midnight arithmetic done in that shell would run on
+    UTC and fire at 10:00 Sydney — silently, and correctly-looking in the logs.
+    Verified 2026-07-29. Keep the clock in the container that has tzdata.
+    """
+    tz = sync_timezone()
+    now = (now or datetime.now(tz)).astimezone(tz)
+    next_midnight = datetime.combine(now.date() + timedelta(days=1), dtime(0, 0), tzinfo=tz)
+    # Subtract in UTC, NOT in local time. Python ignores the offset when both
+    # operands carry the same tzinfo object, so `next_midnight - now` is
+    # wall-clock arithmetic: on a DST-transition night it answers 24h for the
+    # 23h that actually elapse, and the sidecar wakes at 01:00.
+    return max(
+        1,
+        int((next_midnight.astimezone(_tz.utc) - now.astimezone(_tz.utc)).total_seconds()),
+    )
 
 
 def _to_row(store_id: str, domain: str, product: dict) -> dict | None:
@@ -124,9 +228,7 @@ def _to_row(store_id: str, domain: str, product: dict) -> dict | None:
         return None  # cannot composite without a reference photo
     style = _derive_style(product)
     handle = product.get("handle", "")
-    base = domain.strip().rstrip("/")
-    if not base.startswith("http"):
-        base = f"https://{base}"
+    base = _normalise_base(domain)
     return {
         "store_id": store_id,
         "shopify_product_id": str(product.get("id") or handle),
@@ -164,3 +266,33 @@ async def sync_store_catalogue(store: dict) -> dict:
 
     log.info("catalogue_synced", store_id=store["id"], imported=len(rows), skipped=skipped)
     return {"fetched": len(products), "imported": len(rows), "skipped": skipped}
+
+
+async def sync_all_stores() -> dict:
+    """Sync every active store that has a shopify_domain.
+
+    One store's failure is recorded and skipped, never raised: the nightly job
+    must not drop nine catalogues because the tenth store's feed is down.
+    """
+    sb = get_supabase()
+    stores = sb.table("stores").select("*").eq("status", "active").execute().data or []
+
+    results: list[dict] = []
+    for store in stores:
+        if not store.get("shopify_domain"):
+            continue
+        entry = {"store_id": store["id"], "slug": store.get("slug")}
+        try:
+            results.append({**entry, "ok": True, **await sync_store_catalogue(store)})
+        except Exception as exc:  # noqa: BLE001 — one bad feed must not stop the rest
+            log.error("catalogue_sync_failed", store_id=store["id"], error=str(exc))
+            results.append({**entry, "ok": False, "error": str(exc)})
+
+    succeeded = sum(1 for r in results if r["ok"])
+    log.info("catalogue_sync_all", stores=len(results), succeeded=succeeded)
+    return {
+        "stores": len(results),
+        "succeeded": succeeded,
+        "failed": len(results) - succeeded,
+        "results": results,
+    }

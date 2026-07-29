@@ -166,6 +166,33 @@ services:
         sleep 180;
         done
 
+  # Nightly catalogue refresh — 00:00 Australia/Sydney.
+  #
+  # The delay is computed by the BACKEND, not here. This image is Alpine and
+  # ships no tzdata: `TZ=Australia/Sydney date` prints UTC, so midnight
+  # arithmetic in this shell would fire at 10:00 Sydney — silently, and looking
+  # correct in the logs. Verified 2026-07-29. The endpoint returns a bare
+  # integer for the same reason there is no jq in this image.
+  catalogue-sync:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - backend
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        while true; do
+        secs=$$(curl -fsS -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/catalogue/seconds-until-next-sync 2>/dev/null || echo 900);
+        case "$$secs" in ''|*[!0-9]*) secs=900 ;; esac;
+        sleep "$$secs";
+        curl -fsS -m 1800 -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/catalogue/sync-all > /dev/null 2>&1 || true;
+        sleep 60;
+        done
+
 volumes:
   caddy_data:
   caddy_config:

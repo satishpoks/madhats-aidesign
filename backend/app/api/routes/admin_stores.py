@@ -10,12 +10,17 @@ import secrets
 
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi.responses import PlainTextResponse
 
 from app.api.deps import AdminContext, assert_store_allowed, require_admin_ctx, require_super
 from app.db import get_supabase
 from app.models.store import CreateStoreRequest, StoreResponse, SyncResponse, UpdateStoreRequest
 from app.services.branding import validate_brand
-from app.services.catalogue_sync import sync_store_catalogue
+from app.services.catalogue_sync import (
+    seconds_until_next_sync,
+    sync_all_stores,
+    sync_store_catalogue,
+)
 from app.services.upload_validation import MAX_UPLOAD_BYTES, sniff_image_mime
 from app.storage import media_url, upload_asset
 
@@ -83,6 +88,31 @@ async def sync_store(store_id: str, ctx: AdminContext = Depends(require_admin_ct
     except Exception as exc:  # noqa: BLE001
         log.error("catalogue_sync_failed", store_id=store_id, error=str(exc))
         raise HTTPException(status_code=502, detail=f"Catalogue sync failed: {exc}") from exc
+
+
+@router.post("/admin/catalogue/sync-all")
+async def sync_all_catalogues(ctx: AdminContext = Depends(require_admin_ctx)) -> dict:
+    """Nightly refresh entry point — sync every active store in one call.
+
+    Always 200: per-store outcomes are in `results`, so a single broken feed
+    surfaces as `ok: false` for that store rather than failing the whole run.
+    """
+    require_super(ctx)
+    return await sync_all_stores()
+
+
+@router.get("/admin/catalogue/seconds-until-next-sync", response_class=PlainTextResponse)
+async def catalogue_seconds_until_next_sync(
+    ctx: AdminContext = Depends(require_admin_ctx),
+) -> str:
+    """Seconds until the next 00:00 Australia/Sydney, as plain text.
+
+    The `catalogue-sync` sidecar sleeps on this. Plain text, not JSON, because
+    that image is busybox with no jq — `secs=$(curl ...)` has to be a bare
+    integer. See `seconds_until_next_sync` for why the clock lives here.
+    """
+    require_super(ctx)
+    return str(seconds_until_next_sync())
 
 
 @router.get("/admin/stores/{store_id}")
