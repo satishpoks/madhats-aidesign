@@ -128,7 +128,7 @@ async def handle_message(session_id: str, message: str,
     # would otherwise dead-end the first two questions of the flow.
     if step.id not in _ABUSE_EXEMPT_STEPS and profanity.scan(message) == "severe":
         log.info("v2_turn_declined_abuse", terms=profanity.find_terms(message))
-        reply = f"{prompts.V2_ABUSE_DECLINE} " + v2.reply_for(
+        reply = f"{prompts.V2_ABUSE_DECLINE}\n\n" + v2.reply_for(
             step, collected, persona=persona, intro=intro, colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply.strip(),
                               state_before, current, user_message=message,
@@ -229,14 +229,14 @@ async def handle_message(session_id: str, message: str,
     if bg_auto_marked:
         # Say what we noticed. Without this the background question simply
         # vanishes, which reads as the bot skipping a step at random.
-        reply = f"{prompts.V2_BG_ALREADY_REMOVED} {reply}".strip()
+        reply = f"{prompts.V2_BG_ALREADY_REMOVED}\n\n{reply}".strip()
     if step.id is S.ASK_EMAIL and collected.get("email_captured"):
         # The double opt-in verification email just went out (from _apply_email).
         # Prepend a notice so the customer knows to expect it and why — without
         # this the link arrives unexplained. `fields` still carries the address
         # (_apply_email pops it from `collected`, not `fields`).
         addr = fields.get("email") or "your inbox"
-        reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)} {reply}".strip()
+        reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)}\n\n{reply}".strip()
     data = _public(next_, collected, flow_config)
     if canvas_ops:
         data["canvas_ops"] = canvas_ops

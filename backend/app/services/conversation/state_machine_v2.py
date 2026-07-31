@@ -322,13 +322,18 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
     """ack (LLM, best-effort) + the step's copy + its tool tip (verbatim).
 
     The tip is concatenated from the registry and never passes through a model,
-    so a warm paraphrase cannot drop "tap the highlighted button" and leave the
-    customer stuck. Without an ack the reply is simply the scripted copy."""
+    so a warm paraphrase cannot drop "select the highlighted button" and leave
+    the customer stuck. Without an ack the reply is simply the scripted copy.
+
+    Parts are joined with a BLANK LINE, not a space. The chat bubble is
+    `whitespace-pre-wrap`, so this is what makes an instruction render as its
+    own paragraph under the question instead of running into it.
+    """
     if step.id is S.DECOR_ADJUST:
         # The tip is resolved at runtime (text vs shape), so it is PREPENDED to
         # this step's copy rather than appended like every other step. `step.ask`
         # is used rather than a re-typed literal so the two cannot drift.
-        body = f"{prompts.V2_TOOL_TIPS[_decor_tool(collected)]} {step.ask}"
+        body = f"{prompts.V2_TOOL_TIPS[_decor_tool(collected)]}\n\n{step.ask}"
     else:
         asked = step.ask_retry and step.id.value in (collected.get("_asked") or [])
         body = (step.ask_retry if asked else step.ask).format(
@@ -338,8 +343,8 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
             colour_note=colour_note,
         )
         if step.tip and step.id is not S.LOGO_ADJUST:
-            body = f"{body} {step.tip}"
-    return f"{ack} {body}".strip() if ack else body
+            body = f"{body}\n\n{step.tip}"
+    return f"{ack}\n\n{body}".strip() if ack else body
 
 
 def resolve_chip(step: Step, message: str, collected: dict) -> dict | None:

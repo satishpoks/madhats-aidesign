@@ -386,7 +386,7 @@ def test_decor_adjust_reply_matches_its_registry_copy():
     # in reply_for, so the two can never silently diverge.
     step = cs.by_id(S.DECOR_ADJUST)
     out = _reply(S.DECOR_ADJUST, {"has_logo": True, "logos_done": True, "decor_choice": "shape"})
-    assert out == f"{prompts.V2_TOOL_TIPS['shape']} {step.ask}"
+    assert out == f"{prompts.V2_TOOL_TIPS['shape']}\n\n{step.ask}"
 
 
 def _multi_step():

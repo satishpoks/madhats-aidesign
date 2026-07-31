@@ -1038,3 +1038,22 @@ async def test_a_parsed_purpose_still_wins_over_the_verbatim_fallback(monkeypatc
     _llm_returns(monkeypatch, {"purpose": "staff uniforms"})
     await o2.handle_message("s1", "umm stff uniforsm i guess")
     assert store["session"]["collected"]["purpose"] == "staff uniforms"
+
+
+# --- paragraph layout (2026-08-01) -------------------------------------------
+
+def test_reply_for_separates_the_question_from_its_tool_tip_with_a_blank_line():
+    """One run-on paragraph is what made these replies hard to read. The bubble
+    is whitespace-pre-wrap, so the separation has to come from the copy."""
+    from app.services.conversation import state_machine_v2 as v2
+    step = cs.by_id(S.ASK_LOGO_PLACEMENT)          # has a tip
+    body = v2.reply_for(step, {}, persona="Ricardo", intro="i")
+    assert step.tip in body
+    assert "\n\n" + step.tip in body
+
+
+def test_reply_for_separates_the_ack_from_the_question_with_a_blank_line():
+    from app.services.conversation import state_machine_v2 as v2
+    step = cs.by_id(S.ASK_QUANTITY)
+    body = v2.reply_for(step, {}, persona="Ricardo", intro="i", ack="Understood.")
+    assert body.startswith("Understood.\n\n")
