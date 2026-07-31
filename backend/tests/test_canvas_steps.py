@@ -734,3 +734,11 @@ def test_apply_final_notes_typed_note_wins_over_pre_banked():
     c = {"final_notes": "stale early value"}
     cs._apply_final_notes(c, {"final_notes": "the real typed note"}, {})
     assert c["brief_notes"] == ["Customer final notes: the real typed note"]
+
+
+def test_accept_verbatim_is_set_on_ask_purpose_only():
+    """Banking a raw message verbatim is correct exactly where the answer IS
+    the message. Globally it would write "umm the back one I think" into
+    logo_face (an enum) or quantity (an int) and corrupt the design."""
+    verbatim = {s.id for s in cs.REGISTRY if s.accept_verbatim}
+    assert verbatim == {S.ASK_PURPOSE}

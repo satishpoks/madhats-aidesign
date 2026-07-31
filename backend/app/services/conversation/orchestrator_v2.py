@@ -170,6 +170,15 @@ async def handle_message(session_id: str, message: str,
     elif fields is None:
         fields = {}                       # ack-only step (show_intro)
 
+    if step.accept_verbatim and not any(fields.get(s) for s in step.slots):
+        # The interpreter read nothing into this step's own slot — a misspelled
+        # answer, or a refusal it declined to treat as an answer. For this step
+        # the message IS the answer, so bank it rather than re-ask a question
+        # the customer just answered. Still validated (so it can only land in a
+        # declared slot) and still guarded by the step's own apply.
+        fields = {**fields,
+                  **ie.validate_fields({step.slots[0]: message.strip()})}
+
     collected.pop("_fail_count", None)
     # Filter BEFORE apply, so an effect never sees a field the router rejected.
     fields = v2.merge_fields(step, collected, fields)

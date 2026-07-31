@@ -89,6 +89,16 @@ class Step:
     # NEVER appear here — Back must not be able to un-verify email or
     # un-submit a quote. See test_no_step_back_clears_email_captured_or_quote_requested.
     back_clears: tuple[str, ...] = ()
+    # When the interpreter returns NO value for this step's own slot, bank the
+    # raw customer message into it. Set on ASK_PURPOSE only.
+    #
+    # Per-step, not global, and deliberately so: banking a raw message verbatim
+    # is correct exactly where the answer IS the message. Applied globally it
+    # would write "umm the back one I think" into logo_face (an enum) or
+    # quantity (an int) and corrupt the design. Distinct from `direct_answer`,
+    # which fires only during an LLM OUTAGE — this is the healthy-path
+    # equivalent, for a step where a re-ask is worse than an imperfect answer.
+    accept_verbatim: bool = False
 
 
 # --- loop helpers -----------------------------------------------------------
@@ -770,9 +780,14 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_PURPOSE,
-        ask="Finally, may I ask what the caps are for?",
+        ask="Finally, what are the caps for?",
         slots=("purpose",),
         direct_answer=_direct_purpose,
+        # This step ships NO chips, so an unanswerable turn has no escape hatch:
+        # a refusal ("rather not say") or a misspelling the interpreter declines
+        # to read leaves done_when unmet and re-asks forever. accept_verbatim
+        # makes that impossible — whatever they typed becomes the answer.
+        accept_verbatim=True,
         done_when=lambda c: bool(c.get("purpose")),
     ),
     Step(

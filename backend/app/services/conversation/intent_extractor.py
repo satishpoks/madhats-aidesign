@@ -639,7 +639,11 @@ _SLOT_DOCS: dict[str, str] = {
     "decoration_mix": "decoration_mix (bool) — true if they want a MIX of more than one decoration method, or aren't sure which single one they want",
     "decoration_mix_note": "decoration_mix_note (string) — their description of the mix of methods they want, in their own words",
     "email": "email (string)",
-    "purpose": "purpose (string) — what the hat is for",
+    "purpose": (
+        "purpose (string) — what the caps are for. Accept ANY answer, including "
+        "a refusal ('rather not say', 'no', 'prefer not to'), and accept "
+        "misspellings; record what they said, as they wrote it"
+    ),
     "quote_requested": "quote_requested (bool) — true if they want to send the design to the team for a quote",
     "design_confirmed": "design_confirmed (bool) — true if they're happy with the finished design and ready to submit it",
     "design_rework": "design_rework (bool) — true if they want to go back and change something on the design before submitting",

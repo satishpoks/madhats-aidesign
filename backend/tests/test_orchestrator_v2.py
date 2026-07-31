@@ -995,3 +995,46 @@ async def test_the_same_severe_term_still_declines_at_every_other_step(monkeypat
     assert prompts.V2_ABUSE_DECLINE in res["reply"]
     assert res["state"] == S.ASK_QUANTITY.value
     assert "quantity" not in store["session"]["collected"]
+
+
+# --- ASK_PURPOSE accepts anything (2026-08-01) --------------------------------
+
+def _at_purpose_store():
+    """A session parked at ASK_PURPOSE, built by walking the registry."""
+    from tests.canvas_step_helpers import seed_for
+    collected = seed_for(cs.by_id(S.ASK_PURPOSE))
+    collected["flow_mode"] = "canvas"
+    return {"session": {"id": "s1", "state": S.ASK_PURPOSE.value,
+                        "collected": collected, "upsell_count": 0}}
+
+
+@pytest.mark.asyncio
+async def test_purpose_banks_a_refusal_verbatim_when_the_interpreter_reads_nothing(monkeypatch):
+    """A refusal is a valid answer. The interpreter declines to fill `purpose`
+    for "rather not say", which left done_when unmet and re-asked forever — and
+    ASK_PURPOSE ships no chips, so there was no way out."""
+    store = _at_purpose_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {})            # interpreter reads nothing
+    res = await o2.handle_message("s1", "rather not say")
+    assert store["session"]["collected"]["purpose"] == "rather not say"
+    assert res["state"] != S.ASK_PURPOSE.value
+
+
+@pytest.mark.asyncio
+async def test_purpose_banks_a_misspelled_answer_verbatim(monkeypatch):
+    store = _at_purpose_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {})
+    await o2.handle_message("s1", "stff uniforsm for the shp")
+    assert store["session"]["collected"]["purpose"] == "stff uniforsm for the shp"
+
+
+@pytest.mark.asyncio
+async def test_a_parsed_purpose_still_wins_over_the_verbatim_fallback(monkeypatch):
+    """The fallback fires ONLY when the interpreter read nothing into the slot."""
+    store = _at_purpose_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _llm_returns(monkeypatch, {"purpose": "staff uniforms"})
+    await o2.handle_message("s1", "umm stff uniforsm i guess")
+    assert store["session"]["collected"]["purpose"] == "staff uniforms"
