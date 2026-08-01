@@ -1,7 +1,10 @@
+import { createRef } from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Watermark } from '../components/DesignStudio/Watermark'
+import { CanvasStage } from '../components/DesignStudio/CanvasStage'
 import { useChatStore } from '../store/chatStore'
+import { useCanvasStore } from '../store/canvasStore'
 import Konva from 'konva'
 import { flattenFull, flattenStage } from '../lib/canvasFlatten'
 
@@ -42,11 +45,20 @@ describe('Watermark overlay', () => {
   it('renders the configured text and is inert', () => {
     render(<Watermark text="MADHATS PREVIEW" />)
     const el = screen.getByTestId('canvas-watermark')
+    // The text is baked into an SVG background-image data URI, not text
+    // content — assert it's actually in there, not just that *some* image is.
+    expect(el.style.backgroundImage).toContain(encodeURIComponent('MADHATS PREVIEW'))
     // aria-hidden: it is decoration over content the customer can already read.
     expect(el).toHaveAttribute('aria-hidden', 'true')
     // pointer-events-none: it sits over the Konva stage; without this it would
     // swallow every drag, click and transform on the canvas beneath it.
     expect(el.className).toContain('pointer-events-none')
+  })
+
+  it('escapes XML-special characters so a store-configured "&" cannot produce malformed SVG', () => {
+    render(<Watermark text="Smith & Co" />)
+    const el = screen.getByTestId('canvas-watermark')
+    expect(el.style.backgroundImage).toContain(encodeURIComponent('Smith &amp; Co'))
   })
 
   it('chatStore parses the backend watermark flag', () => {
@@ -63,11 +75,13 @@ describe('Watermark overlay', () => {
     expect(useChatStore.getState().watermark).toBe(true)
   })
 
-  it('is structurally absent from both flatten paths', () => {
-    // The guarantee is that a DOM node cannot enter stage.toDataURL(). Assert it
-    // against a real Konva stage rather than trusting the argument: a future
-    // refactor that moved the watermark INTO the Konva tree would silently start
-    // baking it into the layout guide the image model consumes.
+  it('flattenStage/flattenFull tolerate a DOM sibling next to the stage (smoke check, not the safety proof)', () => {
+    // NOT the safety proof — this only shows the flatten functions don't throw
+    // when an unrelated DOM node with the same testid sits beside the stage's
+    // container. stage.find() can never match a plain DOM element regardless of
+    // whether Watermark is a DOM sibling, a Konva node, or doesn't exist at all,
+    // so this cannot detect a regression where the watermark moves INTO the
+    // Konva tree. The real safety proof is the differential test below.
     const container = document.createElement('div')
     document.body.appendChild(container)
     const stage = new Konva.Stage({ container, width: 480, height: 480 })
@@ -79,8 +93,54 @@ describe('Watermark overlay', () => {
 
     expect(() => flattenStage(stage)).not.toThrow()
     expect(() => flattenFull(stage)).not.toThrow()
-    expect(stage.find((n: Konva.Node) => n.getAttr('data-testid') === 'canvas-watermark')).toHaveLength(0)
     stage.destroy()
     container.remove()
+  })
+
+  it('mounting the real <Watermark> beside the real <CanvasStage> adds nothing to the Konva scene graph', () => {
+    // The actual safety proof. It renders the REAL components in the exact
+    // structure Surface.tsx uses (`<div className="relative">` wrapping
+    // <CanvasStage> with <Watermark> as a sibling), then inventories the real
+    // Konva scene graph (every Stage/Layer/Group/Shape descendant, via the same
+    // Konva `.find()` API flattenStage/flattenFull walk) with and without the
+    // watermark mounted.
+    //
+    // Falsifiable by construction: if a future reimplementation moved the
+    // watermark INTO the Konva tree — e.g. a Konva.Text layer, or a node
+    // inserted via a portal into the Stage — the "with watermark" inventory
+    // would contain an extra node absent from the baseline, and the equality
+    // assertion below would fail. It does not depend on canvas pixel output
+    // (jsdom's toDataURL is stubbed to a constant, which is exactly why a
+    // pixel/byte comparison would be vacuous here) — it reads the real Konva
+    // node objects Konva itself tracks, independent of that stub.
+    useCanvasStore.getState().reset()
+
+    const refA = createRef<Konva.Stage>()
+    const withoutWatermark = render(
+      <div className="relative">
+        <CanvasStage stageRef={refA} locked={false} />
+      </div>,
+    )
+    const stageA = refA.current!
+    const namesWithout = stageA.find(() => true).map(n => n.getClassName()).sort()
+    withoutWatermark.unmount()
+    stageA.destroy()
+
+    const refB = createRef<Konva.Stage>()
+    const withWatermark = render(
+      <div className="relative">
+        <CanvasStage stageRef={refB} locked={false} />
+        <Watermark text="MADHATS PREVIEW" />
+      </div>,
+    )
+    const stageB = refB.current!
+    const namesWith = stageB.find(() => true).map(n => n.getClassName()).sort()
+    withWatermark.unmount()
+    stageB.destroy()
+
+    // Sanity: the stage actually has nodes to compare (a Layer, at minimum) —
+    // otherwise an empty-vs-empty comparison would itself be vacuous.
+    expect(namesWithout.length).toBeGreaterThan(0)
+    expect(namesWith).toEqual(namesWithout)
   })
 })
