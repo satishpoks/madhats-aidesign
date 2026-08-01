@@ -1057,27 +1057,51 @@ Append to `frontend/src/__tests__/watermark.test.tsx`:
 import Konva from 'konva'
 import { flattenFull, flattenStage } from '../lib/canvasFlatten'
 
-it('is structurally absent from both flatten paths', () => {
-  // The guarantee is that a DOM node cannot enter stage.toDataURL(). Assert it
-  // against a real Konva stage rather than trusting the argument: a future
-  // refactor that moved the watermark INTO the Konva tree would silently start
-  // baking it into the layout guide the image model consumes.
-  const container = document.createElement('div')
-  document.body.appendChild(container)
-  const stage = new Konva.Stage({ container, width: 480, height: 480 })
-  stage.add(new Konva.Layer())
+it('mounting the real <Watermark> beside the real <CanvasStage> adds nothing to the Konva scene graph', () => {
+  // The safety proof. Render the REAL components in the exact structure
+  // Surface.tsx uses, then inventory the real Konva scene graph — via the same
+  // `.find()` API flattenStage/flattenFull walk — with and without the
+  // watermark mounted, and assert the inventories match.
+  useCanvasStore.getState().reset()
 
-  const overlay = document.createElement('div')
-  overlay.setAttribute('data-testid', 'canvas-watermark')
-  container.appendChild(overlay)
+  const refA = createRef<Konva.Stage>()
+  const withoutWatermark = render(
+    <div className="relative"><CanvasStage stageRef={refA} locked={false} /></div>)
+  const stageA = refA.current!
+  const namesWithout = stageA.find(() => true).map(n => n.getClassName()).sort()
+  withoutWatermark.unmount(); stageA.destroy()
 
-  expect(() => flattenStage(stage)).not.toThrow()
-  expect(() => flattenFull(stage)).not.toThrow()
-  expect(stage.find((n: Konva.Node) => n.getAttr('data-testid') === 'canvas-watermark')).toHaveLength(0)
-  stage.destroy()
-  container.remove()
+  const refB = createRef<Konva.Stage>()
+  const withWatermark = render(
+    <div className="relative">
+      <CanvasStage stageRef={refB} locked={false} />
+      <Watermark text="MADHATS PREVIEW" />
+    </div>)
+  const stageB = refB.current!
+  const namesWith = stageB.find(() => true).map(n => n.getClassName()).sort()
+  withWatermark.unmount(); stageB.destroy()
+
+  // Sanity: the stage actually HAS nodes to compare, or an empty-vs-empty
+  // comparison would itself be vacuous.
+  expect(namesWithout.length).toBeGreaterThan(0)
+  expect(namesWith).toEqual(namesWithout)
 })
 ```
+
+> **This test replaced a vacuous one, and the reason matters.** The plan
+> originally asserted `stage.find(n => n.getAttr('data-testid') === 'canvas-watermark')`
+> was empty after appending a bare DOM div to the stage's container. Konva's
+> `find()` traverses only the Konva scene graph, so it can **never** see a DOM
+> node — that assertion passed identically with `Watermark.tsx` deleted, or with
+> the watermark reimplemented as a `Konva.Text`. It was a tautology guarding the
+> single invariant that stops a watermark being baked into the layout guide and
+> rendered onto the cap by the image model.
+>
+> A pixel/byte comparison of `toDataURL()` output would ALSO be vacuous here:
+> jsdom stubs `toDataURL` to a constant, so both sides are trivially equal. The
+> node-inventory comparison reads the objects Konva itself tracks, independent
+> of that stub. Verified falsifiable by injecting a `Konva.Text` into the second
+> stage and observing RED (`expected ['Layer','Text'] to deeply equal ['Layer']`).
 
 - [ ] **Step 7: Run and verify passing**
 
