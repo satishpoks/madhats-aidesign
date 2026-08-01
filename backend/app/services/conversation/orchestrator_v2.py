@@ -366,13 +366,17 @@ async def check_verification(session_id: str) -> dict:
     if next_.prepare:
         next_.prepare(collected, store)
         next_ = v2.next_step(collected, flow_config)
-    reply = v2.reply_for(next_, collected, persona=persona,
-                         intro=canvas_intro_text(store),
-                         ack=prompts.V2_EMAIL_VERIFIED_ACK,
-                         colour_note=colour_disclaimer_text(
-                             store, collected.get("name") or "there"))
-    return await _persist(sb, session_id, collected, next_, reply, current.value,
-                          next_.id, user_message=None, config=flow_config)
+    # Two messages, not one: the confirmation is its own bubble so it can't be
+    # read past on the way to the question. `ack=` is deliberately NOT passed —
+    # that is what would merge them back together.
+    next_question = v2.reply_for(next_, collected, persona=persona,
+                                 intro=canvas_intro_text(store),
+                                 colour_note=colour_disclaimer_text(
+                                     store, collected.get("name") or "there"))
+    return await _persist(sb, session_id, collected, next_,
+                          prompts.V2_EMAIL_VERIFIED_ACK, current.value,
+                          next_.id, user_message=None, config=flow_config,
+                          extra_replies=[next_question])
 
 
 async def _stall(sb, session_id, collected, step, state_before, message,
@@ -398,7 +402,8 @@ async def _stall(sb, session_id, collected, step, state_before, message,
 
 async def _persist(sb, session_id, collected, step, reply, state_before, new_state,
                    *, user_message: str | None = "", data: dict | None = None,
-                   config: dict | None = None) -> dict:
+                   config: dict | None = None,
+                   extra_replies: list[str] | None = None) -> dict:
     """Write the state + the chat rows, and shape the response.
 
     `step` is the step the session now RESTS on (None only for the capped
@@ -411,6 +416,12 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
     didn't take (check_verification, which advances off an out-of-band email
     click). `""` is different and still writes an empty user row — that's the
     GREETING kickoff's existing shape.
+
+    `extra_replies` are FURTHER assistant messages, shown after `reply`. Each
+    becomes its own persisted row and its own chat bubble, so two unrelated
+    things (a confirmation and the next question) don't arrive merged. They are
+    surfaced on `data`, not as a new top-level response key, so the response
+    shape stays `{reply, state, data}` for every existing caller.
     """
     sb.table("design_sessions").update(
         {"state": new_state.value, "collected": collected,
@@ -420,10 +431,13 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
         {"session_id": session_id, "role": "user", "content": user_message,
          "state_before": state_before, "state_after": state_before},
     ]
-    rows.append(
-        {"session_id": session_id, "role": "assistant", "content": reply,
-         "state_before": state_before, "state_after": new_state.value})
+    for content in [reply, *(extra_replies or [])]:
+        rows.append(
+            {"session_id": session_id, "role": "assistant", "content": content,
+             "state_before": state_before, "state_after": new_state.value})
     sb.table("chat_messages").insert(rows).execute()
     if data is None:
         data = _public(step, collected, config) if step else {}
+    if extra_replies:
+        data["extra_replies"] = list(extra_replies)
     return {"reply": reply, "state": new_state.value, "data": data}

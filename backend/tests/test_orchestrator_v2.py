@@ -35,6 +35,7 @@ class _FakeTable:
         return self
 
     def insert(self, rows):
+        self.store.setdefault("rows", []).extend(rows)
         return self
 
 
@@ -846,6 +847,41 @@ async def test_verification_poll_advances_the_flow_once_the_link_is_opened(monke
     assert res["state"] == S.ASK_ANOTHER_LOGO.value
     assert store["session"]["state"] == S.ASK_ANOTHER_LOGO.value
     assert prompts.V2_EMAIL_VERIFIED_ACK in res["reply"]
+
+
+# --- the verified turn is two messages (2026-08-01) ---------------------------
+
+@pytest.mark.asyncio
+async def test_verification_ack_and_the_next_question_are_two_separate_messages(monkeypatch):
+    """A confirmation and a new question are two unrelated things. Merged into
+    one bubble the customer reads past the confirmation into the question."""
+    store = _at_email_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"]["email_captured"] = True
+    store["session"]["collected"]["email_verified"] = True
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    res = await o2.check_verification("s1")
+
+    assert res["reply"] == prompts.V2_EMAIL_VERIFIED_ACK
+    extras = res["data"]["extra_replies"]
+    assert len(extras) == 1
+    assert prompts.V2_EMAIL_VERIFIED_ACK not in extras[0]     # not duplicated
+
+    # Both are persisted, in order, as assistant rows — and no phantom user row.
+    assistant = [r for r in store["rows"] if r["role"] == "assistant"]
+    assert [r["content"] for r in assistant] == [res["reply"], extras[0]]
+    assert not [r for r in store["rows"] if r["role"] == "user"]
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_turn_carries_no_extra_replies(monkeypatch):
+    """`extra_replies` is absent on every other path, so nothing else changes."""
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    res = await o2.handle_message("s1", "")
+    assert "extra_replies" not in res["data"]
 
 
 @pytest.mark.asyncio
