@@ -20,6 +20,16 @@
  * automatically) all place a rotated/resized element identically.
  */
 
+/**
+ * The LOGICAL stage size every element coordinate is normalised against.
+ * It is deliberately a constant and not the on-screen size: the Konva stage is
+ * scaled to fit its column (see CanvasStage), so the rendered size moves while
+ * this does not. Lives here — not in CanvasStage — so plain geometry callers
+ * (SelectedToolbar) can do px↔normalised arithmetic without importing Konva.
+ */
+export const STAGE_W = 480
+export const STAGE_H = 480
+
 /** Half-width/half-height of a normalised box, in pixels. */
 export function boxHalfExtentsPx(
   width: number,
@@ -99,4 +109,52 @@ export function drawingBoundsCenter(pts: number[]): { cx: number; cy: number } {
 export function estimateTextBox(content: string, fontSize: number): { w: number; h: number } {
   const w = Math.max(fontSize, content.length * fontSize * 0.55)
   return { w, h: fontSize * 1.2 }
+}
+
+/** The subset of a CanvasElement `centredTopLeft` needs — kept structural so
+ *  this module stays free of store/Konva imports. */
+export interface CentrableElement {
+  type: string
+  width?: number
+  height?: number
+  content?: string
+  fontSize?: number
+  points?: number[]
+}
+
+/**
+ * Normalised TOP-LEFT that puts an element's OWN centre at the stage centre.
+ *
+ * Writing `{x: 0.5, y: 0.5}` does NOT centre anything: x/y are the normalised
+ * top-left (see this module's header), so that lands the element's corner in
+ * the middle and the element itself half its own size down-and-right of it —
+ * a 0.4-wide logo ends up ~96px off on both axes. The correct target is the
+ * node's registration point (its offsetX/offsetY origin, the same point Konva
+ * rotates and scales it about), so this mirrors, per type, exactly the origin
+ * `nodes.tsx` registers:
+ *
+ *   image/shape → half the stored box
+ *   drawing     → the stroke's own bbox centre (points are already normalised,
+ *                 so `drawingBoundsCenter` returns a normalised centre here)
+ *   text        → half the measured box; text auto-sizes to its glyphs, so
+ *                 pass `measuredTextBox` (what the live node actually measured)
+ *                 when it's known. The fallback estimate is a few px out — and
+ *                 much further out for curved text, whose arc bbox the
+ *                 heuristic doesn't model.
+ */
+export function centredTopLeft(
+  el: CentrableElement,
+  stageW: number,
+  stageH: number,
+  measuredTextBox?: { w: number; h: number } | null,
+): { x: number; y: number } {
+  if (el.type === 'drawing') {
+    const { cx, cy } = drawingBoundsCenter(el.points ?? [])
+    return { x: 0.5 - cx, y: 0.5 - cy }
+  }
+  if (el.type === 'text') {
+    const box = measuredTextBox ?? estimateTextBox(el.content ?? '', el.fontSize ?? 36)
+    return { x: 0.5 - box.w / 2 / stageW, y: 0.5 - box.h / 2 / stageH }
+  }
+  return { x: 0.5 - (el.width ?? 0) / 2, y: 0.5 - (el.height ?? 0) / 2 }
 }

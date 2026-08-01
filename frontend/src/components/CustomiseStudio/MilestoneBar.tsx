@@ -1,7 +1,55 @@
+import { useState } from 'react'
 import { useChatStore } from '../../store/chatStore'
+import { restartFlow } from '../../lib/restartFlow'
 
 /**
- * MilestoneBar — a full-width labeled 5-dot stepper for the v2 canvas flow.
+ * Start-over control, right-aligned in the progress bar.
+ *
+ * Two-step inline confirm rather than `window.confirm` — a restart discards the
+ * whole design, and a native dialog blocks the page (and the browser-automation
+ * channel we verify this flow with) until it is dismissed.
+ */
+function RestartButton() {
+  const [confirming, setConfirming] = useState(false)
+
+  if (confirming) {
+    return (
+      <div className="flex shrink-0 items-center gap-1.5">
+        <span className="hidden text-[11px] text-textMuted sm:inline">Discard this design?</span>
+        <button
+          type="button"
+          onClick={restartFlow}
+          className="rounded-full bg-accent px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+        >
+          Yes, start over
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="rounded-full border border-border px-2.5 py-1 text-[11px] text-textPrimary hover:bg-border/30"
+        >
+          Cancel
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setConfirming(true)}
+      title="Start the whole design again from the beginning"
+      className="flex shrink-0 items-center gap-1 rounded-full border border-border px-2.5 py-1 text-[11px] text-textMuted hover:border-accent hover:text-accent"
+    >
+      <span aria-hidden="true">↻</span>
+      Start over
+    </button>
+  )
+}
+
+/**
+ * MilestoneBar — a full-width labeled 5-dot stepper for the v2 canvas flow,
+ * with a right-aligned "Start over" control.
  *
  * It reads progress from the chat store and self-hides unless
  * `progress.sections` is present. Only the v2 orchestrator
@@ -20,7 +68,10 @@ export function MilestoneBar() {
       aria-label="Design progress"
       className="w-full border-b border-border bg-base px-4 py-3"
     >
-      <ol className="flex items-start justify-between gap-1 max-w-3xl mx-auto">
+      {/* The stepper keeps its own max-width and stays centred in the leftover
+          space; the restart control sits hard right and never shrinks it. */}
+      <div className="flex items-center gap-3">
+        <ol className="flex flex-1 items-start justify-between gap-1 max-w-3xl mx-auto min-w-0">
         {sections.map((label, i) => {
           const state = i < active ? 'complete' : i === active ? 'current' : 'upcoming'
           const isLast = i === sections.length - 1
@@ -67,7 +118,9 @@ export function MilestoneBar() {
             </li>
           )
         })}
-      </ol>
+        </ol>
+        <RestartButton />
+      </div>
     </nav>
   )
 }

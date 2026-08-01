@@ -2,8 +2,15 @@ import { beforeEach, describe, expect, test } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { SelectedToolbar } from '../components/DesignStudio/SelectedToolbar'
 import { useCanvasStore } from '../store/canvasStore'
+import { estimateTextBox, STAGE_W, STAGE_H } from '../lib/canvasGeometry'
+import { clearMeasuredTextBoxes } from '../lib/textMetrics'
 
-beforeEach(() => useCanvasStore.getState().reset())
+beforeEach(() => {
+  useCanvasStore.getState().reset()
+  // No live Konva node in these tests, so nothing publishes a measured text
+  // box — clear any left by another file sharing the module registry.
+  clearMeasuredTextBoxes()
+})
 
 function selectedText() {
   const s = useCanvasStore.getState()
@@ -14,22 +21,38 @@ function selectedText() {
 }
 
 describe('SelectedToolbar transform controls', () => {
-  test('+12.5° / −12.5° rotate and normalise into [0,360)', () => {
+  test('+11.25° / −11.25° rotate and normalise into [0,360)', () => {
     const id = selectedText()
     render(<SelectedToolbar />)
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' }))
-    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(12.5)
-    // 12.5 - 12.5 - 12.5 wraps: 12.5 → 0 → 347.5
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 12.5 degrees' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 12.5 degrees' }))
-    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(347.5)
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(11.25)
+    // 11.25 - 11.25 - 11.25 wraps: 11.25 → 0 → 348.75
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 11.25 degrees' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 11.25 degrees' }))
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(348.75)
   })
 
-  test('the degree readout shows 12.5, never a rounded 13', () => {
+  test('the degree readout shows the true 11.25, never a rounded 11.3', () => {
     selectedText()
     render(<SelectedToolbar />)
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' }))
-    expect((screen.getByLabelText('Rotation degrees') as HTMLInputElement).value).toBe('12.5')
+    const input = () => screen.getByLabelText('Rotation degrees') as HTMLInputElement
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    expect(input().value).toBe('11.25')
+    // …and a whole number still reads as one — "22.5", not "22.50".
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    expect(input().value).toBe('22.5')
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    expect(input().value).toBe('45')
+  })
+
+  test('four clicks land exactly on 45° — the point of 11.25 over 12.5', () => {
+    const id = selectedText()
+    render(<SelectedToolbar />)
+    for (let i = 0; i < 4; i++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' }))
+    }
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(45)
   })
 
   test('custom degree input sets rotation and Reset zeroes it', () => {
@@ -92,7 +115,7 @@ describe('SelectedToolbar transform controls', () => {
     const id = useCanvasStore.getState().faces.front[0].id
     s.select(id)
     render(<SelectedToolbar />)
-    expect(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rotate right 11.25 degrees' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Nudge right' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Increase size' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Decrease size' })).not.toBeInTheDocument()
@@ -144,7 +167,7 @@ describe('SelectedToolbar transform controls', () => {
     selectedText()
     render(<SelectedToolbar />)
     for (const name of [
-      'Rotate left 12.5 degrees', 'Rotate right 12.5 degrees', 'Reset rotation',
+      'Rotate left 11.25 degrees', 'Rotate right 11.25 degrees', 'Reset rotation',
       'Nudge left', 'Nudge right', 'Nudge up', 'Nudge down',
       'Increase size', 'Decrease size',
       'Bring forward', 'Send back', 'Duplicate', 'Delete',
@@ -177,14 +200,53 @@ describe('SelectedToolbar sections', () => {
   })
 
   test('Move is a D-pad cross with a recentre in the middle', () => {
-    const id = selectedText()
+    selectedText()
     render(<SelectedToolbar />)
     const pad = screen.getByRole('group', { name: 'Move' })
     expect(pad.className).toContain('grid-cols-3')
+    expect(screen.getByRole('button', { name: 'Centre on the cap' })).toBeInTheDocument()
+  })
+
+  test('Centre puts the ELEMENT\'s centre on the stage centre, not its corner', () => {
+    // The bug: x/y are the normalised TOP-LEFT, so writing {0.5, 0.5} left the
+    // element half its own size down-and-right of the middle — for a 0.4-wide
+    // logo, ~96px off on both axes.
+    const s = useCanvasStore.getState()
+    s.addImage('http://x/a.png', 1) // square → width = height = 0.4
+    const id = useCanvasStore.getState().faces.front[0].id
+    s.select(id)
+    render(<SelectedToolbar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Nudge right' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Nudge down' }))
     fireEvent.click(screen.getByRole('button', { name: 'Centre on the cap' }))
     const el = useCanvasStore.getState().faces.front.find(e => e.id === id)!
-    expect(el.x).toBe(0.5)
-    expect(el.y).toBe(0.5)
+    expect(el.x + el.width / 2).toBeCloseTo(0.5, 6)
+    expect(el.y + el.height / 2).toBeCloseTo(0.5, 6)
+    expect(el.x).toBeCloseTo(0.3, 6) // 0.5 − 0.4/2, NOT 0.5
+  })
+
+  test('Centre works on a drawing, whose box is its own stroke bounds', () => {
+    const s = useCanvasStore.getState()
+    // A stroke sitting in the top-left corner: bbox centre is (0.15, 0.15).
+    s.addDrawing([0.1, 0.1, 0.2, 0.2])
+    const id = useCanvasStore.getState().faces.front[0].id
+    s.select(id)
+    render(<SelectedToolbar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Centre on the cap' }))
+    const el = useCanvasStore.getState().faces.front.find(e => e.id === id)!
+    expect(el.x + 0.15).toBeCloseTo(0.5, 6)
+    expect(el.y + 0.15).toBeCloseTo(0.5, 6)
+  })
+
+  test('Centre on TEXT offsets by half the text box (estimate without a live node)', () => {
+    const id = selectedText() // 'hi', fontSize 36
+    render(<SelectedToolbar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Centre on the cap' }))
+    const el = useCanvasStore.getState().faces.front.find(e => e.id === id)!
+    const { w, h } = estimateTextBox('hi', 36)
+    expect(el.x).toBeCloseTo(0.5 - w / 2 / STAGE_W, 6)
+    expect(el.y).toBeCloseTo(0.5 - h / 2 / STAGE_H, 6)
+    expect(el.x).toBeLessThan(0.5)
   })
 
   test('captions are always shown — no tooltip-only compact mode', () => {

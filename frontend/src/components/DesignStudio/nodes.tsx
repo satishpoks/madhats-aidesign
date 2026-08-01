@@ -10,6 +10,7 @@ import { ensureFont } from '../../lib/fonts'
 import {
   boxHalfExtentsPx, centerPosition, topLeftFromCenterPx, drawingBoundsCenter, estimateTextBox,
 } from '../../lib/canvasGeometry'
+import { setMeasuredTextBox } from '../../lib/textMetrics'
 
 interface NodeProps {
   el: CanvasElement
@@ -64,13 +65,17 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
     const node = shapeRef.current
     if (!node) return
     const rect = node.getClientRect({ skipTransform: true })
-    if (rect.width && rect.height
-      && (Math.abs(rect.width - box.w) > 0.5 || Math.abs(rect.height - box.h) > 0.5)) {
+    if (!rect.width || !rect.height) return
+    // Publish it for callers outside the canvas that need the real box — the
+    // Adjust panel's Centre button, which otherwise centres on the heuristic
+    // estimate and lands the text visibly off on curved/long text.
+    setMeasuredTextBox(el.id, rect.width, rect.height)
+    if (Math.abs(rect.width - box.w) > 0.5 || Math.abs(rect.height - box.h) > 0.5) {
       setBox({ w: rect.width, h: rect.height })
     }
     // Re-measure whenever the glyphs/layout that determine the box change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, fontSize, fontFamily, curve])
+  }, [el.id, content, fontSize, fontFamily, curve])
 
   const halfW = box.w / 2
   const halfH = box.h / 2
