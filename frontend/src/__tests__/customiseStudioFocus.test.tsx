@@ -31,7 +31,10 @@ beforeEach(() => {
 
 describe('CustomiseStudio focus cue', () => {
   it('marks the canvas active and the chat inactive on a canvas step', () => {
-    useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    // showDone:true is what makes this a canvas-work step (LOGO_ADJUST-shaped) —
+    // a tool being merely allowed is not enough (see the ASK_LOGO_PLACEMENT
+    // case below).
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
     render(<CustomiseStudio />)
     expect(screen.getByTestId('canvas-column').dataset.active).toBe('true')
     expect(screen.getByTestId('chat-column-wrap').dataset.active).toBe('false')
@@ -45,7 +48,7 @@ describe('CustomiseStudio focus cue', () => {
   })
 
   it('rings the active column and dims the inactive one', () => {
-    useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
     render(<CustomiseStudio />)
     expect(screen.getByTestId('canvas-column').className).toContain('ring-2')
     expect(screen.getByTestId('chat-column-wrap').className).toContain('opacity-60')
@@ -56,14 +59,14 @@ describe('CustomiseStudio focus cue', () => {
     // (stageLocked, ToolRail allowedTools, ChatColumn inputLocked). Blocking
     // pointer events here would also stop the customer scrolling back through
     // the thread or re-reading the cap, which they must always be able to do.
-    useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
     render(<CustomiseStudio />)
     expect(screen.getByTestId('chat-column-wrap').className)
       .not.toContain('pointer-events-none')
   })
 
   it('names the surface in the pill so the cue is not colour-only', () => {
-    useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
     render(<CustomiseStudio />)
     expect(screen.getByRole('status').textContent).toMatch(/design here/i)
   })
@@ -71,6 +74,18 @@ describe('CustomiseStudio focus cue', () => {
   it('moves the pill to the chat on a chat step', () => {
     useChatStore.setState({ canvasDirective: directive([]) } as never)
     render(<CustomiseStudio />)
+    expect(screen.getByRole('status').textContent).toMatch(/answer here/i)
+  })
+
+  it('puts the ring and pill on the CHAT column at ASK_LOGO_PLACEMENT — tool allowed, no showDone/autoOpen', () => {
+    // Regression for the reported bug: the step hands over the upload tool
+    // (so the just-placed logo stays selectable) but asks the face via chat
+    // chips. A tool being allowed must not, by itself, ring the canvas.
+    useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').dataset.active).toBe('true')
+    expect(screen.getByTestId('chat-column-wrap').className).toContain('ring-2')
+    expect(screen.getByTestId('canvas-column').dataset.active).toBe('false')
     expect(screen.getByRole('status').textContent).toMatch(/answer here/i)
   })
 

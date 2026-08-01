@@ -11,8 +11,25 @@ const directive = (allowedTools: string[]) => ({
 beforeEach(() => useChatStore.getState().reset())
 
 describe('useActiveSurface', () => {
-  it('is the canvas when the v2 directive hands over a tool', () => {
+  it('is the chat when a tool is merely allowed with no Done and no auto-open — ASK_LOGO_PLACEMENT', () => {
+    // ASK_LOGO_PLACEMENT declares tool:"upload" (to keep the just-added logo
+    // selectable) but asks the face via chat chips (Front/Back/Left/Right).
+    // A tool being allowed is not the same as there being canvas work to do.
     useChatStore.setState({ canvasDirective: directive(['upload']) } as never)
+    expect(renderHook(() => useActiveSurface()).result.current).toBe('chat')
+  })
+
+  it('is the canvas when the directive sets showDone — a place/drag/adjust-then-Done step', () => {
+    useChatStore.setState({
+      canvasDirective: { ...directive(['upload']), showDone: true },
+    } as never)
+    expect(renderHook(() => useActiveSurface()).result.current).toBe('canvas')
+  })
+
+  it('is the canvas when the directive sets autoOpen — the step opens a tool dialog for the customer', () => {
+    useChatStore.setState({
+      canvasDirective: { ...directive(['upload']), autoOpen: 'upload' },
+    } as never)
     expect(renderHook(() => useActiveSurface()).result.current).toBe('canvas')
   })
 
