@@ -812,6 +812,175 @@ stack has no catalogue sync unless you run the script yourself:
   **Deploy-order independence is now real, in code — it was not before.** The earlier claim here ("every capture will silently no-op and Back will show no destinations") was false: `capture`/`relabel` were best-effort, but **`checkpoints.live_rows` was not**, and it is read UNWRAPPED from ~7 sites on the hot path of every v2 canvas turn — so `PGRST205` would have 500'd **every chat turn**, not degraded the menu. `live_rows` now returns `[]` on any failure (logging the exception TYPE only — labels carry the customer's name, security rule 10), which is already how "no going back" is expressed. Second place, worse blast radius: `sessions.py`'s `_visible_chat_messages` filters `chat_messages.superseded_at`, and against a database without that column postgrest raises `42703` — 500-ing `GET /sessions/{token}` for **every flow** (v1 and v2, canvas and Q&A) and killing every emailed resume/edit link. It now retries the read unfiltered; a superseded row cannot exist before the migration anyway, so nothing is hidden that should be shown.
 - Tests (2026-08-01, structured Back on `feat/canvas-studio-ux-batch`): backend flag-off (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`) = **1259 passed, 0 failed**; the five v2-only suites flag-on (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`) = **330 passed, 0 failed**. Frontend (`npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`) = **330 passed, 0 failing**; `tsc --noEmit` clean. Verified live in-browser end to end.
 - Tests: backend `pytest` **1196** passing on `master` (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`; includes `test_catalogue_sync_fetch.py` + `test_catalogue_ingest.py`). Frontend admin subset via `docker compose exec -T frontend npx vitest run src/__tests__/adminStores.test.tsx src/admin` = **62 passing**. Older note follows: backend `pytest` **1172** passing flag-off (`CANVAS_ORCHESTRATOR_V2=false pytest -q` on `feat/studio-fixes-batch`, was 1110 before this continuation), plus **301** passing across the five v2-only suites with the flag ON (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`). Frontend, run via `docker compose exec frontend npx vitest run <path>` (host-side `npx vitest` is broken on this Windows machine — missing `@vitest/utils`, the documented per-platform `node_modules` gotcha): `src/__tests__` is **273 passing, 2 failing** (was 249/2) — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing and unchanged; `src/admin` is **59 passing**. Older note follows: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
+- **Studio review gate + orchestrator-correctness batch (2026-08-01), branch
+  `feat/studio-review-gate-and-orchestrator-fixes`.** Four groups of fixes, all
+  merged and verified end-to-end in a real browser.
+  **(A) Orchestrator correctness (backend).** `state_machine_v2._STEP_OWNED_FLAGS`
+  (renamed from `_TERMINAL_FLAGS`, now also covers `design_rework`,
+  `design_confirmed`, `final_notes_done`): a flag that RECORDS something
+  happening (not a preference) may only be set by the step that owns it, never
+  volunteered by free text at an earlier step — because a truthy write is
+  normally always banked, and first-unmet then SKIPS the owning step, so its
+  `apply` (where the real effect lives) never runs. Two live regressions this
+  fixed: "that's it let's go" at `ASK_FINAL_NOTES` filled `quote_requested`,
+  skipping `REQUEST_QUOTE` and producing no MH-XXXXXX reference, no customer
+  email, no sales notification; "i need to go back to How many caps" at
+  `NEEDED_BY` filled `design_rework`, skipping `REVIEW_DESIGN` entirely and
+  dropping the customer straight into the rework loop unasked. Deliberately NOT
+  extended to loop-control slots (`decor_done`, `has_logo`, `another_logo`,
+  `more_decor`, `logo_placed`, `decor_placed`) — those are meant to be
+  volunteerable ("no, text only" satisfying `ASK_HAS_LOGO` from an earlier
+  answer is the slot-filling flexibility the whole registry rests on). `merge_fields`'s
+  `own` set now also includes the current step's own CHIP fields (not just
+  `step.slots`), because `ASK_FINAL_NOTES`'s "Nothing to add" chip sets
+  `final_notes_done` directly and that flag is deliberately excluded from the
+  step's slots (so the interpreter can never fabricate it) — reading `own` from
+  `step.slots` alone would drop the step's own chip write too.
+  Second: `prompts.ACK_SYSTEM_PROMPT` + `intent_extractor._ack_is_sane`. The v2
+  one-sentence ack (`write_ack`) used to inherit `RICARDO_SYSTEM_PROMPT` (a
+  behavioural brief full of hard rules) for a call that is really "rewrite this
+  JSON field dump into one sentence" — at `ASK_PURPOSE` a customer typing "dont
+  say" rendered into the ack prompt as `We understood: {"purpose": "dont
+  say"}"`, and Haiku read it as an operator instruction and answered the SYSTEM
+  PROMPT, one sampled run emitting a fresh greeting mid-flow (which that same
+  prompt forbids); the customer replied "whay message is this???". Fix is two
+  parts: the ack call now gets the minimal `ACK_SYSTEM_PROMPT` (no behavioural
+  rules to comply with), and `_ack_is_sane` validates the result before it is
+  concatenated into the customer's bubble — rejects questions, greetings,
+  >20-word or multi-paragraph replies, and text that talks ABOUT the customer
+  (`_ACK_SELF_REFERENCE`, narrowed to third-person framing after review — the
+  plan's original regex matched bare "customer"/"customers" and would have
+  blanked a normal ack like "caps for our customers"). Rejection degrades to
+  `""`, the same terse reply an outage already produces — never a leaked meta
+  message.
+  Third: `state_machine_v2._norm` now runs chip-label keys through
+  `intent_extractor.repair_mojibake` before the casefolded comparison. Live
+  session `bb62d05a` stored `needed_by` as `"2â€“4 weeks"` (CP1252-mangled
+  en-dash) — the registry source is clean UTF-8, so `resolve_chip`'s exact
+  match missed, burning an interpreter call instead of the 0-LLM identity
+  lookup it's designed to be, and the CORRUPTED string reached `brief_notes`
+  and the sales email. Only the comparison KEY is repaired, so a matched chip
+  still banks its own clean payload. **The corrupting hop was NOT found** —
+  verified clean at every layer this repo controls (Python source string, the
+  actual Starlette `JSONResponse` wire bytes, the `Content-Type` header, the
+  frontend's plain `fetch`/`res.json()`/`JSON.stringify()` path) — this is a
+  defence-in-depth fix that stands regardless of where the corruption
+  originates. **Open ticket:** capture a HAR/DevTools network trace from the
+  affected browser next time this recurs; that is the one layer this
+  investigation could not inspect after the fact.
+  **(B) Review gate (backend + frontend).** A backend `watermark` boolean rides
+  every v2 canvas turn (`state_machine_v2`, alongside the existing `canvas`
+  directive) — on from `REVIEW_DESIGN` through `FINALIZE_CANVAS`, off during
+  `REWORK_CANVAS` and everything earlier; backend-owned (like `canvas_directive`)
+  so it is resume-safe with no frontend state list to drift. `GET /storefront`
+  now also returns top-level `watermark_text` (a global `app_settings` value,
+  not a `stores.brand` field, so it bypasses `public_brand`'s allow-list —
+  which stays exactly as narrow as before; `watermark_asset_url` is still
+  internal-only). **`Watermark.tsx` is a DOM sibling of the Konva `<Stage>`,
+  NEVER a Konva layer or node** — this is the single most load-bearing
+  constraint in the whole batch, because two exports read the same stage:
+  `flattenStage` (the decorations-only layout guide sent to the image model as
+  conditioning — a watermark baked in here would be RENDERED ONTO THE CAP in
+  the photoreal mockup) and `flattenFull` (the WYSIWYG preview, watermarked
+  server-side by `delivery.py` at send time — a client-baked watermark here
+  would double-stamp it). Being a DOM overlay makes both failure modes
+  impossible by construction: `stage.toDataURL()` (via `stage.find()`) cannot
+  see a plain DOM node. **Verified two ways, not just asserted:** (1) a
+  differential unit test mounts the real `<CanvasStage>` with and without the
+  real `<Watermark>` sibling in the same `<div className="relative">` Surface.tsx
+  uses, and diffs the actual Konva scene-graph inventory
+  (`stage.find(() => true).map(getClassName())`) between the two — proven RED
+  by temporarily adding a real `Konva.Text` to the stage as a simulated
+  regression (a first version of this test built an unrelated DOM div and
+  asserted Konva's `stage.find()` missed it, which is vacuous — `find()` can
+  never see a DOM node by construction regardless of whether `Watermark.tsx`
+  exists at all; caught in code review, replaced); (2) live in-browser: with the
+  review dialog open and the watermark visibly on screen, clicking "Looks
+  great, send it" through to the quote-request finalize step fires the real
+  `doRender()` flatten, and the uploaded `canvas-layouts` PNG (fetched from its
+  returned signed URL) is a clean 960×960 image — decorations only on the
+  neutral-grey card, no watermark text anywhere. Watermark text is
+  XML-escaped (`&`/`<`/`>`) before interpolation into the SVG data URI (a store
+  name like "Smith & Co" would otherwise produce malformed SVG); literal
+  parens are percent-encoded because a literal `(` inside a quoted CSS `url()`
+  silently drops the whole `background-image` declaration in some parsers.
+  **`FaceStage.tsx`** is `FaceThumbnails`' per-face Konva renderer extracted and
+  parameterised by size (was hardcoded to 64px at module scope) — the review
+  dialog needs the identical render at 320px, and copying the renderer would
+  let the rail and the dialog drift out of sync. **`ReviewDialog.tsx`** (opens
+  at `review_design`) shows every DECORATED face (undecorated faces are the
+  blank product photo, omitted) through that same `FaceStage`, watermarked, in
+  one modal — so the customer confirms the whole design, not just whichever
+  face happened to be active. Its two buttons send the exact chip labels
+  `canvas_steps.REVIEW_DESIGN` ships, so they resolve by identity (0 LLM
+  calls). Touch-accessible dismiss (backdrop click that guards against
+  bubbling from inside the panel, plus a visible close button — Escape alone
+  is not a closable dialog on a phone) and deliberate initial focus on the
+  inert close control, not the higher-cost rework/send buttons, were both
+  added in a review fix round after the first version shipped with neither.
+  **(C/D) Focus cue + attribution (frontend).** The old split-screen "whose
+  turn" cue was a 2px accent ring round a whole column plus a blanket
+  `opacity-60` — the opacity was the real problem, fading live text to grey so
+  the resting half read as disabled/broken rather than simply not-your-turn.
+  Replaced with permanent per-column headers (`ColumnHeader.tsx`): the active
+  card lifts with a layered shadow and its header fills with the canvas
+  accent stating the turn ("Your turn — answer here" / "Your turn — design
+  here"); the resting card names itself in grey and softens only its CONTENT
+  wrapper (a dedicated testid, value-agnostic — the review caught that the
+  first version's test asserted `not.toContain('opacity-60')` while the real
+  code shipped `opacity-50`, a literal that appeared nowhere and could never
+  fail), so headers/structure stay full-contrast. Pointer-events are never
+  blocked by the dim — it's a cue, not a lock; real locking stays
+  per-affordance. `role="status"` moved onto the active header only.
+  Every chat message now renders inside a coloured lane (accent for the
+  assistant, the user-bubble colour for the customer) and the speaker NAME
+  renders only when the speaker changes — v2 routinely emits several assistant
+  bubbles per turn (`extra_replies`, plus the reply/instruction split), and a
+  repeated identical header read as padding on a phone. The customer's own
+  label is always the literal "You", never their captured name (PII, and it
+  repeats on every message).
+  **Mobile is NOT browser-verified for this batch** — `resize_window`/devtools
+  MCP could not attach a sub-768px viewport in this environment for any task in
+  this batch either. The mobile CSS changes (chat column `basis-[45vh]` +
+  `shrink` instead of a hard `h-[45vh]`, so it hands height back to the canvas;
+  `md:shrink-0` added in a follow-up fix so the shrink allowance doesn't leak
+  into the desktop breakpoints; `ReviewDialog`'s full-bleed-on-phone classes)
+  are pinned only by jsdom class-string tests, which perform no real layout.
+  **Verification-environment findings, worth carrying into every future backend
+  task on this repo:** `backend/tests` has **no `conftest.py`**, so
+  `db.get_supabase()` is unmocked in any test that reaches a DB-reading service
+  — and this repo's root `.env` points at the **hosted production Supabase**,
+  not a local stack. This bit an earlier task in this same batch (adding a
+  `settings_service` call made a pre-existing `test_storefront.py` test hit the
+  network for real; fixed there with a fixture stubbing `_read_row`, scoped to
+  that one file) and is the reason this task's own browser-walk verification of
+  the email-verification gate used a direct backend-container Python snippet to
+  flip `design_sessions.collected.email_captured`/`email_verified` (mirroring
+  exactly what `leads.py`'s `_apply_email`/`_mark_session_verified` write)
+  rather than a real email round-trip — this dev environment's Resend API key
+  is real but sandboxed, and rejects any recipient outside the account owner's
+  own verified address (a 422 `validation_error` on send, confirmed in the
+  backend logs), so a synthetic customer email can never actually complete
+  double opt-in here.
+  **Corrected stale baselines:** this same CLAUDE.md previously claimed 1259
+  backend (flag-off) / 330 v2 (flag-on) / 330 frontend at the top of this
+  batch's branch — all three were stale (the branch's own ledger measured the
+  REAL baseline at branch start as 1283 / 348 / 341 by stashing and
+  re-running). Final measured numbers after all 12 tasks: backend flag-off
+  `MSYS_NO_PATHCONV=1 docker compose run --rm -v "$PWD/backend/tests:/app/tests" -e CANVAS_ORCHESTRATOR_V2=false backend sh -c "pip install -q pytest pytest-asyncio && python -m pytest -q"`
+  = **1305 passed, 0 failed**; the five v2-only suites flag-on (same command
+  with `CANVAS_ORCHESTRATOR_V2=true tests/test_orchestrator_v2.py
+  tests/test_v2_e2e.py tests/test_v2_copy_guards.py tests/test_state_machine_v2.py
+  tests/test_canvas_steps.py`) = **355 passed, 0 failed**; frontend
+  `docker compose exec -T frontend npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`
+  = **366 passed, 0 failing** (`src/admin` separately = **63 passed**);
+  `docker compose exec -T frontend npx tsc --noEmit` = clean. All 8 of the
+  brief's browser-walk checks were directly observed (not inferred) in a real
+  Chrome session end to end, including a full canvas design → email-capture →
+  synthetic-verify → review → rework → re-review → finalize walk that produced
+  a real `MH-XXXXXX` reference code.
+  Spec/plan:
+  `docs/superpowers/{specs,plans}/2026-08-01-studio-review-gate-and-orchestrator-fixes*`.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
@@ -825,6 +994,11 @@ stack has no catalogue sync unless you run the script yourself:
   to be broken". Objects survive; `git update-ref` fails because it cannot lock an
   unparseable ref. Recover the tip from `.git/logs/refs/heads/<branch>` or
   `.git/logs/HEAD`, `rm` the corrupt ref file, then `git update-ref`.
+- Open ticket: the mojibake root cause behind `state_machine_v2._norm`'s
+  `repair_mojibake` call (2026-08-01 review-gate batch, Task 3) was never
+  identified — every layer this repo controls (Python source, wire bytes,
+  Content-Type header, frontend fetch/JSON path) was verified clean. Next step
+  if it recurs: capture a HAR/DevTools network trace from the affected browser.
 - Open ticket: add a partial index on `leads(email_verified, preview_email_sent, verified_at)` before lead volume grows (backfill/cron query).
 - Open ticket: `BrandingView.FLOW_STEPS` (frontend) mirrors the backend's
   `CONFIGURABLE_STEP_IDS` by hand. `test_configurable_step_ids_are_exactly_the_safe_subset`
