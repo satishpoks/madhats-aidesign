@@ -48,13 +48,13 @@ def _no_real_app_settings_call(monkeypatch):
     settings_service.invalidate_cache()
 
 
-def test_storefront_returns_public_brand(client, monkeypatch):
+def test_storefront_returns_public_brand(client, store_headers, monkeypatch):
     # public_brand (in app.services.branding) binds media_url at import, so patch
     # it THERE, not on the route module.
     monkeypatch.setattr(
         "app.services.branding.media_url", lambda p, base: f"http://api/media/{p}"
     )
-    r = client.get("/storefront", headers={"X-Store-Key": "k"})
+    r = client.get("/storefront", headers=store_headers)
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "Acme Caps"
@@ -82,6 +82,11 @@ def test_storefront_returns_the_watermark_text(client, store_headers, monkeypatc
     assert res.status_code == 200
     assert isinstance(res.json()["watermark_text"], str)
     assert res.json()["watermark_text"]        # never empty — the overlay needs something to draw
+    # Proves the route actually reads settings_service rather than merely
+    # returning some non-empty string (e.g. a hard-coded default would also
+    # satisfy the two assertions above) — "ACME PREVIEW" is distinguishable
+    # from the real default ("MADHATS PREVIEW"), so this pins the wiring.
+    assert res.json()["watermark_text"] == "ACME PREVIEW"
 
 
 def test_storefront_never_leaks_the_watermark_asset(client, store_headers, monkeypatch):
