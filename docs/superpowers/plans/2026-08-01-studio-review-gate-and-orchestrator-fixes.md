@@ -341,6 +341,17 @@ def test_normal_acks_are_accepted(text):
     assert _ack_is_sane(text) is True
 
 
+@pytest.mark.parametrize("text", [
+    "Noted, caps for our customers.",
+    "Understood — customer loyalty giveaway.",
+])
+def test_a_legitimate_second_person_customer_mention_is_accepted(text):
+    """`purpose` reaches write_ack unredacted, and "caps for our customers" is an
+    ordinary answer to ASK_PURPOSE. An over-broad self-reference rule would blank
+    the ack on exactly the step the original leak was diagnosed at."""
+    assert _ack_is_sane(text) is True
+
+
 def test_an_empty_ack_is_not_sane():
     assert _ack_is_sane("") is False
     assert _ack_is_sane("   ") is False
@@ -399,8 +410,19 @@ In `intent_extractor.py`, immediately above `async def write_ack`:
 #: concatenated straight into the customer's bubble — so it is checked, not
 #: trusted. Pure: no network, no state, exhaustively unit-testable.
 _ACK_MAX_WORDS = 20
+# Matching the BARE noun "customer(s)" was the original draft and it was wrong:
+# write_ack receives the `purpose` field unredacted (_safe_collected strips only
+# email/phone), and an ordinary reply like "gifts for our customers" or
+# "customer loyalty giveaway" legitimately contains the word without being a
+# leak. The actual leak pattern is the model talking ABOUT "the customer" as a
+# third party ("ready to help customers whenever they arrive") rather than
+# acknowledging one directly — so only THAT third-person framing is matched. Do
+# not simplify this back to a bare noun; that regressed to rejecting the very
+# phrasing this rule exists to allow. (Owner ruling, 2026-08-01.)
 _ACK_SELF_REFERENCE = re.compile(
-    r"\b(customer|customers|ricardo|assistant|i'm ready|im ready|practice run)\b",
+    r"\b(ricardo|assistant|i'm ready|im ready|practice run"
+    r"|(?:the|an?|actual)\s+customers?"
+    r"|customers?\s+(?:arrive|arrives|whenever))\b",
     re.IGNORECASE,
 )
 
