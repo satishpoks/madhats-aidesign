@@ -26,6 +26,9 @@ export function DesignStudioSurface() {
 
   const canvasDirective = useChatStore(s => s.canvasDirective)
   const triggerFinalize = useChatStore(s => s.triggerFinalize)
+  // Lifted out of local state so useActiveSurface can see it: a rejected
+  // finalize re-opens the canvas, and the focus cue must follow.
+  const finalizeFailed = useChatStore(s => s.finalizeFailed)
 
   // v2 = a canvas directive is present (the chat orchestrator is driving the
   // canvas turn-by-turn). Fall back to the legacy whole-rail gating
@@ -45,7 +48,6 @@ export function DesignStudioSurface() {
   // stage is read-only, the Adjust panel is unmounted and the finalize effect
   // has already locked every element. Without this the customer is told to edit
   // text they physically cannot touch. Cleared when a retry starts.
-  const [finalizeFailed, setFinalizeFailed] = useState(false)
   const v2Editing = isV2 && (canvasDirective!.allowedTools.length > 0 || finalizeFailed)
   const stageLocked = isV2 ? !v2Editing : !unlocked
 
@@ -218,7 +220,7 @@ export function DesignStudioSurface() {
 
   async function doRender() {
     if (!sessionId || rendering) return
-    setRendering(true); setError(null); setFinalizeFailed(false)
+    setRendering(true); setError(null); useChatStore.setState({ finalizeFailed: false })
     try {
       // Flatten the CURRENT active face, then each other decorated face. Konva
       // renders one stage; switch faces, let it paint, flatten. Simplest: flatten
@@ -281,7 +283,7 @@ export function DesignStudioSurface() {
       // FINALIZE_CANVAS) so the effect above would never fire doRender() again,
       // and the v2 render button is permanently disabled
       // (`rendered={isV2 ? true : rendered}`) — leaving no way back in.
-      setFinalizeFailed(true)
+      useChatStore.setState({ finalizeFailed: true })
       unlockAll()
       useChatStore.setState({ triggerFinalize: false })
       finalizeStarted.current = false

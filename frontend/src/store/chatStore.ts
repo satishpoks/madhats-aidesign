@@ -58,6 +58,12 @@ interface ChatStoreState {
    *  element (and re-asks it) rather than rewinding one slot — drives the
    *  "remove & restart?" confirm in ChatColumn. */
   backRemovesElement: boolean
+  /** v2 canvas: a finalize was REJECTED (e.g. the cap-text profanity gate), so
+   *  the canvas is re-opened for the customer to act on the error even though
+   *  FINALIZE_CANVAS's directive hands over no tool. Lives here rather than in
+   *  Surface's local state because useActiveSurface must see it — otherwise the
+   *  focus cue says "chat" while the canvas is genuinely live. */
+  finalizeFailed: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -115,11 +121,23 @@ function parseData(data: Record<string, unknown>) {
   const triggerFinalize = data.trigger_finalize === true
   const canGoBack = data.can_go_back === true
   const backRemovesElement = data.back_removes_element === true
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack, backRemovesElement }
+  // Further assistant messages to append AFTER `reply`, each as its own bubble
+  // (backend orchestrator_v2._persist). Absent on every ordinary turn.
+  const extraReplies = Array.isArray(data.extra_replies)
+    ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
+    : []
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack, backRemovesElement, extraReplies }
 }
 
 function uid(): string {
   return Math.random().toString(36).slice(2, 10)
+}
+
+/** The assistant bubbles one response produces: the main reply, then each
+ *  extra, in order. Shared by every response handler so a split turn can never
+ *  render in one place and not another. */
+function assistantMessages(reply: string, extraReplies: string[]): ChatMessage[] {
+  return [reply, ...extraReplies].map(text => ({ id: uid(), role: 'assistant' as const, text }))
 }
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
@@ -145,17 +163,18 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   triggerFinalize: false,
   canGoBack: false,
   backRemovesElement: false,
+  finalizeFailed: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
     set({ kickoffDone: true, sending: true, chatError: null })
     try {
       const res = await sendChat(sessionId, '')
-      const parsed = parseData(res.data)
+      const { extraReplies, ...parsed } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
-          { id: uid(), role: 'assistant', text: res.reply },
+          ...assistantMessages(res.reply, extraReplies),
         ],
         chatState: res.state,
         ...parsed,
@@ -206,12 +225,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         ? useCanvasStore.getState().toCanvasDesign()
         : undefined
       const res = await sendChat(sessionId, text, liveDesign)
-      const parsed = parseData(res.data)
+      const { extraReplies, ...parsed } = parseData(res.data)
       applyCanvasOps(parseCanvasOps(res.data))   // before set(): patch, then Surface's lock effect
       set(state => ({
         messages: [
           ...state.messages,
-          { id: uid(), role: 'assistant', text: res.reply },
+          ...assistantMessages(res.reply, extraReplies),
         ],
         chatState: res.state,
         ...parsed,
@@ -244,7 +263,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   hydrate: (messages, state, data) => {
-    const parsed = parseData(data)
+    // Discarded, not appended: `messages` already contains the extra rows —
+    // _persist persisted each one — so re-appending would duplicate them.
+    const { extraReplies: _ignored, ...parsed } = parseData(data)
     set({
       messages: messages.map(m => ({
         id: uid(),
@@ -261,9 +282,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   },
 
   applyResponse: (reply, state, data) => {
-    const parsed = parseData(data)
+    const { extraReplies, ...parsed } = parseData(data)
     set(s => ({
-      messages: [...s.messages, { id: uid(), role: 'assistant', text: reply }],
+      messages: [...s.messages, ...assistantMessages(reply, extraReplies)],
       chatState: state,
       ...parsed,
       sending: false,
@@ -277,11 +298,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollVerification(sessionId)
       if (res.reply == null) return // not verified yet — nothing to show
-      const parsed = parseData(res.data)
+      const { extraReplies, ...parsed } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
-          { id: uid(), role: 'assistant', text: res.reply as string },
+          ...assistantMessages(res.reply as string, extraReplies),
         ],
         chatState: res.state,
         ...parsed,
@@ -295,11 +316,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollRegeneration(sessionId)
       if (res.reply == null) return // not at regenerating (already advanced, or n/a)
-      const parsed = parseData(res.data)
+      const { extraReplies, ...parsed } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
-          { id: uid(), role: 'assistant', text: res.reply as string },
+          ...assistantMessages(res.reply as string, extraReplies),
         ],
         chatState: res.state,
         ...parsed,
@@ -314,11 +335,11 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     try {
       const res = await pollGenerationAdvance(sessionId)
       if (res.reply == null) return // not at generating (already advanced, or n/a)
-      const parsed = parseData(res.data)
+      const { extraReplies, ...parsed } = parseData(res.data)
       set(state => ({
         messages: [
           ...state.messages,
-          { id: uid(), role: 'assistant', text: res.reply as string },
+          ...assistantMessages(res.reply as string, extraReplies),
         ],
         chatState: res.state,
         ...parsed,
@@ -357,5 +378,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       triggerFinalize: false,
       canGoBack: false,
       backRemovesElement: false,
+      finalizeFailed: false,
     }),
 }))
