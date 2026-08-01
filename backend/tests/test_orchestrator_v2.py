@@ -1334,6 +1334,52 @@ async def test_back_carries_forward_a_verified_email(monkeypatch):
     assert collected["lead_id"] == "L1"
 
 
+@pytest.mark.asyncio
+async def test_back_response_replaces_the_thread_ending_with_the_new_reply(monkeypatch):
+    """Live bug: the UI appended the restore's reply instead of replacing the
+    thread, so the discarded exchange stayed visible above the fresh question.
+    The backend's contribution to the fix is `data["messages"]` — the live
+    (non-superseded) thread in order, ending with the just-persisted reply —
+    so the frontend has something to swap in."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_LOGO_PLACEMENT.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Satish", "intro_ack": True,
+        "has_logo": True, "pending_logo": {"face": None, "placed": False},
+    }
+    store["rows"] = [
+        {"id": "m1", "session_id": "s1", "role": "assistant",
+         "content": "Thank you, Satish. Do you have a logo…",
+         "created_at": "000001", "superseded_at": None},
+        {"id": "m2", "session_id": "s1", "role": "user",
+         "content": "Yes, I have a logo",
+         "created_at": "000002", "superseded_at": None},
+        {"id": "m3", "session_id": "s1", "role": "assistant",
+         "content": "Which part of the cap should it go on?",
+         "created_at": "000003", "superseded_at": None},
+    ]
+    store["_clock"] = 3   # next insert (the restore's new reply) gets "000004"
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="name", label="Your name — Satish",
+              step_id=S.ASK_NAME.value, collected={"flow_mode": "canvas"},
+              chat_watermark="m1"),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    out = await o2.handle_back("s1", 1)
+
+    msgs = out["data"]["messages"]
+    contents = [m["content"] for m in msgs]
+    # The superseded exchange is gone...
+    assert "Yes, I have a logo" not in contents
+    assert "Which part of the cap should it go on?" not in contents
+    # ...the row that predates the discarded branch survives...
+    assert "Thank you, Satish. Do you have a logo…" in contents
+    # ...and the list ends with the freshly persisted reply.
+    assert contents[-1] == out["reply"]
+    assert [m["created_at"] for m in msgs] == sorted(m["created_at"] for m in msgs)
+
+
 def test_the_old_back_machinery_is_gone():
     assert not hasattr(o2, "_restart_element")
     src = __import__("inspect").getsource(o2)

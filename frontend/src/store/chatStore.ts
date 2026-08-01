@@ -266,7 +266,35 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       if (snap && typeof snap === 'object') {
         useCanvasStore.getState().restoreSnapshot(snap as CanvasDesign)
       }
-      get().applyResponse(res.reply, res.state, data)
+      // The backend supersedes everything after the restore point but the
+      // in-memory thread only ever grows via append — so without this the
+      // discarded exchange stays visible above the fresh question, reading as
+      // a contradiction (questions the customer just rewound past, followed
+      // by the conversation restarting). `data.messages` is the live thread,
+      // already ending with the new reply (orchestrator_v2.handle_back reads
+      // it AFTER persisting), so it REPLACES the store's messages instead of
+      // going through `applyResponse`'s append — applying the reply twice
+      // otherwise. Absent (a non-v2 turn or an older backend) falls back to
+      // the old append behaviour.
+      const restoredMessages = data.messages
+      if (Array.isArray(restoredMessages)) {
+        // Discarded, not appended, same as `hydrate`: `messages` already
+        // contains every extra row (`_persist` wrote each one), so replaying
+        // `extraReplies` on top would duplicate the reply.
+        const { extraReplies: _ignored, ...parsed } = parseData(data)
+        set({
+          messages: (restoredMessages as ChatMessageOut[]).map(m => ({
+            id: uid(),
+            role: m.role,
+            text: m.content,
+          })),
+          chatState: res.state,
+          ...parsed,
+          chatError: null,
+        })
+      } else {
+        get().applyResponse(res.reply, res.state, data)
+      }
     } finally {
       set({ sending: false })
     }

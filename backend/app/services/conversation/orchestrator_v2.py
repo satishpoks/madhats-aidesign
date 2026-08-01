@@ -317,8 +317,23 @@ async def handle_back(session_id: str, seq: int) -> dict:
                        restored, ck.live_rows(sb, session_id)))
     if row.get("canvas_design"):
         data["canvas_restore"] = row["canvas_design"]
-    return await _persist(sb, session_id, restored, step, reply,
-                          session["state"], step.id, user_message=None, data=data)
+    result = await _persist(sb, session_id, restored, step, reply,
+                            session["state"], step.id, user_message=None, data=data)
+    # The frontend must REPLACE its in-memory thread, not append to it — the
+    # superseded exchange (discarded by the restore above) is otherwise still
+    # rendered above the fresh question, contradicting the rollback the
+    # customer just saw applied to the canvas/progress/tool-rail. Read AFTER
+    # `_persist` so the just-written reply row (inserted inside `_persist`) is
+    # included and this list ends with it, matching `GET /sessions/{token}`'s
+    # own filter/order so the frontend's mapping is identical either way.
+    msgs = (sb.table("chat_messages")
+           .select("role, content, state_before, state_after, created_at")
+           .eq("session_id", session_id)
+           .is_("superseded_at", "null")
+           .order("created_at")
+           .execute())
+    result["data"]["messages"] = list(msgs.data or [])
+    return result
 
 
 async def check_verification(session_id: str) -> dict:

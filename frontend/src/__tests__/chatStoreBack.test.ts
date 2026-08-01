@@ -100,3 +100,50 @@ test('drops a blank turn (existing guard, must not regress)', async () => {
   await useChatStore.getState().sendMessage('s1', '   ')
   expect(spy).not.toHaveBeenCalled()
 })
+
+test('goBackTo REPLACES messages with data.messages, not appends the reply', async () => {
+  // Pre-existing thread includes the discarded exchange the restore rewound
+  // past — proving the live bug (appended reply, stale exchange still shown)
+  // would leave "Yes, I have a logo" / "Which part..." visible.
+  useChatStore.setState({
+    messages: [
+      { id: 'a', role: 'assistant', text: 'Thank you, Satish. Do you have a logo…' },
+      { id: 'b', role: 'user', text: 'Yes, I have a logo' },
+      { id: 'c', role: 'assistant', text: 'Which part of the cap should it go on?' },
+    ],
+  })
+  vi.spyOn(api, 'sendBack').mockResolvedValue({
+    reply: 'Thank you, Satish. Do you have a logo…',
+    state: 'ask_name',
+    data: {
+      messages: [
+        { role: 'assistant', content: 'Hi! What is your name?',
+          state_before: 'greeting', state_after: 'ask_name', created_at: '1' },
+        { role: 'assistant', content: 'Thank you, Satish. Do you have a logo…',
+          state_before: 'ask_name', state_after: 'ask_name', created_at: '2' },
+      ],
+    },
+  } as never)
+
+  await useChatStore.getState().goBackTo('s1', 1)
+
+  const texts = useChatStore.getState().messages.map(m => m.text)
+  expect(texts).toEqual(['Hi! What is your name?', 'Thank you, Satish. Do you have a logo…'])
+  expect(texts).not.toContain('Yes, I have a logo')
+  expect(texts).not.toContain('Which part of the cap should it go on?')
+  // Not duplicated: the reply appears exactly once, as the last message.
+  expect(texts.filter(t => t === 'Thank you, Satish. Do you have a logo…')).toHaveLength(1)
+})
+
+test('goBackTo falls back to appending when data.messages is absent', async () => {
+  useChatStore.setState({
+    messages: [{ id: 'a', role: 'assistant', text: 'earlier message' }],
+  })
+  vi.spyOn(api, 'sendBack').mockResolvedValue(
+    { reply: 'restored reply', state: 'ask_name', data: {} } as never)
+
+  await useChatStore.getState().goBackTo('s1', 1)
+
+  const texts = useChatStore.getState().messages.map(m => m.text)
+  expect(texts).toEqual(['earlier message', 'restored reply'])
+})
