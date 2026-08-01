@@ -3,7 +3,14 @@ serializer for the customer storefront. No DB, no network — trivially testable
 
 Brand shape (all keys optional) stored in stores.brand jsonb:
     { logo_url, primary_colour, header_bg, header_text,
+      canvas_accent, chat_user_bubble,
       watermark_asset_url (internal), menu_items: [{label, url}] }
+
+canvas_accent colours the canvas design surface (tool rail, Adjust panel,
+focus ring, Done button); chat_user_bubble colours the customer's own chat
+bubbles. Both are independent of primary_colour (the site chrome colour) and
+default to unset — an unconfigured store renders exactly as it did before
+these keys existed.
 """
 from __future__ import annotations
 
@@ -16,9 +23,15 @@ from app.storage import media_url
 HEX_RE = re.compile(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$")
 MAX_MENU_ITEMS = 5
 MAX_LABEL_LEN = 40
-_COLOUR_KEYS = ("primary_colour", "header_bg", "header_text")
+_COLOUR_KEYS = (
+    "primary_colour", "header_bg", "header_text",
+    "canvas_accent", "chat_user_bubble",
+)
 # Fields exposed to the public storefront (watermark_asset_url is internal).
-_PUBLIC_KEYS = ("logo_url", "primary_colour", "header_bg", "header_text")
+_PUBLIC_KEYS = (
+    "logo_url", "primary_colour", "header_bg", "header_text",
+    "canvas_accent", "chat_user_bubble",
+)
 
 
 def _validate_menu_items(raw) -> list[dict]:

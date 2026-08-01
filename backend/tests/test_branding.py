@@ -61,6 +61,83 @@ def test_public_brand_handles_none():
     assert branding.public_brand(None, "http://api/") == {}
 
 
+# --- canvas_accent / chat_user_bubble (independent per-surface colours) ------
+
+def test_validate_brand_accepts_canvas_accent_and_chat_user_bubble():
+    cleaned = branding.validate_brand({
+        "canvas_accent": "#00A3FF",
+        "chat_user_bubble": "#1A1D29",
+    })
+    assert cleaned["canvas_accent"] == "#00A3FF"
+    assert cleaned["chat_user_bubble"] == "#1A1D29"
+
+
+def test_validate_brand_rejects_bad_canvas_accent():
+    with pytest.raises(ValueError):
+        branding.validate_brand({"canvas_accent": "blue"})
+
+
+def test_validate_brand_rejects_bad_chat_user_bubble():
+    with pytest.raises(ValueError):
+        branding.validate_brand({"chat_user_bubble": "not-a-colour"})
+
+
+def test_public_brand_exposes_canvas_accent_and_chat_user_bubble():
+    out = branding.public_brand(
+        {
+            "primary_colour": "#FF5C00",
+            "canvas_accent": "#00A3FF",
+            "chat_user_bubble": "#1A1D29",
+        },
+        "http://api/",
+    )
+    assert out["canvas_accent"] == "#00A3FF"
+    assert out["chat_user_bubble"] == "#1A1D29"
+
+
+def test_public_brand_still_drops_watermark_with_new_keys_present():
+    out = branding.public_brand(
+        {
+            "canvas_accent": "#00A3FF",
+            "chat_user_bubble": "#1A1D29",
+            "watermark_asset_url": "uploads/wm.png",
+        },
+        "http://api/",
+    )
+    assert "watermark_asset_url" not in out
+
+
+def test_public_brand_unconfigured_store_is_byte_identical(monkeypatch):
+    """A store that never set canvas_accent/chat_user_bubble must render
+    exactly as it did before these keys existed — no key present at all,
+    not even as null/empty."""
+    monkeypatch.setattr(branding, "media_url", lambda p, base: f"{base}media/tok" if p else None)
+    brand = {
+        "primary_colour": "#FF5C00",
+        "header_bg": "#ffffff",
+        "header_text": "#000000",
+        "logo_url": "uploads/logo.png",
+        "menu_items": [{"label": "Shop", "url": "https://x.example"}],
+    }
+    out = branding.public_brand(brand, "http://api/")
+    assert out == {
+        "primary_colour": "#FF5C00",
+        "header_bg": "#ffffff",
+        "header_text": "#000000",
+        "logo_url": "http://api/media/tok",
+        "menu_items": [{"label": "Shop", "url": "https://x.example"}],
+    }
+    assert "canvas_accent" not in out
+    assert "chat_user_bubble" not in out
+
+
+def test_validate_brand_unconfigured_store_round_trips_untouched():
+    brand = {"primary_colour": "#FF5C00", "header_bg": "#ffffff"}
+    cleaned = branding.validate_brand(brand)
+    assert "canvas_accent" not in cleaned
+    assert "chat_user_bubble" not in cleaned
+
+
 # --- Workstream D: canvas_flow (admin-configurable step order) ----------------
 # The id allow-list IS the guard keeping admins away from every dependency-locked
 # step, so these tests are the safety boundary, not just schema polish.
