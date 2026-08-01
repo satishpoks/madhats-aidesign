@@ -35,26 +35,37 @@ services:
     environment:
       # Vite bakes this into the bundle at container start. The BROWSER (on the
       # host / public internet) must be able to reach the backend at this URL.
-      #  - Local dev: defaults to https://api.localhost (the dev Caddy TLS
-      #    proxy). To reach the dev stack from another device (e.g. over
-      #    Tailscale), set VITE_API_BASE_URL in your shell or the project-root
-      #    .env, e.g. http://100.103.149.17:8000.
+      #  - Local dev: defaults to http://localhost:8000 — the port `backend`
+      #    already publishes, over PLAIN HTTP so nothing has to trust Caddy's
+      #    internal CA. This is the difference from prod, which has real certs.
+      #    Trusting that CA is a per-machine manual step, and until it is done
+      #    an https://api.localhost default fails in a way that reads like a
+      #    broken backend: the page loads (its own origin was accepted) while
+      #    every API call dies "Failed to fetch", because a certificate
+      #    exception for one origin does NOT extend to a subresource origin.
+      #    `http://localhost` is still a SECURE CONTEXT per the browser spec,
+      #    so the microphone / Web Speech API keeps working on this path.
+      #  - Want the TLS path anyway (to exercise prod's proxy chain)? Start the
+      #    stack with `--profile tls` and set VITE_API_BASE_URL and
+      #    TLS_PROXY_HOST accordingly — see the `caddy` service below.
+      #  - Another device (e.g. over Tailscale): set VITE_API_BASE_URL in your
+      #    shell or the project-root .env, e.g. http://100.103.149.17:8000.
       #  - Server: this compose file is dev-only; production uses
       #    docker-compose.prod.yml, whose header documents the equivalent
       #    HTTPS values (e.g. https://api.madhats.getaiconsult.com.au).
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.localhost}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_STORE_KEY: ${VITE_STORE_KEY:-mh_pk_madhats_local}
       # Set when serving the dev stack over HTTPS via `tailscale serve` so Vite
       # accepts the MagicDNS Host header and points HMR at wss://<host>:443.
       TAILSCALE_HOST: ${TAILSCALE_HOST:-}
       # Hostname served by the Caddy TLS proxy; points Vite HMR at wss://<host>:443.
-      # Defaults to `localhost`, which is correct in BOTH dev access modes: it is
-      # the hostname this stack's Caddy serves (https://localhost), and the plain
-      # http://localhost:5173 path is unaffected by the HMR host. Left empty, a
-      # developer who pulls this branch without editing their existing .env gets
-      # https://localhost with HMR pointed at ws://localhost:5173 — silently
-      # blocked as mixed content, with no error beyond "HMR stopped working".
-      TLS_PROXY_HOST: ${TLS_PROXY_HOST:-localhost}
+      # Defaults to EMPTY, matching the plain-HTTP default above: HMR then runs
+      # over ws://localhost:5173, which is what an http:// page needs. Set it to
+      # `localhost` ONLY when you run `--profile tls` and load https://localhost
+      # — an https page with HMR on ws:// is blocked as mixed content, with no
+      # error beyond "HMR stopped working". The two settings must agree; that
+      # coupling is why they are documented together.
+      TLS_PROXY_HOST: ${TLS_PROXY_HOST:-}
       # Extra hostnames the Vite dev server accepts (comma-separated) when the
       # stack is fronted by a public domain, e.g.
       # ALLOWED_HOSTS=madhats.getaiconsult.com.au. Relaxes the host check only.
@@ -72,8 +83,26 @@ services:
   # so proxy/routing bugs surface here first.
   #   https://localhost      -> frontend
   #   https://api.localhost  -> backend
+  #
+  # OPT-IN (`profiles`), so a plain `docker compose up` does NOT start it.
+  # Two reasons, both learned the hard way:
+  #  1. Its certificates come from Caddy's INTERNAL CA, which no browser trusts
+  #     until you install it by hand. Until then this stack's own URLs fail, and
+  #     they fail confusingly (page loads, every API call dies) — so it must not
+  #     be the path a developer lands on by default.
+  #  2. It binds :80 and :443. Compose aborts the WHOLE stack when a port is
+  #     taken — not just this service — so on any machine where something else
+  #     holds them (IIS/http.sys on Windows, another project's stack) the
+  #     backend and frontend never start either, for a service most dev work
+  #     does not need.
+  # Run it deliberately when you want to exercise prod's proxy chain:
+  #   docker compose --profile tls up -d
+  # and set VITE_API_BASE_URL=https://api.localhost + TLS_PROXY_HOST=localhost
+  # to match (see the frontend service above), then trust the CA — see
+  # docs/superpowers/plans/2026-07-25-ssl-all-servers.md Task 3 Step 8.
   caddy:
     image: caddy:2.8-alpine
+    profiles: ["tls"]
     restart: unless-stopped
     ports:
       - "80:80"

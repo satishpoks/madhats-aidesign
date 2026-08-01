@@ -245,18 +245,35 @@ Each subagent should:
 
 > **How this dev runs the stack:** **both** `backend` and `frontend` run in Docker
 > via `docker compose up` (see `docker-compose.yml`) — NOT bare `uvicorn`/`npm run
-> dev` on the host. Backend → https://api.localhost, frontend → https://localhost
-> (both via the Caddy TLS proxy; the plain http://localhost:8000 / :5173 ports
-> are still published in dev for quick checks). The internal CA must be trusted
-> once — see docs/superpowers/plans/2026-07-25-ssl-all-servers.md Task 3 Step 8.
+> dev` on the host. **Since 2026-08-01 the default dev path is PLAIN HTTP:**
+> frontend → http://localhost:5173, backend → http://localhost:8000, and the
+> `caddy` TLS service is **opt-in** (`profiles: ["tls"]`), so a bare
+> `docker compose up` no longer starts it. Nothing has to trust a private CA to
+> work. `http://localhost` is still a **secure context** per the browser spec, so
+> the microphone / Web Speech API is unaffected.
 > Supabase runs on the **host** via `npx supabase start`; the backend container
 > reaches it at `host.docker.internal:54321`.
 >
-> - **Clicking through the browser warning is not a substitute for Step 8.** A
->   per-origin certificate exception does not extend to subresource origins, so
->   accepting the warning on `https://localhost` still leaves every API call to
->   `https://api.localhost` failing. If the studio loads but every request
->   errors, you likely skipped trusting the CA rather than broken the backend.
+> - **Why the default flipped.** Caddy's internal CA is untrusted until installed
+>   by hand, and the failure it produces is actively misleading: the page loads
+>   (its own origin was accepted) while every API call dies "Failed to fetch",
+>   because a per-origin certificate exception does **not** extend to a
+>   subresource origin. That reads as a broken backend, and it cost a real
+>   verification pass. Binding :80/:443 was a second liability — compose aborts
+>   the **whole** stack when a port is taken, so backend and frontend never
+>   started either.
+> - **Want the TLS path** (to exercise prod's proxy chain)? `docker compose
+>   --profile tls up -d`, and set `VITE_API_BASE_URL=https://api.localhost` +
+>   `TLS_PROXY_HOST=localhost` in the root `.env` — **those two must agree**, or
+>   HMR is blocked as mixed content. Then trust the CA once:
+>   docs/superpowers/plans/2026-07-25-ssl-all-servers.md Task 3 Step 8. Clicking
+>   through the browser warning is **not** a substitute for that step, for the
+>   subresource-origin reason above.
+> - The five URL-ish vars must agree with whichever mode you pick:
+>   `VITE_API_BASE_URL`, `TLS_PROXY_HOST`, `EMAIL_VERIFY_BASE_URL`,
+>   `STUDIO_BASE_URL` (and `ALLOWED_ORIGINS`). `VITE_API_BASE_URL` is baked into
+>   the bundle at **container start**, so always `--force-recreate frontend`
+>   after changing it.
 > - **`.env` changes** (backend): read only at container start. A running `--reload`
 >   worker does NOT pick up new env vars — recreate: `docker compose up -d
 >   --force-recreate backend` (or down/up).
@@ -768,7 +785,7 @@ stack has no catalogue sync unless you run the script yourself:
   **`data.extra_replies`** (`orchestrator_v2._persist`) lets one backend turn write more than one assistant chat row — used so the "your email's verified" acknowledgement lands as its own bubble instead of being glued to the next question with a space. Consumed at all seven `chatStore` `parseData` call sites, but `hydrate` DISCARDS it on resume: the backend already persisted each extra as its own row, so appending again on rehydrate would duplicate every split message on every resume. The five `state_machine_v2.reply_for`/`orchestrator_v2` join sites that build a single reply now join with `"\n\n"` instead of a space, so a trailing instruction renders as its own paragraph under the question (the chat bubble is `whitespace-pre-wrap`).
   **`Step.accept_verbatim`** (`canvas_steps.py`), set on `ASK_PURPOSE` only: when the LLM interpreter returns nothing for a step's own slot, the raw customer message is banked into it instead of leaving the step unmet forever. Fixes a real dead-end — `ASK_PURPOSE` ships no chips, so a refusal ("rather not say") or a misspelling the interpreter declined to read left `done_when` false and the step re-asked forever. It is per-step, not a global fallback: banking a raw message verbatim is only correct where the answer IS the message; on an enum step (`logo_face`) or a numeric one (`quantity`) the same behaviour would write "umm the back one I think" straight into a typed field.
   **`StoreHeader`** takes `title?` (renamed from `subtitle`) and centres by giving both flanks `flex-1 basis-0` so logo and menu share leftover space equally regardless of content width — not absolute positioning, which would overlap the logo or menu on a narrow screen. The `› Design` breadcrumb suffix is gone.
-- Tests (2026-08-01, task 10 verification of `feat/canvas-studio-ux-batch`, commit `6fb8f35`): backend full suite (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`) = **1205 passing**; v2-only suites (`CANVAS_ORCHESTRATOR_V2=true`, `tests/test_orchestrator_v2.py tests/test_v2_e2e.py tests/test_v2_copy_guards.py tests/test_state_machine_v2.py tests/test_canvas_steps.py`) = **310 passing**. Frontend (`docker compose exec -T frontend npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`) = **305 passing, 0 failing** — corrects the stale note below: `adminQuotes` now PASSES on this branch (the "2 pre-existing failures" no longer hold), and no new failures appeared. `docker compose exec -T frontend npx tsc --noEmit` = zero errors, confirming every `StoreHeader` call site moved from `subtitle` to `title`. The in-browser walk (Step 5) was NOT completed: both `https://localhost` and `http://localhost:5173` are unusable from this environment's browser-automation tool — `https://localhost` hits the untrusted internal dev CA (a Chrome cert interstitial that the screenshot/read_page tools cannot even read, since they refuse to operate on an error-page frame), and `http://localhost:5173` loads the app shell but every API call targets the build-time-baked `https://api.localhost`, which fails for the same untrusted-CA reason ("Failed to fetch") — consistent with this file's own existing caveat that a per-origin click-through exception does not extend to subresource origins. No visual confirmation of the five Step 5 checks was obtained; do not treat this bullet as having verified them.
+- Tests (2026-08-01, task 10 verification of `feat/canvas-studio-ux-batch`, commit `6fb8f35`): backend full suite (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`) = **1205 passing**; v2-only suites (`CANVAS_ORCHESTRATOR_V2=true`, `tests/test_orchestrator_v2.py tests/test_v2_e2e.py tests/test_v2_copy_guards.py tests/test_state_machine_v2.py tests/test_canvas_steps.py`) = **310 passing**. Frontend (`docker compose exec -T frontend npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`) = **305 passing, 0 failing** — corrects the stale note below: `adminQuotes` now PASSES on this branch (the "2 pre-existing failures" no longer hold), and no new failures appeared. `docker compose exec -T frontend npx tsc --noEmit` = zero errors, confirming every `StoreHeader` call site moved from `subtitle` to `title`. The in-browser walk (Step 5) initially FAILED for an environment reason, not a code one — `https://localhost` hit the untrusted internal dev CA (a Chrome interstitial the automation tools refuse to operate on) and `http://localhost:5173` loaded the shell but called the baked `https://api.localhost`, dying "Failed to fetch" for the same reason. That is what prompted the dev-compose flip to plain HTTP (see §13); **after it, all five checks were verified live** at `http://localhost:5173/?product_id=…` with `CANVAS_ORCHESTRATOR_V2=true`: (1) at `ask_name` the chat carries the ring + "Your turn — answer here" and the canvas is dimmed with every tool greyed; (2) answering through to `ask_logo_placement` flips ring and pill to the canvas ("design here") and enables **only** Upload image; (3) selecting a placed logo opens the Adjust panel titled "ADJUST — IMAGE" with CONTENT / POSITION / LAYER ORDER / ACTIONS and **no STYLE block** (an image has no style controls — sections render only when populated), the D-pad renders as a cross with a working ⊕ recentre, and one ⟳ shows **12.5**, not a rounded 13; (4) the header shows the hat name centred with no `› Design`; (5) replies render as separate paragraphs (ack / instruction / "Select Done…"). Note for future walks: `LOGO_ADJUST` auto-opens a **native file dialog**, which blocks the browser-automation channel — patch `HTMLInputElement.prototype.click` to no-op for `type=file`, then inject a `File` via `DataTransfer` into `input[aria-label="Upload image"]` and dispatch `change`; that drives the real upload path without a dialog.
 - Tests: backend `pytest` **1196** passing on `master` (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`; includes `test_catalogue_sync_fetch.py` + `test_catalogue_ingest.py`). Frontend admin subset via `docker compose exec -T frontend npx vitest run src/__tests__/adminStores.test.tsx src/admin` = **62 passing**. Older note follows: backend `pytest` **1172** passing flag-off (`CANVAS_ORCHESTRATOR_V2=false pytest -q` on `feat/studio-fixes-batch`, was 1110 before this continuation), plus **301** passing across the five v2-only suites with the flag ON (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`). Frontend, run via `docker compose exec frontend npx vitest run <path>` (host-side `npx vitest` is broken on this Windows machine — missing `@vitest/utils`, the documented per-platform `node_modules` gotcha): `src/__tests__` is **273 passing, 2 failing** (was 249/2) — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing and unchanged; `src/admin` is **59 passing**. Older note follows: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
@@ -1006,17 +1023,18 @@ frontend`. Env is only read at container **start**, so always
   `Caddyfile`. The old `-e ACME_EMAIL=…` requirement is **gone** — the `email`
   directive was removed when nginx took over TLS, so the file now validates with
   no environment at all.)
-- **`docker compose up` (the DEV stack) now fails outright if host port 80 or 443
-  is taken** → the dev stack gained its own `caddy` service binding both. Compose
-  aborts the *whole* stack, not just `caddy`, so backend and frontend never
-  start either. On Windows these ports are commonly held by `http.sys`/IIS, or by
-  another project's Docker stack. Find the holder with
-  `netstat -ano | findstr ":443"` (PowerShell: `Get-NetTCPConnection -LocalPort 443`)
-  and stop it, or comment out the dev `caddy` service and use plain
-  `http://localhost:5173` for that session.
-  **On the prod box this is now guaranteed** — nginx holds 80 and 443 — which is
-  one more reason the dev stack must never be run there. The prod stack is
-  unaffected: its Caddy binds `127.0.0.1:8480` instead.
+- **The DEV stack no longer binds host port 80/443 by default** (fixed
+  2026-08-01) → `caddy` is behind `profiles: ["tls"]`, so a bare
+  `docker compose up` skips it entirely. This used to abort the *whole* stack —
+  not just `caddy` — whenever something else held those ports, so backend and
+  frontend never started either. On Windows they are commonly held by
+  `http.sys`/IIS or another project's Docker stack; find the holder with
+  `netstat -ano | findstr ":443"` (PowerShell:
+  `Get-NetTCPConnection -LocalPort 443`). If you opt into `--profile tls` you
+  inherit that constraint again.
+  **On the prod box the ports are guaranteed taken** — nginx holds 80 and 443 —
+  which is one more reason the dev stack must never be run there. The prod stack
+  is unaffected: its Caddy binds `127.0.0.1:8480` instead.
 
 ---
 
