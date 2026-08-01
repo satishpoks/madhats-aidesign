@@ -897,8 +897,7 @@ VERIFICATION_SUCCESS_HTML = """\
         </td></tr>
         <tr><td style="padding:40px 28px;text-align:center;">
           <div style="font-size:44px;line-height:1;">&#9989;</div>
-          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 8px 0;">Your email is now verified</h1>
-          <p style="font-size:14px;line-height:22px;color:#6b6b80;margin:0;">Thanks for confirming — we'll send your design across shortly. Keep an eye on your inbox.</p>
+          <h1 style="font-size:22px;color:#1a1a2e;margin:18px 0 0 0;">Your email is now verified</h1>
           <div style="margin:26px 0 0 0;padding:14px 18px;background:#f3f4f6;border-left:4px solid $primary_colour;border-radius:6px;text-align:left;">
             <p style="font-size:15px;line-height:22px;color:#1a1a2e;font-weight:700;margin:0;">You can close this page now and head back to the chat.</p>
           </div>
