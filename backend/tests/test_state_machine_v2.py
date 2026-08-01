@@ -308,16 +308,45 @@ def _reply(step_id, collected=None, **kw):
     return v2.reply_for(cs.by_id(step_id), collected or {}, **kw)
 
 
+# These two pin reply_for's generic "append step.tip verbatim" join behaviour.
+# No registry step relies on it any more — ASK_LOGO_PLACEMENT was the last one,
+# and its tip was dropped (2026-08-01) because directive_for already surfaces
+# V2_TOOL_TIPS["upload"] as the canvas callout's `instructions`, so appending it
+# to the chat too just duplicated the guidance on screen. A synthetic step with
+# a tip set keeps the join logic covered independent of any one step's copy.
+def _tipped_step(**over):
+    fields = dict(id=S.ASK_LOGO_PLACEMENT, ask="Where should it go?",
+                  done_when=lambda c: True, tip="Tip text.")
+    fields.update(over)
+    return cs.Step(**fields)
+
+
 def test_reply_appends_the_tool_tip_verbatim():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True})
-    assert prompts.V2_TOOL_TIPS["upload"] in out
+    step = _tipped_step()
+    out = v2.reply_for(step, {"name": "Sam", "has_logo": True}, persona="Ricardo", intro="hi")
+    assert step.tip in out
 
 
 def test_the_ack_can_never_paraphrase_the_tip_away():
-    out = _reply(S.ASK_LOGO_PLACEMENT, {"name": "Sam", "has_logo": True},
-                 ack="Nice — the back's a great spot.")
+    step = _tipped_step()
+    out = v2.reply_for(step, {"name": "Sam", "has_logo": True}, persona="Ricardo", intro="hi",
+                        ack="Nice — the back's a great spot.")
     assert out.startswith("Nice — the back's a great spot.")
-    assert prompts.V2_TOOL_TIPS["upload"] in out       # concatenated, not generated
+    assert step.tip in out       # concatenated, not generated
+
+
+def test_ask_logo_placement_no_longer_carries_a_tip_but_directive_still_does():
+    """The chat copy is now just the question; the canvas callout still guides.
+
+    directive_for's fallback (`step.instructions or V2_TOOL_TIPS[tool]`) is what
+    keeps the on-screen instruction alive once reply_for stops appending it.
+    """
+    step = cs.by_id(S.ASK_LOGO_PLACEMENT)
+    reply = v2.reply_for(step, {"name": "Sam", "has_logo": True}, persona="Ricardo", intro="hi")
+    assert reply == "Which part of the cap should it go on?"
+    assert prompts.V2_TOOL_TIPS["upload"] not in reply
+    directive = v2.directive_for(step, {"has_logo": True})
+    assert directive["instructions"] == prompts.V2_TOOL_TIPS["upload"]
 
 
 def test_reply_falls_back_to_bare_copy_without_an_ack():

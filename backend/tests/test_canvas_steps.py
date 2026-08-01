@@ -66,7 +66,13 @@ def test_tool_steps_carry_a_tip_and_tipless_steps_carry_no_tool():
     for step in cs.REGISTRY:
         # ASK_LOGO_BG, ASK_DECOR_PLACEMENT and REWORK_CANVAS have tools but use
         # instructions or runtime-resolved tips instead of step.tip.
-        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT, S.REWORK_CANVAS):
+        # ASK_LOGO_PLACEMENT also has a tool but no tip (2026-08-01): the tip
+        # was dropped from the chat reply because directive_for's fallback
+        # (`step.instructions or V2_TOOL_TIPS[tool]`) already surfaces
+        # V2_TOOL_TIPS["upload"] as the canvas callout, so appending it to the
+        # chat too duplicated the guidance on screen.
+        if step.id in (S.ASK_LOGO_BG, S.ASK_DECOR_PLACEMENT, S.REWORK_CANVAS,
+                       S.ASK_LOGO_PLACEMENT):
             assert step.tool and not step.tip
         else:
             assert bool(step.tool) == bool(step.tip), step.id

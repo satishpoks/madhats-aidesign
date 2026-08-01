@@ -539,7 +539,11 @@ REGISTRY: tuple[Step, ...] = (
         apply=_apply_logo_face,
         done_when=lambda c: not _logos_open(c) or "face" in _pending(c),
         tool="upload",
-        tip=prompts.V2_TOOL_TIPS["upload"],
+        # tip stays None: directive_for already falls back to
+        # V2_TOOL_TIPS["upload"] as the canvas callout's `instructions` (see
+        # its `step.instructions or V2_TOOL_TIPS[tool]` line), so appending it
+        # here too just repeated the same guidance in the chat bubble.
+        tip=None,
         # auto_open stays None: the file dialog must not open before the face is
         # answered, or the logo lands on whatever face is already active.
         auto_open=None,

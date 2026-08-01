@@ -1101,9 +1101,18 @@ async def test_a_parsed_purpose_still_wins_over_the_verbatim_fallback(monkeypatc
 
 def test_reply_for_separates_the_question_from_its_tool_tip_with_a_blank_line():
     """One run-on paragraph is what made these replies hard to read. The bubble
-    is whitespace-pre-wrap, so the separation has to come from the copy."""
+    is whitespace-pre-wrap, so the separation has to come from the copy.
+
+    Pinned on a synthetic step, not a real registry one: ASK_LOGO_PLACEMENT used
+    to be the step this covered, but its tip was dropped (2026-08-01) — the
+    canvas callout (directive_for) already shows V2_TOOL_TIPS["upload"], so
+    repeating it in the chat bubble duplicated it on screen. No registry step
+    still relies on reply_for's tip-append path, so this test constructs one
+    directly to keep the join behaviour covered independent of any step's copy.
+    """
     from app.services.conversation import state_machine_v2 as v2
-    step = cs.by_id(S.ASK_LOGO_PLACEMENT)          # has a tip
+    step = cs.Step(id=S.ASK_LOGO_PLACEMENT, ask="Where should it go?",
+                   done_when=lambda c: True, tip="Select the highlighted button.")
     body = v2.reply_for(step, {}, persona="Ricardo", intro="i")
     assert step.tip in body
     assert "\n\n" + step.tip in body
