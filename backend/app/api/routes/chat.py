@@ -5,11 +5,13 @@ from app.api.deps import limiter
 from app.config import settings
 from app.db import get_supabase
 from app.models.message import (
+    BackRequest,
     ChatRequest,
     ChatResponse,
     RegenerationPollResponse,
     VerificationPollResponse,
 )
+from app.services.conversation.checkpoints import CheckpointUnavailable
 from app.services.conversation.orchestrator import (
     SessionNotFound,
     advance_after_generation,
@@ -171,11 +173,16 @@ async def chat(session_id: str, body: ChatRequest, request: Request) -> ChatResp
 
 
 @router.post("/chat/{session_id}/back", response_model=ChatResponse)
-async def chat_back(session_id: str) -> ChatResponse:
+async def chat_back(session_id: str, body: BackRequest) -> ChatResponse:
     try:
-        result = await handle_back_v2(session_id)
+        result = await handle_back_v2(session_id, body.seq)
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="Session not found") from exc
+    except CheckpointUnavailable as exc:
+        # Already restored, superseded, or frozen since the menu was rendered
+        # (double tap, stale second tab). The frontend re-renders where the
+        # session actually is rather than restoring twice.
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return ChatResponse(**result)
 
 

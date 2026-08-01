@@ -5,16 +5,27 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
-    # The frontend's live canvas (a CanvasDesign blob), sent on the two turns
-    # that need to see what's on screen rather than the last saved design.
-    # Canvas sessions only; ignored on every other state and flow:
+    # The frontend's live canvas (a CanvasDesign blob). Canvas sessions only;
+    # ignored on every other flow. As of the checkpoint work (Task 6), v2
+    # canvas turns send this on EVERY turn — it feeds the checkpoint snapshot
+    # (`checkpoints.capture`), which needs the canvas as it stood at the
+    # moment a checkpoint-opening step is entered, not just at the two turns
+    # below. That is a widening of what is SENT, not of what is PERSISTED:
+    # the set of turns whose blob may be written to
+    # `design_sessions.canvas_design` is unchanged and still enforced by
+    # `chat.py::_persist_live_canvas_design` —
     #   - DESCRIBE_CHANGES (and REWORK_CANVAS): an edit resolves against the
-    #     live canvas, and the blob is persisted as the new base (chat.py
-    #     `_persist_live_canvas_design`).
+    #     live canvas, and the blob is persisted as the new base.
     #   - LOGO_ADJUST: the "Done" turn closing logo placement — read (never
     #     persisted) for a self-ticked "Remove background", which lives only in
     #     the frontend store until finalize (canvas_steps.observe_canvas).
     canvas_design: dict | None = None
+
+
+class BackRequest(BaseModel):
+    """Which checkpoint to restore. The seq comes from `data.back_targets`,
+    which every v2 canvas turn ships."""
+    seq: int
 
 
 class ChatResponse(BaseModel):
