@@ -341,6 +341,25 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
     return directive_for(step, collected) if step else None
 
 
+# Once the design is finished it is only ever DISPLAYED, never edited — so from
+# the review onward every pixel on screen carries a watermark. REWORK_CANVAS is
+# the deliberate hole: reworking IS editing, and dragging a logo around under a
+# diagonal watermark reads as a broken app.
+#
+# A shared-tail state (generating / verify / refine / quote) has no registry
+# step, so `canvas_directive` returns None there and the frontend falls back to
+# its own default — which is `true`. That is correct and intentional: the design
+# is finished in every one of those states.
+_WATERMARKED_STEPS: frozenset[S] = frozenset({
+    S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS,
+})
+
+
+def watermark_for(step: Step) -> bool:
+    """True when the canvas must render its watermark overlay."""
+    return step.id in _WATERMARKED_STEPS
+
+
 def public_data_for(step: Step, collected: dict) -> dict:
     data: dict = {}
     chips = cs.chips_of(step, collected)
@@ -356,6 +375,7 @@ def public_data_for(step: Step, collected: dict) -> dict:
         data["trigger_finalize"] = True
     data["canvas"] = directive_for(step, collected)
     data["progress"] = progress_for(step)
+    data["watermark"] = watermark_for(step)
     return data
 
 

@@ -990,3 +990,28 @@ def test_a_clean_chip_label_still_resolves():
 def test_free_text_still_falls_through_to_the_interpreter():
     step = cs.by_id(S.NEEDED_BY)
     assert v2.resolve_chip(step, "sometime next month I think", {}) is None
+
+
+def test_the_canvas_is_watermarked_from_the_review_onward():
+    for state in (S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS):
+        assert v2.watermark_for(cs.by_id(state)) is True, state
+
+
+def test_the_canvas_is_clean_while_they_are_still_designing():
+    for state in (S.ASK_NAME, S.ASK_HAS_LOGO, S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST,
+                  S.ASK_LOGO_BG, S.ASK_EMAIL, S.AWAIT_EMAIL_VERIFY, S.ASK_ADD_DECOR,
+                  S.DECOR_ADJUST, S.ASK_QUANTITY, S.NEEDED_BY, S.ASK_PURPOSE):
+        assert v2.watermark_for(cs.by_id(state)) is False, state
+
+
+def test_rework_lifts_the_watermark():
+    """Reworking is editing. A customer must not drag a logo around under a
+    diagonal watermark — that reads as a broken app."""
+    assert v2.watermark_for(cs.by_id(S.REWORK_CANVAS)) is False
+
+
+def test_public_data_carries_the_watermark_flag():
+    data = v2.public_data_for(cs.by_id(S.REVIEW_DESIGN), {})
+    assert data["watermark"] is True
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
+    assert data["watermark"] is False
