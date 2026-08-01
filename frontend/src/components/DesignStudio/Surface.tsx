@@ -3,11 +3,13 @@ import type Konva from 'konva'
 import { useSessionStore } from '../../store/sessionStore'
 import { useCanvasStore, FACES, type Face, TEXT_PLACEHOLDER } from '../../store/canvasStore'
 import { useChatStore } from '../../store/chatStore'
+import { useBrandStore } from '../../store/brandStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
+import { Watermark } from './Watermark'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
@@ -32,6 +34,8 @@ export function DesignStudioSurface() {
   // "Design for <Name>" banner — display-only, sourced from the turn's own
   // data (orchestrator_v2._public), never a second fetch and never logged.
   const designerName = useChatStore(s => s.collectedName)
+  const watermark = useChatStore(s => s.watermark)
+  const watermarkText = useBrandStore(s => s.watermarkText)
 
   // v2 = a canvas directive is present (the chat orchestrator is driving the
   // canvas turn-by-turn). Fall back to the legacy whole-rail gating
@@ -337,7 +341,13 @@ export function DesignStudioSurface() {
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
           <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
-            <CanvasStage stageRef={stageRef} locked={stageLocked} />
+            {/* `relative` scopes the watermark's `absolute inset-0` to exactly
+                the stage box. It must wrap ONLY the stage — on the outer column
+                it would tile over the Adjust panel and the Done button too. */}
+            <div className="relative">
+              <CanvasStage stageRef={stageRef} locked={stageLocked} />
+              {watermark && <Watermark text={watermarkText} />}
+            </div>
           </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}

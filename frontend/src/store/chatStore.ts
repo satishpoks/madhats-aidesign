@@ -65,6 +65,11 @@ interface ChatStoreState {
    *  Surface's local state because useActiveSurface must see it — otherwise the
    *  focus cue says "chat" while the canvas is genuinely live. */
   finalizeFailed: boolean
+  /** Whether the on-screen design (and the emailed preview) should be shown
+   *  watermarked. Absent on a shared-tail turn (no registry step, so the
+   *  backend sends no flag) defaults to watermarked — the design is finished
+   *  in every one of those states. Only an explicit `false` clears it. */
+  watermark: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -137,7 +142,11 @@ function parseData(data: Record<string, unknown>) {
   const extraReplies = Array.isArray(data.extra_replies)
     ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
     : []
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies }
+  // Absent on a shared-tail turn (no registry step, so the backend sends no
+  // flag) — and the design is finished in every one of those states, so the
+  // safe default is watermarked. Only an explicit `false` clears it.
+  const watermark = data.watermark !== false
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies, watermark }
 }
 
 function uid(): string {
@@ -175,6 +184,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   backTargets: [],
   collectedName: null,
   finalizeFailed: false,
+  // Nothing is designed yet at mount — differs from parseData's default
+  // (watermarked) on purpose.
+  watermark: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -442,5 +454,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       backTargets: [],
       collectedName: null,
       finalizeFailed: false,
+      watermark: false,
     }),
 }))
