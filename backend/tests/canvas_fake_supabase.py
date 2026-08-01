@@ -21,6 +21,8 @@ pins this shape against that exact regression (Task 4). This module is shared
 """
 from __future__ import annotations
 
+import copy
+
 _TABLE_KEYS = {"chat_messages": "rows", "session_checkpoints": "checkpoints"}
 
 
@@ -108,7 +110,16 @@ class FakeQuery:
 
         rows = self._list()
         if self.verb == "insert":
-            new_rows = self.payload if isinstance(self.payload, list) else [self.payload]
+            # Deep-copy the payload: `checkpoints.capture` inserts the LIVE
+            # session `collected` dict as a row's "collected" column. Without
+            # this, the fake stores a reference rather than a snapshot, so a
+            # later in-place mutation of the live session (every turn does
+            # `collected.update(...)`) would retroactively change the
+            # "captured" row too — the real Postgres round-trip never aliases
+            # like this, and a capture/restore test could pass by accident
+            # (`restored == live`) with nothing actually snapshotted.
+            new_rows = [copy.deepcopy(r) for r in (
+                self.payload if isinstance(self.payload, list) else [self.payload])]
             if self.name == "chat_messages":
                 # Real chat rows carry a DB-assigned id + created_at, which the
                 # checkpoint watermark (capture/restore) reads. Orchestrator

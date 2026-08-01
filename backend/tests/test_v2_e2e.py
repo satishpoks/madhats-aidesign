@@ -10,7 +10,6 @@ fake (pre-Task-5) couldn't serve (`is_`/`gt` didn't exist on it at all)."""
 import pytest
 
 from app.services.conversation import canvas_steps as cs
-from app.services.conversation import checkpoints as cp
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
@@ -379,7 +378,14 @@ async def test_handle_back_resolves_the_store_persona_for_a_configured_session(m
     each checkpoint's own `frozen_when`, not the composed registry — see its
     docstring). What still matters for a store-configured session: `handle_back`
     must still resolve persona/intro/colour_note from the store exactly like
-    `handle_message` does, and the restore itself must still work end to end."""
+    `handle_message` does, and the restore itself must still work end to end.
+
+    Fix round 1 (Minor 4): the name/docstring promised persona resolution but
+    nothing read `out["reply"]`. `{persona}` only actually appears in ONE
+    piece of registry copy — `V2_ASK_NAME` (every other step's `ask` text has
+    no persona placeholder) — so this restores to the `name` checkpoint
+    specifically and asserts the configured persona is in the rendered reply,
+    not just that the restore "worked"."""
     cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
     store = _new_store()
     store["session"]["state"] = S.ASK_QUANTITY.value
@@ -390,11 +396,9 @@ async def test_handle_back_resolves_the_store_persona_for_a_configured_session(m
         "quantity": 12,
     })
     store["checkpoints"] = [
-        {"session_id": "s1", "seq": 1, "kind": "quantity",
-         "label": "Quantity — not set", "step_id": S.ASK_QUANTITY.value,
-         "collected": {"name": "Sam", "intro_ack": True, "has_logo": False,
-                       "logos_done": True, "pending_logo": None,
-                       "decor_done": True, "decor_placed": True},
+        {"session_id": "s1", "seq": 1, "kind": "name",
+         "label": "Your name — not set", "step_id": S.ASK_NAME.value,
+         "collected": {"flow_mode": "canvas"},
          "canvas_design": None, "chat_watermark": None, "superseded_at": None},
     ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -404,5 +408,6 @@ async def test_handle_back_resolves_the_store_persona_for_a_configured_session(m
 
     out = await o2.handle_back("s1", 1)
 
-    assert out["state"] == S.ASK_QUANTITY.value
-    assert store["session"]["collected"].get("quantity") is None
+    assert out["state"] == S.ASK_NAME.value
+    assert "Ricardo" in out["reply"]
+    assert store["session"]["collected"].get("name") is None

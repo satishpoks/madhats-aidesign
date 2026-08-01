@@ -572,17 +572,23 @@ async def test_handle_back_after_quote_requested_raises_checkpoint_unavailable(m
     (a silent no-op via `_TERMINAL_FLAGS`, now deleted). Regression (C-1): a
     committed quote must not be re-submittable via Back — `back_targets`
     returns `[]` outright once `quote_requested` is set (state_machine_v2),
-    so every seq is unoffered, not just the request step's own, and the call
-    raises rather than silently no-opping."""
-    from tests.canvas_step_helpers import seed_for
+    independent of any checkpoint's own `frozen_when`.
 
+    Fix round 1 (Minor 3): a `seed_for(REGISTRY[-1])` fixture walks the WHOLE
+    registry forward, which also sets `design_confirmed`/`decor_done`/
+    `email_verified` — every other freeze predicate in the registry — so a
+    seeded `name` row (frozen on `email_verified`) stayed frozen even with the
+    `quote_requested` guard deleted, and the test passed for the wrong reason.
+    This seeds a `quantity` row (frozen only on `design_confirmed`, which is
+    deliberately NOT set here) so the ONLY thing blocking it is the
+    `quote_requested` guard itself — deleting that guard makes this test fail,
+    which is what "discriminating" means."""
     store = _new_store()
     store["session"]["state"] = S.FINALIZE_CANVAS.value
-    store["session"]["collected"].update(seed_for(cs.REGISTRY[-1]))
-    assert store["session"]["collected"]["quote_requested"] is True
+    store["session"]["collected"] = {"flow_mode": "canvas", "quote_requested": True}
     store["checkpoints"] = [
-        _ckpt(seq=1, kind="name", label="Your name — Sam",
-              step_id=S.ASK_NAME.value, collected={}),
+        _ckpt(seq=1, kind="quantity", label="Quantity — not set",
+              step_id=S.ASK_QUANTITY.value, collected={"flow_mode": "canvas"}),
     ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     with pytest.raises(cp.CheckpointUnavailable):
@@ -896,6 +902,38 @@ async def test_verification_poll_advances_the_flow_once_the_link_is_opened(monke
     assert res["state"] == S.ASK_ANOTHER_LOGO.value
     assert store["session"]["state"] == S.ASK_ANOTHER_LOGO.value
     assert prompts.V2_EMAIL_VERIFIED_ACK in res["reply"]
+
+
+@pytest.mark.asyncio
+async def test_verification_poll_captures_a_checkpoint_for_the_step_it_lands_on(monkeypatch):
+    """Fix round 1 (Important 1): the ONLY exit from AWAIT_EMAIL_VERIFY is
+    this poll (the emailed link click), and it can land the session on a
+    checkpoint-opening step exactly like a normal chat turn can.
+
+    A text-only customer (has_logo=False, logos_done=True) never touches
+    ASK_ANOTHER_LOGO on the way out — it self-satisfies once the logo loop is
+    closed — and lands straight on ASK_ADD_DECOR (kind="decor") from here.
+    `handle_message` never runs for this transition at all, so without a
+    capture hook in `check_verification` itself that customer's first
+    decoration is unreachable via Back, while every later loop pass (captured
+    through a normal `handle_message` turn) is offerable — an inconsistent
+    menu within a single session."""
+    store = _new_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": False, "logos_done": True, "pending_logo": None,
+        "email_captured": True, "email_verified": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    res = await o2.check_verification("s1")
+
+    assert res["state"] == S.ASK_ADD_DECOR.value
+    rows = [r for r in store.get("checkpoints", [])
+            if r["step_id"] == S.ASK_ADD_DECOR.value]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "decor"
 
 
 # --- the verified turn is two messages (2026-08-01) ---------------------------

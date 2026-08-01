@@ -50,8 +50,7 @@ _NUDGE_AFTER = 2
 _ABUSE_EXEMPT_STEPS: frozenset[S] = frozenset({S.ASK_NAME, S.ASK_EMAIL})
 
 
-def _public(step: cs.Step, collected: dict, config: dict | None = None,
-            *, targets: list[dict] | None = None) -> dict:
+def _public(step: cs.Step, collected: dict, *, targets: list[dict] | None = None) -> dict:
     """`v2.public_data_for` plus `back_targets` — the Back destinations
     offerable right now, newest first, already labelled and already filtered.
 
@@ -101,8 +100,7 @@ async def handle_message(session_id: str, message: str,
         reply = v2.reply_for(step, collected, persona=persona, intro=intro,
                              colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply,
-                              state_before, S.ASK_NAME, user_message="",
-                              config=flow_config)
+                              state_before, S.ASK_NAME, user_message="")
 
     step = cs.by_id(current)
 
@@ -118,7 +116,7 @@ async def handle_message(session_id: str, message: str,
                              colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply, state_before,
                               current, user_message=message,
-                              data=_public(step, collected, flow_config,
+                              data=_public(step, collected,
                                           targets=v2.back_targets(
                                               collected, ck.live_rows(sb, session_id))))
 
@@ -140,7 +138,7 @@ async def handle_message(session_id: str, message: str,
             step, collected, persona=persona, intro=intro, colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply.strip(),
                               state_before, current, user_message=message,
-                              data=_public(step, collected, flow_config,
+                              data=_public(step, collected,
                                           targets=v2.back_targets(
                                               collected, ck.live_rows(sb, session_id))))
 
@@ -164,7 +162,7 @@ async def handle_message(session_id: str, message: str,
             except ie.LLMUnavailable:
                 if step.direct_answer is None:
                     return await _stall(sb, session_id, collected, step,
-                                        state_before, message, config=flow_config)
+                                        state_before, message)
                 # The answer IS the message for this step — resolve it
                 # deterministically rather than stranding the session. Still
                 # validated, still guarded by the step's apply. No ack: the
@@ -250,7 +248,7 @@ async def handle_message(session_id: str, message: str,
         # (_apply_email pops it from `collected`, not `fields`).
         addr = fields.get("email") or "your inbox"
         reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)}\n\n{reply}".strip()
-    data = _public(next_, collected, flow_config,
+    data = _public(next_, collected,
                    targets=v2.back_targets(collected, ck.live_rows(sb, session_id)))
     if canvas_ops:
         data["canvas_ops"] = canvas_ops
@@ -281,10 +279,13 @@ async def handle_back(session_id: str, seq: int) -> dict:
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
     colour_note = colour_disclaimer_text(store, collected.get("name") or "there")
-    flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
 
     # Offerability is re-checked server-side: the button the customer tapped
     # was rendered from an earlier turn's data and may since have frozen.
+    # `back_targets` deliberately takes no `config` at all (Task 3) — every
+    # checkpoint's offerability is a pure function of its own `frozen_when`,
+    # not the store's configurable-flow registry — so there is no canvas_flow
+    # to thread through this call, unlike `next_step`/`effective_registry`.
     offerable = {t["seq"] for t in v2.back_targets(
         collected, ck.live_rows(sb, session_id))}
     if seq not in offerable:
@@ -298,7 +299,7 @@ async def handle_back(session_id: str, seq: int) -> dict:
     step = cs.by_id_value(row["step_id"]) or cs.by_id(S.ASK_NAME)
     reply = v2.reply_for(step, restored, persona=persona, intro=intro,
                          colour_note=colour_note)
-    data = _public(step, restored, flow_config,
+    data = _public(step, restored,
                    targets=v2.back_targets(
                        restored, ck.live_rows(sb, session_id)))
     if row.get("canvas_design"):
@@ -338,7 +339,7 @@ async def check_verification(session_id: str) -> dict:
 
     if not collected.get("email_verified"):
         return {"reply": None, "state": current.value,
-                "data": _public(step, collected, flow_config,
+                "data": _public(step, collected,
                                 targets=v2.back_targets(
                                     collected, ck.live_rows(sb, session_id)))}
 
@@ -347,6 +348,16 @@ async def check_verification(session_id: str) -> dict:
     if next_.prepare:
         next_.prepare(collected, store)
         next_ = v2.next_step(collected, flow_config)
+    # Same capture hook as handle_message's main flow (fix round 1, Important
+    # 1): this poll can ALSO be the turn that enters a checkpoint-opening step
+    # — e.g. a text-only customer (has_logo=False) goes ask_has_logo -> ask_email
+    # -> await_email_verify, and the ONLY exit from the gate is this function,
+    # which then lands straight on ASK_ADD_DECOR (a `decor` checkpoint opener).
+    # Without this call that customer's first decoration was never captured,
+    # so the Back menu was inconsistent depending on which path reached a
+    # given checkpoint. No live canvas blob is available on this poll (unlike
+    # a real chat turn), so canvas_design is None here.
+    ck.capture(sb, session_id, next_, current, collected, None)
     # Two messages, not one: the confirmation is its own bubble so it can't be
     # read past on the way to the question. `ack=` is deliberately NOT passed —
     # that is what would merge them back together.
@@ -356,12 +367,11 @@ async def check_verification(session_id: str) -> dict:
                                      store, collected.get("name") or "there"))
     return await _persist(sb, session_id, collected, next_,
                           prompts.V2_EMAIL_VERIFIED_ACK, current.value,
-                          next_.id, user_message=None, config=flow_config,
+                          next_.id, user_message=None,
                           extra_replies=[next_question])
 
 
-async def _stall(sb, session_id, collected, step, state_before, message,
-                 *, config: dict | None = None) -> dict:
+async def _stall(sb, session_id, collected, step, state_before, message) -> dict:
     """Retry exhausted: leave the state untouched and guess nothing.
 
     Only reached by steps with NO `direct_answer` (see canvas_steps.Step) — the
@@ -378,21 +388,22 @@ async def _stall(sb, session_id, collected, step, state_before, message,
     nudge = fails >= _NUDGE_AFTER and cs.chips_of(step, collected)
     reply = prompts.V2_NUDGE_REPLY if nudge else prompts.V2_STALL_REPLY
     return await _persist(sb, session_id, collected, step, reply, state_before,
-                          step.id, user_message=message, config=config)
+                          step.id, user_message=message)
 
 
 async def _persist(sb, session_id, collected, step, reply, state_before, new_state,
                    *, user_message: str | None = "", data: dict | None = None,
-                   config: dict | None = None,
                    extra_replies: list[str] | None = None) -> dict:
     """Write the state + the chat rows, and shape the response.
 
     `step` is the step the session now RESTS on (None only for the capped
-    QUOTE_REQUESTED handoff, which supplies its own `data`). `config` is the
-    store's canvas_flow, threaded through to the `_public` fallback below (an
-    explicit `data=` always wins) purely for parity with its other callers —
-    `back_targets` itself takes no config (Task 3: offerability is a pure
-    function of each checkpoint's own `frozen_when`, not the composed registry).
+    QUOTE_REQUESTED handoff, which supplies its own `data`). No `config`
+    parameter here (fix round 1, Minor 6): `_public` never read it either —
+    `back_targets` takes no config at all (Task 3: offerability is a pure
+    function of each checkpoint's own `frozen_when`, not the store's
+    configurable-flow registry) — so every caller that used to thread a
+    `canvas_flow` through this function just to reach a dead parameter has had
+    that plumbing removed.
 
     `user_message=None` writes the assistant row ONLY, for a turn the customer
     didn't take (check_verification, which advances off an out-of-band email
@@ -419,7 +430,7 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
              "state_before": state_before, "state_after": new_state.value})
     sb.table("chat_messages").insert(rows).execute()
     if data is None:
-        data = _public(step, collected, config,
+        data = _public(step, collected,
                        targets=v2.back_targets(
                            collected, ck.live_rows(sb, session_id))) if step else {}
     if extra_replies:
