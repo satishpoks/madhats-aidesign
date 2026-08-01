@@ -145,17 +145,17 @@ export function FaceThumbnails() {
           >
             <div
               className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 bg-surface ${
-                active ? 'border-accent' : 'border-border hover:border-textMuted'
+                active ? 'border-canvasAccent' : 'border-border hover:border-textMuted'
               }`}
             >
               <FaceThumbStage face={f} fontsTick={fontsTick} />
             </div>
             {count > 0 && (
-              <span className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center">
+              <span className="absolute top-0 right-0 min-w-[18px] h-[18px] px-1 rounded-full bg-canvasAccent text-white text-[10px] font-semibold flex items-center justify-center">
                 {count}
               </span>
             )}
-            <span className={`text-[11px] ${active ? 'text-accent font-semibold' : 'text-textMuted'}`}>{LABELS[f]}</span>
+            <span className={`text-[11px] ${active ? 'text-canvasAccent font-semibold' : 'text-textMuted'}`}>{LABELS[f]}</span>
           </button>
         )
       })}

@@ -127,6 +127,12 @@ export interface Brand {
   canvas_flow?: { steps: FlowStep[] }
   colour_ref_embroidery_url?: string
   colour_ref_print_url?: string
+  /** Canvas design surface accent — independent of the site chrome's
+   *  primary_colour. Defaults to MadHats orange (#FF5C00) when unset. */
+  canvas_accent?: string
+  /** Customer's own chat message bubble colour — independent of the site
+   *  chrome. Defaults to primary_colour when unset. */
+  chat_user_bubble?: string
 }
 
 /** Response shape for GET /storefront — store name, persona name, and brand config. */

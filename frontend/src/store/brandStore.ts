@@ -42,6 +42,22 @@ export function applyBrandVars(brand: Brand): void {
     // colour from the background so header text is always readable.
     root.style.setProperty('--brand-header-text', readableOn(brand.header_bg))
   }
+
+  // Canvas design surface — independent of the site chrome. Deliberately
+  // always set (not gated on the field being present): the owner wants the
+  // canvas orange by default regardless of a store's primary colour, so an
+  // unset canvas_accent must still resolve to MadHats orange rather than
+  // falling through to --brand-primary.
+  const canvasAccent = brand.canvas_accent || '#FF5C00'
+  root.style.setProperty('--canvas-accent', canvasAccent)
+  root.style.setProperty('--canvas-accent-hover', darken(canvasAccent))
+
+  // Customer's own chat bubble — independent of the site chrome. Defaults to
+  // the store's primary colour (so an unconfigured store's bubbles look
+  // exactly as they do today); left unset only when there is truly nothing to
+  // derive it from, so the Tailwind fallback (#FF5C00) applies.
+  const chatBubble = brand.chat_user_bubble || brand.primary_colour
+  if (chatBubble) root.style.setProperty('--chat-user-bubble', chatBubble)
 }
 
 interface BrandState {

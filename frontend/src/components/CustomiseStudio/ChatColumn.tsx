@@ -458,7 +458,7 @@ export function ChatColumn() {
             <div
               className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
                 msg.role === 'user'
-                  ? 'bg-accent text-white rounded-br-sm'
+                  ? 'bg-chatUserBubble text-white rounded-br-sm'
                   : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
               }`}
             >

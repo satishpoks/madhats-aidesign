@@ -67,6 +67,21 @@ describe('ChatColumn', () => {
     expect(screen.getByText('Your design is on its way')).toBeInTheDocument()
   })
 
+  it("uses bg-chatUserBubble for the customer's own message bubble, not bg-accent", () => {
+    useChatStore.setState({
+      messages: [
+        { id: 'a1', role: 'assistant', text: 'Hi there' },
+        { id: 'u1', role: 'user', text: 'My reply' },
+      ],
+      chatState: 'offer_refine', kickoffDone: true,
+    })
+    render(<ChatColumn />)
+    const bubble = screen.getByText('My reply')
+    expect(bubble.className).toContain('bg-chatUserBubble')
+    expect(bubble.className).not.toContain('bg-accent ')
+    expect(bubble.className.split(' ')).not.toContain('bg-accent')
+  })
+
   it('sends a chip click through chatStore.sendMessage', async () => {
     useChatStore.setState({
       messages: [{ id: 'm1', role: 'assistant', text: 'Pick one' }],

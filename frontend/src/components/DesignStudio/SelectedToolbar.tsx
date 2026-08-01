@@ -142,8 +142,8 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
 
   return (
     <div ref={rootRef} data-testid="adjust-panel"
-      className={`${variant === 'stacked' ? 'sticky top-0 z-20 ' : ''}w-full shrink-0 bg-surface border border-accent rounded-xl overflow-hidden shadow-sm`}>
-      <div className="bg-accent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide">
+      className={`${variant === 'stacked' ? 'sticky top-0 z-20 ' : ''}w-full shrink-0 bg-surface border border-canvasAccent rounded-xl overflow-hidden shadow-sm`}>
+      <div className="bg-canvasAccent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide">
         Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
       </div>
       <div data-testid="adjust-controls"
@@ -157,7 +157,7 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
                 <span className="text-[10px] uppercase tracking-wide text-textMuted leading-none">Your text</span>
                 <input ref={contentRef} value={el.content ?? ''}
                   onChange={e => update(el.id, { content: e.target.value })}
-                  className="w-full bg-base border border-accent rounded px-2 py-1 text-sm text-textPrimary focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="w-full bg-base border border-canvasAccent rounded px-2 py-1 text-sm text-textPrimary focus:outline-none focus:ring-2 focus:ring-canvasAccent/40"
                   aria-label="Text content" />
               </label>
             )}
@@ -342,4 +342,4 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
-const btn = 'px-1.5 py-0.5 text-xs border border-border rounded hover:border-accent transition-colors'
+const btn = 'px-1.5 py-0.5 text-xs border border-border rounded hover:border-canvasAccent transition-colors'

@@ -16,10 +16,11 @@ import { useActiveSurface, type ActiveSurface } from '../../lib/useActiveSurface
 const CHAT_UNANSWERABLE_STATES = new Set(['await_email_verify', 'generating', 'regenerating'])
 
 /** Ring + glow on the panel the customer should act in; a scrim on the other.
- *  The glow reads `--brand-primary` so it themes per store, the same way
- *  `text-accent` / `bg-accent` already do. */
+ *  The glow reads `--canvas-accent` so it themes per store independently of
+ *  the site chrome, the same way `text-canvasAccent` / `bg-canvasAccent`
+ *  already do. */
 const ACTIVE_CLASSES =
-  'ring-2 ring-accent shadow-[0_0_18px_-4px_var(--brand-primary,#FF5C00)] ' +
+  'ring-2 ring-canvasAccent shadow-[0_0_18px_-4px_var(--canvas-accent,#FF5C00)] ' +
   'transition-[opacity,box-shadow] duration-300'
 /** Deliberately NOT `pointer-events-none`: dimming is a cue, not a lock. The
  *  real locking is per-affordance (CanvasStage `locked`, ToolRail
@@ -32,7 +33,7 @@ function FocusPill({ surface }: { surface: ActiveSurface }) {
   return (
     <div
       role="status"
-      className="mx-4 mt-3 self-start inline-flex items-center gap-1.5 rounded-full bg-accent/10 border border-accent px-3 py-1 text-xs font-semibold text-accent"
+      className="mx-4 mt-3 self-start inline-flex items-center gap-1.5 rounded-full bg-canvasAccent/10 border border-canvasAccent px-3 py-1 text-xs font-semibold text-canvasAccent"
     >
       <span aria-hidden="true">▶</span>
       {surface === 'canvas' ? 'Your turn — design here' : 'Your turn — answer here'}

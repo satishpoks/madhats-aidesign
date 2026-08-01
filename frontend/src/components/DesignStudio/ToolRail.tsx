@@ -45,7 +45,7 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   // unlocked); only the ring + pulse are dropped. Other tools still highlight.
   const hi = (t: Tool) =>
     t !== 'upload' && highlightTool === t
-      ? ' ring-2 ring-accent ring-offset-2 ring-offset-surface animate-pulse'
+      ? ' ring-2 ring-canvasAccent ring-offset-2 ring-offset-surface animate-pulse'
       : ''
 
   // Draw + cap-colour have no `Tool` entry in `allowedTools` (v2 never offers
@@ -62,12 +62,12 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
     // Narrower on a laptop/iPad so the cap keeps the width it needs; full 16rem
     // back on a large desktop.
     <div className="flex flex-col gap-2.5 p-3 xl:p-4 w-full md:w-44 lg:w-52 xl:w-64">
-      <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
-      <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
-      <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
+      <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
+      <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
+      <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
       <button onClick={() => setDrawMode(!drawMode)} disabled={drawOrColourDisabled}
         className={`px-4 py-2 border rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-          drawMode ? 'border-accent bg-accent/10 text-accent' : 'bg-surface border-border text-textPrimary hover:border-accent'
+          drawMode ? 'border-canvasAccent bg-canvasAccent/10 text-canvasAccent' : 'bg-surface border-border text-textPrimary hover:border-canvasAccent'
         }`}>
         ✎ Draw{drawMode ? ' (on)' : ''}
       </button>
@@ -92,7 +92,7 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
           <div className="flex flex-wrap gap-2">
             {colourways.map(c => (
               <button key={`${c.hex}-${c.name}`} onClick={() => setColourway(c)} aria-label={c.name} disabled={drawOrColourDisabled}
-                className={`w-7 h-7 rounded-full border-2 disabled:opacity-50 disabled:cursor-not-allowed ${colourway?.hex === c.hex ? 'border-accent' : 'border-border'}`}
+                className={`w-7 h-7 rounded-full border-2 disabled:opacity-50 disabled:cursor-not-allowed ${colourway?.hex === c.hex ? 'border-canvasAccent' : 'border-border'}`}
                 style={{ background: c.hex }} title={c.name} />
             ))}
           </div>
@@ -101,7 +101,7 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
 
       {!hideRender && (
         <button onClick={onRender} disabled={locked || rendering || rendered}
-          className="mt-auto px-4 py-3 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors">
+          className="mt-auto px-4 py-3 bg-canvasAccent hover:bg-canvasAccentHover text-white rounded-full text-sm font-semibold disabled:opacity-50 transition-colors">
           {rendered ? 'Design saved ✓' : rendering ? 'Saving…' : 'Done designing'}
         </button>
       )}

@@ -36,4 +36,36 @@ describe('applyBrandVars', () => {
     applyBrandVars({ header_bg: '#000000', header_text: '#ff0000' })
     expect(document.documentElement.style.getPropertyValue('--brand-header-text')).toBe('#ff0000')
   })
+
+  // --- Canvas accent + chat bubble colours (independent of site chrome) -----
+
+  it('defaults --canvas-accent to MadHats orange when canvas_accent is unset', () => {
+    applyBrandVars({ primary_colour: '#0055AA' })
+    const s = document.documentElement.style
+    expect(s.getPropertyValue('--canvas-accent')).toBe('#FF5C00')
+    expect(s.getPropertyValue('--canvas-accent-hover')).toMatch(/^#[0-9a-fA-F]{6}$/)
+  })
+
+  it('uses the configured canvas_accent (and derives its hover) when set', () => {
+    applyBrandVars({ canvas_accent: '#00AA55' })
+    const s = document.documentElement.style
+    expect(s.getPropertyValue('--canvas-accent')).toBe('#00AA55')
+    expect(s.getPropertyValue('--canvas-accent-hover')).toMatch(/^#[0-9a-fA-F]{6}$/)
+    expect(s.getPropertyValue('--canvas-accent-hover')).not.toBe('#00AA55')
+  })
+
+  it('defaults --chat-user-bubble to the store primary_colour when chat_user_bubble is unset (unconfigured store looks unchanged)', () => {
+    applyBrandVars({ primary_colour: '#0055AA' })
+    expect(document.documentElement.style.getPropertyValue('--chat-user-bubble')).toBe('#0055AA')
+  })
+
+  it('uses the configured chat_user_bubble when set, independent of primary_colour', () => {
+    applyBrandVars({ primary_colour: '#0055AA', chat_user_bubble: '#AA0055' })
+    expect(document.documentElement.style.getPropertyValue('--chat-user-bubble')).toBe('#AA0055')
+  })
+
+  it('no primary_colour and no chat_user_bubble leaves --chat-user-bubble unset (Tailwind fallback applies)', () => {
+    applyBrandVars({})
+    expect(document.documentElement.style.getPropertyValue('--chat-user-bubble')).toBe('')
+  })
 })

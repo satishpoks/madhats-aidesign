@@ -316,7 +316,7 @@ export function DesignStudioSurface() {
 
       {/* v2: the chat orchestrator's current instruction for this turn. */}
       {canvasDirective?.instructions && (
-        <div className="mx-4 mt-3 rounded-lg border border-accent/40 bg-accent/5 px-4 py-2 text-sm text-textPrimary">
+        <div className="mx-4 mt-3 rounded-lg border border-canvasAccent/40 bg-canvasAccent/5 px-4 py-2 text-sm text-textPrimary">
           {canvasDirective.instructions}
         </div>
       )}
@@ -338,7 +338,7 @@ export function DesignStudioSurface() {
           </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}
-              className="px-6 py-2 bg-accent hover:bg-accentHover text-white rounded-full text-sm font-semibold">
+              className="px-6 py-2 bg-canvasAccent hover:bg-canvasAccentHover text-white rounded-full text-sm font-semibold">
               Done
             </button>
           )}

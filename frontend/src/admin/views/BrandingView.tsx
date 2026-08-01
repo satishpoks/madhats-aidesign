@@ -27,9 +27,19 @@ const FLOW_STEPS: { id: string; label: string }[] = [
   { id: 'ask_purpose', label: 'What is the hat for?' },
 ]
 
+const COLOUR_FIELDS = new Set(['header_bg', 'header_text', 'canvas_accent', 'chat_user_bubble'])
+
+// Friendly labels for the colour pickers below — plain `.replace('_', ' ')`
+// only swaps the FIRST underscore, which would render "chat user_bubble" for
+// a two-underscore key.
+const COLOUR_LABELS: Record<string, string> = {
+  canvas_accent: 'Canvas accent',
+  chat_user_bubble: 'Chat bubble (customer)',
+}
+
 function validate(brand: Brand): string | null {
   for (const [k, v] of Object.entries(brand)) {
-    if (k.endsWith('_colour') || k === 'header_bg' || k === 'header_text') {
+    if (k.endsWith('_colour') || COLOUR_FIELDS.has(k)) {
       if (v && !HEX.test(v as string)) return `${k} must be a hex colour`
     }
   }
@@ -156,9 +166,15 @@ export function BrandingView() {
             {menu.map((m, i) => <span key={i}>{m.label || '—'}</span>)}
           </span>
         </div>
-        <div className="p-4 bg-white">
+        <div className="p-4 bg-white flex flex-wrap items-center gap-3">
           <button className="rounded-lg px-4 py-2 text-white text-[13px] font-medium"
                   style={{ background: brand.primary_colour || '#ff5c00' }}>Sample button</button>
+          <button className="rounded-full px-4 py-2 text-white text-[13px] font-medium"
+                  style={{ background: brand.canvas_accent || '#ff5c00' }}>Canvas tool</button>
+          <span className="rounded-2xl px-4 py-2 text-white text-[13px]"
+                style={{ background: brand.chat_user_bubble || brand.primary_colour || '#ff5c00' }}>
+            Customer's chat bubble
+          </span>
         </div>
       </div>
 
@@ -189,9 +205,9 @@ export function BrandingView() {
 
       {/* Colours */}
       <div className="grid grid-cols-3 gap-4 rounded-xl border border-[#e0e1ea] bg-white p-4">
-        {(['primary_colour', 'header_bg', 'header_text'] as const).map(k => (
+        {(['primary_colour', 'header_bg', 'header_text', 'canvas_accent', 'chat_user_bubble'] as const).map(k => (
           <label key={k} className="flex flex-col gap-1 text-[12px] text-[#6b6b80]">
-            {k.replace('_', ' ')}
+            {COLOUR_LABELS[k] ?? k.replace('_', ' ')}
             <span className="flex items-center gap-2">
               <input type="color" value={HEX.test((brand[k] as string) || '') ? (brand[k] as string) : '#ffffff'}
                      onChange={e => setField(k, e.target.value)}

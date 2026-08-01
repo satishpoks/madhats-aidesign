@@ -83,7 +83,7 @@ export function GraphicsPicker({ open, onClose, onPickShape, onPickImage }: Grap
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-3 py-1 rounded-full text-xs transition-colors ${
-                tab === t.key ? 'bg-accent text-white' : 'bg-surface border border-border text-textMuted hover:border-accent'
+                tab === t.key ? 'bg-canvasAccent text-white' : 'bg-surface border border-border text-textMuted hover:border-canvasAccent'
               }`}
             >
               {t.label}
@@ -99,7 +99,7 @@ export function GraphicsPicker({ open, onClose, onPickShape, onPickImage }: Grap
                 onClick={() => { onPickShape(s.kind); onClose() }}
                 title={s.label}
                 aria-label={`Add ${s.label}`}
-                className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-surface p-1.5 hover:border-accent transition-colors"
+                className="flex flex-col items-center gap-0.5 rounded-lg border border-border bg-surface p-1.5 hover:border-canvasAccent transition-colors"
               >
                 <ShapeThumb kind={s.kind} />
                 <span className="text-[9px] text-textMuted">{s.label}</span>
@@ -123,7 +123,7 @@ export function GraphicsPicker({ open, onClose, onPickShape, onPickImage }: Grap
                     onClick={() => { onPickImage(g.url); onClose() }}
                     title={g.name}
                     aria-label={`Add ${g.name}`}
-                    className="aspect-square rounded-lg border border-border bg-surface p-1.5 hover:border-accent transition-colors"
+                    className="aspect-square rounded-lg border border-border bg-surface p-1.5 hover:border-canvasAccent transition-colors"
                   >
                     <img src={g.url} alt={g.name} crossOrigin="anonymous" className="w-full h-full object-contain" draggable={false} />
                   </button>

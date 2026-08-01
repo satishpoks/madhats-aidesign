@@ -144,4 +144,51 @@ describe('BrandingView', () => {
     expect(await screen.findByText(/valid.*email/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
+
+  // --- Canvas accent + chat bubble colours ------------------------------------
+
+  it('renders pickers for canvas accent and chat bubble, and saves them', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    const canvasAccent = await screen.findByRole('textbox', { name: 'canvas_accent' })
+    const chatBubble = screen.getByRole('textbox', { name: 'chat_user_bubble' })
+    fireEvent.change(canvasAccent, { target: { value: '#00AA55' } })
+    fireEvent.change(chatBubble, { target: { value: '#AA0055' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
+    expect(brand.canvas_accent).toBe('#00AA55')
+    expect(brand.chat_user_bubble).toBe('#AA0055')
+  })
+
+  it('rejects a malformed canvas_accent on save', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByRole('textbox', { name: 'canvas_accent' }),
+      { target: { value: 'not-a-hex' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/canvas_accent.*hex colour/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed chat_user_bubble on save', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByRole('textbox', { name: 'chat_user_bubble' }),
+      { target: { value: 'not-a-hex' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/chat_user_bubble.*hex colour/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  it('shows the canvas accent and chat bubble colours in the live preview', async () => {
+    vi.mocked(api.getStore).mockResolvedValueOnce({
+      id: 's1', slug: 'acme', name: 'Acme',
+      brand: { primary_colour: '#123456', canvas_accent: '#00AA55', chat_user_bubble: '#AA0055', menu_items: [] },
+    })
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    expect(await screen.findByText('Canvas tool')).toHaveStyle({ background: '#00AA55' })
+    expect(screen.getByText("Customer's chat bubble")).toHaveStyle({ background: '#AA0055' })
+  })
 })
