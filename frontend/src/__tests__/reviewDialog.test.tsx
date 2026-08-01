@@ -84,4 +84,33 @@ describe('ReviewDialog', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('closes when the backdrop itself is clicked', () => {
+    seedTwoDecoratedFaces()
+    const onClose = vi.fn()
+    render(<ReviewDialog open onConfirm={vi.fn()} onRework={vi.fn()} onClose={onClose} />)
+    // The backdrop is the dialog panel's parent — the fixed inset-0 overlay.
+    const backdrop = screen.getByRole('dialog').parentElement!
+    fireEvent.click(backdrop)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not close when a click inside the panel bubbles to the backdrop', () => {
+    seedTwoDecoratedFaces()
+    const onClose = vi.fn()
+    render(<ReviewDialog open onConfirm={vi.fn()} onRework={vi.fn()} onClose={onClose} />)
+    // A click that originates INSIDE the panel (not on the backdrop itself)
+    // must not be read as a backdrop dismiss, even though it bubbles through
+    // the same handler.
+    fireEvent.click(screen.getByRole('dialog'))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('closes via the visible header close control — the only dismiss path on a phone', () => {
+    seedTwoDecoratedFaces()
+    const onClose = vi.fn()
+    render(<ReviewDialog open onConfirm={vi.fn()} onRework={vi.fn()} onClose={onClose} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
 })

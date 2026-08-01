@@ -34,6 +34,9 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
   const faces = useCanvasStore(s => s.faces)
   const watermarkText = useBrandStore(s => s.watermarkText)
   const panelRef = useRef<HTMLDivElement>(null)
+  // Deliberate initial-focus target — see the block comment above the header
+  // close button for why it, not either review action, gets focus on open.
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -50,7 +53,7 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
-    panelRef.current?.querySelector<HTMLElement>('button')?.focus()
+    closeButtonRef.current?.focus()
     return () => document.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
@@ -58,7 +61,20 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
   const decorated = (FACES as Face[]).filter(f => faces[f].length > 0)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 md:p-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 md:p-6"
+      // Backdrop click closes — but only when the click ORIGINATED on the
+      // backdrop itself. Without the target/currentTarget guard, any click
+      // inside the panel (a face thumbnail, the review buttons) bubbles up
+      // through this same handler and would close the dialog out from under
+      // the action the customer just took.
+      //
+      // This alone doesn't help on a phone: the panel is `h-full w-full`
+      // below `md`, so there is no backdrop showing to tap — hence the
+      // header close button below, which is the one that actually matters
+      // on the primary touch surface for this canvas studio.
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
       <div
         ref={panelRef}
         role="dialog"
@@ -66,13 +82,38 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
         aria-labelledby="review-dialog-title"
         className="flex h-full w-full flex-col overflow-hidden bg-surface md:h-auto md:max-h-[90vh] md:max-w-3xl md:rounded-2xl"
       >
-        <div className="flex-none border-b border-border px-5 py-4">
-          <h2 id="review-dialog-title" className="text-base font-semibold text-textPrimary">
-            Review your design
-          </h2>
-          <p className="mt-1 text-sm text-textMuted">
-            Here is every view you have decorated. Check each one before we send it to our team.
-          </p>
+        <div className="flex flex-none items-start justify-between gap-3 border-b border-border px-5 py-4">
+          <div>
+            <h2 id="review-dialog-title" className="text-base font-semibold text-textPrimary">
+              Review your design
+            </h2>
+            <p className="mt-1 text-sm text-textMuted">
+              Here is every view you have decorated. Check each one before we send it to our team.
+            </p>
+          </div>
+          {/* The touch-accessible close path: the backdrop-click handler above
+              is invisible below `md` (the panel fills the screen there), so
+              this is the ONLY way a phone user dismisses the dialog without
+              picking "Looks great, send it" or "I'd like to rework it" — the
+              exact "you must choose" trap the brief forbids for a dialog it
+              calls "closable, deliberately."
+              It is also the deliberate initial-focus target (see the ref
+              above): landing focus on either review action nudges a stray
+              Enter toward a business-meaningful outcome (submitting the
+              design, or discarding the review to go rework it); landing here
+              is inert — reopening on the next arrival costs nothing — so a
+              keyboard user who tabs through to read the design, then
+              presses Enter without meaning to select anything yet, doesn't
+              accidentally commit to either asymmetric-cost action. */}
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex-none rounded-full p-1.5 text-lg leading-none text-textMuted hover:bg-surfaceAlt hover:text-textPrimary"
+          >
+            <span aria-hidden="true">&times;</span>
+          </button>
         </div>
 
         {/* Stacked and scrollable on a phone; a grid once there is room. */}
