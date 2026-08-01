@@ -14,7 +14,8 @@
 - Backend tests run **flag-off** by default: `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`. **This project has no `backend/.venv`** — use the container instead: `MSYS_NO_PATHCONV=1 docker compose exec -T backend python -m pytest -q`.
 - The five v2 suites must also be run **flag-on**: `CANVAS_ORCHESTRATOR_V2=true ... pytest -q tests/test_orchestrator_v2.py tests/test_v2_e2e.py tests/test_v2_copy_guards.py tests/test_state_machine_v2.py tests/test_canvas_steps.py`.
 - Frontend tests run **inside the container** — host `npx vitest` is broken on this Windows machine (missing `@vitest/utils`, the documented per-platform `node_modules` gotcha): `docker compose exec -T frontend npx vitest run <path>`.
-- Baselines to hold. Backend numbers were **measured on this branch at `9b7c9a8`** during Task 1 (by stashing), superseding the stale CLAUDE.md figures of 1259/330: backend flag-off **1283**, v2 suites flag-on **348**. Frontend is **not yet re-measured** — CLAUDE.md says `src/__tests__` + `src/components/StoreHeader.test.tsx` = 330, so the first frontend task must stash-measure it and correct this line. `docker compose exec -T frontend npx tsc --noEmit` **clean**.
+- Baselines to hold. Backend numbers were **measured on this branch at `9b7c9a8`** during Task 1 (by stashing), superseding the stale CLAUDE.md figures of 1259/330: backend flag-off **1283**, v2 suites flag-on **348**. Frontend measured in Task 5: `src/__tests__` + `src/components/StoreHeader.test.tsx` = **341 passing, 0 failing** (CLAUDE.md's 330 was stale too). `docker compose exec -T frontend npx tsc --noEmit` **clean**.
+- **`backend/tests` has no `conftest.py`, so `db.get_supabase()` is NOT mocked by default.** A route test that reaches a service which reads the DB will hit the **real hosted Supabase over the network** — and this repo's `.env` points at the production project. Any new route test must stub the DB read itself (see `test_storefront.py`'s `_read_row` fixture for the pattern). Discovered in Task 5.
 - **`backend/tests` is NOT bind-mounted into the running `backend` container**, and the image lacks dev deps. Run backend tests with an explicit mount instead of editing `docker-compose.yml`: `MSYS_NO_PATHCONV=1 docker compose run --rm -v "$PWD/backend/tests:/app/tests" -e CANVAS_ORCHESTRATOR_V2=false backend sh -c "pip install -q pytest pytest-asyncio && python -m pytest -q"`. (Discovered in Task 1; see the SDD ledger.)
 - Security rule 10: no customer name/email in logs or Sentry breadcrumbs. `log.*(err=type(exc).__name__)`, never `str(exc)`, on any path whose prompt carried customer text.
 - v2 copy is guarded by `backend/tests/test_v2_copy_guards.py`: no casual register (`_CASUAL` word-boundary list), and no v2 string may contain "under the cap". Any new customer-facing string must pass it.
@@ -795,6 +796,11 @@ def test_storefront_returns_the_watermark_text(client, store_headers):
     assert res.status_code == 200
     assert isinstance(res.json()["watermark_text"], str)
     assert res.json()["watermark_text"]        # never empty — the overlay needs something to draw
+    # Equality, not just non-emptiness: the DEFAULT ("MADHATS PREVIEW") is also a
+    # non-empty string, so the two assertions above would pass even if the route
+    # hard-coded it and never consulted settings_service. Stub the setting to a
+    # distinguishable value and assert on it, or the test proves nothing.
+    assert res.json()["watermark_text"] == "ACME PREVIEW"
 
 
 def test_storefront_never_leaks_the_watermark_asset(client, store_headers):
