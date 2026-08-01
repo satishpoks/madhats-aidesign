@@ -5,6 +5,7 @@ import {
   topLeftFromCenterPx,
   drawingBoundsCenter,
   estimateTextBox,
+  centredTopLeft,
 } from '../lib/canvasGeometry'
 
 const STAGE_W = 480
@@ -97,5 +98,54 @@ describe('canvasGeometry — centre-pivot invariants (FIX 1)', () => {
     expect(short.h).toBeCloseTo(36 * 1.2, 6)
     // Never narrower than the font size itself (single/short glyphs).
     expect(short.w).toBeGreaterThanOrEqual(36)
+  })
+})
+
+describe('centredTopLeft — "Centre on the cap" puts the element, not its corner, in the middle', () => {
+  /** The stage-centre invariant, expressed the way the canvas renders it: the
+   *  node's registration point (top-left + its origin) must land on the middle. */
+  const pivotPx = (topLeft: number, originPx: number, stage: number) => topLeft * stage + originPx
+
+  test('a box element (image/shape) centres on half its stored size', () => {
+    const el = { type: 'image', width: 0.4, height: 0.25 }
+    const { x, y } = centredTopLeft(el, STAGE_W, STAGE_H)
+    expect(x).toBeCloseTo(0.3, 6)
+    expect(y).toBeCloseTo(0.375, 6)
+    const { halfW, halfH } = boxHalfExtentsPx(el.width, el.height, STAGE_W, STAGE_H)
+    expect(pivotPx(x, halfW, STAGE_W)).toBeCloseTo(STAGE_W / 2, 6)
+    expect(pivotPx(y, halfH, STAGE_H)).toBeCloseTo(STAGE_H / 2, 6)
+  })
+
+  test('the old {0.5, 0.5} is exactly half the element off — the bug this fixes', () => {
+    const { x, y } = centredTopLeft({ type: 'shape', width: 0.4, height: 0.4 }, STAGE_W, STAGE_H)
+    expect(x).not.toBe(0.5)
+    expect(0.5 - x).toBeCloseTo(0.2, 6) // half the element's width
+    expect(0.5 - y).toBeCloseTo(0.2, 6)
+  })
+
+  test('a drawing centres on its stroke bounds, not on 0,0', () => {
+    // Normalised points, bbox x:[0.1,0.3] y:[0.4,0.6] -> centre (0.2, 0.5).
+    const { x, y } = centredTopLeft(
+      { type: 'drawing', points: [0.1, 0.4, 0.3, 0.6] }, STAGE_W, STAGE_H,
+    )
+    expect(x + 0.2).toBeCloseTo(0.5, 6)
+    expect(y + 0.5).toBeCloseTo(0.5, 6)
+  })
+
+  test('text prefers the MEASURED box and falls back to the estimate', () => {
+    const el = { type: 'text', content: 'hi', fontSize: 36 }
+    const measured = centredTopLeft(el, STAGE_W, STAGE_H, { w: 100, h: 40 })
+    expect(pivotPx(measured.x, 50, STAGE_W)).toBeCloseTo(STAGE_W / 2, 6)
+    expect(pivotPx(measured.y, 20, STAGE_H)).toBeCloseTo(STAGE_H / 2, 6)
+
+    const est = estimateTextBox('hi', 36)
+    const fallback = centredTopLeft(el, STAGE_W, STAGE_H)
+    expect(fallback.x).toBeCloseTo(0.5 - est.w / 2 / STAGE_W, 6)
+    expect(fallback.y).toBeCloseTo(0.5 - est.h / 2 / STAGE_H, 6)
+  })
+
+  test('a zero-size / empty element degenerates to the exact centre, never NaN', () => {
+    expect(centredTopLeft({ type: 'image' }, STAGE_W, STAGE_H)).toEqual({ x: 0.5, y: 0.5 })
+    expect(centredTopLeft({ type: 'drawing', points: [] }, STAGE_W, STAGE_H)).toEqual({ x: 0.5, y: 0.5 })
   })
 })

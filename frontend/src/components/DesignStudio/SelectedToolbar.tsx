@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useCanvasStore, LINE_SHAPES, TEXT_PLACEHOLDER } from '../../store/canvasStore'
 import { WEB_SAFE_FONTS, GOOGLE_FONTS } from '../../lib/fonts'
+import { centredTopLeft, STAGE_W, STAGE_H } from '../../lib/canvasGeometry'
+import { getMeasuredTextBox } from '../../lib/textMetrics'
 
 /** The panel may never eat more than this share of the column it shares with
  *  the cap. A share, not a fixed height, because the column's height is
@@ -17,17 +19,17 @@ const ADJUST_LABELS: Record<string, string> = {
 }
 
 /** One click of ⟲ / ⟳. Was 45°, which is far too coarse to place a logo —
- *  eight positions on the whole circle. 12.5° gives fine control while still
- *  being one tap, and the readout formats to one decimal so the sequence reads
- *  0 · 12.5 · 25 · 37.5 rather than a lying rounded 13. */
-const ROTATE_STEP = 12.5
+ *  eight positions on the whole circle. 11.25° divides the circle into 32, so
+ *  the sequence lands exactly on every 45° and 90° (11.25 · 22.5 · 33.75 · 45)
+ *  while still giving fine control in one tap. The readout keeps two decimals
+ *  so it shows the true 11.25 rather than a lying rounded 11.3. */
+const ROTATE_STEP = 11.25
 const NUDGE = 0.02
 const SIZE_FACTOR = 1.1
 
-/** One decimal, but only when there is one — "45", not "45.0". */
+/** Up to two decimals, but only the ones there are — "45", not "45.00". */
 function fmtDeg(v: number): string {
-  const r = Math.round(v * 10) / 10
-  return Number.isInteger(r) ? String(r) : r.toFixed(1)
+  return String(Math.round(v * 100) / 100)
 }
 
 /** `stacked` shares the centre column with the cap (mobile) — capped and
@@ -119,7 +121,13 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
   const rotateBy = (delta: number) => update(el.id, { rotation: norm360((el.rotation ?? 0) + delta) })
   const nudge = (dx: number, dy: number) =>
     update(el.id, { x: clamp01((el.x ?? 0) + dx), y: clamp01((el.y ?? 0) + dy) })
-  const recentre = () => update(el.id, { x: 0.5, y: 0.5 })
+  // x/y are the element's normalised TOP-LEFT, so {0.5, 0.5} is NOT centred —
+  // it puts the corner in the middle and the element half its own size down and
+  // right of it. `centredTopLeft` backs the element's own centre out of the
+  // stage centre, per type. Text gets its real measured box when the live node
+  // has published one; the heuristic estimate is the fallback.
+  const recentre = () =>
+    update(el.id, centredTopLeft(el, STAGE_W, STAGE_H, getMeasuredTextBox(el.id)))
   const resize = (factor: number) => {
     if (el.type === 'text') {
       update(el.id, { fontSize: Math.max(8, Math.round((el.fontSize ?? 36) * factor)) })
@@ -278,7 +286,7 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
                 directional arrows or Layer order's Fwd/Back glyphs below. */}
             <div className="flex items-center gap-1" role="group" aria-label="Rotate">
               <button onClick={() => rotateBy(-ROTATE_STEP)} className={btn}
-                title="Rotate 12.5° left" aria-label="Rotate left 12.5 degrees">⟲</button>
+                title="Rotate 11.25° left" aria-label="Rotate left 11.25 degrees">⟲</button>
               <input type="number" step={ROTATE_STEP} value={fmtDeg(el.rotation ?? 0)}
                 onChange={e => {
                   // An in-progress decimal ("12.") reports value === "" for
@@ -292,7 +300,7 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
                 className="w-14 bg-base border border-border rounded px-1 py-0.5 text-xs text-textPrimary"
                 aria-label="Rotation degrees" title="Set an exact rotation in degrees" />
               <button onClick={() => rotateBy(ROTATE_STEP)} className={btn}
-                title="Rotate 12.5° right" aria-label="Rotate right 12.5 degrees">⟳</button>
+                title="Rotate 11.25° right" aria-label="Rotate right 11.25 degrees">⟳</button>
               <button onClick={() => update(el.id, { rotation: 0 })} className={btn}
                 title="Reset rotation to 0°" aria-label="Reset rotation">Reset</button>
             </div>

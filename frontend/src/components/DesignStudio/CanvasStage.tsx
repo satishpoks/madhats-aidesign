@@ -4,15 +4,19 @@ import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
 import { TextNode, ImageNode, ShapeNode, DrawingNode } from './nodes'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
+import { STAGE_W, STAGE_H } from '../../lib/canvasGeometry'
 
 /**
  * The stage's LOGICAL coordinate space. Every element coordinate is normalised
  * to it, the face thumbnails scale off it, and the flatten exports are sized
  * from it — so this stays a constant 480 forever. Only the stage's *rendered*
  * size responds to the screen, via a uniform Konva scale (see `display` below).
+ *
+ * It is DEFINED in `lib/canvasGeometry` (Konva-free) and re-exported here so
+ * plain-geometry callers can use it without pulling in react-konva; the many
+ * existing `from './CanvasStage'` imports keep working unchanged.
  */
-export const STAGE_W = 480
-export const STAGE_H = 480
+export { STAGE_W, STAGE_H }
 
 /**
  * Bounds for the on-screen (scaled) stage edge, in CSS pixels. MIN is a floor
