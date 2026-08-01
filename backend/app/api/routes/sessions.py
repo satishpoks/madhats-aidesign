@@ -388,6 +388,11 @@ async def get_session(token: str, request: Request) -> SessionDetail:
         sb.table("chat_messages")
         .select("role, content, state_before, state_after, created_at")
         .eq("session_id", session["id"])
+        # A checkpoint restore marks every row after the restore point
+        # superseded rather than deleting it (audit). The customer must see
+        # the branched thread, so they are filtered HERE and deliberately not
+        # in admin_diagnostics.py, which shows the full history.
+        .is_("superseded_at", "null")
         .order("created_at")
         .execute()
     )
