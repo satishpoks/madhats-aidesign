@@ -102,6 +102,25 @@ class Step:
     ops: Callable[[dict, dict], list[dict]] | None = None
     # The Back destination this step opens, if any. See Checkpoint.
     checkpoint: Checkpoint | None = None
+    # Answering this step ENDS the checkpoint group it sits in — its `apply`
+    # banks or clears the very fields that group's label reads. Declared on the
+    # record (not inferred) because only the step author knows it; two things
+    # key off it, and both were live bugs before it existed:
+    #
+    #   1. `orchestrator_v2` relabels from the collected as it stood BEFORE the
+    #      apply, so the row keeps the identity of the pass being LEFT.
+    #      `_apply_another_logo` banks `pending_logo` into `logos`, so
+    #      `_label_logo`'s `len(logos)+1` jumped to the NEXT pass and a
+    #      two-logo session showed two menu entries both reading "Logo 2";
+    #      picking the wrong one discarded a logo irrecoverably.
+    #      `_apply_anything_else` pops the decor slots, so `_label_decor` fell
+    #      back to its placeholder over a decoration the customer described.
+    #   2. `checkpoints.capture` treats re-entry into an opener it already has
+    #      a LIVE row for as a new loop pass only when it was reached THROUGH
+    #      one of these steps. Otherwise the walk-back that cancelling a mix
+    #      performs (ASK_DECORATION_MIX -> ASK_DECORATION) wrote a duplicate
+    #      row for a group the customer never left.
+    closes_checkpoint: bool = False
     # When the interpreter returns NO value for this step's own slot, bank the
     # raw customer message into it. Set on ASK_PURPOSE only.
     #
@@ -742,6 +761,7 @@ REGISTRY: tuple[Step, ...] = (
         slots=("another_logo",),
         apply=_apply_another_logo,
         done_when=lambda c: not _logos_open(c) or c.get("another_logo") is not None,
+        closes_checkpoint=True,                # banks pending_logo -> logos
     ),
     Step(
         id=S.ASK_ADD_DECOR,
@@ -798,6 +818,7 @@ REGISTRY: tuple[Step, ...] = (
         # never satisfy this step — bool(False) is False — so it re-asked
         # forever; only the chip (which sets decor_done=True) escaped.
         done_when=lambda c: bool(c.get("decor_done")) or c.get("more_decor") is not None,
+        closes_checkpoint=True,                # pops decor_choice/decor_face
     ),
     Step(
         id=S.ASK_QUANTITY,

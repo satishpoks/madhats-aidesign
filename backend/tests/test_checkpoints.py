@@ -331,3 +331,51 @@ def test_fake_table_rejects_filters_before_a_verb():
         table.gt("seq", 1)
     with pytest.raises(AttributeError):
         table.execute()
+
+
+# --- live_rows: the hot-path read, and the one that must never raise ---------
+
+def test_live_rows_returns_the_non_superseded_rows_oldest_first():
+    sb = _FakeSB(rows=[
+        {"seq": 1, "kind": "name", "label": "Your name — Sam",
+         "step_id": S.ASK_NAME.value, "superseded_at": None},
+        {"seq": 2, "kind": "logo", "label": "Logo 1 — front",
+         "step_id": S.ASK_LOGO_PLACEMENT.value, "superseded_at": None},
+        {"seq": 3, "kind": "logo", "label": "Logo 2 — back",
+         "step_id": S.ASK_LOGO_PLACEMENT.value,
+         "superseded_at": "2026-08-01T00:00:00Z"},
+    ])
+    rows = cp.live_rows(sb, "s1")
+    assert [r["seq"] for r in rows] == [1, 2]
+
+
+class _RaisingSB:
+    """A database without `session_checkpoints` — postgrest raises `APIError`
+    (PGRST205) on the select, exactly as it does before the migration runs."""
+
+    def table(self, _name):
+        return self
+
+    def select(self, *_a, **_k):
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def is_(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        raise RuntimeError("PGRST205: Could not find the table 'session_checkpoints'")
+
+
+def test_live_rows_returns_empty_instead_of_raising_when_the_table_is_missing():
+    """`capture` and `relabel` are best-effort; `live_rows` was not, and it is
+    called UNWRAPPED from ~7 sites on the hot path of every v2 canvas turn — so
+    a missing table 500'd the whole conversation rather than just hiding the
+    Back menu. An empty list is already how "no going back" is expressed, so
+    degrading to it needs no extra flag."""
+    assert cp.live_rows(_RaisingSB(), "s1") == []

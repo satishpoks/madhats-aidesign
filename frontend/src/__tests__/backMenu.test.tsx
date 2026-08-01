@@ -55,14 +55,22 @@ describe('backMenu', () => {
   })
 
   it('opens a list of destinations, newest first', async () => {
+    // Order is asserted on the DOM, not just presence: two passes of the same
+    // loop can render near-identical labels ("Logo 1 — front" / "Logo 2 —
+    // front"), so position is the customer's only disambiguator and picking
+    // the wrong one discards work. The backend ships back_targets already
+    // sorted newest-first; this pins that the component preserves it.
     useChatStore.setState({ backTargets: [
       { seq: 3, label: 'Logo 2 — back', kind: 'logo' },
+      { seq: 2, label: 'Logo 1 — front', kind: 'logo' },
       { seq: 1, label: 'Your name — Satish', kind: 'name' },
     ] })
     render(<ChatColumn />)
     await userEvent.click(screen.getByText(/Back/))
-    expect(screen.getByText('Logo 2 — back')).toBeInTheDocument()
-    expect(screen.getByText('Your name — Satish')).toBeInTheDocument()
+    const labels = screen.getAllByRole('button').map(b => b.textContent)
+    const rendered = labels.filter(
+      l => l === 'Logo 2 — back' || l === 'Logo 1 — front' || l === 'Your name — Satish')
+    expect(rendered).toEqual(['Logo 2 — back', 'Logo 1 — front', 'Your name — Satish'])
   })
 
   it('picking a destination calls goBackTo with its seq', async () => {

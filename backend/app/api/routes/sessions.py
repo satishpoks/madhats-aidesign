@@ -376,6 +376,39 @@ def _displayable_product_ref(product_ref: dict | None, base_url: str) -> dict | 
     return ref
 
 
+_CHAT_COLS = "role, content, state_before, state_after, created_at"
+
+
+def _visible_chat_messages(sb, session_id: str) -> list[dict]:
+    """The customer's chat thread, with a superseded branch filtered out.
+
+    A checkpoint restore marks every row after the restore point superseded
+    rather than deleting it (audit). The customer must not see the branch they
+    rewound past, so the filter is applied HERE and deliberately NOT in
+    admin_diagnostics.py, which shows the full history.
+
+    The filter is best-effort because the column it names ships in
+    `20260801000001_session_checkpoints.sql`: against a database that has not
+    had it applied, postgrest answers `42703` (undefined column) and raises —
+    and this reader backs EVERY emailed resume/edit link, for EVERY flow (v1 and
+    v2, canvas and Q&A). A 500 there is a far worse failure than briefly showing
+    a superseded row, which can only exist at all once the migration is applied.
+    Deploy order therefore cannot break the customer.
+    """
+    def _read(filtered: bool) -> list[dict]:
+        q = (sb.table("chat_messages").select(_CHAT_COLS)
+             .eq("session_id", session_id))
+        if filtered:
+            q = q.is_("superseded_at", "null")
+        return list(q.order("created_at").execute().data or [])
+
+    try:
+        return _read(filtered=True)
+    except Exception as exc:                    # noqa: BLE001 — see docstring
+        log.warning("chat_supersede_filter_unavailable", error=type(exc).__name__)
+        return _read(filtered=False)
+
+
 @router.get("/sessions/{token}", response_model=SessionDetail)
 async def get_session(token: str, request: Request) -> SessionDetail:
     sb = get_supabase()
@@ -384,19 +417,7 @@ async def get_session(token: str, request: Request) -> SessionDetail:
         raise HTTPException(status_code=404, detail="Session not found")
     session = res.data[0]
 
-    msgs = (
-        sb.table("chat_messages")
-        .select("role, content, state_before, state_after, created_at")
-        .eq("session_id", session["id"])
-        # A checkpoint restore marks every row after the restore point
-        # superseded rather than deleting it (audit). The customer must see
-        # the branched thread, so they are filtered HERE and deliberately not
-        # in admin_diagnostics.py, which shows the full history.
-        .is_("superseded_at", "null")
-        .order("created_at")
-        .execute()
-    )
-    messages = [ChatMessageOut(**m) for m in (msgs.data or [])]
+    messages = [ChatMessageOut(**m) for m in _visible_chat_messages(sb, session["id"])]
 
     collected = session.get("collected") or {}
     data = _public_data(ConversationState(session["state"]), collected)

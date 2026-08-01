@@ -40,14 +40,35 @@ def _now() -> str:
 
 
 def live_rows(sb, session_id: str) -> list[dict]:
-    """Non-superseded checkpoint rows for a session, oldest first."""
-    res = (sb.table("session_checkpoints")
-           .select("seq, kind, label, step_id")
-           .eq("session_id", session_id)
-           .is_("superseded_at", "null")
-           .order("seq")
-           .execute())
-    return list(res.data or [])
+    """Non-superseded checkpoint rows for a session, oldest first.
+
+    Fault-tolerant on purpose, exactly like `capture` and `relabel`. This is on
+    the hot path of EVERY v2 canvas turn (~7 call sites in `orchestrator_v2`,
+    all unwrapped), and `postgrest` raises `APIError` on any non-2xx — so a
+    database that has not had `20260801000001_session_checkpoints.sql` applied
+    yet answers `PGRST205` (table missing) and would 500 the whole conversation
+    rather than just the Back menu.
+
+    Returning [] degrades to "no Back destinations offered", which is precisely
+    what the feature already uses to mean "no going back" — there is no separate
+    disable flag to keep in sync. That is what makes the code genuinely
+    deploy-order-independent: ship it before the migration and the customer sees
+    no Back button, not a broken chat.
+    """
+    try:
+        res = (sb.table("session_checkpoints")
+               .select("seq, kind, label, step_id")
+               .eq("session_id", session_id)
+               .is_("superseded_at", "null")
+               .order("seq")
+               .execute())
+        return list(res.data or [])
+    except Exception as exc:                     # noqa: BLE001 — best effort
+        # No row content in the log: labels carry the customer's own name
+        # (security rule 10). The exception TYPE is enough to tell a missing
+        # table from a transport error.
+        log.warning("checkpoint_live_rows_failed", error=type(exc).__name__)
+        return []
 
 
 def capture(sb, session_id: str, step: cs.Step, previous_state,
@@ -85,11 +106,12 @@ def capture(sb, session_id: str, step: cs.Step, previous_state,
         # restore had just superseded, violating the (session_id, seq) unique
         # index and 500-ing the turn.
         res = (sb.table("session_checkpoints")
-               .select("seq").eq("session_id", session_id)
+               .select("seq, step_id, superseded_at").eq("session_id", session_id)
                .order("seq").execute())
         rows = list(res.data or [])
         seq = max((r["seq"] for r in rows), default=0) + 1
-        watermark = _last_chat_id(sb, session_id)
+        if _is_a_re_entry_not_a_new_pass(rows, step, previous_state):
+            return
         sb.table("session_checkpoints").insert({
             "session_id": session_id,
             "seq": seq,
@@ -97,11 +119,61 @@ def capture(sb, session_id: str, step: cs.Step, previous_state,
             "label": cpt.label(collected),
             "step_id": step.id.value,
             "collected": collected,
-            "canvas_design": canvas_design,
-            "chat_watermark": watermark,
+            "canvas_design": (canvas_design if canvas_design is not None
+                              else _last_known_canvas(sb, session_id)),
+            "chat_watermark": _last_chat_id(sb, session_id),
         }).execute()
     except Exception:                        # noqa: BLE001 — best effort
         log.warning("checkpoint_capture_failed", step=step.id.value)
+
+
+def _is_a_re_entry_not_a_new_pass(rows: list[dict], step: cs.Step,
+                                  previous_state) -> bool:
+    """True when this opener already has a LIVE row and we did NOT get here by
+    closing the previous pass — i.e. the router walked BACKWARD into a group the
+    customer never left, so a second row would be a confusing duplicate.
+
+    The one legitimate repeat is a loop pass, and every loop pass is reached
+    through a `closes_checkpoint` step (`ASK_ANOTHER_LOGO` / `ASK_ANYTHING_ELSE`
+    — the steps whose apply banks or clears the group's state). Cancelling a mix
+    at `ASK_DECORATION_MIX` re-opens `ASK_DECORATION` without passing through
+    one, and wrote a duplicate `Decoration — not set` row.
+    """
+    live = [r for r in rows if r.get("superseded_at") is None]
+    if not live:
+        return False
+    newest = max(live, key=lambda r: r["seq"])
+    if newest.get("step_id") != step.id.value:
+        return False
+    prev = cs.by_id_value(getattr(previous_state, "value", previous_state))
+    return not (prev is not None and prev.closes_checkpoint)
+
+
+def _last_known_canvas(sb, session_id: str) -> dict:
+    """The newest live snapshot's canvas, for a capture with no live blob.
+
+    Not every capture is driven by a customer turn: `check_verification` is a
+    poll and carries no canvas. Storing None there is the "unknown" state that
+    left a restore with no honest move — skipping the canvas restore orphans
+    elements on the cap (locked and unselectable, and flattened into the render),
+    while clearing it would wipe a design the customer really had. Carrying the
+    last OBSERVED canvas forward removes the ambiguity: a snapshot is always
+    either what was on screen or the most recent thing that was.
+
+    `{}` when nothing has ever been observed — which is only true before the
+    first turn, where the canvas genuinely is empty.
+    """
+    try:
+        res = (sb.table("session_checkpoints")
+               .select("seq, canvas_design").eq("session_id", session_id)
+               .is_("superseded_at", "null").execute())
+        rows = [r for r in (res.data or []) if r.get("canvas_design") is not None]
+        if not rows:
+            return {}
+        return max(rows, key=lambda r: r["seq"])["canvas_design"]
+    except Exception as exc:                     # noqa: BLE001 — best effort
+        log.warning("checkpoint_last_canvas_failed", error=type(exc).__name__)
+        return {}
 
 
 def relabel(sb, session_id: str, collected: dict) -> None:
@@ -113,6 +185,10 @@ def relabel(sb, session_id: str, collected: dict) -> None:
     after each answered turn and rewrites the newest live row, which is the
     checkpoint currently in progress, so the menu shows the customer's own
     answer back to them.
+
+    `collected` is what the CALLER decides it is, and that matters: for a
+    `closes_checkpoint` step `orchestrator_v2` passes the pre-apply snapshot, so
+    the row keeps the identity of the pass being left rather than the next one's.
 
     Newest-live is the right anchor: a new group's capture writes a new row that
     immediately becomes newest, so each group's label stops updating exactly when

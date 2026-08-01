@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { sendChat, sendBack, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
+import { sendChat, sendBack, pollVerification, pollRegeneration, pollGenerationAdvance, ApiError } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
 import { parseCanvasOps, applyCanvasOps } from '../lib/canvasOps'
 import { useCanvasStore, type CanvasDesign } from './canvasStore'
@@ -90,6 +90,13 @@ interface ChatStoreState {
   setError: (msg: string) => void
   reset: () => void
 }
+
+/** Shown when POST /chat/{id}/back 409s: the checkpoint the customer tapped is
+ *  gone (superseded by another tab, already used, or frozen since the menu was
+ *  rendered). Names the next move explicitly — the conversation has NOT moved,
+ *  so the question above is still the live one. */
+export const BACK_UNAVAILABLE =
+  "That step can't be changed any more — please carry on from the question above."
 
 function parseData(data: Record<string, unknown>) {
   const options = Array.isArray(data.options) ? (data.options as string[]) : []
@@ -295,6 +302,24 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       } else {
         get().applyResponse(res.reply, res.state, data)
       }
+    } catch (err) {
+      // Without this the whole failure path was silent: the menu closed, the
+      // conversation did not move, nothing was shown, and the rejection escaped
+      // to window.onunhandledrejection. 409 is the expected, benign case — a
+      // stale tab, a double tap, or a checkpoint that has frozen since the menu
+      // was rendered (offerability is re-checked server-side).
+      const stale = err instanceof ApiError && err.status === 409
+      set(state => ({
+        chatError: stale
+          ? BACK_UNAVAILABLE
+          : err instanceof Error ? err.message : 'Something went wrong',
+        // Drop the destination that just proved unavailable so the menu cannot
+        // offer it again; when it was the only one the Back button disappears,
+        // which is already how "no going back" is expressed.
+        backTargets: stale
+          ? state.backTargets.filter(t => t.seq !== seq)
+          : state.backTargets,
+      }))
     } finally {
       set({ sending: false })
     }

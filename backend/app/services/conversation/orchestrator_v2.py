@@ -14,6 +14,7 @@ canvas session is never stranded post-design.
 """
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 
 import structlog
@@ -190,6 +191,13 @@ async def handle_message(session_id: str, message: str,
     # Filter BEFORE apply, so an effect never sees a field the router rejected.
     fields = v2.merge_fields(step, collected, fields)
     collected.update(fields)
+    # A loop-closing step's `apply` rewrites the fields its checkpoint's label
+    # reads, so relabelling from the post-apply dict stamps the NEXT pass's
+    # identity onto the row of the pass just FINISHED (see
+    # Step.closes_checkpoint). Snapshot first and relabel from that.
+    # deepcopy, not dict(): `_apply_another_logo` mutates `collected["logos"]`
+    # IN PLACE, so a shallow copy would share the list and see the bank anyway.
+    label_view = copy.deepcopy(collected) if step.closes_checkpoint else None
     if step.apply:
         step.apply(collected, fields, session)
     # Labels render at CAPTURE time — before the step they open has been
@@ -200,7 +208,7 @@ async def handle_message(session_id: str, message: str,
     # below: relabel the group being left, then capture the group being entered
     # — never the other way round, or a same-turn loop advance would relabel
     # the row `capture` just wrote instead of the one this answer belongs to.
-    ck.relabel(sb, session_id, collected)
+    ck.relabel(sb, session_id, label_view if label_view is not None else collected)
     # The customer may have ticked "Remove background" in the Adjust panel
     # themselves. That lives only in the frontend store until finalize, so the
     # live canvas blob (sent on this turn only) is the sole way to see it.
@@ -315,8 +323,16 @@ async def handle_back(session_id: str, seq: int) -> dict:
     data = _public(step, restored,
                    targets=v2.back_targets(
                        restored, ck.live_rows(sb, session_id)))
-    if row.get("canvas_design"):
-        data["canvas_restore"] = row["canvas_design"]
+    # ALWAYS emitted, including for an empty/absent snapshot. Omitting it made
+    # `chatStore.goBackTo` skip `restoreSnapshot` entirely, and "no canvas was
+    # captured" is only true at capture time — by restore time the customer may
+    # well have placed something. The reachable case: the `name` checkpoint is
+    # taken on the GREETING kickoff (which sends no blob), while ASK_EMAIL sits
+    # after the first logo — so "place logo, get asked for email, Back to Your
+    # name" left the logo on the cap, then `Surface`'s directive effect locked
+    # it (ASK_NAME hands over no tool), leaving it unselectable and flattened
+    # into the render alongside its replacement. `restoreSnapshot({})` clears.
+    data["canvas_restore"] = row.get("canvas_design") or {}
     result = await _persist(sb, session_id, restored, step, reply,
                             session["state"], step.id, user_message=None, data=data)
     # The frontend must REPLACE its in-memory thread, not append to it — the

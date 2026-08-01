@@ -6,10 +6,21 @@ vi.mock('../lib/api', () => ({
   pollRegeneration: vi.fn(),
   pollGenerationAdvance: vi.fn(),
   sendBack: vi.fn(),
+  // A real class, not a vi.fn(): chatStore narrows the rejection with
+  // `err instanceof ApiError` to tell the benign 409 (stale/frozen checkpoint)
+  // from a transport failure. Both sides resolve the same mocked binding, so
+  // the identity check is the real one.
+  ApiError: class ApiError extends Error {
+    constructor(public readonly status: number, public readonly detail: string) {
+      super(detail)
+      this.name = 'ApiError'
+    }
+  },
 }))
 
 import * as api from '../lib/api'
-import { useChatStore } from '../store/chatStore'
+import { ApiError } from '../lib/api'
+import { useChatStore, BACK_UNAVAILABLE } from '../store/chatStore'
 import { useCanvasStore } from '../store/canvasStore'
 
 beforeEach(() => {
@@ -146,4 +157,37 @@ test('goBackTo falls back to appending when data.messages is absent', async () =
 
   const texts = useChatStore.getState().messages.map(m => m.text)
   expect(texts).toEqual(['earlier message', 'restored reply'])
+})
+
+// --- I-3: a 409 from /back must not be a silent no-op ------------------------
+
+test('a 409 surfaces a message and drops the stale destination', async () => {
+  // Was: try/finally with no catch, so the menu closed, nothing moved, no
+  // chatError was set, and the rejection escaped to onunhandledrejection.
+  useChatStore.setState({
+    backTargets: [
+      { seq: 3, label: 'Logo 2 — back', kind: 'logo' },
+      { seq: 1, label: 'Your name — Satish', kind: 'name' },
+    ],
+  })
+  vi.spyOn(api, 'sendBack').mockRejectedValue(new ApiError(409, 'gone'))
+
+  await expect(useChatStore.getState().goBackTo('s1', 3)).resolves.toBeUndefined()
+
+  expect(useChatStore.getState().chatError).toBe(BACK_UNAVAILABLE)
+  // The destination that just proved unavailable is gone; the other survives.
+  expect(useChatStore.getState().backTargets.map(t => t.seq)).toEqual([1])
+  expect(useChatStore.getState().sending).toBe(false)
+})
+
+test('a non-409 failure keeps the destinations and reports the error', async () => {
+  useChatStore.setState({
+    backTargets: [{ seq: 3, label: 'Logo 2 — back', kind: 'logo' }],
+  })
+  vi.spyOn(api, 'sendBack').mockRejectedValue(new Error('Failed to fetch'))
+
+  await useChatStore.getState().goBackTo('s1', 3)
+
+  expect(useChatStore.getState().chatError).toBe('Failed to fetch')
+  expect(useChatStore.getState().backTargets.map(t => t.seq)).toEqual([3])
 })

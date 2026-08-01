@@ -789,8 +789,15 @@ async def test_back_at_decor_adjust_restores_the_snapshot_before_this_decoration
 
 
 @pytest.mark.asyncio
-async def test_non_element_back_restores_with_no_canvas_restore_when_the_snapshot_has_none(monkeypatch):
-    """Was `test_non_element_back_sets_the_lock_and_carries_no_canvas_op`."""
+async def test_non_element_back_restores_an_empty_canvas_when_the_snapshot_has_none(monkeypatch):
+    """Was `test_non_element_back_sets_the_lock_and_carries_no_canvas_op`, then
+    `..._with_no_canvas_restore_when_the_snapshot_has_none`.
+
+    Rewritten (fix round 2, Important 2): a v2 back response now ALWAYS carries
+    `canvas_restore`. "The snapshot has no canvas" was true at capture time and
+    false at restore time — omitting the key made the frontend skip
+    `restoreSnapshot`, leaving whatever the customer had since placed orphaned
+    on the cap."""
     store = _new_store()
     store["session"]["state"] = S.ASK_DECORATION.value
     store["session"]["collected"].update({
@@ -809,7 +816,7 @@ async def test_non_element_back_restores_with_no_canvas_restore_when_the_snapsho
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     out = await o2.handle_back("s1", 1)
     assert out["state"] == S.ASK_QUANTITY.value                # normal rewind
-    assert "canvas_restore" not in out["data"]
+    assert out["data"]["canvas_restore"] == {}
 
 
 # --- the email-verification gate ---------------------------------------------
@@ -1281,8 +1288,11 @@ async def test_back_returns_the_canvas_snapshot_when_there_is_one(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_back_omits_canvas_restore_when_the_snapshot_has_none(monkeypatch):
-    """The `name` checkpoint is captured before any canvas exists."""
+async def test_back_restores_an_empty_canvas_for_the_pre_canvas_name_checkpoint(monkeypatch):
+    """The `name` checkpoint is captured before any canvas exists — so an EMPTY
+    canvas is exactly what it should restore. Was
+    `test_back_omits_canvas_restore_when_the_snapshot_has_none`; omitting the
+    key made the frontend leave the cap untouched instead (Important 2)."""
     store = _new_store()
     store["session"]["state"] = S.SHOW_INTRO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam"}
@@ -1293,7 +1303,7 @@ async def test_back_omits_canvas_restore_when_the_snapshot_has_none(monkeypatch)
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     out = await o2.handle_back("s1", 1)
     assert out["state"] == S.ASK_NAME.value
-    assert "canvas_restore" not in out["data"]
+    assert out["data"]["canvas_restore"] == {}
 
 
 @pytest.mark.asyncio
@@ -1385,3 +1395,240 @@ def test_the_old_back_machinery_is_gone():
     src = __import__("inspect").getsource(o2)
     assert "_back_used" not in src
     assert "back_removes_element" not in src
+
+
+# --- C-1: a loop-closing turn must label the pass it LEAVES -------------------
+#
+# `step.apply` runs BEFORE `ck.relabel`, and at the two loop-closing steps the
+# apply mutates exactly the fields the label reads: `_apply_another_logo` banks
+# `pending_logo` into `logos` (so `_label_logo`'s `len(logos)+1` jumps to the
+# NEXT pass) and `_apply_anything_else` pops the decor slots (so `_label_decor`
+# falls back to its placeholder). An isolated `relabel` unit test cannot catch
+# this — the bug is in the orchestrator's call ordering — so these drive the
+# real orchestrator through the real chip labels.
+
+def _one_logo_placed_store():
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "logos": [],
+        "pending_logo": {"face": "front", "placed": True, "bg": "removed"},
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="logo", label="Logo 1",
+              step_id=S.ASK_LOGO_PLACEMENT.value, collected={"flow_mode": "canvas"}),
+    ]
+    return store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", ["Yes, another logo", "No, that's all"])
+async def test_closing_the_logo_loop_labels_the_pass_being_left(monkeypatch, answer):
+    """Either chip must leave the finished pass reading `Logo 1 — …`.
+
+    Before the fix both answers rewrote it to `Logo 2`: a two-logo session
+    showed two entries both reading "Logo 2", and picking the wrong one
+    discarded a logo irrecoverably.
+    """
+    store = _one_logo_placed_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)                         # a chip must not need the model
+
+    await o2.handle_message("s1", answer)
+
+    rows = sorted(store["checkpoints"], key=lambda r: r["seq"])
+    assert rows[0]["label"] == "Logo 1 — front, background removed"
+
+
+@pytest.mark.asyncio
+async def test_a_second_logo_pass_is_labelled_logo_2_not_logo_1(monkeypatch):
+    """The other half of the same invariant: the row CAPTURED by the same turn
+    must carry the NEW pass's identity, so the two menu entries differ."""
+    store = _one_logo_placed_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+
+    await o2.handle_message("s1", "Yes, another logo")
+
+    rows = sorted(store["checkpoints"], key=lambda r: r["seq"])
+    assert [r["label"] for r in rows] == ["Logo 1 — front, background removed", "Logo 2"]
+
+
+@pytest.mark.asyncio
+async def test_closing_the_decor_loop_labels_the_decoration_being_left(monkeypatch):
+    """`_apply_anything_else` pops decor_choice/decor_face, so relabelling from
+    the post-apply dict rendered the placeholder ("Text or graphic") over a
+    decoration the customer had actually described."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": False, "logos_done": True, "pending_logo": None,
+        "decor_choice": "text", "decor_face": "back", "decor_placed": True,
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="decor", label="Text or graphic",
+              step_id=S.ASK_ADD_DECOR.value, collected={"flow_mode": "canvas"}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+
+    await o2.handle_message("s1", "Add something else")
+
+    rows = sorted(store["checkpoints"], key=lambda r: r["seq"])
+    assert rows[0]["label"] == "Text — back"
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_mix_does_not_capture_a_second_decoration_row(monkeypatch):
+    """Second instance of the same class: cancelling a mix walks the router
+    back to ASK_DECORATION, which is a checkpoint opener — so capture wrote a
+    SECOND `decoration` row for a group the customer never left, and both
+    rendered `Decoration — not set`. A repeat row is a new pass only when it
+    was reached by CLOSING the previous one."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_DECORATION_MIX.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": False, "logos_done": True, "pending_logo": None,
+        "decor_done": True, "quantity": 12,
+        # Past the email gate: ASK_DECORATION sits AFTER it in the registry, so
+        # without these first-unmet answers ask_email and never reaches the step
+        # under test.
+        "email_captured": True, "email_verified": True, "lead_id": "L1",
+        "decoration_options": ["Embroidery", "Screen Print"],
+        "decoration_mix": True,
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="decoration", label="Decoration — not set",
+              step_id=S.ASK_DECORATION.value, collected={"flow_mode": "canvas"}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "get_store", lambda _id: None)
+    _llm_returns(monkeypatch, {"decoration_mix": False})
+
+    res = await o2.handle_message("s1", "no - i just want embroidery")
+
+    assert res["state"] == S.ASK_DECORATION.value
+    rows = [r for r in store["checkpoints"]
+            if r["step_id"] == S.ASK_DECORATION.value]
+    assert len(rows) == 1
+
+
+# --- I-2: a null canvas snapshot must still restore --------------------------
+
+@pytest.mark.asyncio
+async def test_back_always_emits_canvas_restore_even_for_a_null_snapshot(monkeypatch):
+    """The `name` checkpoint is captured on the GREETING kickoff, which sends no
+    canvas blob. Omitting `canvas_restore` made the frontend skip
+    `restoreSnapshot` entirely, so a logo placed before the email step stayed on
+    the cap after rewinding to "Your name" — locked and unselectable, and
+    flattened into the render alongside its replacement."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_LOGO_PLACEMENT.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
+                                     "intro_ack": True, "has_logo": True}
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="name", label="Your name — Sam",
+              step_id=S.ASK_NAME.value, collected={"flow_mode": "canvas"},
+              canvas_design=None),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    out = await o2.handle_back("s1", 1)
+
+    assert out["data"]["canvas_restore"] == {}
+
+
+@pytest.mark.asyncio
+async def test_capture_with_no_live_blob_carries_the_last_known_canvas(monkeypatch):
+    """`check_verification` has no live canvas blob to pass (it is a poll, not a
+    customer turn). Storing None there would make a later restore of that row
+    either skip the canvas (orphaned elements) or wipe a design the customer
+    really had — so capture falls back to the newest live snapshot instead."""
+    design = {"colourway": "navy", "faces": {"front": [{"id": "e1"}]}}
+    store = _new_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": False, "logos_done": True, "pending_logo": None,
+        "email_captured": True, "email_verified": True,
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="has_logo", label="Logo or image — no",
+              step_id=S.ASK_HAS_LOGO.value, collected={"flow_mode": "canvas"},
+              canvas_design=design),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+
+    await o2.check_verification("s1")
+
+    new_row = [r for r in store["checkpoints"]
+               if r["step_id"] == S.ASK_ADD_DECOR.value][0]
+    assert new_row["canvas_design"] == design
+
+
+# --- I-1: the checkpoints table is optional, not required --------------------
+
+class _NoCheckpointsTableSB(_FakeSB):
+    """The hosted database as it stands right now: `design_sessions` and
+    `chat_messages` are there, `session_checkpoints` is not (the migration is
+    applied locally but not yet on Supabase). postgrest raises on every access.
+    """
+
+    def table(self, name: str):
+        if name == "session_checkpoints":
+            return _RaisingTable()
+        return super().table(name)
+
+
+class _RaisingTable:
+    def select(self, *_a, **_k):
+        return self
+
+    def insert(self, *_a, **_k):
+        return self
+
+    def update(self, *_a, **_k):
+        return self
+
+    def eq(self, *_a, **_k):
+        return self
+
+    def is_(self, *_a, **_k):
+        return self
+
+    def gt(self, *_a, **_k):
+        return self
+
+    def order(self, *_a, **_k):
+        return self
+
+    def limit(self, *_a, **_k):
+        return self
+
+    def execute(self):
+        raise RuntimeError("PGRST205: Could not find the table 'session_checkpoints'")
+
+
+@pytest.mark.asyncio
+async def test_a_turn_survives_a_database_without_the_checkpoints_table(monkeypatch):
+    """Deploy-order independence. `capture`/`relabel` were already best-effort;
+    `live_rows` was not, and it is read unwrapped on every v2 turn — so shipping
+    this code ahead of its migration 500'd the whole conversation instead of
+    just hiding the Back menu."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": True, "logos_done": True, "pending_logo": None,
+        "logos": [{"face": "front", "placed": True}], "decor_done": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _NoCheckpointsTableSB(store))
+    _no_llm(monkeypatch)
+
+    res = await o2.handle_message("s1", "50-99")
+
+    assert res["state"] == S.ASK_EMAIL.value          # the turn completed
+    assert res["data"]["back_targets"] == []          # menu simply not offered

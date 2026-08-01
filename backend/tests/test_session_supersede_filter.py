@@ -84,3 +84,47 @@ def test_customer_session_reader_filters_superseded_chat_rows(monkeypatch):
 
     assert resp.status_code == 200
     assert ("chat_messages", "superseded_at", "null") in calls
+
+
+class _MissingColumnTable(_RecordingTable):
+    """A database that has not had 20260801000001 applied yet: postgrest raises
+    `42703` (undefined column) the moment the `superseded_at` filter executes."""
+
+    def __init__(self, name, rows, calls):
+        super().__init__(name, rows, calls)
+        self._filtered = False
+
+    def is_(self, col, val):
+        self._filtered = True
+        return super().is_(col, val)
+
+    def execute(self):
+        if self._filtered:
+            raise RuntimeError("column chat_messages.superseded_at does not exist")
+        return _Result(self.rows)
+
+
+class _MissingColumnSB(_FakeSB):
+    def table(self, name):
+        if name == "design_sessions":
+            return _RecordingTable(name, [_SESSION_ROW], self.calls)
+        return _MissingColumnTable(name, [], self.calls)
+
+
+def test_customer_session_reader_survives_a_database_without_the_column(monkeypatch):
+    """Deploy-order independence, not defensiveness: this reader backs every
+    emailed resume/edit link for EVERY flow. Raising here would 500 them all on
+    a database that predates the checkpoints migration — a far worse failure
+    than briefly showing a superseded row, which cannot even exist until the
+    migration is applied."""
+    calls: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(sessions_mod, "get_supabase", lambda: _MissingColumnSB(calls))
+
+    from app.main import create_app
+
+    resp = TestClient(create_app()).get("/sessions/tok")
+
+    assert resp.status_code == 200
+    assert resp.json()["messages"] == []
+    # It still TRIED the filtered read first — the fallback is a fallback.
+    assert ("chat_messages", "superseded_at", "null") in calls
