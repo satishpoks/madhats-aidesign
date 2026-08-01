@@ -26,6 +26,17 @@ from app.services.conversation.state_machine import ConversationState as S
 # shared tail state v1 owns — orchestrator_v2 delegates those turns to v1.
 V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
+# Submission markers, never volunteered attributes: they record that an
+# irreversible thing HAPPENED (a lead captured, a quote submitted), and the
+# effect that makes them true lives in the owning step's `apply`. `merge_fields`
+# is the only reader — see its docstring for the live regression this prevents.
+#
+# Deliberately NOT `checkpoints.CARRY_FORWARD_KEYS`, which is a wider set
+# (lead_id, email_verified, reference_code) serving a different concern: what a
+# Back restore must not roll back. Conflating them would let the interpreter
+# write, say, reference_code off-step. Two concepts, two constants.
+_TERMINAL_FLAGS: frozenset[str] = frozenset({"email_captured", "quote_requested"})
+
 
 def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     """The fields of one interpreted turn that are safe to bank.
@@ -43,10 +54,21 @@ def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     that slot, where clearing it is the answer (backing out of a mix). Writes to
     unset slots pass untouched, keeping slot-filling flexible, and a truthy
     correction (50 -> 100 caps) never un-answers anything, so it passes too.
+
+    A `_TERMINAL_FLAG` is the one exception in the OTHER direction: a truthy
+    write is normally always banked, but volunteering `quote_requested:true`
+    from free text at an earlier step makes first-unmet SKIP REQUEST_QUOTE, so
+    its apply — the only place the MH-XXXXXX reference is minted and the
+    customer/sales quote emails converge — never runs. Live session 766b8361:
+    "that's it let's go" at ASK_FINAL_NOTES produced no reference, no customer
+    email and no sales notification. A terminal flag may only be set on the step
+    that OWNS it (its chip, or the interpreter while that step is current),
+    which is exactly where the apply runs too.
     """
     own = set(step.slots)
     return {k: v for k, v in fields.items()
-            if k in own or v or not collected.get(k)}
+            if (k in own or v or not collected.get(k))
+            and (k not in _TERMINAL_FLAGS or k in own)}
 
 
 def effective_registry(config: dict | None) -> tuple[Step, ...]:

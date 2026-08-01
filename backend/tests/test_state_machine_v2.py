@@ -577,6 +577,47 @@ def test_a_truthy_correction_to_a_settled_slot_is_still_allowed():
     assert fields == {"quantity": 100}
 
 
+# --- merge_fields: a terminal submission flag may only be set on its own step -
+# Live session 766b8361: at ASK_FINAL_NOTES the customer typed "that's it let's
+# go". The interpreter, shown every WRITABLE_SLOT, filled final_notes AND
+# quote_requested:true. A truthy write passes the earlier un-answer guard, so
+# first-unmet SKIPPED REQUEST_QUOTE — whose apply (_apply_request_quote ->
+# leads.record_quote_request) is the ONLY thing that mints the reference code,
+# marks the lead, and converges the customer/sales quote emails. Result: no
+# reference, no customer email, no sales notification. quote_requested is a
+# _TERMINAL_FLAG precisely because it is a submission marker, never a
+# volunteered attribute — so it must not be interpreter-writable off its step.
+
+def test_a_terminal_flag_cannot_be_volunteered_off_its_owning_step():
+    """The exact live regression: "that's it let's go" at ASK_FINAL_NOTES filled
+    quote_requested:true, skipping REQUEST_QUOTE and its reference-minting apply."""
+    step = cs.by_id(S.ASK_FINAL_NOTES)
+    c = seed_for(step)
+    assert not c.get("quote_requested")
+
+    fields = v2.merge_fields(step, c, {"final_notes": "that's it let's go",
+                                       "quote_requested": True})
+
+    assert "quote_requested" not in fields     # dropped: terminal + not this slot
+    assert fields["final_notes"] == "that's it let's go"   # the real answer stays
+    # Mirror the orchestrator: merge -> update -> the step's own apply runs.
+    c.update(fields)
+    step.apply(c, fields, {"id": "s"})
+    assert not c.get("quote_requested")            # never banked off-step
+    assert v2.next_step(c).id is S.REQUEST_QUOTE   # step is still asked -> apply runs
+
+
+def test_a_terminal_flag_is_kept_on_the_step_that_owns_it():
+    """The chip "Request a quote" sets quote_requested at REQUEST_QUOTE itself,
+    where _apply_request_quote runs. The guard must not block that."""
+    step = cs.by_id(S.REQUEST_QUOTE)
+    c = seed_for(step)
+
+    fields = v2.merge_fields(step, c, {"quote_requested": True})
+
+    assert fields["quote_requested"] is True
+
+
 def test_needed_by_enum_member_exists():
     assert S.NEEDED_BY.value == "needed_by"
 
