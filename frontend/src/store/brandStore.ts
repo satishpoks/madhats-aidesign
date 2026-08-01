@@ -64,6 +64,7 @@ interface BrandState {
   brand: Brand
   storeName: string
   personaName: string
+  watermarkText: string
   loaded: boolean
   init: () => Promise<void>
 }
@@ -72,13 +73,21 @@ export const useBrandStore = create<BrandState>((set, get) => ({
   brand: {},
   storeName: '',
   personaName: '',
+  watermarkText: 'MADHATS PREVIEW',
   loaded: false,
   init: async () => {
     if (get().loaded) return
     try {
       const sf = await getStorefront()
       applyBrandVars(sf.brand || {})
-      set({ brand: sf.brand || {}, storeName: sf.name, personaName: sf.persona_name, loaded: true })
+      set({
+        brand: sf.brand || {}, storeName: sf.name, personaName: sf.persona_name,
+        // Falls back to the same literal services/watermark.py uses as its
+        // default (_DEFAULT_TEXT), so an unconfigured store looks identical on
+        // the canvas and in the emailed preview.
+        watermarkText: sf.watermark_text || 'MADHATS PREVIEW',
+        loaded: true,
+      })
     } catch {
       // Storefront unreachable — keep Tailwind fallbacks; studio still works.
       set({ loaded: true })

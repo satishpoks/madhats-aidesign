@@ -140,4 +140,8 @@ export interface Storefront {
   name: string
   persona_name: string
   brand: Brand
+  /** Global app_settings watermark string (not per-store brand data — kept
+   *  top-level rather than nested in `brand`). Optional so a frontend
+   *  deployed ahead of the backend still typechecks. */
+  watermark_text?: string
 }
