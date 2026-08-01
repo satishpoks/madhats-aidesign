@@ -966,3 +966,27 @@ def test_the_live_bb62d05a_sequence_lands_on_review_not_rework():
     collected["needed_by"] = "2-4 weeks"
     collected["purpose"] = "dont say"
     assert v2.next_step(collected, None).id is S.REVIEW_DESIGN
+
+
+# The exact bytes the browser posted back in live session bb62d05a: an en-dash
+# (U+2013) mis-decoded as CP1252 becomes "â€“" (U+00E2 U+20AC U+201C).
+MANGLED_NEEDED_BY = "2â€“4 weeks"
+
+
+def test_a_mojibake_chip_label_still_resolves_as_a_chip():
+    """Live session bb62d05a: the browser posted the en-dash label back mangled,
+    so the exact-label match missed, the turn burned an interpreter call, and
+    the corrupted string was stored in needed_by -> brief_notes -> sales email."""
+    step = cs.by_id(S.NEEDED_BY)
+    fields = v2.resolve_chip(step, MANGLED_NEEDED_BY, {})
+    assert fields == {"needed_by": "2–4 weeks"}
+
+
+def test_a_clean_chip_label_still_resolves():
+    step = cs.by_id(S.NEEDED_BY)
+    assert v2.resolve_chip(step, "2–4 weeks", {}) == {"needed_by": "2–4 weeks"}
+
+
+def test_free_text_still_falls_through_to_the_interpreter():
+    step = cs.by_id(S.NEEDED_BY)
+    assert v2.resolve_chip(step, "sometime next month I think", {}) is None

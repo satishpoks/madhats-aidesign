@@ -19,6 +19,7 @@ from __future__ import annotations
 from app import prompts
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation.canvas_steps import MAX_LOGOS, Step  # noqa: F401 re-export
+from app.services.conversation.intent_extractor import repair_mojibake
 from app.services.conversation.state_machine import ConversationState as S
 
 # Every state a v2 turn may rest on. GREETING is the kickoff (no registry step:
@@ -277,7 +278,18 @@ def progress_v2(state: S, collected: dict | None = None) -> dict:
 
 
 def _norm(s: str) -> str:
-    return (s or "").strip().casefold()
+    """Casefolded comparison key for a chip label.
+
+    `repair_mojibake` is applied because a chip label round-trips through the
+    browser and can come back CP1252-mangled — live session bb62d05a posted
+    "2â€“4 weeks" for the en-dash chip "2–4 weeks". Without the repair the
+    exact-label match misses, so a chip tap (designed as a 0-LLM identity
+    lookup on a set we own) burns an interpreter call AND the mangled text is
+    what gets stored, reaching brief_notes and the sales email. Repairing the
+    KEY rather than the value means a matched chip still banks its own clean
+    payload. `repair_mojibake` is a no-op on clean text, so nothing else moves.
+    """
+    return repair_mojibake(s or "").strip().casefold()
 
 
 # The decor branch's steps. They read `decor_face`; the logo branch reads the
