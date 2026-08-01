@@ -30,9 +30,9 @@ describe('CustomiseStudio', () => {
     expect(screen.getByTestId('chat-column')).toBeInTheDocument()
   })
 
-  it('shows the shared header with the product breadcrumb', () => {
+  it('shows the shared header with the hat name and no breadcrumb suffix', () => {
     render(<CustomiseStudio />)
     expect(screen.getByText('MAD HATS')).toBeInTheDocument()
-    expect(screen.getByText(/Classic Snapback/)).toBeInTheDocument()
+    expect(screen.getByTestId('header-title').textContent).toBe('Classic Snapback')
   })
 })

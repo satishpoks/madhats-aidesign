@@ -34,3 +34,32 @@ describe('StoreHeader', () => {
     expect(screen.getByText('MAD HATS')).toBeInTheDocument()
   })
 })
+
+describe('centred title', () => {
+  it('renders the title with no breadcrumb suffix', () => {
+    render(<StoreHeader title="Classic Snapback" />)
+    expect(screen.getByTestId('header-title').textContent).toBe('Classic Snapback')
+  })
+
+  it('centres it with equal-basis flanks, not absolute positioning', () => {
+    // `flex-1 basis-0` on BOTH flanks makes them share the leftover space
+    // equally whatever their content, which centres the middle exactly. An
+    // absolutely-positioned title would overlap the logo or the menu on a
+    // narrow screen instead.
+    render(<StoreHeader title="Classic Snapback" />)
+    const title = screen.getByTestId('header-title')
+    const header = title.closest('header')!
+    const flanks = header.querySelectorAll('[data-header-flank]')
+    expect(flanks).toHaveLength(2)
+    flanks.forEach(f => {
+      expect(f.className).toContain('flex-1')
+      expect(f.className).toContain('basis-0')
+    })
+    expect(title.className).not.toContain('absolute')
+  })
+
+  it('renders no title node when none is given', () => {
+    render(<StoreHeader />)
+    expect(screen.queryByTestId('header-title')).toBeNull()
+  })
+})

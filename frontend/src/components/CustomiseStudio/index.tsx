@@ -49,7 +49,7 @@ export function CustomiseStudio() {
 
   return (
     <div className="h-screen bg-base flex flex-col">
-      <StoreHeader subtitle={productRef ? `${productRef.name} › Design` : undefined} />
+      <StoreHeader title={productRef?.name} />
       <MilestoneBar />
 
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
