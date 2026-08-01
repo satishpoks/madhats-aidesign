@@ -61,6 +61,10 @@ def _public(step: cs.Step, collected: dict, *, targets: list[dict] | None = None
     """
     data = v2.public_data_for(step, collected)
     data["back_targets"] = targets or []
+    # The canvas column renders "Design for <Name>". Sourced from the turn's
+    # data rather than a second fetch, so it appears the moment the name is
+    # captured and needs no new endpoint. Display-only — never logged (rule 10).
+    data["designer_name"] = collected.get("name") or None
     return data
 
 
