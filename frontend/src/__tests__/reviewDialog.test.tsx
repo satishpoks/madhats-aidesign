@@ -113,4 +113,14 @@ describe('ReviewDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('is full-bleed on a phone and a centred panel from md', () => {
+    seedTwoDecoratedFaces()
+    render(<ReviewDialog open onConfirm={vi.fn()} onRework={vi.fn()} onClose={vi.fn()} />)
+    const panel = screen.getByRole('dialog')
+    expect(panel.className).toContain('h-full')
+    expect(panel.className).toContain('w-full')
+    expect(panel.className).toContain('md:h-auto')
+    expect(panel.className).toContain('md:max-w-3xl')
+  })
 })

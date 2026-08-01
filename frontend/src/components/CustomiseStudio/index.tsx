@@ -72,11 +72,16 @@ export function CustomiseStudio() {
 
         {/* Chat width scales with the screen: a laptop/iPad keeps roughly the old
             width (the canvas is tight there), a desktop gives the conversation a
-            noticeably bigger share. Mobile (`w-full` + the 45vh split) unchanged. */}
+            noticeably bigger share. Mobile: a hard h-[45vh] reserved the same
+            height whether the thread was two bubbles or twenty; basis-[45vh]
+            with shrink (not flex-none) lets it hand height back to the canvas
+            when the chat is short, which matters most on a phone where both
+            halves share one screen. min-h-0 is what lets the flex child shrink
+            below its content size at all — without it this is inert. */}
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`flex h-[45vh] w-full min-h-0 flex-none flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:h-auto md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
+          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
           <ColumnHeader
             name={personaName}
