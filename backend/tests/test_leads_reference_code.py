@@ -95,3 +95,29 @@ def test_record_quote_request_no_lead_returns_none(monkeypatch):
     fake = _FakeSB([])
     monkeypatch.setattr(leads_service, "get_supabase", lambda: fake)
     assert leads_service.record_quote_request({"id": "missing"}, {}) is None
+
+
+def test_flag_over_daily_limit_sets_both_columns(monkeypatch):
+    rows = [{"id": "lead-1"}]
+    fake = _FakeSB(rows)
+    monkeypatch.setattr(leads_service, "get_supabase", lambda: fake)
+    leads_service.flag_over_daily_limit("lead-1")
+    assert rows[0]["over_daily_limit"] is True
+    assert rows[0]["over_daily_limit_at"]
+
+
+def test_flag_over_daily_limit_noops_on_missing_id(monkeypatch):
+    fake = _FakeSB([{"id": "lead-1"}])
+    monkeypatch.setattr(leads_service, "get_supabase", lambda: fake)
+    leads_service.flag_over_daily_limit(None)     # must not raise, must not write
+    assert fake.sink == []
+
+
+def test_flag_over_daily_limit_swallows_db_errors(monkeypatch):
+    """An admin signal must never fail the funnel — e.g. the migration not yet
+    applied (missing column) makes PostgREST raise on the UPDATE."""
+    class _Boom:
+        def table(self, *_):
+            raise RuntimeError("column over_daily_limit does not exist")
+    monkeypatch.setattr(leads_service, "get_supabase", lambda: _Boom())
+    leads_service.flag_over_daily_limit("lead-1")   # must not raise

@@ -1176,6 +1176,16 @@ V2_EMAIL_VERIFY_NOTICE = (
     "Please open it to confirm your address."
 )
 
+# Shown ONCE, at email capture, when this customer's email is already over the
+# daily design cap. The v2 flow is quote-gated (the team renders later, not the
+# customer), so this NEVER blocks — it is an honest early heads-up, and the flow
+# continues straight to the quote. Copy must not promise or deny an on-the-spot
+# render, since v2 never gives the customer one either way.
+V2_DAILY_LIMIT_NOTICE = (
+    "Quick heads-up, {name} — you've put a few designs together today already. "
+    "No problem at all; I'll make sure this one still gets to our team for a quote."
+)
+
 # The gate's own copy, appended to the notice above on the turn the link goes
 # out. The flow STOPS here until the customer opens it (AWAIT_EMAIL_VERIFY is
 # unmet until collected.email_verified), so this must set that expectation

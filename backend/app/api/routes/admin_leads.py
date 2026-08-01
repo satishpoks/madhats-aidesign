@@ -97,6 +97,8 @@ async def list_quote_requests(ctx: AdminContext = Depends(require_admin_ctx)) ->
                 "quote_note": lead.get("quote_note"),
                 "quote_confirmed_at": lead.get("quote_confirmed_at"),
                 "quote_requested": lead.get("quote_requested", False),
+                "over_daily_limit": lead.get("over_daily_limit", False),
+                "over_daily_limit_at": lead.get("over_daily_limit_at"),
                 "product": product_ref.get("name") or product_ref.get("product_id"),
                 "decoration_type": collected.get("decoration_type"),
                 "placement_zone": collected.get("placement_zone"),

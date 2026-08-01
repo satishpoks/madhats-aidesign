@@ -180,6 +180,7 @@ async def test_ask_email_tells_the_customer_a_verification_link_was_sent(monkeyp
                                      "decor_done": True, "quantity": 50,
                                      "decoration_type": "embroidery"}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)   # under the cap
     # _apply_email calls capture_lead_and_verify (which sends the double opt-in
     # email); stub it to report a successful capture.
     monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
@@ -233,51 +234,86 @@ async def test_a_shared_tail_state_delegates_to_v1(monkeypatch):
     assert res["reply"] == "v1"
 
 
-@pytest.mark.asyncio
-async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
-    store = _new_store()
-    store["session"]["state"] = S.ASK_PURPOSE.value
+# --- daily limit: warn EARLY at email capture, never reroute to v1 ------------
+# The v2 flow is quote-gated (the customer never renders — the team renders
+# later), so the old honesty gate at FINALIZE_CANVAS checked a render cap the
+# flow doesn't consume, then dropped to v1's QUOTE_REQUESTED. Live session
+# 1a1b0ef2 showed the "You've reached today's design limit" surprise + v1 quote
+# form at the very end. The check now runs once, at email capture: warn, flag
+# the lead for admin, and keep going in v2.
+
+def _seed_before_email(store):
+    store["session"]["state"] = S.ASK_EMAIL.value
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "needed_by": "ASAP", "email_captured": True, "email_verified": True, "design_confirmed": True,
-        "final_notes_done": True,
+        "decoration_type": "embroidery",
     }
-    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
-    monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
-    _llm_returns(monkeypatch, {"purpose": "team caps"})
-    # Quote-gated flow (C1): answering purpose now lands on the explicit
-    # REQUEST_QUOTE submit step (design_confirmed is pre-seeded so the review
-    # step, workstream B, is already settled and doesn't intercept); the
-    # honesty gate fires on the turn that would otherwise reach
-    # FINALIZE_CANVAS, i.e. after the submit chip.
-    res = await o2.handle_message("s1", "for the team")
-    assert res["state"] == S.REQUEST_QUOTE.value
-    res = await o2.handle_message("s1", "Request a quote")
-    assert res["state"] == S.QUOTE_REQUESTED.value
-    assert res["data"]["options"] == ["Yes, request a quote", "No, I'm all set"]
 
 
 @pytest.mark.asyncio
-async def test_daily_cap_reply_separates_the_aside_from_the_quote_ask(monkeypatch):
-    """The honesty-gate reply joins two separate customer-facing sentences —
-    the run-on defect every other join site in this file was fixed for."""
+async def test_daily_cap_warns_early_at_email_and_continues(monkeypatch):
     store = _new_store()
-    store["session"]["state"] = S.ASK_PURPOSE.value
+    _seed_before_email(store)
+    flagged: list = []
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)   # over the cap
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: ("lead-1", True))
+    monkeypatch.setattr(cs.leads_service, "flag_over_daily_limit",
+                        lambda lead_id: flagged.append(lead_id))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+
+    res = await o2.handle_message("s1", "sam@example.com")
+
+    # The flow CONTINUES into the (now hard) verification gate, not a v1 detour.
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+    notice = prompts.V2_DAILY_LIMIT_NOTICE.format(name="Sam")
+    assert notice in res["reply"]
+    assert res["reply"].startswith(notice)               # prepended, not appended
+    assert flagged == ["lead-1"]                          # lead flagged for admin
+
+
+@pytest.mark.asyncio
+async def test_no_daily_cap_notice_when_under_the_limit(monkeypatch):
+    store = _new_store()
+    _seed_before_email(store)
+    flagged: list = []
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)    # under the cap
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, email: ("lead-1", True))
+    monkeypatch.setattr(cs.leads_service, "flag_over_daily_limit",
+                        lambda lead_id: flagged.append(lead_id))
+    _llm_returns(monkeypatch, {"email": "sam@example.com"})
+
+    res = await o2.handle_message("s1", "sam@example.com")
+
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+    assert prompts.V2_DAILY_LIMIT_NOTICE.format(name="Sam") not in res["reply"]
+    assert flagged == []                                  # not flagged when under
+
+
+@pytest.mark.asyncio
+async def test_finalize_no_longer_reroutes_to_v1_when_capped(monkeypatch):
+    """Reaching FINALIZE_CANVAS while over the cap proceeds to the quote-gated
+    finalize (trigger_finalize) instead of dropping to v1's QUOTE_REQUESTED."""
+    store = _new_store()
+    store["session"]["state"] = S.REQUEST_QUOTE.value
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "logos_done": True, "decor_done": True, "quantity": 50,
-        "needed_by": "ASAP", "email_captured": True, "email_verified": True, "design_confirmed": True,
-        "final_notes_done": True,
+        "needed_by": "ASAP", "email_captured": True, "email_verified": True,
+        "design_confirmed": True, "final_notes_done": True, "purpose": "team caps",
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)   # capped
     monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
-    _llm_returns(monkeypatch, {"purpose": "team caps"})
-    await o2.handle_message("s1", "for the team")
+
     res = await o2.handle_message("s1", "Request a quote")
-    assert res["reply"] == f"{prompts.GENERATION_BLOCKED_ASIDE}\n\n{prompts.CANVAS_QUOTE_ASK}"
+
+    assert res["state"] == S.FINALIZE_CANVAS.value        # NOT S.QUOTE_REQUESTED
+    assert res["data"].get("trigger_finalize") is True
 
 
 @pytest.mark.asyncio
@@ -345,6 +381,7 @@ async def test_ask_email_survives_an_outage_via_regex(monkeypatch):
         "logos_done": True, "decor_done": True, "quantity": 50,
     }
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)   # under the cap
     _no_llm(monkeypatch)
     monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
                         lambda s, c, e: ("lead-1", True))
@@ -839,6 +876,7 @@ def _at_email_store():
 async def test_giving_the_email_parks_the_flow_at_the_verification_gate(monkeypatch):
     store = _at_email_store()
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)   # under the cap
     monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
                         lambda s, c, e: ("lead-1", True))
     _no_llm(monkeypatch)                       # direct_answer resolves the address
@@ -1099,6 +1137,7 @@ async def test_an_address_containing_a_surname_still_answers_ask_email(monkeypat
                                      "decor_done": True, "quantity": 50,
                                      "decoration_type": "embroidery"}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)   # under the cap
     monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
                         lambda s, c, email: ("lead-1", True))
     _no_llm(monkeypatch)          # direct_answer extracts the address itself

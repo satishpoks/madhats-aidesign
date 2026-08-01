@@ -162,6 +162,30 @@ def record_quote_request(session: dict, collected: dict) -> str | None:
     return code
 
 
+def flag_over_daily_limit(lead_id: str | None) -> None:
+    """Mark a lead whose email was over the daily design cap at email capture.
+
+    Best-effort and idempotent-ish (a re-flag just rewrites the same truthy
+    value). Persisted so the admin can see which emails exceeded the limit even
+    after the rolling 24h window later drops the count. No-ops on a missing id.
+    PII-safe: lead id only.
+    """
+    if not lead_id:
+        return
+    try:
+        get_supabase().table("leads").update(
+            {
+                "over_daily_limit": True,
+                "over_daily_limit_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).eq("id", lead_id).execute()
+        log.info("lead_over_daily_limit_flagged", lead_id=lead_id)  # no PII
+    except Exception as exc:  # noqa: BLE001 — an admin signal must never fail the funnel
+        # e.g. the migration not yet applied (missing column) — PostgREST raises.
+        log.error("lead_over_daily_limit_flag_failed",
+                  lead_id=lead_id, error_type=type(exc).__name__)
+
+
 def send_verification(lead: dict, store: dict | None = None) -> bool:
     """Generate a verification token, store its hash, and email the link.
 

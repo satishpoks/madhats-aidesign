@@ -247,19 +247,6 @@ async def handle_message(session_id: str, message: str,
     # abuse decline) has current == next_ and writes nothing.
     ck.capture(sb, session_id, next_, current, collected, canvas_design)
 
-    if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
-        # Honesty gate: the customer is capped, so pose the quote ask instead of
-        # promising a render. QUOTE_REQUESTED is a shared tail state, so the NEXT
-        # turn delegates to v1 — but THIS turn must speak, and v2 has no copy
-        # for it.
-        collected["generation_blocked"] = "daily_limit"
-        reply = f"{prompts.GENERATION_BLOCKED_ASIDE}\n\n{prompts.CANVAS_QUOTE_ASK}"
-        data = {"options": ["Yes, request a quote", "No, I'm all set"],
-                "progress": v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)),
-                "back_targets": v2.back_targets(collected, ck.live_rows(sb, session_id))}
-        return await _persist(sb, session_id, collected, None, reply, state_before,
-                              S.QUOTE_REQUESTED, user_message=message, data=data)
-
     reply = v2.reply_for(next_, collected, persona=persona, intro=intro, ack=ack,
                         colour_note=colour_note)
     if step.id is S.ASK_EMAIL and collected.get("email_captured"):
@@ -269,6 +256,18 @@ async def handle_message(session_id: str, message: str,
         # (_apply_email pops it from `collected`, not `fields`).
         addr = fields.get("email") or "your inbox"
         reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)}\n\n{reply}".strip()
+        # Daily-cap check runs ONCE, here, now the email (customer identity) is
+        # known. The v2 flow is quote-gated so this never blocks — over the cap
+        # we just warn early and flag the lead so the admin can see which email
+        # exceeded it; the flow continues to the quote unchanged. (There used to
+        # be a second, LATER gate at FINALIZE_CANVAS that checked this same cap
+        # and, on failure, dropped the customer to v1's QUOTE_REQUESTED — sprung
+        # right after "Request a quote" on a flow that never renders. Deleted:
+        # FINALIZE_CANVAS always proceeds now, strictly v2, no late surprise.)
+        if not _can_start_design(session_id):
+            name = collected.get("name") or "there"
+            reply = f"{prompts.V2_DAILY_LIMIT_NOTICE.format(name=name)}\n\n{reply}".strip()
+            cs.leads_service.flag_over_daily_limit(collected.get("lead_id"))
     data = _public(next_, collected,
                    targets=v2.back_targets(collected, ck.live_rows(sb, session_id)))
     if canvas_ops:
