@@ -606,7 +606,7 @@ async def test_back_restoring_the_decoration_checkpoint_clears_derived_flags_but
 @pytest.mark.asyncio
 async def test_handle_back_after_quote_requested_raises_checkpoint_unavailable(monkeypatch):
     """Was `test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested`
-    (a silent no-op via `_TERMINAL_FLAGS`, now deleted). Regression (C-1): a
+    (a silent no-op via `_STEP_OWNED_FLAGS`, now deleted). Regression (C-1): a
     committed quote must not be re-submittable via Back — `back_targets`
     returns `[]` outright once `quote_requested` is set (state_machine_v2),
     independent of any checkpoint's own `frozen_when`.
