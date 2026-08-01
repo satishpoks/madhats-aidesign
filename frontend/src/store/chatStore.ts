@@ -209,12 +209,24 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2: [],
     }))
     try {
-      // The backend snapshots the canvas into the Back checkpoint on every
-      // turn, so it must see the live blob every turn — not only on the two
-      // states that read it for their own logic. Which turns may PERSIST it to
+      // Sent on the two v1-owned tail states that read the live canvas for
+      // their own logic (describe_changes: resolve an edit against what's on
+      // screen; logo_adjust: the Done turn closing logo placement, so a
+      // self-ticked "Remove background" is seen — canvas_steps.observe_canvas)
+      // PLUS every v2-owned turn: the backend snapshots the canvas into the
+      // Back checkpoint on every v2 turn. A null canvasDirective means "not a
+      // v2 turn" (see useActiveSurface.ts) — a plain Q&A (non-canvas) session
+      // never receives one, so it keeps sending nothing, exactly as before.
+      // rework_canvas is v2-owned (covered by the directive check already;
+      // named explicitly too since chat.py's persist path names it alongside
+      // describe_changes). Which turns may PERSIST the blob to
       // design_sessions.canvas_design is unchanged and still enforced
       // server-side (chat.py::_persist_live_canvas_design).
-      const liveDesign = useCanvasStore.getState().toCanvasDesign()
+      const st = get().chatState
+      const isV2Turn = get().canvasDirective !== null
+      const liveDesign = (isV2Turn || st === 'describe_changes' || st === 'logo_adjust' || st === 'rework_canvas')
+        ? useCanvasStore.getState().toCanvasDesign()
+        : undefined
       const res = await sendChat(sessionId, text, liveDesign)
       const { extraReplies, ...parsed } = parseData(res.data)
       applyCanvasOps(parseCanvasOps(res.data))   // before set(): patch, then Surface's lock effect

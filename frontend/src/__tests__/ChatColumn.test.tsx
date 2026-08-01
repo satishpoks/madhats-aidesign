@@ -89,10 +89,9 @@ describe('ChatColumn', () => {
     })
     render(<ChatColumn />)
     fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
-    // The live canvas now rides every turn (feeds the backend's Back
-    // checkpoint snapshot), so the 3rd arg is a canvas_design object, not
-    // undefined — see chatStoreBack.test.ts for the store-level coverage.
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes', expect.any(Object)))
+    // offer_refine has no canvasDirective set here — a plain turn, so the
+    // live canvas must NOT be attached.
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes', undefined))
   })
 
   it('sends typed input on submit', async () => {
@@ -100,7 +99,7 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     fireEvent.change(screen.getByPlaceholderText(/type your message/i), { target: { value: 'hello' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello', expect.any(Object)))
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello', undefined))
   })
 
   it('ask_decoration shows a multi-select with cost caveat once 2+ chosen', async () => {
@@ -120,7 +119,7 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     const cont = await screen.findByRole('button', { name: 'Continue' })
     fireEvent.click(cont)
-    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', expect.any(Object)))
+    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', undefined))
   })
 
   // The full checkpoint-picker menu (multiple named restore targets) is a

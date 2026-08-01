@@ -61,7 +61,9 @@ test('hydrate never applies canvas_ops — a resume must not re-edit the design'
   expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
 })
 
-describe('sendMessage sends the live canvas_design on every turn', () => {
+describe('sendMessage sends the live canvas_design on the named v1-owned states', () => {
+  // Full v2-turn coverage (every v2-owned state, via canvasDirective !== null)
+  // and the plain-Q&A discriminator live in chatStoreBack.test.ts.
   beforeEach(() => {
     useCanvasStore.getState().reset()
     useCanvasStore.getState().addImage('logo.png')
@@ -87,23 +89,21 @@ describe('sendMessage sends the live canvas_design on every turn', () => {
     expect(sendChat).toHaveBeenCalledWith('s1', 'Done', liveDesign)
   })
 
-  it('also passes the live canvas_design on any other state', async () => {
+  it('sends undefined as the 3rd arg on any other state', async () => {
     useChatStore.setState({ chatState: 'offer_refine' })
     vi.mocked(sendChat).mockResolvedValue({
       reply: 'ok', state: 'offer_refine', data: {},
     } as never)
     await useChatStore.getState().sendMessage('s1', 'hello')
-    const liveDesign = useCanvasStore.getState().toCanvasDesign()
-    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', liveDesign)
+    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', undefined)
   })
 
-  it('also passes the live canvas_design at ask_logo_bg', async () => {
+  it('sends undefined at ask_logo_bg — the blob is for the Done turn only', async () => {
     useChatStore.setState({ chatState: 'ask_logo_bg' })
     vi.mocked(sendChat).mockResolvedValue({
       reply: 'ok', state: 'ask_another_logo', data: {},
     } as never)
     await useChatStore.getState().sendMessage('s1', 'No, it\'s fine as it is')
-    const liveDesign = useCanvasStore.getState().toCanvasDesign()
-    expect(sendChat).toHaveBeenCalledWith('s1', "No, it's fine as it is", liveDesign)
+    expect(sendChat).toHaveBeenCalledWith('s1', "No, it's fine as it is", undefined)
   })
 })

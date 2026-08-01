@@ -65,9 +65,34 @@ test('hydrate never applies canvas_restore (a resume must not re-restore)', () =
 test('sends the live canvas on every v2 canvas turn', async () => {
   const spy = vi.spyOn(api, 'sendChat').mockResolvedValue(
     { reply: 'r', state: 'ask_logo_placement', data: {} } as never)
-  useChatStore.setState({ chatState: 'ask_logo_placement' })
+  // A null canvasDirective means "not a v2 turn" (useActiveSurface.ts); a real
+  // v2 canvas session always carries one by the time sendMessage runs, because
+  // the PREVIOUS response (which set chatState to this v2-owned step) also set
+  // the directive. Setting both here is what actually distinguishes this from
+  // a plain Q&A turn at the same state name — see the discriminator test below.
+  useChatStore.setState({
+    chatState: 'ask_logo_placement',
+    canvasDirective: {
+      allowedTools: ['upload'], targetFace: null, autoOpen: null,
+      instructions: null, showDone: false, unlockAll: false,
+    },
+  })
   await useChatStore.getState().sendMessage('s1', 'front')
-  expect(spy.mock.calls[0][2]).toBeTruthy()   // canvas_design attached
+  expect(spy.mock.calls[0][2]).toEqual(
+    expect.objectContaining({ faces: expect.any(Object) }))
+})
+
+test('does NOT send the canvas on a plain Q&A (non-canvas) turn, even at a state name v2 also uses', async () => {
+  // canvasDirective stays null for a non-canvas session — v2 is the only
+  // orchestrator that emits `data.canvas`. `ask_quantity` is deliberately
+  // chosen here because it is a state name SHARED verbatim between the v2
+  // canvas registry and the plain Q&A ConversationState enum, so this test
+  // would pass for the wrong reason if the gate were keyed on chatState alone.
+  const spy = vi.spyOn(api, 'sendChat').mockResolvedValue(
+    { reply: 'r', state: 'ask_quantity', data: {} } as never)
+  useChatStore.setState({ chatState: 'ask_quantity', canvasDirective: null })
+  await useChatStore.getState().sendMessage('s1', '50')
+  expect(spy).toHaveBeenCalledWith('s1', '50', undefined)
 })
 
 test('drops a blank turn (existing guard, must not regress)', async () => {
