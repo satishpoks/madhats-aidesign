@@ -146,9 +146,6 @@ def test_validate_passes_a_free_text_needed_by():
     }
 
 
-from app.services.conversation.intent_extractor import _ack_is_sane
-
-
 # Captured verbatim from Haiku on 2026-08-01 with fields={"purpose": "dont say"}.
 LIVE_LEAKS = [
     "I'm Ricardo, your design assistant at MadHats. What brings you in today?",
@@ -163,7 +160,7 @@ LIVE_LEAKS = [
 
 @pytest.mark.parametrize("text", LIVE_LEAKS)
 def test_live_ack_leaks_are_rejected(text):
-    assert _ack_is_sane(text) is False
+    assert ie._ack_is_sane(text) is False
 
 
 @pytest.mark.parametrize("text", [
@@ -173,25 +170,38 @@ def test_live_ack_leaks_are_rejected(text):
     "Understood.",
 ])
 def test_normal_acks_are_accepted(text):
-    assert _ack_is_sane(text) is True
+    assert ie._ack_is_sane(text) is True
+
+
+@pytest.mark.parametrize("text", [
+    "Noted, caps for our customers.",
+    "Understood — customer loyalty giveaway.",
+])
+def test_a_legitimate_second_person_customer_mention_is_accepted(text):
+    """ASK_PURPOSE's raw answer flows straight into the ack fields, and an
+    everyday reply like "gifts for our customers" legitimately contains the
+    word "customer(s)" without being the third-person meta-commentary the
+    self-reference rule exists to catch. This is the exact shape whose
+    absence let the bare-noun regex ship as a false positive."""
+    assert ie._ack_is_sane(text) is True
 
 
 def test_an_empty_ack_is_not_sane():
-    assert _ack_is_sane("") is False
-    assert _ack_is_sane("   ") is False
+    assert ie._ack_is_sane("") is False
+    assert ie._ack_is_sane("   ") is False
 
 
 def test_a_question_is_rejected_even_if_short():
     """V2_ACK_PROMPT forbids questions; an ack that asks one steals the step's
     own question and confuses the turn."""
-    assert _ack_is_sane("Noted. What size did you want?") is False
+    assert ie._ack_is_sane("Noted. What size did you want?") is False
 
 
 def test_a_greeting_is_rejected():
     """RICARDO_SYSTEM_PROMPT forbids greeting after the first message; a greeting
     here reads as the bot restarting the conversation mid-flow."""
-    assert _ack_is_sane("Hello Satish, that's noted.") is False
+    assert ie._ack_is_sane("Hello Satish, that's noted.") is False
 
 
 def test_an_overlong_ack_is_rejected():
-    assert _ack_is_sane(" ".join(["word"] * 25)) is False
+    assert ie._ack_is_sane(" ".join(["word"] * 25)) is False

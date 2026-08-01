@@ -681,8 +681,20 @@ async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
 #: concatenated straight into the customer's bubble — so it is checked, not
 #: trusted. Pure: no network, no state, exhaustively unit-testable.
 _ACK_MAX_WORDS = 20
+# Deliberately NOT a bare `customer(s)` match: ASK_PURPOSE's raw answer flows
+# straight into the ack fields (`_safe_collected` redacts only email/phone),
+# and an ordinary reply like "gifts for our customers" or "customer loyalty
+# giveaway" legitimately contains the word without being a leak. The actual
+# leak pattern is the model talking ABOUT "the customer" as a third party
+# ("ready to help customers whenever they arrive") rather than acknowledging
+# one directly — so only THAT third-person framing (an article/qualifier
+# before the noun, or the noun as the subject of "arrive") is matched. Do not
+# simplify this back to a bare noun; that regressed to rejecting the very
+# phrasing this rule exists to allow.
 _ACK_SELF_REFERENCE = re.compile(
-    r"\b(customer|customers|ricardo|assistant|i'm ready|im ready|practice run)\b",
+    r"\b(ricardo|assistant|i'm ready|im ready|practice run"
+    r"|(?:the|an?|actual)\s+customers?"
+    r"|customers?\s+(?:arrive|arrives|whenever))\b",
     re.IGNORECASE,
 )
 
