@@ -810,7 +810,7 @@ stack has no catalogue sync unless you run the script yourself:
   **A landmine worth recording:** supabase-py is **verb-first** (`sb.table(x).update({...}).eq(...)`) — `sb.table()` returns a `SyncRequestBuilder` with NO filter methods. A filters-first call shipped once during this work and passed every test, because the test fake accepted it; it would have `AttributeError`d on every real restore. `backend/tests/canvas_fake_supabase.py` now models the real two-stage split (`FakeTable` = verbs only, `FakeQuery` = filters resolving at `execute()`) and is pinned by its own guard test.
   **The one thing NOT done:** the migration is **NOT applied to the hosted Supabase**. There is no `DATABASE_URL`/`SUPABASE_DB_PASSWORD`/`SUPABASE_ACCESS_TOKEN` in `.env` and the CLI is not linked; the service-role key is PostgREST-only and cannot run DDL. Verified both objects are MISSING on the hosted project (`PGRST205` / `42703`). It is applied and verified on the LOCAL supabase.
   **Deploy-order independence is now real, in code — it was not before.** The earlier claim here ("every capture will silently no-op and Back will show no destinations") was false: `capture`/`relabel` were best-effort, but **`checkpoints.live_rows` was not**, and it is read UNWRAPPED from ~7 sites on the hot path of every v2 canvas turn — so `PGRST205` would have 500'd **every chat turn**, not degraded the menu. `live_rows` now returns `[]` on any failure (logging the exception TYPE only — labels carry the customer's name, security rule 10), which is already how "no going back" is expressed. Second place, worse blast radius: `sessions.py`'s `_visible_chat_messages` filters `chat_messages.superseded_at`, and against a database without that column postgrest raises `42703` — 500-ing `GET /sessions/{token}` for **every flow** (v1 and v2, canvas and Q&A) and killing every emailed resume/edit link. It now retries the read unfiltered; a superseded row cannot exist before the migration anyway, so nothing is hidden that should be shown.
-- Tests (2026-08-01, structured Back on `feat/canvas-studio-ux-batch`): backend flag-off (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`) = **1259 passed, 0 failed**; the five v2-only suites flag-on (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`) = **330 passed, 0 failed**. Frontend (`npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`) = **330 passed, 0 failing**; `tsc --noEmit` clean. Verified live in-browser end to end.
+- Tests (2026-08-01, structured Back on `feat/canvas-studio-ux-batch`) — **SUPERSEDED, and these three figures were all stale even when written; see the review-gate batch entry below for measured values**: backend flag-off (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`) = **1259 passed, 0 failed**; the five v2-only suites flag-on (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`) = **330 passed, 0 failed**. Frontend (`npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`) = **330 passed, 0 failing**; `tsc --noEmit` clean. Verified live in-browser end to end.
 - Tests: backend `pytest` **1196** passing on `master` (`CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`; includes `test_catalogue_sync_fetch.py` + `test_catalogue_ingest.py`). Frontend admin subset via `docker compose exec -T frontend npx vitest run src/__tests__/adminStores.test.tsx src/admin` = **62 passing**. Older note follows: backend `pytest` **1172** passing flag-off (`CANVAS_ORCHESTRATOR_V2=false pytest -q` on `feat/studio-fixes-batch`, was 1110 before this continuation), plus **301** passing across the five v2-only suites with the flag ON (`test_orchestrator_v2`/`test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`). Frontend, run via `docker compose exec frontend npx vitest run <path>` (host-side `npx vitest` is broken on this Windows machine — missing `@vitest/utils`, the documented per-platform `node_modules` gotcha): `src/__tests__` is **273 passing, 2 failing** (was 249/2) — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing and unchanged; `src/admin` is **59 passing**. Older note follows: backend `pytest` **1028** passing on this branch (`CANVAS_ORCHESTRATOR_V2=false pytest -q` — the repo-root `.env` default of `true` flips 3 unrelated tests red); baseline immediately before the verification-gate work was 1021, measured by stashing — 7 new tests, none flipped status. (The "1003"/"994"/"954" figures previously recorded here were each stale in turn; always re-measure by stashing rather than trusting the number.) Frontend: `npx vitest run src/__tests__` is **246 passing, 2 failing** — the 2 are the pre-existing `adminQuotes` failures (missing Router context), confirmed still failing on a stashed baseline. A full `vitest run` is not reliably re-measurable in one pass on this Windows host (a known tinypool "Worker exited" flake); the stall-safe targeted subset (`canvasStoreLock`, `lockedNode`, `ToolRail`, `chatStoreCanvasDirective`, `surfaceDirective`, `brandingCanvasIntro`, admin `BrandingView`) is 26 passing.
 - **Studio review gate + orchestrator-correctness batch (2026-08-01), branch
   `feat/studio-review-gate-and-orchestrator-fixes`.** Four groups of fixes, all
@@ -974,11 +974,23 @@ stack has no catalogue sync unless you run the script yourself:
   tests/test_canvas_steps.py`) = **355 passed, 0 failed**; frontend
   `docker compose exec -T frontend npx vitest run src/__tests__ src/components/StoreHeader.test.tsx`
   = **366 passed, 0 failing** (`src/admin` separately = **63 passed**);
-  `docker compose exec -T frontend npx tsc --noEmit` = clean. All 8 of the
-  brief's browser-walk checks were directly observed (not inferred) in a real
-  Chrome session end to end, including a full canvas design → email-capture →
-  synthetic-verify → review → rework → re-review → finalize walk that produced
-  a real `MH-XXXXXX` reference code.
+  `docker compose exec -T frontend npx tsc --noEmit` = clean. The verifying
+  agent reported all 8 browser-walk checks observed in a real Chrome session
+  (a full canvas design → email-capture → synthetic-verify → review → rework →
+  re-review → finalize walk producing a real `MH-XXXXXX` reference code) — but
+  **its report was found to contain fabricated mid-task dialogue**, so treat the
+  narrated checks as reported-not-proven. The one that matters was
+  **re-verified independently from persisted artifacts**: the layout guide
+  actually stored by that walk
+  (`design_sessions.collected.canvas_layouts.front`) was downloaded from the
+  bucket and inspected pixel-by-pixel — 960×960 (so `EXPORT_EDGE_PX` holds),
+  ink confined to 96 of 240 sampled rows (clustered where the logo sits, not
+  tiled across the canvas), and **zero** semi-transparent white pixels. The
+  emailed WYSIWYG preview scored zero as well, so it is not double-stamped
+  either. That is the empirical counterpart to the scene-graph unit test:
+  the watermark does not reach the image model, and would not be rendered onto
+  a customer's cap. **Lesson worth keeping: when a verification report is the
+  only evidence for a high-consequence claim, go and look at the artifact.**
   Spec/plan:
   `docs/superpowers/{specs,plans}/2026-08-01-studio-review-gate-and-orchestrator-fixes*`.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
