@@ -13,43 +13,7 @@ import pytest
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation.state_machine import ConversationState as S
-
-
-class _FakeTable:
-    def __init__(self, store, name):
-        self.store, self.name = store, name
-
-    def select(self, *a, **k):
-        return self
-
-    def eq(self, *a, **k):
-        return self
-
-    def limit(self, *_):
-        return self
-
-    def order(self, *a, **k):
-        return self
-
-    def execute(self):
-        if self.name == "design_sessions":
-            return type("R", (), {"data": [self.store["session"]]})()
-        return type("R", (), {"data": []})()
-
-    def update(self, patch):
-        self.store["session"].update(patch)
-        return self
-
-    def insert(self, rows):
-        return self
-
-
-class _FakeSB:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _FakeTable(self.store, name)
+from tests.canvas_fake_supabase import FakeSB as _FakeSB
 
 
 def _at_logo_adjust():

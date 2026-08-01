@@ -4,56 +4,18 @@ Drives `orchestrator_v2.handle_message` one turn at a time through the full
 name -> intro -> logo loop -> text/shape loop -> quantity -> email -> purpose
 -> FINALIZE_CANVAS sequence, asserting the resulting state after every turn.
 
-Reuses the `_FakeSB`/`_FakeTable` fake-Supabase pattern from
-`test_orchestrator_v2.py` (there is no conftest.py / pytest fixture registry
-in this test suite — each test file wires its own fakes).
-"""
+Uses the shared `canvas_fake_supabase` fake (Task 5) — every v2 turn now reads
+`session_checkpoints` (for `back_targets`), which the file's own single-object
+fake (pre-Task-5) couldn't serve (`is_`/`gt` didn't exist on it at all)."""
 import pytest
 
 from app.services.conversation import canvas_steps as cs
+from app.services.conversation import checkpoints as cp
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation.state_machine import ConversationState as S
+from tests.canvas_fake_supabase import FakeSB as _FakeSB
 from tests.canvas_step_helpers import seed_for
-
-
-class _FakeTable:
-    def __init__(self, store, name):
-        self.store, self.name = store, name
-        self._filters = {}
-
-    def select(self, *a, **k):
-        return self
-
-    def eq(self, col, val):
-        self._filters[col] = val
-        return self
-
-    def limit(self, *_):
-        return self
-
-    def order(self, *a, **k):
-        return self
-
-    def execute(self):
-        if self.name == "design_sessions":
-            return type("R", (), {"data": [self.store["session"]]})()
-        return type("R", (), {"data": []})()
-
-    def update(self, patch):
-        self.store["session"].update(patch)
-        return self
-
-    def insert(self, rows):
-        return self
-
-
-class _FakeSB:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _FakeTable(self.store, name)
 
 
 def _new_store():
@@ -408,36 +370,39 @@ async def test_orchestrator_without_canvas_flow_is_unchanged(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_handle_back_threads_store_canvas_flow_config(monkeypatch):
-    """`handle_back` must pass the store's `canvas_flow` into BOTH
-    `last_answered_step` and `next_step` (mirroring `handle_message`'s own
-    wiring) — otherwise Back computes its routing against the DEFAULT registry
-    for a store using the Workstream D configurable flow, and `can_go_back`
-    can disagree with the real forward flow."""
+async def test_handle_back_resolves_the_store_persona_for_a_configured_session(monkeypatch):
+    """Was `test_handle_back_threads_store_canvas_flow_config`: `handle_back`
+    used to thread the store's `canvas_flow` config into `last_answered_step`/
+    `next_step` for its own routing. Both premises are gone — Task 3 deleted
+    `last_answered_step` entirely, and `back_targets(collected, rows)`
+    deliberately takes no `config` at all (offerability is a pure function of
+    each checkpoint's own `frozen_when`, not the composed registry — see its
+    docstring). What still matters for a store-configured session: `handle_back`
+    must still resolve persona/intro/colour_note from the store exactly like
+    `handle_message` does, and the restore itself must still work end to end."""
     cfg = {"steps": [{"id": "ask_purpose", "enabled": False}]}
-    store = _at_email_store(cfg)
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    store["session"]["store_id"] = "store-1"
+    store["session"]["collected"].update({
+        "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
+        "pending_logo": None, "decor_done": True, "decor_placed": True,
+        "quantity": 12,
+    })
+    store["checkpoints"] = [
+        {"session_id": "s1", "seq": 1, "kind": "quantity",
+         "label": "Quantity — not set", "step_id": S.ASK_QUANTITY.value,
+         "collected": {"name": "Sam", "intro_ack": True, "has_logo": False,
+                       "logos_done": True, "pending_logo": None,
+                       "decor_done": True, "decor_placed": True},
+         "canvas_design": None, "chat_watermark": None, "superseded_at": None},
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     monkeypatch.setattr(o2, "get_store", lambda _id: {
         "id": "store-1", "persona_name": "Ricardo", "brand": {"canvas_flow": cfg},
     })
 
-    seen_last: dict = {}
-    seen_next: dict = {}
-    real_last = v2.last_answered_step
-    real_next = v2.next_step
+    out = await o2.handle_back("s1", 1)
 
-    def _spy_last(collected, config=None):
-        seen_last["config"] = config
-        return real_last(collected, config)
-
-    def _spy_next(collected, config=None):
-        seen_next["config"] = config
-        return real_next(collected, config)
-
-    monkeypatch.setattr(o2.v2, "last_answered_step", _spy_last)
-    monkeypatch.setattr(o2.v2, "next_step", _spy_next)
-
-    await o2.handle_back("s1")
-
-    assert seen_last["config"] == cfg
-    assert seen_next["config"] == cfg
+    assert out["state"] == S.ASK_QUANTITY.value
+    assert store["session"]["collected"].get("quantity") is None

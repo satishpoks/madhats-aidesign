@@ -31,7 +31,6 @@ def _v2_copy_strings() -> list[str]:
         prompts.V2_COLOUR_DISCLAIMER,
         prompts.V2_STALL_REPLY,
         prompts.V2_NUDGE_REPLY,
-        prompts.V2_BACK_RESTART_ACK,
         prompts.V2_ABUSE_DECLINE,
     ])
     return out

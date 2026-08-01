@@ -1260,10 +1260,6 @@ V2_NUDGE_REPLY = (
     "the options below and we'll continue."
 )
 
-V2_BACK_RESTART_ACK = (
-    "Of course — I've removed that one so you can start it again."
-)
-
 V2_ACK_PROMPT = """You are {persona}, a professional cap-design assistant.
 
 Write ONE short, courteous sentence of at most 12 words acknowledging what the customer just told you. Then stop.

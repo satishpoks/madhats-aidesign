@@ -13,6 +13,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.canvas_fake_supabase import FakeSB as _StatefulSupabase
+
 
 class _FakeResult:
     data: list = []
@@ -77,46 +79,13 @@ def test_chat_post_resolves_body_not_422(client):
 # route (not handle_message directly) to prove the fix at the layer the
 # customer actually hits.
 
-class _StatefulTable:
-    """A `_FakeTable` that persists writes back onto a shared `store` dict,
-    mirroring the pattern in tests/test_orchestrator_v2.py so the real
-    orchestrator_v2.handle_message can run end-to-end against it."""
-
-    def __init__(self, store, name):
-        self.store, self.name = store, name
-
-    def select(self, *_a, **_k):
-        return self
-
-    def eq(self, *_a, **_k):
-        return self
-
-    def limit(self, *_a, **_k):
-        return self
-
-    def order(self, *_a, **_k):
-        return self
-
-    def execute(self):
-        if self.name == "design_sessions":
-            return type("R", (), {"data": [self.store["session"]]})()
-        return type("R", (), {"data": []})()
-
-    def update(self, patch):
-        self.store["session"].update(patch)
-        return self
-
-    def insert(self, rows):
-        return self
-
-
-class _StatefulSupabase:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _StatefulTable(self.store, name)
-
+# `_StatefulSupabase` (imported at the top of this file, aliased from the
+# shared `canvas_fake_supabase.FakeSB`) persists writes back onto a shared
+# `store` dict so the real orchestrator_v2.handle_message can run end-to-end
+# against it. It needs the FULL two-stage fake (not the old single-object
+# stub this file used to define locally) because every v2 turn now reads
+# `session_checkpoints` for `back_targets` (Task 5), which calls
+# `.is_(...)`/`.gt(...)` — filter methods the old stub never had.
 
 def _canvas_store():
     return {

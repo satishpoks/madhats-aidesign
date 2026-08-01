@@ -25,6 +25,7 @@ from app.services import profanity
 from app.services.branding import canvas_intro_text, colour_disclaimer_text
 from app.services.stores import get_store
 from app.services.conversation import canvas_steps as cs
+from app.services.conversation import checkpoints as ck
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import state_machine_v2 as v2
 from app.services.conversation import orchestrator as _v1
@@ -49,17 +50,18 @@ _NUDGE_AFTER = 2
 _ABUSE_EXEMPT_STEPS: frozenset[S] = frozenset({S.ASK_NAME, S.ASK_EMAIL})
 
 
-def _public(step: cs.Step, collected: dict, config: dict | None = None) -> dict:
-    """`v2.public_data_for` plus `can_go_back` (whether `Back` has anywhere to
-    go) and `back_removes_element` (whether that Back removes the in-progress
-    element rather than rewinding one slot). `_back_used` suppresses Back until
-    the next forward turn — one step per Back, no two consecutive."""
+def _public(step: cs.Step, collected: dict, config: dict | None = None,
+            *, targets: list[dict] | None = None) -> dict:
+    """`v2.public_data_for` plus `back_targets` — the Back destinations
+    offerable right now, newest first, already labelled and already filtered.
+
+    Shipped on EVERY turn so the menu opens with no round trip and can never be
+    stale. An empty list is how "no going back" is expressed: the frontend
+    renders no Back button at all, so there is no separate disable flag to keep
+    in sync.
+    """
     data = v2.public_data_for(step, collected)
-    can_back = (not collected.get("_back_used")) and (
-        v2.last_answered_step(collected, config) is not None)
-    data["can_go_back"] = can_back
-    data["back_removes_element"] = bool(
-        can_back and step is not None and step.id in v2._ELEMENT_ADJUST_STEPS)
+    data["back_targets"] = targets or []
     return data
 
 
@@ -92,6 +94,10 @@ async def handle_message(session_id: str, message: str,
         # FULL greeting; only a re-ask gets the shorter retry copy. The main loop
         # below marks it when the customer actually answers.
         step = cs.by_id(S.ASK_NAME)
+        # The kickoff is itself a transition (GREETING -> ASK_NAME), so it
+        # captures ASK_NAME's own checkpoint exactly like any other entry —
+        # there is nothing GREETING-specific about the capture hook.
+        ck.capture(sb, session_id, step, current, collected, canvas_design)
         reply = v2.reply_for(step, collected, persona=persona, intro=intro,
                              colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply,
@@ -112,7 +118,9 @@ async def handle_message(session_id: str, message: str,
                              colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply, state_before,
                               current, user_message=message,
-                              data=_public(step, collected, flow_config))
+                              data=_public(step, collected, flow_config,
+                                          targets=v2.back_targets(
+                                              collected, ck.live_rows(sb, session_id))))
 
     # Severe abuse (slurs / hate terms) is declined WITHOUT advancing: re-render
     # the current step exactly as the blank-turn guard above does, ingesting
@@ -132,12 +140,9 @@ async def handle_message(session_id: str, message: str,
             step, collected, persona=persona, intro=intro, colour_note=colour_note)
         return await _persist(sb, session_id, collected, step, reply.strip(),
                               state_before, current, user_message=message,
-                              data=_public(step, collected, flow_config))
-
-    # A real forward answer re-enables Back: the single-step lock is per-Back.
-    # Popped AFTER the empty-turn guard so a blank kickoff turn never clears it,
-    # and BEFORE the interpreter runs so `_back_used` never enters an LLM context.
-    collected.pop("_back_used", None)
+                              data=_public(step, collected, flow_config,
+                                          targets=v2.back_targets(
+                                              collected, ck.live_rows(sb, session_id))))
 
     ack = ""
 
@@ -216,6 +221,13 @@ async def handle_message(session_id: str, message: str,
         next_.prepare(collected, store)
         next_ = v2.next_step(collected, flow_config)
 
+    # Snapshot on ENTRY to a checkpoint opener — correct by construction: this
+    # turn carries `collected` and the canvas as they stood at the END of the
+    # previous checkpoint. `current` is the state being LEFT, which is what
+    # makes this idempotent: every re-render path (stall, retry, blank turn,
+    # abuse decline) has current == next_ and writes nothing.
+    ck.capture(sb, session_id, next_, current, collected, canvas_design)
+
     if next_.id is S.FINALIZE_CANVAS and not _can_start_design(session_id):
         # Honesty gate: the customer is capped, so pose the quote ask instead of
         # promising a render. QUOTE_REQUESTED is a shared tail state, so the NEXT
@@ -224,7 +236,8 @@ async def handle_message(session_id: str, message: str,
         collected["generation_blocked"] = "daily_limit"
         reply = f"{prompts.GENERATION_BLOCKED_ASIDE}\n\n{prompts.CANVAS_QUOTE_ASK}"
         data = {"options": ["Yes, request a quote", "No, I'm all set"],
-                "progress": v2.progress_for(cs.by_id(S.FINALIZE_CANVAS))}
+                "progress": v2.progress_for(cs.by_id(S.FINALIZE_CANVAS)),
+                "back_targets": v2.back_targets(collected, ck.live_rows(sb, session_id))}
         return await _persist(sb, session_id, collected, None, reply, state_before,
                               S.QUOTE_REQUESTED, user_message=message, data=data)
 
@@ -237,95 +250,61 @@ async def handle_message(session_id: str, message: str,
         # (_apply_email pops it from `collected`, not `fields`).
         addr = fields.get("email") or "your inbox"
         reply = f"{prompts.V2_EMAIL_VERIFY_NOTICE.format(email=addr)}\n\n{reply}".strip()
-    data = _public(next_, collected, flow_config)
+    data = _public(next_, collected, flow_config,
+                   targets=v2.back_targets(collected, ck.live_rows(sb, session_id)))
     if canvas_ops:
         data["canvas_ops"] = canvas_ops
     return await _persist(sb, session_id, collected, next_, reply, state_before,
                           next_.id, user_message=message, data=data)
 
 
-def _restart_element(collected: dict, current: S) -> str:
-    """Clear the in-progress element's slots so first-unmet re-asks it from the
-    top, and return the face the (now-removed) canvas element sat on. Logo:
-    reset pending_logo to {} (loop stays open) -> re-asks ASK_LOGO_PLACEMENT.
-    Decor: drop the decor slots -> re-asks ASK_ADD_DECOR (re-pick text/shape)."""
-    if current in (S.LOGO_ADJUST, S.ASK_LOGO_BG):
-        face = cs._pending(collected).get("face") or "front"
-        collected["pending_logo"] = {}
-        return face
-    # DECOR_ADJUST
-    face = collected.get("decor_face") or "front"
-    for key in ("decor_choice", "decor_face", "decor_placed"):
-        collected.pop(key, None)
-    return face
+async def handle_back(session_id: str, seq: int) -> dict:
+    """Restore the session to checkpoint `seq`.
 
+    The router needs no special casing: `collected` genuinely becomes what it
+    was, so first-unmet lands on the opener step by itself. `state` is written
+    explicitly so a mid-restore reload is consistent.
 
-async def handle_back(session_id: str) -> dict:
-    """Undo the last answer: clear the last-answered step's writable slots
-    (plus its own `back_clears`) and re-ask it. One level per call; the
-    frontend can call it repeatedly. No interpreter — this is the single
-    legitimate slot-clearing gesture."""
+    Raises CheckpointUnavailable for an unknown, superseded or frozen seq — the
+    double-tap and stale-tab case, which the route turns into a 409.
+    """
     sb = get_supabase()
     res = sb.table("design_sessions").select("*").eq("id", session_id).limit(1).execute()
     if not res.data:
         raise SessionNotFound(session_id)
     session = res.data[0]
-    current = S(session["state"])
-    if current not in v2.V2_OWNED:
-        return await _v1.handle_message(session_id, "")   # not a v2 turn; no-op-ish
+    if S(session["state"]) not in v2.V2_OWNED:
+        raise ck.CheckpointUnavailable("not a v2 turn")
+
     collected: dict = session.get("collected") or {}
     store = get_store(session.get("store_id")) if session.get("store_id") else None
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     intro = canvas_intro_text(store)
     colour_note = colour_disclaimer_text(store, collected.get("name") or "there")
-    # Same wiring as handle_message: thread the store's configurable-flow
-    # config into the router so Back's routing (and the can_go_back it
-    # reports) is computed over the SAME config-composed registry the forward
-    # flow just used, not silently the default registry.
     flow_config = ((store or {}).get("brand") or {}).get("canvas_flow")
 
-    if current is S.GREETING:
-        # Nothing before the very first step to undo — re-render the kickoff,
-        # mirroring handle_message's own GREETING branch. Without this guard
-        # cs.by_id(GREETING) is None (GREETING has no registry Step) and the
-        # no-target branch below crashes on v2.reply_for(None, ...).
-        step = cs.by_id(S.ASK_NAME)
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
-                             colour_note=colour_note)
-        return await _persist(sb, session_id, collected, step, reply,
-                              current.value, S.ASK_NAME, user_message="",
-                              data=_public(step, collected, flow_config))
+    # Offerability is re-checked server-side: the button the customer tapped
+    # was rendered from an earlier turn's data and may since have frozen.
+    offerable = {t["seq"] for t in v2.back_targets(
+        collected, ck.live_rows(sb, session_id))}
+    if seq not in offerable:
+        raise ck.CheckpointUnavailable(f"seq {seq} is not offerable")
 
-    if current in v2._ELEMENT_ADJUST_STEPS:
-        face = _restart_element(collected, current)
-        collected["_back_used"] = True
-        nxt = v2.next_step(collected, flow_config)
-        reply = v2.reply_for(nxt, collected, persona=persona, intro=intro,
-                             ack=prompts.V2_BACK_RESTART_ACK, colour_note=colour_note)
-        data = _public(nxt, collected, flow_config)
-        data["canvas_ops"] = [
-            {"target": {"kind": "pending_logo", "face": face}, "remove": True}]
-        return await _persist(sb, session_id, collected, nxt, reply,
-                              current.value, nxt.id, user_message="", data=data)
+    row = ck.restore(sb, session_id, seq, collected)
+    if row is None:
+        raise ck.CheckpointUnavailable(f"seq {seq} is unavailable")
 
-    target = v2.last_answered_step(collected, flow_config)
-    if target is None:
-        step = cs.by_id(current)
-        reply = v2.reply_for(step, collected, persona=persona, intro=intro,
-                             colour_note=colour_note)
-        return await _persist(sb, session_id, collected, step, reply,
-                              current.value, current, user_message="",
-                              data=_public(step, collected, flow_config))
-    clear = ((set(target.slots) & cs.WRITABLE_SLOTS) | set(target.back_clears)) - v2._TERMINAL_FLAGS
-    for key in clear:
-        collected.pop(key, None)
-    collected["_back_used"] = True
-    nxt = v2.next_step(collected, flow_config)
-    reply = v2.reply_for(nxt, collected, persona=persona, intro=intro,
+    restored = row["collected"]
+    step = cs.by_id_value(row["step_id"]) or cs.by_id(S.ASK_NAME)
+    reply = v2.reply_for(step, restored, persona=persona, intro=intro,
                          colour_note=colour_note)
-    return await _persist(sb, session_id, collected, nxt, reply,
-                          current.value, nxt.id, user_message="",
-                          data=_public(nxt, collected, flow_config))
+    data = _public(step, restored, flow_config,
+                   targets=v2.back_targets(
+                       restored, ck.live_rows(sb, session_id)))
+    if row.get("canvas_design"):
+        data["canvas_restore"] = row["canvas_design"]
+    return await _persist(sb, session_id, restored, step, reply,
+                          session["state"], step.id, user_message=None, data=data)
 
 
 async def check_verification(session_id: str) -> dict:
@@ -359,7 +338,9 @@ async def check_verification(session_id: str) -> dict:
 
     if not collected.get("email_verified"):
         return {"reply": None, "state": current.value,
-                "data": _public(step, collected, flow_config)}
+                "data": _public(step, collected, flow_config,
+                                targets=v2.back_targets(
+                                    collected, ck.live_rows(sb, session_id)))}
 
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     next_ = v2.next_step(collected, flow_config)
@@ -408,9 +389,10 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
 
     `step` is the step the session now RESTS on (None only for the capped
     QUOTE_REQUESTED handoff, which supplies its own `data`). `config` is the
-    store's canvas_flow — only consulted for the `_public` fallback below (an
-    explicit `data=` always wins), so `can_go_back` in that fallback is scoped
-    to the same config-composed registry as the turn that produced it.
+    store's canvas_flow, threaded through to the `_public` fallback below (an
+    explicit `data=` always wins) purely for parity with its other callers —
+    `back_targets` itself takes no config (Task 3: offerability is a pure
+    function of each checkpoint's own `frozen_when`, not the composed registry).
 
     `user_message=None` writes the assistant row ONLY, for a turn the customer
     didn't take (check_verification, which advances off an out-of-band email
@@ -437,7 +419,9 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
              "state_before": state_before, "state_after": new_state.value})
     sb.table("chat_messages").insert(rows).execute()
     if data is None:
-        data = _public(step, collected, config) if step else {}
+        data = _public(step, collected, config,
+                       targets=v2.back_targets(
+                           collected, ck.live_rows(sb, session_id))) if step else {}
     if extra_replies:
         data["extra_replies"] = list(extra_replies)
     return {"reply": reply, "state": new_state.value, "data": data}

@@ -2,49 +2,11 @@ import pytest
 
 from app import prompts
 from app.services.conversation import canvas_steps as cs
+from app.services.conversation import checkpoints as cp
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation.state_machine import ConversationState as S
-
-
-class _FakeTable:
-    def __init__(self, store, name):
-        self.store, self.name = store, name
-        self._filters = {}
-
-    def select(self, *a, **k):
-        return self
-
-    def eq(self, col, val):
-        self._filters[col] = val
-        return self
-
-    def limit(self, *_):
-        return self
-
-    def order(self, *a, **k):
-        return self
-
-    def execute(self):
-        if self.name == "design_sessions":
-            return type("R", (), {"data": [self.store["session"]]})()
-        return type("R", (), {"data": []})()
-
-    def update(self, patch):
-        self.store["session"].update(patch)
-        return self
-
-    def insert(self, rows):
-        self.store.setdefault("rows", []).extend(rows)
-        return self
-
-
-class _FakeSB:
-    def __init__(self, store):
-        self.store = store
-
-    def table(self, name):
-        return _FakeTable(self.store, name)
+from tests.canvas_fake_supabase import FakeSB as _FakeSB
 
 
 def _new_store():
@@ -56,6 +18,19 @@ def _new_store():
             "upsell_count": 0,
         }
     }
+
+
+def _ckpt(**kw) -> dict:
+    """A `session_checkpoints` row fixture for `store["checkpoints"]`.
+
+    `session_id` defaults to "s1" (the fake filters on it — see
+    `canvas_fake_supabase.FakeQuery._matches` — same as the real client), and
+    every other optional column defaults to its usual empty value, so a test
+    only spells out what it cares about."""
+    row = {"session_id": "s1", "canvas_design": None, "chat_watermark": None,
+           "superseded_at": None}
+    row.update(kw)
+    return row
 
 
 def _no_llm(monkeypatch):
@@ -467,10 +442,23 @@ async def test_dynamic_chips_from_nudge_after_two_interpreter_failures(monkeypat
     assert store["session"]["collected"]["_fail_count"] == 2
 
 
-# --- handle_back: undo the last answer and re-ask it (Task C2) ----------------
+# --- handle_back: restore a checkpoint by seq (Task 5 rewrite of Task C2) -----
+#
+# The single-step "undo the last answer" model (`handle_back(session_id)`,
+# `_back_used`, `back_clears`, `back_removes_element`) is retired wholesale in
+# favour of checkpoint restore: `handle_back(session_id, seq)` rolls `collected`
+# back to the exact snapshot taken on ENTRY to an earlier checkpoint-opening
+# step (`checkpoints.capture`/`restore`, Task 4; offerability via
+# `state_machine_v2.back_targets`, Task 3). The tests below are rewrites of the
+# pre-Task-5 suite pinning the OLD single-step model — each docstring says what
+# it used to assert and why the new behaviour differs.
 
 @pytest.mark.asyncio
-async def test_back_clears_the_last_answer_and_re_asks(monkeypatch):
+async def test_back_restores_the_snapshot_taken_before_the_answer(monkeypatch):
+    """Was `test_back_clears_the_last_answer_and_re_asks`: clearing the current
+    step's own slots in place. Now: restoring the `quantity` checkpoint (opened
+    on ENTRY to ASK_QUANTITY, before it was answered) drops the answer because
+    it was never in that snapshot — not because anything is cleared."""
     store = _new_store()
     store["session"]["state"] = S.ASK_DECORATION.value
     store["session"]["collected"].update({
@@ -478,135 +466,151 @@ async def test_back_clears_the_last_answer_and_re_asks(monkeypatch):
         "pending_logo": None, "decor_done": True, "decor_placed": True,
         "quantity": 50, "email_captured": True, "email_verified": True,
     })
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="quantity", label="Quantity — not set",
+              step_id=S.ASK_QUANTITY.value,
+              collected={"name": "Sam", "intro_ack": True, "has_logo": False,
+                         "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True,
+                         "email_captured": True, "email_verified": True}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
+    out = await o2.handle_back("s1", 1)
     assert out["state"] == S.ASK_QUANTITY.value          # re-asked
-    assert "quantity" not in store["session"]["collected"]  # answer cleared
+    assert "quantity" not in store["session"]["collected"]  # answer absent
 
 
 @pytest.mark.asyncio
-async def test_back_at_the_start_is_a_no_op(monkeypatch):
+async def test_back_with_no_checkpoints_raises_checkpoint_unavailable(monkeypatch):
+    """Was `test_back_at_the_start_is_a_no_op`: Back at the very first step
+    silently re-rendered it. Now there is no seq to ask for at all — no
+    checkpoint has ever been captured — so any seq is unoffered and the call
+    raises rather than silently no-opping."""
     store = _new_store()
     store["session"]["state"] = S.ASK_NAME.value
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
-    assert out["state"] == S.ASK_NAME.value
+    with pytest.raises(cp.CheckpointUnavailable):
+        await o2.handle_back("s1", 1)
 
 
 @pytest.mark.asyncio
-async def test_back_at_greeting_does_not_crash(monkeypatch):
-    """`GREETING` has no registry Step (`cs.by_id` returns None), so the
-    no-target branch's `v2.reply_for(None, ...)` would raise AttributeError on
-    `None.id` without a dedicated guard. `_new_store()` defaults to GREETING,
-    mirroring a Back tap on the very first turn (before any message at all)."""
+async def test_back_at_greeting_with_no_checkpoints_raises_checkpoint_unavailable(monkeypatch):
+    """Was `test_back_at_greeting_does_not_crash`, pinning a dedicated GREETING
+    guard in the old single-step `handle_back` (which had no `seq` and no
+    session_checkpoints table to consult). The new `handle_back` needs no such
+    guard: GREETING is still in V2_OWNED so it passes that check, but no
+    checkpoint can exist before the very first turn, so `back_targets` is
+    empty and any seq is unoffered — CheckpointUnavailable, not a crash."""
     store = _new_store()
     assert store["session"]["state"] == S.GREETING.value
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
-    assert out["state"] == S.ASK_NAME.value          # re-renders the kickoff
-    assert out["data"]                                 # a real, non-empty data blob
+    with pytest.raises(cp.CheckpointUnavailable):
+        await o2.handle_back("s1", 1)
 
 
-def test_public_data_carries_can_go_back():
-    # A mid-flow step can go back; the very first cannot.
-    from app.services.conversation import state_machine_v2 as v2
+def test_public_forwards_back_targets_verbatim_and_defaults_to_empty():
+    """Was `test_public_data_carries_can_go_back` (`can_go_back` computed
+    inside `_public` from `last_answered_step`, now deleted) plus
+    `test_public_flags_back_removes_element_only_mid_element` and
+    `test_public_can_go_back_is_suppressed_while_back_used` (the
+    `back_removes_element`/`_back_used` machinery, also deleted). `_public`
+    now does none of that routing itself — it just carries whatever `targets`
+    list the caller (which owns the checkpoint read) hands it, defaulting to
+    an empty list when none is given."""
+    d_default = o2._public(cs.by_id(S.ASK_NAME), {})
+    assert d_default["back_targets"] == []
 
-    d_mid = o2._public(cs.by_id(S.ASK_QUANTITY),
-                       {"name": "Sam", "intro_ack": True, "decor_placed": True,
-                        "logos_done": True, "pending_logo": None,
-                        "decor_done": True, "email_captured": True, "email_verified": True})
-    assert d_mid["can_go_back"] is True
-
-    d_start = o2._public(cs.by_id(S.ASK_NAME), {})
-    assert d_start["can_go_back"] is False
+    given = [{"seq": 2, "kind": "logo", "label": "Logo 1"},
+             {"seq": 1, "kind": "name", "label": "Your name — Sam"}]
+    d_given = o2._public(cs.by_id(S.ASK_QUANTITY), {}, targets=given)
+    assert d_given["back_targets"] == given
 
 
 @pytest.mark.asyncio
-async def test_back_from_post_decoration_state_undoes_the_decoration_method(monkeypatch):
-    """Amendment: Back must also be able to undo the decoration-method choice
-    (a derived-flag step, not a plain writable-slot step) via back_clears."""
+async def test_back_restoring_the_decoration_checkpoint_clears_derived_flags_but_keeps_loaded_options(monkeypatch):
+    """Was `test_back_from_post_decoration_state_undoes_the_decoration_method`
+    (via `Step.back_clears`, now deleted). The decoration checkpoint is
+    captured on ENTRY to ASK_DECORATION — AFTER `_prepare_decoration` has
+    already loaded `decoration_options` (capture sits after the `prepare`
+    re-resolution in `handle_message`) — so restoring to it keeps the loaded
+    chips but drops the answer derived from them, with no `back_clears`
+    concept needed at all."""
     store = _new_store()
     store["session"]["state"] = S.NEEDED_BY.value
     store["session"]["collected"].update({
         "name": "Sam", "intro_ack": True, "has_logo": False, "logos_done": True,
         "pending_logo": None, "decor_done": True, "decor_placed": True,
         "quantity": 50, "email_captured": True, "email_verified": True,
-        # decoration_options mirrors what `_prepare_decoration` would already
-        # have loaded on the original forward pass — Back does not (and must
-        # not) clear it, only the answer flags derived from it.
         "decoration_options": ["Embroidery", "Screen Print"],
         "decoration_types": ["Embroidery"], "decoration_done": True,
         "decoration_type": "embroidery",
     })
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="decoration", label="Decoration — not set",
+              step_id=S.ASK_DECORATION.value,
+              collected={"name": "Sam", "intro_ack": True, "has_logo": False,
+                         "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True, "quantity": 50,
+                         "email_captured": True, "email_verified": True,
+                         "decoration_options": ["Embroidery", "Screen Print"]}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
+    out = await o2.handle_back("s1", 1)
     assert out["state"] == S.ASK_DECORATION.value
     collected = store["session"]["collected"]
     assert "decoration_done" not in collected
     assert "decoration_types" not in collected
     assert "decoration_type" not in collected
     assert collected["decoration_options"] == ["Embroidery", "Screen Print"]
-    # Terminal flags are never touched by Back.
+    # Terminal flags carry forward regardless of the snapshot's own contents.
     assert collected.get("email_captured") is True
 
 
 @pytest.mark.asyncio
-async def test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested(monkeypatch):
-    """Regression (C-1): a committed quote must not be re-submittable via Back.
-    quote_requested is REQUEST_QUOTE's writable done_when slot, so Back must
-    not be able to clear it and re-ask REQUEST_QUOTE."""
+async def test_handle_back_after_quote_requested_raises_checkpoint_unavailable(monkeypatch):
+    """Was `test_handle_back_at_finalize_is_a_no_op_and_keeps_quote_requested`
+    (a silent no-op via `_TERMINAL_FLAGS`, now deleted). Regression (C-1): a
+    committed quote must not be re-submittable via Back — `back_targets`
+    returns `[]` outright once `quote_requested` is set (state_machine_v2),
+    so every seq is unoffered, not just the request step's own, and the call
+    raises rather than silently no-opping."""
     from tests.canvas_step_helpers import seed_for
 
     store = _new_store()
     store["session"]["state"] = S.FINALIZE_CANVAS.value
     store["session"]["collected"].update(seed_for(cs.REGISTRY[-1]))
     assert store["session"]["collected"]["quote_requested"] is True
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="name", label="Your name — Sam",
+              step_id=S.ASK_NAME.value, collected={}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
-    assert out["state"] == S.FINALIZE_CANVAS.value           # no-op
+    with pytest.raises(cp.CheckpointUnavailable):
+        await o2.handle_back("s1", 1)
     assert store["session"]["collected"]["quote_requested"] is True
 
 
-# --- Task 1: element-adjust set + back lock -----------------------------------
-
-def test_public_flags_back_removes_element_only_mid_element():
-    from app.services.conversation import state_machine_v2 as v2
-    base = {"name": "Sam", "intro_ack": True, "has_logo": True,
-            "pending_logo": {"face": "front", "placed": True}, "email_captured": True, "email_verified": True}
-    d_adjust = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
-    assert d_adjust["can_go_back"] is True
-    assert d_adjust["back_removes_element"] is True
-
-    # A non-element step that can still go back keeps the flag false.
-    d_plain = o2._public(cs.by_id(S.ASK_QUANTITY),
-                         {"name": "Sam", "intro_ack": True, "decor_placed": True,
-                          "logos_done": True, "pending_logo": None,
-                          "decor_done": True, "email_captured": True, "email_verified": True})
-    assert d_plain["can_go_back"] is True
-    assert d_plain["back_removes_element"] is False
-
-
-def test_public_can_go_back_is_suppressed_while_back_used():
-    base = {"name": "Sam", "intro_ack": True, "has_logo": True,
-            "pending_logo": {"face": "front", "placed": True}, "email_captured": True, "email_verified": True,
-            "_back_used": True}
-    d = o2._public(cs.by_id(S.ASK_LOGO_BG), dict(base))
-    assert d["can_go_back"] is False
-    assert d["back_removes_element"] is False   # gated on can_go_back too
-
-
 @pytest.mark.asyncio
-async def test_forward_turn_clears_the_back_lock(monkeypatch):
+async def test_forward_turn_captures_a_checkpoint_for_the_step_it_enters(monkeypatch):
+    """Was `test_forward_turn_clears_the_back_lock`, pinning the per-Back
+    `_back_used` lock (now deleted entirely — there is no more "one step per
+    Back" restriction, since each checkpoint is independently offerable).
+    What a forward turn does now: `handle_message`'s capture hook writes a
+    session_checkpoints row for the step it advances INTO, when that step
+    opens one."""
     store = _new_store()
     store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
     store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam",
                                      "intro_ack": True, "has_logo": True,
-                                     "_back_used": True,
                                      "pending_logo": {"face": "front", "placed": True}}
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)                        # chip tap needs no model
-    await o2.handle_message("s1", "Yes, another logo")
-    assert "_back_used" not in store["session"]["collected"]
+    res = await o2.handle_message("s1", "Yes, another logo")
+    assert res["state"] == S.ASK_LOGO_PLACEMENT.value
+    rows = [r for r in store.get("checkpoints", [])
+            if r["step_id"] == S.ASK_LOGO_PLACEMENT.value]
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "logo"
 
 
 @pytest.mark.asyncio
@@ -722,28 +726,39 @@ async def test_empty_turn_is_a_noop_and_never_reaches_the_interpreter(monkeypatc
     assert store["session"]["collected"]["name"] == "Satish"   # nothing cleared
 
 
-# --- Task 2: element-restart Back --------------------------------------------
+# --- Task 2 (rewritten): checkpoint restore for the logo/decor loops ---------
+#
+# The old model emitted a `remove` canvas_op to delete the in-progress element
+# and reset its loop slots in place. The new model restores the checkpoint
+# captured on ENTRY to the loop's opener step — the customer lands back on
+# that question with the canvas/collected exactly as they stood before this
+# pass through the loop began, via `canvas_restore` (Step1's dedicated tests
+# cover that field directly) rather than a `remove` op.
 
 @pytest.mark.asyncio
-async def test_back_at_logo_bg_removes_the_logo_and_restarts_placement(monkeypatch):
+async def test_back_at_logo_bg_restores_the_snapshot_before_this_logo_was_started(monkeypatch):
+    """Was `test_back_at_logo_bg_removes_the_logo_and_restarts_placement`."""
     store = _new_store()
     store["session"]["state"] = S.ASK_LOGO_BG.value
     store["session"]["collected"] = {
         "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
         "pending_logo": {"face": "left", "placed": True},
     }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="logo", label="Logo 1",
+              step_id=S.ASK_LOGO_PLACEMENT.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": True}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
-    assert out["state"] == S.ASK_LOGO_PLACEMENT.value          # restart the element
-    assert store["session"]["collected"]["pending_logo"] == {} # face/placed/bg cleared
-    assert out["data"]["canvas_ops"] == [
-        {"target": {"kind": "pending_logo", "face": "left"}, "remove": True}]
-    assert store["session"]["collected"]["_back_used"] is True # lock set
-    assert out["data"]["can_go_back"] is False                 # can't back again yet
+    out = await o2.handle_back("s1", 1)
+    assert out["state"] == S.ASK_LOGO_PLACEMENT.value
+    assert "pending_logo" not in store["session"]["collected"]
 
 
 @pytest.mark.asyncio
-async def test_back_at_decor_adjust_removes_the_decor_and_restarts(monkeypatch):
+async def test_back_at_decor_adjust_restores_the_snapshot_before_this_decoration_was_started(monkeypatch):
+    """Was `test_back_at_decor_adjust_removes_the_decor_and_restarts`."""
     store = _new_store()
     store["session"]["state"] = S.DECOR_ADJUST.value
     store["session"]["collected"] = {
@@ -751,19 +766,25 @@ async def test_back_at_decor_adjust_removes_the_decor_and_restarts(monkeypatch):
         "logos_done": True, "pending_logo": None, "email_captured": True, "email_verified": True,
         "decor_choice": "text", "decor_face": "back", "decor_placed": True,
     }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="decor", label="Text or graphic",
+              step_id=S.ASK_ADD_DECOR.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": False, "logos_done": True, "pending_logo": None,
+                         "email_captured": True, "email_verified": True}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
-    assert out["state"] == S.ASK_ADD_DECOR.value               # re-pick text/shape
+    out = await o2.handle_back("s1", 1)
+    assert out["state"] == S.ASK_ADD_DECOR.value
     collected = store["session"]["collected"]
     assert "decor_choice" not in collected
     assert "decor_face" not in collected
     assert "decor_placed" not in collected
-    assert out["data"]["canvas_ops"] == [
-        {"target": {"kind": "pending_logo", "face": "back"}, "remove": True}]
 
 
 @pytest.mark.asyncio
-async def test_non_element_back_sets_the_lock_and_carries_no_canvas_op(monkeypatch):
+async def test_non_element_back_restores_with_no_canvas_restore_when_the_snapshot_has_none(monkeypatch):
+    """Was `test_non_element_back_sets_the_lock_and_carries_no_canvas_op`."""
     store = _new_store()
     store["session"]["state"] = S.ASK_DECORATION.value
     store["session"]["collected"].update({
@@ -771,11 +792,18 @@ async def test_non_element_back_sets_the_lock_and_carries_no_canvas_op(monkeypat
         "pending_logo": None, "decor_done": True, "decor_placed": True,
         "quantity": 50, "email_captured": True, "email_verified": True,
     })
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="quantity", label="Quantity — not set",
+              step_id=S.ASK_QUANTITY.value,
+              collected={"name": "Sam", "intro_ack": True, "has_logo": False,
+                         "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True,
+                         "email_captured": True, "email_verified": True}),
+    ]
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
-    out = await o2.handle_back("s1")
+    out = await o2.handle_back("s1", 1)
     assert out["state"] == S.ASK_QUANTITY.value                # normal rewind
-    assert "canvas_ops" not in out["data"]
-    assert store["session"]["collected"]["_back_used"] is True
+    assert "canvas_restore" not in out["data"]
 
 
 # --- the email-verification gate ---------------------------------------------
@@ -1123,3 +1151,153 @@ def test_reply_for_separates_the_ack_from_the_question_with_a_blank_line():
     step = cs.by_id(S.ASK_QUANTITY)
     body = v2.reply_for(step, {}, persona="Ricardo", intro="i", ack="Understood.")
     assert body.startswith("Understood.\n\n")
+
+
+# --- Task 5: structured Back — capture on entry, restore by seq --------------
+
+@pytest.mark.asyncio
+async def test_every_v2_turn_ships_the_back_menu(monkeypatch):
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    await o2.handle_message("s1", "")            # GREETING kickoff -> ASK_NAME
+    res = await o2.handle_message("s1", "Satish")
+    assert isinstance(res["data"]["back_targets"], list)
+
+
+@pytest.mark.asyncio
+async def test_entering_a_checkpoint_step_captures_exactly_one_row(monkeypatch):
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    await o2.handle_message("s1", "")            # GREETING kickoff -> ASK_NAME
+    rows = store.get("checkpoints", [])
+    assert len([r for r in rows if r["step_id"] == S.ASK_NAME.value]) == 1
+
+
+@pytest.mark.asyncio
+async def test_back_restores_collected_and_supersedes_later_rows(monkeypatch):
+    """Seed three checkpoints, restore the middle one, assert `collected` is
+    that snapshot and the row after it is superseded (not deleted) while the
+    earlier row is left alone. Restoring to `name` (seq 1) can't be used here:
+    its checkpoint freezes on `email_verified`, which this session already has
+    set — so seq 2 (`quantity`, frozen only on `design_confirmed`) is the one
+    exercised, matching the controller's own note on this exact trap."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": False, "logos_done": True, "pending_logo": None,
+        "decor_done": True, "decor_placed": True, "quantity": 50,
+        "email_captured": True, "email_verified": True,
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="name", label="Your name — Sam",
+              step_id=S.ASK_NAME.value, collected={"flow_mode": "canvas"}),
+        _ckpt(seq=2, kind="quantity", label="Quantity — not set",
+              step_id=S.ASK_QUANTITY.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": False, "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True,
+                         "email_captured": True, "email_verified": True}),
+        _ckpt(seq=3, kind="purpose", label="What it's for — not set",
+              step_id=S.ASK_PURPOSE.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": False, "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True, "quantity": 50,
+                         "email_captured": True, "email_verified": True}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1", 2)
+    assert out["state"] == S.ASK_QUANTITY.value
+    assert "quantity" not in store["session"]["collected"]
+    assert store["session"]["collected"]["name"] == "Sam"       # part of seq2's own snapshot
+    checkpoints = {r["seq"]: r for r in store["checkpoints"]}
+    assert checkpoints[1]["superseded_at"] is None              # earlier row untouched
+    assert checkpoints[2]["superseded_at"] is None              # the restored row itself
+    assert checkpoints[3]["superseded_at"] is not None          # later row superseded
+
+
+@pytest.mark.asyncio
+async def test_back_returns_the_canvas_snapshot_when_there_is_one(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANOTHER_LOGO.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "logos": [{"face": "front", "placed": True}],
+        "pending_logo": {"face": "back", "placed": True},
+        "decor_done": False,
+    }
+    design_snapshot = {"colourway": "navy", "faces": {"front": [{"id": "e1"}]}}
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="logo", label="Logo 1",
+              step_id=S.ASK_LOGO_PLACEMENT.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": True},
+              canvas_design=design_snapshot),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1", 1)
+    assert out["state"] == S.ASK_LOGO_PLACEMENT.value
+    assert out["data"]["canvas_restore"] == design_snapshot
+
+
+@pytest.mark.asyncio
+async def test_back_omits_canvas_restore_when_the_snapshot_has_none(monkeypatch):
+    """The `name` checkpoint is captured before any canvas exists."""
+    store = _new_store()
+    store["session"]["state"] = S.SHOW_INTRO.value
+    store["session"]["collected"] = {"flow_mode": "canvas", "name": "Sam"}
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="name", label="Your name — not set",
+              step_id=S.ASK_NAME.value, collected={"flow_mode": "canvas"}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1", 1)
+    assert out["state"] == S.ASK_NAME.value
+    assert "canvas_restore" not in out["data"]
+
+
+@pytest.mark.asyncio
+async def test_back_on_an_unknown_seq_raises_checkpoint_unavailable(monkeypatch):
+    store = _new_store()
+    store["session"]["state"] = S.ASK_QUANTITY.value
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    with pytest.raises(cp.CheckpointUnavailable):
+        await o2.handle_back("s1", 99)
+
+
+@pytest.mark.asyncio
+async def test_back_carries_forward_a_verified_email(monkeypatch):
+    """Restoring to a checkpoint taken before the email step must not
+    un-verify the customer."""
+    store = _new_store()
+    store["session"]["state"] = S.NEEDED_BY.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": False,
+        "logos_done": True, "pending_logo": None, "decor_done": True,
+        "decor_placed": True, "quantity": 50, "email_captured": True,
+        "email_verified": True, "lead_id": "L1",
+    }
+    store["checkpoints"] = [
+        # snapshot predates the email step entirely
+        _ckpt(seq=1, kind="quantity", label="Quantity — not set",
+              step_id=S.ASK_QUANTITY.value,
+              collected={"flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+                         "has_logo": False, "logos_done": True, "pending_logo": None,
+                         "decor_done": True, "decor_placed": True}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    out = await o2.handle_back("s1", 1)
+    assert out["state"] == S.ASK_QUANTITY.value
+    collected = store["session"]["collected"]
+    assert collected["email_verified"] is True
+    assert collected["email_captured"] is True
+    assert collected["lead_id"] == "L1"
+
+
+def test_the_old_back_machinery_is_gone():
+    assert not hasattr(o2, "_restart_element")
+    src = __import__("inspect").getsource(o2)
+    assert "_back_used" not in src
+    assert "back_removes_element" not in src
