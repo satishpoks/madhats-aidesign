@@ -77,11 +77,17 @@ export function CustomiseStudio() {
             with shrink (not flex-none) lets it hand height back to the canvas
             when the chat is short, which matters most on a phone where both
             halves share one screen. min-h-0 is what lets the flex child shrink
-            below its content size at all — without it this is inert. */}
+            below its content size at all — without it this is inert.
+            md:shrink-0 confines that shrink allowance to the stacked mobile
+            layout: without it, `shrink` still applies at every breakpoint (it
+            is a flex property, not a width class), so the fixed
+            md:w-[360px]/lg:w-[420px]/xl:w-[480px]/2xl:w-[560px] widths could be
+            compressed under desktop space pressure — a behavioural change well
+            outside this task's "mobile sizing only" scope. */}
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
+          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
           <ColumnHeader
             name={personaName}

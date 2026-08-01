@@ -37,6 +37,19 @@ describe('phone layout', () => {
     expect(chat.className).not.toMatch(/(^|\s)h-\[45vh\]/)
   })
 
+  it('confines the shrink allowance to mobile — desktop keeps its fixed width', () => {
+    // `shrink` is a flex property, not a width class: it applies at every
+    // breakpoint unless overridden. Without md:shrink-0 the fixed
+    // md:w-[360px]/lg:.../xl:.../2xl:... widths could compress under desktop
+    // space pressure — a behavioural change outside this task's mobile-only
+    // scope. See customiseStudioFocus.test.tsx / CustomiseStudio.test.tsx for
+    // confirmation those fixed-width classes themselves are untouched.
+    render(<CustomiseStudio />)
+    const chat = screen.getByTestId('chat-column-wrap')
+    expect(chat.className).toContain('shrink')
+    expect(chat.className).toContain('md:shrink-0')
+  })
+
   it('stacks the two halves on a phone and rows them from md', () => {
     render(<CustomiseStudio />)
     const row = screen.getByTestId('canvas-column').parentElement!
