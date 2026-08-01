@@ -745,65 +745,6 @@ def test_next_step_still_blocks_finalize_without_email_under_config():
 
 
 
-# --- last_answered_step: the pure helper for the "Back" affordance ------------
-
-def test_last_answered_is_none_at_the_very_start():
-    assert v2.last_answered_step(_seed()) is None
-
-
-def test_last_answered_is_the_previous_question_step():
-    # Answered up to quantity; the step before the current unmet one is quantity.
-    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
-              pending_logo=None, decor_done=True, quantity=50,
-              decor_placed=True, email_captured=True, email_verified=True)
-    # current unmet is ASK_DECORATION; last answered is ASK_QUANTITY.
-    assert v2.next_step(c).id is S.ASK_DECORATION
-    assert v2.last_answered_step(c).id is S.ASK_QUANTITY
-
-
-def test_last_answered_never_targets_ask_email():
-    # email_captured is not a writable slot, so clearing ASK_EMAIL's writable
-    # slots (email — already absent) cannot un-answer it: it is never a target.
-    c = _seed(name="Sam", intro_ack=True, has_logo=True,
-              pending_logo={"face": "front", "placed": True, "bg": "none"},
-              email_captured=True, email_verified=True, logos_done=True, decor_done=True, quantity=12,
-              decor_placed=True)
-    tgt = v2.last_answered_step(c)
-    assert tgt is None or tgt.id is not S.ASK_EMAIL
-
-
-def test_last_answered_step_can_target_ask_decoration_when_past_it():
-    # Decoration answered; current unmet is a later step (needed_by). Back must
-    # be able to reach ASK_DECORATION to undo the method choice, via
-    # `back_clears` — its writable slots alone (decoration_types/mix) don't
-    # flip done_when, since it also reads the derived `decoration_done` flag.
-    c = _seed(name="Sam", intro_ack=True, has_logo=False, logos_done=True,
-              pending_logo=None, decor_done=True, decor_placed=True,
-              quantity=50, email_captured=True, email_verified=True,
-              decoration_types=["Embroidery"], decoration_done=True,
-              decoration_type="embroidery")
-    assert v2.next_step(c).id is S.NEEDED_BY
-    assert v2.last_answered_step(c).id is S.ASK_DECORATION
-
-
-def test_back_is_off_once_the_quote_is_committed():
-    # A finalize_canvas-shaped collected — everything answered, quote already
-    # submitted. quote_requested IS REQUEST_QUOTE's writable done_when slot,
-    # so without the terminal-flag shield Back would target REQUEST_QUOTE and
-    # let the customer re-submit -> duplicate sales email.
-    c = seed_for(cs.REGISTRY[-1])
-    assert c["quote_requested"] is True
-    assert v2.last_answered_step(c) is None
-
-
-def test_last_answered_never_clears_a_terminal_flag():
-    assert v2._TERMINAL_FLAGS == frozenset({"email_captured", "quote_requested"})
-    # Concretely: the committed-quote state can never yield a Back target,
-    # since doing so would have to clear the terminal quote_requested flag.
-    c = seed_for(cs.REGISTRY[-1])
-    assert v2.last_answered_step(c) is None
-
-
 def test_final_notes_sits_between_review_and_quote():
     # After the design is confirmed at REVIEW_DESIGN, the next step is the
     # colour-disclaimer/final-notes step, then the quote request.
@@ -854,3 +795,70 @@ def test_request_quote_promises_the_design_and_the_quote():
     out = _reply(S.REQUEST_QUOTE, {"name": "Sam"})
     assert "finished design" in out
     assert "quote" in out
+
+
+# --- back_targets: the offerable Back menu (pure) ----------------------------
+
+def _rows(*specs):
+    """Minimal live checkpoint rows: (seq, kind, label, step_id)."""
+    return [{"seq": s, "kind": k, "label": lb, "step_id": sid}
+            for s, k, lb, sid in specs]
+
+
+ROWS = _rows(
+    (1, "name", "Your name — Satish", S.ASK_NAME.value),
+    (2, "has_logo", "Logo or image — yes", S.ASK_HAS_LOGO.value),
+    (3, "logo", "Logo 1 — front", S.ASK_LOGO_PLACEMENT.value),
+    (4, "quantity", "Quantity — 50", S.ASK_QUANTITY.value),
+)
+
+
+def test_targets_are_newest_first():
+    out = v2.back_targets({}, ROWS)
+    assert [t["seq"] for t in out] == [4, 3, 2, 1]
+    assert out[0]["label"] == "Quantity — 50"
+
+
+def test_agreeing_the_design_drops_every_design_target_but_keeps_the_brief():
+    # email_verified is included deliberately: AWAIT_EMAIL_VERIFY hard-gates the
+    # whole flow before the decor loop even starts, so decor_done=True can never
+    # occur in a real session without email_verified already True. The `name`
+    # checkpoint freezes on email_verified specifically (spec 5.1/5.2, pinned by
+    # test_name_checkpoint_freezes_only_on_email_verification in
+    # test_canvas_steps.py) — decor_done alone must NOT freeze it.
+    out = v2.back_targets({"decor_done": True, "email_verified": True}, ROWS)
+    assert [t["seq"] for t in out] == [4]
+
+
+def test_verifying_email_drops_the_name_target_but_not_the_logo():
+    out = v2.back_targets({"email_verified": True}, ROWS)
+    assert 1 not in [t["seq"] for t in out]
+    assert 3 in [t["seq"] for t in out]
+
+
+def test_confirming_the_design_empties_the_menu():
+    # See the comment above: email_verified must already be True by the time
+    # decor_done/design_confirmed are, in any real session.
+    out = v2.back_targets(
+        {"decor_done": True, "design_confirmed": True, "email_verified": True}, ROWS)
+    assert out == []
+
+
+def test_a_submitted_quote_empties_the_menu():
+    assert v2.back_targets({"quote_requested": True}, ROWS) == []
+
+
+def test_a_session_with_no_rows_offers_nothing():
+    """Sessions already in flight when this ships have no snapshots — Back is
+    simply absent for them rather than half-working."""
+    assert v2.back_targets({}, []) == []
+
+
+def test_an_unknown_step_id_is_skipped_not_crashed():
+    assert v2.back_targets({}, _rows((1, "gone", "Gone", "no_such_step"))) == []
+
+
+def test_last_answered_step_is_gone():
+    """Replaced by snapshot restore."""
+    assert not hasattr(v2, "last_answered_step")
+    assert not hasattr(v2, "_ELEMENT_ADJUST_STEPS")
