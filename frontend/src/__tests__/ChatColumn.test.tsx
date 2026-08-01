@@ -89,7 +89,10 @@ describe('ChatColumn', () => {
     })
     render(<ChatColumn />)
     fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes', undefined))
+    // The live canvas now rides every turn (feeds the backend's Back
+    // checkpoint snapshot), so the 3rd arg is a canvas_design object, not
+    // undefined — see chatStoreBack.test.ts for the store-level coverage.
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'Yes', expect.any(Object)))
   })
 
   it('sends typed input on submit', async () => {
@@ -97,7 +100,7 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     fireEvent.change(screen.getByPlaceholderText(/type your message/i), { target: { value: 'hello' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Send' }).closest('form')!)
-    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello', undefined))
+    await waitFor(() => expect(vi.mocked(sendChat)).toHaveBeenCalledWith('sess-1', 'hello', expect.any(Object)))
   })
 
   it('ask_decoration shows a multi-select with cost caveat once 2+ chosen', async () => {
@@ -117,36 +120,27 @@ describe('ChatColumn', () => {
     render(<ChatColumn />)
     const cont = await screen.findByRole('button', { name: 'Continue' })
     fireEvent.click(cont)
-    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', undefined))
+    await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', expect.any(Object)))
   })
 
-  it('Back shows a confirm and only removes on confirm when backRemovesElement', async () => {
-    const goBack = vi.fn()
+  // The full checkpoint-picker menu (multiple named restore targets) is a
+  // follow-up task (backMenu.test.tsx); this pins only that ChatColumn still
+  // compiles and wires a Back tap through to the new store action.
+  it('Back restores the newest checkpoint via goBackTo', async () => {
+    const goBackTo = vi.fn()
     useChatStore.setState({
-      canGoBack: true, backRemovesElement: true, sending: false, kickoffDone: true, goBack,
-    })
-    render(<ChatColumn />)
-
-    fireEvent.click(screen.getByText('↩ Back'))
-    expect(goBack).not.toHaveBeenCalled() // confirm first, no immediate back
-    expect(screen.getByText(/start it over/i)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByText('Keep going'))
-    expect(goBack).not.toHaveBeenCalled() // declined
-
-    fireEvent.click(screen.getByText('↩ Back'))
-    fireEvent.click(screen.getByText('Remove & start over'))
-    expect(goBack).toHaveBeenCalledTimes(1)
-  })
-
-  it('Back goes straight through when backRemovesElement is false', async () => {
-    const goBack = vi.fn()
-    useChatStore.setState({
-      canGoBack: true, backRemovesElement: false, sending: false, kickoffDone: true, goBack,
+      backTargets: [{ seq: 3, label: 'Logo 1 — front', kind: 'logo' }],
+      sending: false, kickoffDone: true, goBackTo,
     })
     render(<ChatColumn />)
     fireEvent.click(screen.getByText('↩ Back'))
-    expect(goBack).toHaveBeenCalledTimes(1) // no confirm step
+    expect(goBackTo).toHaveBeenCalledWith('sess-1', 3)
+  })
+
+  it('hides Back when there are no checkpoints to restore', () => {
+    useChatStore.setState({ backTargets: [], sending: false, kickoffDone: true })
+    render(<ChatColumn />)
+    expect(screen.queryByText('↩ Back')).not.toBeInTheDocument()
   })
 
   describe('await_email_verify (the double opt-in gate)', () => {
@@ -177,7 +171,7 @@ describe('ChatColumn', () => {
 
     it('explains what to do, and hides Back so the flow cannot be rewound past it', () => {
       atTheGate()
-      useChatStore.setState({ canGoBack: true, backRemovesElement: false })
+      useChatStore.setState({ backTargets: [{ seq: 1, label: 'Your name', kind: 'name' }] })
       render(<ChatColumn />)
 
       expect(screen.getByRole('status')).toHaveTextContent(/confirm your email/i)
@@ -213,22 +207,18 @@ describe('ChatColumn', () => {
     })
   })
 
-  it('resets an open Back confirm when the chat state changes, so it cannot reappear unbidden later', async () => {
-    const goBack = vi.fn()
+  it('Back stays available across a chat state change while checkpoints remain', () => {
+    const goBackTo = vi.fn()
     useChatStore.setState({
-      canGoBack: true, backRemovesElement: true, sending: false, kickoffDone: true, goBack,
+      backTargets: [{ seq: 2, label: 'Logo 1 — front', kind: 'logo' }],
+      sending: false, kickoffDone: true, goBackTo,
       chatState: 'ask_logo_bg',
     })
     render(<ChatColumn />)
+    expect(screen.getByText('↩ Back')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByText('↩ Back'))
-    expect(screen.getByText(/start it over/i)).toBeInTheDocument()
-
-    // Advance the step without answering the confirm (e.g. the customer tapped
-    // a still-visible chip instead). The confirm must not survive the step change.
     act(() => { useChatStore.setState({ chatState: 'logo_adjust' }) })
 
-    expect(screen.queryByText(/start it over/i)).not.toBeInTheDocument()
     expect(screen.getByText('↩ Back')).toBeInTheDocument()
   })
 })

@@ -87,12 +87,16 @@ export function getSession(token: string): Promise<SessionDetailResponse> {
 }
 
 /**
- * v2 canvas correction: undo the last answered step and re-ask it.
+ * v2 canvas Back: restore the session to a checkpoint from `data.back_targets`.
  * Dedicated endpoint (not the message endpoint), so it never reaches the
- * interpreter. No-op (current step re-returned) if there's nothing to undo.
+ * interpreter. 409 if the checkpoint was superseded or froze since the menu
+ * was rendered.
  */
-export function sendBack(sessionId: string): Promise<ChatResponse> {
-  return request<ChatResponse>(`/chat/${sessionId}/back`, { method: 'POST' })
+export function sendBack(sessionId: string, seq: number): Promise<ChatResponse> {
+  return request<ChatResponse>(`/chat/${sessionId}/back`, {
+    method: 'POST',
+    body: JSON.stringify({ seq }),
+  })
 }
 
 /**

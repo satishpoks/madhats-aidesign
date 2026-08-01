@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { sendChat, sendBack, pollVerification, pollRegeneration, pollGenerationAdvance } from '../lib/api'
 import type { ChatMessageOut } from '../lib/types'
 import { parseCanvasOps, applyCanvasOps } from '../lib/canvasOps'
-import { useCanvasStore } from './canvasStore'
+import { useCanvasStore, type CanvasDesign } from './canvasStore'
 
 export interface ChatMessage {
   id: string
@@ -51,13 +51,10 @@ interface ChatStoreState {
   } | null
   /** v2: the frontend should flatten + finalize the canvas now. */
   triggerFinalize: boolean
-  /** v2 canvas correction: whether there's a previous answer to undo (drives
-   *  the "↩ Back" control). */
-  canGoBack: boolean
-  /** v2 canvas: whether Back at the current step removes the in-progress
-   *  element (and re-asks it) rather than rewinding one slot — drives the
-   *  "remove & restart?" confirm in ChatColumn. */
-  backRemovesElement: boolean
+  /** v2 canvas checkpoint restore: the checkpoints available to rewind to on
+   *  THIS turn, newest first. Empty/absent means render no Back control at
+   *  all — the backend already filters out superseded/frozen checkpoints. */
+  backTargets: { seq: number; label: string; kind: string }[]
   /** v2 canvas: a finalize was REJECTED (e.g. the cap-text profanity gate), so
    *  the canvas is re-opened for the customer to act on the error even though
    *  FINALIZE_CANVAS's directive hands over no tool. Lives here rather than in
@@ -67,8 +64,9 @@ interface ChatStoreState {
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
-  /** v2 canvas correction: undo the last answered step and apply the re-ask. */
-  goBack: (sessionId: string) => Promise<void>
+  /** v2 canvas checkpoint restore: rewind the session to `seq` and apply the
+   *  restored turn (including the canvas snapshot, if the checkpoint has one). */
+  goBackTo: (sessionId: string, seq: number) => Promise<void>
   /** Rebuild the thread from persisted history when resuming a session. */
   hydrate: (
     messages: ChatMessageOut[],
@@ -119,14 +117,15 @@ function parseData(data: Record<string, unknown>) {
       }
     : null
   const triggerFinalize = data.trigger_finalize === true
-  const canGoBack = data.can_go_back === true
-  const backRemovesElement = data.back_removes_element === true
+  const backTargets = Array.isArray(data.back_targets)
+    ? (data.back_targets as { seq: number; label: string; kind: string }[])
+    : []
   // Further assistant messages to append AFTER `reply`, each as its own bubble
   // (backend orchestrator_v2._persist). Absent on every ordinary turn.
   const extraReplies = Array.isArray(data.extra_replies)
     ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
     : []
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, canGoBack, backRemovesElement, extraReplies }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, extraReplies }
 }
 
 function uid(): string {
@@ -161,8 +160,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   kickoffDone: false,
   canvasDirective: null,
   triggerFinalize: false,
-  canGoBack: false,
-  backRemovesElement: false,
+  backTargets: [],
   finalizeFailed: false,
 
   kickoff: async (sessionId: string) => {
@@ -211,19 +209,12 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       options2: [],
     }))
     try {
-      // Send the live canvas on exactly two turns:
-      //  - describe_changes: so an edit resolves against what's on screen
-      //    (accumulated edits), not the last saved design.
-      //  - logo_adjust: the "Done" turn closing logo placement. The backend
-      //    reads a self-ticked "Remove background" off it (canvas_steps.
-      //    observe_canvas) and skips ask_logo_bg. removeBg lives only in this
-      //    store until finalize, so this turn is the only chance to see it.
-      // Deliberately narrow — a blob on an unrelated turn is a way to overwrite
-      // saved work, which is why chat.py's persist path is scoped just as hard.
-      const st = get().chatState
-      const liveDesign = (st === 'describe_changes' || st === 'logo_adjust')
-        ? useCanvasStore.getState().toCanvasDesign()
-        : undefined
+      // The backend snapshots the canvas into the Back checkpoint on every
+      // turn, so it must see the live blob every turn — not only on the two
+      // states that read it for their own logic. Which turns may PERSIST it to
+      // design_sessions.canvas_design is unchanged and still enforced
+      // server-side (chat.py::_persist_live_canvas_design).
+      const liveDesign = useCanvasStore.getState().toCanvasDesign()
       const res = await sendChat(sessionId, text, liveDesign)
       const { extraReplies, ...parsed } = parseData(res.data)
       applyCanvasOps(parseCanvasOps(res.data))   // before set(): patch, then Surface's lock effect
@@ -244,19 +235,20 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     }
   },
 
-  goBack: async (sessionId: string) => {
+  goBackTo: async (sessionId: string, seq: number) => {
     if (get().sending) return
     set({ sending: true })
     try {
-      const res = await sendBack(sessionId)
-      // Back at an element-adjust step is "remove this element and start it
-      // over" — the backend ships the remove op in `canvas_ops`. Applied here,
-      // not inside applyResponse, so ops stay at the response handlers that
-      // actually carry them (same placement + before-set() ordering as
-      // sendMessage). Without it the chat restarted the element while the old
-      // one stayed on the cap and got flattened into the layout guide.
-      applyCanvasOps(parseCanvasOps(res.data as Record<string, unknown>))
-      get().applyResponse(res.reply, res.state, res.data as Record<string, unknown>)
+      const res = await sendBack(sessionId, seq)
+      const data = res.data as Record<string, unknown>
+      // Applied HERE, in the response handler — never in a React effect. An
+      // effect fires on change and would re-apply on resume, restoring a
+      // canvas the customer has since moved on from.
+      const snap = data.canvas_restore
+      if (snap && typeof snap === 'object') {
+        useCanvasStore.getState().restoreSnapshot(snap as CanvasDesign)
+      }
+      get().applyResponse(res.reply, res.state, data)
     } finally {
       set({ sending: false })
     }
@@ -376,8 +368,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       kickoffDone: false,
       canvasDirective: null,
       triggerFinalize: false,
-      canGoBack: false,
-      backRemovesElement: false,
+      backTargets: [],
       finalizeFailed: false,
     }),
 }))

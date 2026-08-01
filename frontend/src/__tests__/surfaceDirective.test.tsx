@@ -242,7 +242,9 @@ test('rework: unlock_all directive unlocks the canvas and Done sends chat, not f
   fireEvent.click(screen.getByRole('button', { name: /^done$/i }))
   await act(async () => { await new Promise(r => setTimeout(r, 0)) })
 
-  expect(sendChat).toHaveBeenCalledWith('s1', 'done', undefined)
+  // The live canvas now rides every turn (feeds the backend's Back checkpoint
+  // snapshot) — REWORK_CANVAS is a v2-only state, so this is squarely in scope.
+  expect(sendChat).toHaveBeenCalledWith('s1', 'done', expect.any(Object))
   expect(finalizeCanvas).not.toHaveBeenCalled()
 })
 

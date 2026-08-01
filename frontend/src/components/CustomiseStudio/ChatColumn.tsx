@@ -171,10 +171,10 @@ export function ChatColumn() {
   const sending = useChatStore(s => s.sending)
   const chatError = useChatStore(s => s.chatError)
   const sendMessage = useChatStore(s => s.sendMessage)
-  const canGoBack = useChatStore(s => s.canGoBack)
-  const goBack = useChatStore(s => s.goBack)
-  const backRemovesElement = useChatStore(s => s.backRemovesElement)
-  const [confirmingBack, setConfirmingBack] = useState(false)
+  // Checkpoint-menu Back UI (multiple named restore points) lands in a
+  // follow-up task; for now Back restores the single newest checkpoint.
+  const backTargets = useChatStore(s => s.backTargets)
+  const goBackTo = useChatStore(s => s.goBackTo)
   const pollVerification = useChatStore(s => s.pollVerification)
   const advanceRegeneration = useChatStore(s => s.advanceRegeneration)
   const advanceGeneration = useChatStore(s => s.advanceGeneration)
@@ -292,11 +292,6 @@ export function ChatColumn() {
   useEffect(() => {
     if (chatState !== 'upload_logo') setLogoModalDismissed(false)
   }, [chatState])
-
-  // Reset the mid-element Back confirm whenever the step changes, so a confirm
-  // left open (e.g. the customer tapped a chip instead of answering it) can't
-  // re-appear unbidden on a later element-adjust step.
-  useEffect(() => { setConfirmingBack(false) }, [chatState])
 
   // Canvas sessions run the intro Q&A in this column, so kick off the greeting
   // on mount. Resumed sessions hydrate with kickoffDone=true and are skipped.
@@ -668,34 +663,17 @@ export function ChatColumn() {
           </a>
         )}
 
-        {/* Correction affordance: undo the last answered step and be re-asked
-            it. Hidden when there's nothing to undo (backend-driven) or while
-            a send is in flight. */}
-        {sessionId && canGoBack && !sending && !awaitingEmailVerify && (
-          confirmingBack && backRemovesElement ? (
-            <div className="self-start flex flex-wrap items-center gap-2 text-xs text-textMuted">
-              <span>Remove this element and start it over?</span>
-              <button
-                onClick={() => { setConfirmingBack(false); void goBack(sessionId) }}
-                className="text-accent hover:underline underline-offset-2"
-              >
-                Remove &amp; start over
-              </button>
-              <button
-                onClick={() => setConfirmingBack(false)}
-                className="hover:underline underline-offset-2"
-              >
-                Keep going
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => (backRemovesElement ? setConfirmingBack(true) : void goBack(sessionId))}
-              className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
-            >
-              ↩ Back
-            </button>
-          )
+        {/* Correction affordance: restore to a checkpoint. Backend-driven —
+            hidden when there's nothing to restore to, or while a send is in
+            flight. A full checkpoint-picker menu (multiple named targets)
+            lands in a follow-up task; for now Back restores the newest one. */}
+        {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && (
+          <button
+            onClick={() => void goBackTo(sessionId, backTargets[0].seq)}
+            className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
+          >
+            ↩ Back
+          </button>
         )}
 
         {/* Option chip rows */}

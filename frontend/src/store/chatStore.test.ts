@@ -113,6 +113,9 @@ describe('chatStore sendMessage blank-turn guard', () => {
   it('still sends a real turn', async () => {
     vi.mocked(api.sendChat).mockResolvedValue({ reply: 'hi', state: 'ask_name', data: {} } as never)
     await useChatStore.getState().sendMessage('s1', 'Satish')
-    expect(api.sendChat).toHaveBeenCalledWith('s1', 'Satish', undefined)
+    // The live canvas now rides on every turn (it feeds the backend's Back
+    // checkpoint snapshot) rather than only two named states, so the third
+    // arg is a canvas_design object here, not undefined.
+    expect(api.sendChat).toHaveBeenCalledWith('s1', 'Satish', expect.any(Object))
   })
 })

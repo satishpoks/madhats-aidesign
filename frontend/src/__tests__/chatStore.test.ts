@@ -61,7 +61,7 @@ test('hydrate never applies canvas_ops — a resume must not re-edit the design'
   expect(useCanvasStore.getState().faces.front[0].removeBg).toBeFalsy()
 })
 
-describe('sendMessage sends the live canvas_design on exactly two states', () => {
+describe('sendMessage sends the live canvas_design on every turn', () => {
   beforeEach(() => {
     useCanvasStore.getState().reset()
     useCanvasStore.getState().addImage('logo.png')
@@ -87,21 +87,23 @@ describe('sendMessage sends the live canvas_design on exactly two states', () =>
     expect(sendChat).toHaveBeenCalledWith('s1', 'Done', liveDesign)
   })
 
-  it('sends undefined as the 3rd arg on any other state', async () => {
+  it('also passes the live canvas_design on any other state', async () => {
     useChatStore.setState({ chatState: 'offer_refine' })
     vi.mocked(sendChat).mockResolvedValue({
       reply: 'ok', state: 'offer_refine', data: {},
     } as never)
     await useChatStore.getState().sendMessage('s1', 'hello')
-    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', undefined)
+    const liveDesign = useCanvasStore.getState().toCanvasDesign()
+    expect(sendChat).toHaveBeenCalledWith('s1', 'hello', liveDesign)
   })
 
-  it('sends undefined at ask_logo_bg — the blob is for the Done turn only', async () => {
+  it('also passes the live canvas_design at ask_logo_bg', async () => {
     useChatStore.setState({ chatState: 'ask_logo_bg' })
     vi.mocked(sendChat).mockResolvedValue({
       reply: 'ok', state: 'ask_another_logo', data: {},
     } as never)
     await useChatStore.getState().sendMessage('s1', 'No, it\'s fine as it is')
-    expect(sendChat).toHaveBeenCalledWith('s1', "No, it's fine as it is", undefined)
+    const liveDesign = useCanvasStore.getState().toCanvasDesign()
+    expect(sendChat).toHaveBeenCalledWith('s1', "No, it's fine as it is", liveDesign)
   })
 })

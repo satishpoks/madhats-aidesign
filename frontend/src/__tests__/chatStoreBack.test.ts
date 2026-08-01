@@ -8,9 +8,9 @@ vi.mock('../lib/api', () => ({
   sendBack: vi.fn(),
 }))
 
+import * as api from '../lib/api'
 import { useChatStore } from '../store/chatStore'
 import { useCanvasStore } from '../store/canvasStore'
-import { sendBack } from '../lib/api'
 
 beforeEach(() => {
   useChatStore.getState().reset()
@@ -18,69 +18,60 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-test('applyResponse sets canGoBack true when data.can_go_back is true', () => {
-  useChatStore.getState().applyResponse('r', 'ask_quantity', { can_go_back: true })
-  expect(useChatStore.getState().canGoBack).toBe(true)
+test('parses back_targets from turn data', () => {
+  useChatStore.getState().applyResponse('hi', 'ask_quantity', {
+    back_targets: [{ seq: 2, label: 'Logo 1 — front', kind: 'logo' }],
+  })
+  expect(useChatStore.getState().backTargets).toEqual(
+    [{ seq: 2, label: 'Logo 1 — front', kind: 'logo' }])
 })
 
-test('applyResponse sets canGoBack false when can_go_back is absent', () => {
-  useChatStore.getState().applyResponse('r', 'ask_quantity', {})
-  expect(useChatStore.getState().canGoBack).toBe(false)
+test('defaults backTargets to an empty list when the key is absent', () => {
+  useChatStore.getState().applyResponse('hi', 'ask_name', {})
+  expect(useChatStore.getState().backTargets).toEqual([])
 })
 
-test('goBack calls sendBack(id) and applies its response', async () => {
-  vi.mocked(sendBack).mockResolvedValue({
-    reply: 'Sure, what would you like to change?',
-    state: 'ask_quantity',
-    data: { can_go_back: false },
-  } as never)
-
-  await useChatStore.getState().goBack('sess-1')
-
-  expect(sendBack).toHaveBeenCalledWith('sess-1')
-  const s = useChatStore.getState()
-  expect(s.chatState).toBe('ask_quantity')
-  expect(s.messages[s.messages.length - 1]?.text).toBe('Sure, what would you like to change?')
-  expect(s.canGoBack).toBe(false)
-  expect(s.sending).toBe(false)
+test('goBackTo posts the chosen seq', async () => {
+  const spy = vi.spyOn(api, 'sendBack').mockResolvedValue(
+    { reply: 'r', state: 'ask_name', data: {} } as never)
+  await useChatStore.getState().goBackTo('s1', 3)
+  expect(spy).toHaveBeenCalledWith('s1', 3)
 })
 
-test('goBack is a no-op while a send is already in flight', async () => {
-  useChatStore.setState({ sending: true })
-  await useChatStore.getState().goBack('sess-1')
-  expect(sendBack).not.toHaveBeenCalled()
+test('applies canvas_restore through restoreSnapshot, not fromCanvasDesign', async () => {
+  const snap = { colourway: null, faces: { front: [], back: [], left: [], right: [] } }
+  const restore = vi.spyOn(useCanvasStore.getState(), 'restoreSnapshot')
+  vi.spyOn(api, 'sendBack').mockResolvedValue(
+    { reply: 'r', state: 'ask_name', data: { canvas_restore: snap } } as never)
+  await useChatStore.getState().goBackTo('s1', 1)
+  expect(restore).toHaveBeenCalledWith(snap)
 })
 
-test('goBack applies the canvas_ops that remove the restarted element', async () => {
-  // Back at an element-adjust step (logo_adjust / ask_logo_bg / decor_adjust)
-  // rewinds the chat AND removes the in-progress element from the canvas — the
-  // backend ships the remove op, so goBack must apply it like sendMessage does.
-  // Without this the conversation restarts the element while the old one stays
-  // on the cap and gets flattened into the layout guide.
-  const c = useCanvasStore.getState()
-  c.setActiveFace('back')
-  c.addImage('logo.png')
-  expect(useCanvasStore.getState().faces.back).toHaveLength(1)
-
-  vi.mocked(sendBack).mockResolvedValue({
-    reply: "No problem — let's start that one again.",
-    state: 'ask_logo_placement',
-    data: {
-      can_go_back: false,
-      canvas_ops: [{ target: { kind: 'pending_logo', face: 'back' }, remove: true }],
-    },
-  } as never)
-
-  await useChatStore.getState().goBack('sess-1')
-
-  expect(useCanvasStore.getState().faces.back).toHaveLength(0)
+test('leaves the canvas alone when the snapshot carries none', async () => {
+  const restore = vi.spyOn(useCanvasStore.getState(), 'restoreSnapshot')
+  vi.spyOn(api, 'sendBack').mockResolvedValue(
+    { reply: 'r', state: 'ask_name', data: {} } as never)
+  await useChatStore.getState().goBackTo('s1', 1)
+  expect(restore).not.toHaveBeenCalled()
 })
 
-test('applyResponse sets backRemovesElement from data.back_removes_element', () => {
-  useChatStore.getState().applyResponse('r', 'ask_logo_bg',
-    { can_go_back: true, back_removes_element: true })
-  expect(useChatStore.getState().backRemovesElement).toBe(true)
+test('hydrate never applies canvas_restore (a resume must not re-restore)', () => {
+  const restore = vi.spyOn(useCanvasStore.getState(), 'restoreSnapshot')
+  useChatStore.getState().hydrate([], 'ask_name',
+    { canvas_restore: { colourway: null, faces: {} } })
+  expect(restore).not.toHaveBeenCalled()
+})
 
-  useChatStore.getState().applyResponse('r', 'ask_quantity', { can_go_back: true })
-  expect(useChatStore.getState().backRemovesElement).toBe(false)
+test('sends the live canvas on every v2 canvas turn', async () => {
+  const spy = vi.spyOn(api, 'sendChat').mockResolvedValue(
+    { reply: 'r', state: 'ask_logo_placement', data: {} } as never)
+  useChatStore.setState({ chatState: 'ask_logo_placement' })
+  await useChatStore.getState().sendMessage('s1', 'front')
+  expect(spy.mock.calls[0][2]).toBeTruthy()   // canvas_design attached
+})
+
+test('drops a blank turn (existing guard, must not regress)', async () => {
+  const spy = vi.spyOn(api, 'sendChat')
+  await useChatStore.getState().sendMessage('s1', '   ')
+  expect(spy).not.toHaveBeenCalled()
 })
