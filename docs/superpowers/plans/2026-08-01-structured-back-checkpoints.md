@@ -530,7 +530,14 @@ git commit -m "feat(back): declare Back checkpoints on the step registry"
 
 **Interfaces:**
 - Consumes: `cs.Checkpoint`, `cs.CHECKPOINT_STEP_IDS`, `Step.checkpoint` (Task 2).
-- Produces: `back_targets(collected: dict, rows: list[dict], config: dict | None = None) -> list[dict]` returning `[{"seq": int, "label": str, "kind": str}]`, newest first. `rows` are live (non-superseded) `session_checkpoints` rows as dicts.
+- Produces: `back_targets(collected: dict, rows: list[dict]) -> list[dict]` returning `[{"seq": int, "label": str, "kind": str}]`, newest first. `rows` are live (non-superseded) `session_checkpoints` rows as dicts.
+
+> **No `config` parameter, deliberately.** Every other v2 router function takes
+> the store's `canvas_flow` config so it can reorder/filter the registry. This
+> one does not need it: a step a store has disabled never runs, so it never
+> captures a row — the rows already reflect the effective registry. Adding an
+> unused parameter for symmetry would be exactly the YAGNI the review rubric
+> flags.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -603,8 +610,7 @@ In `state_machine_v2.py`, delete `last_answered_step` (lines ~126-153) and
 `_ELEMENT_ADJUST_STEPS` (lines ~35-42) entirely, and add:
 
 ```python
-def back_targets(collected: dict, rows: list[dict],
-                 config: dict | None = None) -> list[dict]:
+def back_targets(collected: dict, rows: list[dict]) -> list[dict]:
     """The Back destinations offerable right now, newest first.
 
     PURE: a function of (collected, rows) — the caller does the DB read, so the
@@ -1181,7 +1187,7 @@ def _public(step: cs.Step, collected: dict, config: dict | None = None,
 ```
 
 Every `_public(...)` call site in the module must now pass
-`targets=v2.back_targets(collected, ck.live_rows(sb, session_id), flow_config)`.
+`targets=v2.back_targets(collected, ck.live_rows(sb, session_id))`.
 Add `from app.services.conversation import checkpoints as ck` at the top.
 
 - [ ] **Step 4: Add the capture hook in `handle_message`**
@@ -1239,7 +1245,7 @@ async def handle_back(session_id: str, seq: int) -> dict:
     # Offerability is re-checked server-side: the button the customer tapped
     # was rendered from an earlier turn's data and may since have frozen.
     offerable = {t["seq"] for t in v2.back_targets(
-        collected, ck.live_rows(sb, session_id), flow_config)}
+        collected, ck.live_rows(sb, session_id))}
     if seq not in offerable:
         raise ck.CheckpointUnavailable(f"seq {seq} is not offerable")
 
@@ -1253,7 +1259,7 @@ async def handle_back(session_id: str, seq: int) -> dict:
                          colour_note=colour_note)
     data = _public(step, restored, flow_config,
                    targets=v2.back_targets(
-                       restored, ck.live_rows(sb, session_id), flow_config))
+                       restored, ck.live_rows(sb, session_id)))
     if row.get("canvas_design"):
         data["canvas_restore"] = row["canvas_design"]
     return await _persist(sb, session_id, restored, step, reply,
