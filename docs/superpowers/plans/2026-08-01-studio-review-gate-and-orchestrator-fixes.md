@@ -1432,6 +1432,20 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
 }
 ```
 
+> **Esc alone is not "closable" — this shipped wrong and was corrected.** As
+> first written, Esc was the ONLY dismissal, and below `md` the panel is
+> `h-full w-full` — full-screen on a phone, the primary touch surface for this
+> studio. Touch users had no exit except answering, which is exactly the "you
+> must choose" trap this dialog is not supposed to be. It needs **all three**:
+> Esc, a backdrop click guarded with `e.target === e.currentTarget` (so a click
+> originating inside the panel does not dismiss), and a **visible close control**
+> in the header with an accessible name, inside the focus trap's `querySelectorAll`
+> so Tab still cycles. Initial focus goes to that close control deliberately —
+> it is the inert choice, so an accidental Enter on open cannot fire either
+> review action. Do NOT reorder the two action buttons to achieve that; the
+> visual order is intentional. Tests required: backdrop click closes, a click
+> inside the panel does NOT, the close control closes.
+
 - [ ] **Step 4: Mount it in `Surface.tsx`**
 
 Add the import and a local open flag driven by chat state, then render it at the end of the component's JSX (as a sibling of `<GraphicsPicker …/>`):
