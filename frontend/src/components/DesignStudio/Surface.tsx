@@ -29,6 +29,9 @@ export function DesignStudioSurface() {
   // Lifted out of local state so useActiveSurface can see it: a rejected
   // finalize re-opens the canvas, and the focus cue must follow.
   const finalizeFailed = useChatStore(s => s.finalizeFailed)
+  // "Design for <Name>" banner — display-only, sourced from the turn's own
+  // data (orchestrator_v2._public), never a second fetch and never logged.
+  const designerName = useChatStore(s => s.collectedName)
 
   // v2 = a canvas directive is present (the chat orchestrator is driving the
   // canvas turn-by-turn). Fall back to the legacy whole-rail gating
@@ -346,6 +349,11 @@ export function DesignStudioSurface() {
 
         {/* Right rail — tools + render */}
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
+          {designerName && (
+            <div className="px-3 pt-3 text-xs font-semibold text-textMuted truncate">
+              Design for {designerName}
+            </div>
+          )}
           <ToolRail onAddText={() => addText(TEXT_PLACEHOLDER)} onUploadClick={() => fileRef.current?.click()}
             onGraphicsClick={() => setGraphicsOpen(true)}
             colourways={colourways} onRender={() => void doRender()} rendering={rendering}

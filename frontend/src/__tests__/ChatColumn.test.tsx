@@ -122,10 +122,10 @@ describe('ChatColumn', () => {
     await waitFor(() => expect(sendChat).toHaveBeenCalledWith('sess-1', 'none', undefined))
   })
 
-  // The full checkpoint-picker menu (multiple named restore targets) is a
-  // follow-up task (backMenu.test.tsx); this pins only that ChatColumn still
-  // compiles and wires a Back tap through to the new store action.
-  it('Back restores the newest checkpoint via goBackTo', async () => {
+  // The full checkpoint-picker menu (multiple named restore targets) is
+  // covered in depth by backMenu.test.tsx; this pins that ChatColumn wires a
+  // picked destination through to the new store action.
+  it('Back opens a menu and restores the picked checkpoint via goBackTo', async () => {
     const goBackTo = vi.fn()
     useChatStore.setState({
       backTargets: [{ seq: 3, label: 'Logo 1 — front', kind: 'logo' }],
@@ -133,6 +133,7 @@ describe('ChatColumn', () => {
     })
     render(<ChatColumn />)
     fireEvent.click(screen.getByText('↩ Back'))
+    fireEvent.click(screen.getByText('Logo 1 — front'))
     expect(goBackTo).toHaveBeenCalledWith('sess-1', 3)
   })
 

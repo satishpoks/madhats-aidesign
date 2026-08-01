@@ -171,8 +171,6 @@ export function ChatColumn() {
   const sending = useChatStore(s => s.sending)
   const chatError = useChatStore(s => s.chatError)
   const sendMessage = useChatStore(s => s.sendMessage)
-  // Checkpoint-menu Back UI (multiple named restore points) lands in a
-  // follow-up task; for now Back restores the single newest checkpoint.
   const backTargets = useChatStore(s => s.backTargets)
   const goBackTo = useChatStore(s => s.goBackTo)
   const pollVerification = useChatStore(s => s.pollVerification)
@@ -269,6 +267,11 @@ export function ChatColumn() {
   // Lets the customer dismiss the logo-upload modal (to type a different reply)
   // without losing the ability to reopen it. Reset whenever we leave the state.
   const [logoModalDismissed, setLogoModalDismissed] = useState(false)
+  // Structured Back: whether the checkpoint-picker menu is open. Closed
+  // whenever backTargets changes (a completed restore, or any forward turn)
+  // so it never lingers over a stale list.
+  const [backMenuOpen, setBackMenuOpen] = useState(false)
+  useEffect(() => { setBackMenuOpen(false) }, [backTargets])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const wasSendingRef = useRef(false)
@@ -663,17 +666,42 @@ export function ChatColumn() {
           </a>
         )}
 
-        {/* Correction affordance: restore to a checkpoint. Backend-driven —
-            hidden when there's nothing to restore to, or while a send is in
-            flight. A full checkpoint-picker menu (multiple named targets)
-            lands in a follow-up task; for now Back restores the newest one. */}
+        {/* Structured Back: a menu of named checkpoints. The list ships on
+            every turn (data.back_targets), already filtered server-side, so
+            opening it costs no round trip and it can never be stale. No
+            targets => no button, which is how "no going back after the design
+            is agreed" is expressed — there is no separate disable flag. */}
         {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && (
-          <button
-            onClick={() => void goBackTo(sessionId, backTargets[0].seq)}
-            className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2 disabled:opacity-50"
-          >
-            ↩ Back
-          </button>
+          backMenuOpen ? (
+            <div className="self-start flex flex-col gap-1.5">
+              <span className="text-xs text-textMuted">
+                Where would you like to go back to?
+              </span>
+              {backTargets.map(t => (
+                <button
+                  key={t.seq}
+                  onClick={() => { setBackMenuOpen(false); void goBackTo(sessionId, t.seq) }}
+                  className="self-start rounded-full border border-border px-3 py-1 text-xs
+                             text-textPrimary hover:border-accent hover:text-accent"
+                >
+                  {t.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setBackMenuOpen(false)}
+                className="self-start text-xs text-textMuted hover:underline underline-offset-2"
+              >
+                Cancel — stay here
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setBackMenuOpen(true)}
+              className="self-start text-xs text-textMuted hover:text-accent underline underline-offset-2"
+            >
+              ↩ Back
+            </button>
+          )
         )}
 
         {/* Option chip rows */}

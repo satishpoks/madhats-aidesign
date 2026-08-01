@@ -55,6 +55,10 @@ interface ChatStoreState {
    *  THIS turn, newest first. Empty/absent means render no Back control at
    *  all — the backend already filters out superseded/frozen checkpoints. */
   backTargets: { seq: number; label: string; kind: string }[]
+  /** The customer's captured name, once the backend has it (else null). Powers
+   *  the "Design for <Name>" banner above the canvas — display-only, never
+   *  logged (security rule 10: no PII in logs/breadcrumbs). */
+  collectedName: string | null
   /** v2 canvas: a finalize was REJECTED (e.g. the cap-text profanity gate), so
    *  the canvas is re-opened for the customer to act on the error even though
    *  FINALIZE_CANVAS's directive hands over no tool. Lives here rather than in
@@ -120,12 +124,13 @@ function parseData(data: Record<string, unknown>) {
   const backTargets = Array.isArray(data.back_targets)
     ? (data.back_targets as { seq: number; label: string; kind: string }[])
     : []
+  const collectedName = typeof data.designer_name === 'string' ? data.designer_name : null
   // Further assistant messages to append AFTER `reply`, each as its own bubble
   // (backend orchestrator_v2._persist). Absent on every ordinary turn.
   const extraReplies = Array.isArray(data.extra_replies)
     ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
     : []
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, extraReplies }
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies }
 }
 
 function uid(): string {
@@ -161,6 +166,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   canvasDirective: null,
   triggerFinalize: false,
   backTargets: [],
+  collectedName: null,
   finalizeFailed: false,
 
   kickoff: async (sessionId: string) => {
@@ -381,6 +387,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       canvasDirective: null,
       triggerFinalize: false,
       backTargets: [],
+      collectedName: null,
       finalizeFailed: false,
     }),
 }))
