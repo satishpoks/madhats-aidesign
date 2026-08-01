@@ -1,9 +1,19 @@
 import { useSessionStore } from '../../store/sessionStore'
+import { useChatStore } from '../../store/chatStore'
 import { DesignStudioSurface } from '../DesignStudio/Surface'
 import { StoreHeader } from '../StoreHeader'
 import { ChatColumn } from './ChatColumn'
 import { MilestoneBar } from './MilestoneBar'
 import { useActiveSurface, type ActiveSurface } from '../../lib/useActiveSurface'
+
+/** Chat states where the chat surface is active (per useActiveSurface) but
+ *  there is nothing the customer can actually answer: `await_email_verify`
+ *  locks the whole input (ChatColumn's `inputLocked`) behind a waiting panel,
+ *  and `generating`/`regenerating` are v1-delegated turns (null directive ->
+ *  'chat') with no question pending either. The ring/dim still apply — the
+ *  chat IS where to look — but the "Your turn — answer here" pill would
+ *  contradict the dead input right below it. The canvas pill is unaffected. */
+const CHAT_UNANSWERABLE_STATES = new Set(['await_email_verify', 'generating', 'regenerating'])
 
 /** Ring + glow on the panel the customer should act in; a scrim on the other.
  *  The glow reads `--brand-primary` so it themes per store, the same way
@@ -46,6 +56,8 @@ export function CustomiseStudio() {
   const productRef = useSessionStore(s => s.productRef)
   const active = useActiveSurface()
   const canvasActive = active === 'canvas'
+  const chatState = useChatStore(s => s.chatState)
+  const chatAnswerable = !CHAT_UNANSWERABLE_STATES.has(chatState)
 
   return (
     <div className="h-screen bg-base flex flex-col">
@@ -72,7 +84,7 @@ export function CustomiseStudio() {
           data-active={String(!canvasActive)}
           className={`border-t md:border-t-0 md:border-l border-border flex-shrink-0 w-full md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] h-[45vh] md:h-auto flex flex-col min-h-0 ${!canvasActive ? ACTIVE_CLASSES : INACTIVE_CLASSES}`}
         >
-          {!canvasActive && <FocusPill surface="chat" />}
+          {!canvasActive && chatAnswerable && <FocusPill surface="chat" />}
           <ChatColumn />
         </div>
       </div>

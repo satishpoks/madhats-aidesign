@@ -685,7 +685,7 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.ASK_ANYTHING_ELSE,
-        ask="Is that everything?",
+        ask="Is that everything, or would you like to add anything else?",
         chips=(Chip("Add something else", {"more_decor": True}),
                Chip("No, that's everything", {"decor_done": True})),
         slots=("more_decor", "decor_done"),

@@ -1,14 +1,15 @@
 """The chat notices a background tick the customer made themselves.
 
 End-to-end through orchestrator_v2: a "Done" turn at LOGO_ADJUST carrying the
-live canvas skips ASK_LOGO_BG and says so, instead of asking a question the
-customer has already answered on screen.
+live canvas skips ASK_LOGO_BG silently, instead of asking a question the
+customer has already answered on screen. (The customer-facing announcement
+that used to accompany the skip was removed by owner request — the skip
+itself, asserted here via the resulting state/reply, is unchanged.)
 """
 from __future__ import annotations
 
 import pytest
 
-from app import prompts
 from app.services.conversation import intent_extractor as ie
 from app.services.conversation import orchestrator_v2 as o2
 from app.services.conversation.state_machine import ConversationState as S
@@ -100,14 +101,17 @@ async def test_a_ticked_logo_skips_the_background_question(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_skip_is_acknowledged_in_the_reply(monkeypatch):
+async def test_the_skip_moves_straight_to_the_next_question(monkeypatch):
+    """No announcement is made (owner request, 2026-08-01) — the reply is
+    simply ASK_ANOTHER_LOGO's own copy, not ASK_LOGO_BG's question repeated."""
     store = _at_logo_adjust()
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
     _no_llm(monkeypatch)
 
     res = await o2.handle_message("s1", "Done", canvas_design=_design(True))
 
-    assert prompts.V2_BG_ALREADY_REMOVED in res["reply"]
+    assert "another logo" in res["reply"].lower()
+    assert "background" not in res["reply"].lower()
 
 
 @pytest.mark.asyncio
@@ -119,7 +123,7 @@ async def test_an_unticked_logo_still_gets_asked(monkeypatch):
     res = await o2.handle_message("s1", "Done", canvas_design=_design(False))
 
     assert res["state"] == S.ASK_LOGO_BG.value
-    assert prompts.V2_BG_ALREADY_REMOVED not in res["reply"]
+    assert "background" in res["reply"].lower()
 
 
 @pytest.mark.asyncio
@@ -132,12 +136,12 @@ async def test_no_canvas_blob_behaves_exactly_as_before(monkeypatch):
     res = await o2.handle_message("s1", "Done")
 
     assert res["state"] == S.ASK_LOGO_BG.value
-    assert prompts.V2_BG_ALREADY_REMOVED not in res["reply"]
+    assert "background" in res["reply"].lower()
 
 
 @pytest.mark.asyncio
-async def test_the_ack_is_not_prepended_on_an_unrelated_turn(monkeypatch):
-    """A blob arriving at a step with no pending logo must be inert.
+async def test_observe_canvas_is_inert_on_an_unrelated_turn(monkeypatch):
+    """A blob arriving at a step with no pending logo must not disturb the turn.
 
     Note this drives the FULL turn (interpreter returns a real field) rather
     than letting it stall — a stalled turn returns before observe_canvas is
@@ -163,4 +167,4 @@ async def test_the_ack_is_not_prepended_on_an_unrelated_turn(monkeypatch):
     res = await o2.handle_message("s1", "50", canvas_design=_design(True))
 
     assert store["session"]["collected"]["quantity"] == 50   # the turn advanced
-    assert prompts.V2_BG_ALREADY_REMOVED not in res["reply"]
+    assert "background" not in res["reply"].lower()

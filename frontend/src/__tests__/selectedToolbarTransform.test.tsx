@@ -41,6 +41,18 @@ describe('SelectedToolbar transform controls', () => {
     expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(0)
   })
 
+  test('an empty intermediate value (typing a decimal) does not reset rotation to 0', () => {
+    // input[type=number] reports value === "" for an in-progress decimal like
+    // "12." — Number('') || 0 previously wrote 0 mid-keystroke, snapping the
+    // element while the customer was still typing "12.5".
+    const id = selectedText()
+    render(<SelectedToolbar />)
+    fireEvent.change(screen.getByLabelText('Rotation degrees'), { target: { value: '123' } })
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(123)
+    fireEvent.change(screen.getByLabelText('Rotation degrees'), { target: { value: '' } })
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(123)
+  })
+
   test('move nudges shift x/y by a fixed delta, clamped to [0,1]', () => {
     const id = selectedText() // default x=0.5, y=0.4
     render(<SelectedToolbar />)

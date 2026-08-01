@@ -22,7 +22,6 @@ def _v2_copy_strings() -> list[str]:
     out.extend(prompts.V2_TOOL_TIPS.values())
     out.extend([
         prompts.V2_BG_INSTRUCTIONS,
-        prompts.V2_BG_ALREADY_REMOVED,
         prompts.V2_REWORK_INSTRUCTIONS,
         prompts.V2_ASK_NAME,
         prompts.V2_ASK_NAME_RETRY,
@@ -58,17 +57,6 @@ def test_the_adjust_panel_is_named_where_the_customer_needs_it():
     assert "Adjust panel" in prompts.V2_BG_INSTRUCTIONS
 
 
-def test_the_background_ack_says_marked_not_removed():
-    """Ticking "Remove background" is a MARK, not an edit: the canvas is
-    unchanged and the knockout happens at render. An ack claiming the background
-    was already removed contradicts both V2_BG_INSTRUCTIONS (two definitions
-    above) and the cap the customer is looking at while reading it."""
-    low = prompts.V2_BG_ALREADY_REMOVED.lower()
-    assert "marked" in low
-    assert "already removed" not in low
-    assert "removed the background" not in low
-
-
 # Phrases from the pre-2026-07-26 casual register. Not a style engine — just a
 # pin on the specific wording that was rewritten, so a later hand-edit that
 # reintroduces the old voice fails loudly instead of shipping.
@@ -90,3 +78,12 @@ def test_v2_copy_stays_out_of_the_casual_register():
         low = s.lower()
         for phrase, pattern in _CASUAL_PATTERNS:
             assert not pattern.search(low), f"casual phrasing {phrase!r} in: {s!r}"
+
+
+def test_the_colour_disclaimer_hedges_instead_of_promising_an_exact_match():
+    """Hard constraint documented above V2_COLOUR_DISCLAIMER: the copy must
+    never promise exact colour, only a "closest match" hedge. A prior copy
+    rewrite dropped the test that pinned this phrase while leaving the wording
+    itself unchanged — this restores the guard so a future rewrite can't drop
+    the hedge silently."""
+    assert "closest" in prompts.V2_COLOUR_DISCLAIMER

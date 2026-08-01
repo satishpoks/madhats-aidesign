@@ -1131,19 +1131,6 @@ V2_BG_INSTRUCTIONS = (
     "panel."
 )
 
-# Prepended to the next step's copy when the customer ticked "Remove background"
-# in the Adjust panel themselves, so ASK_LOGO_BG is skipped rather than asked.
-# Concatenated verbatim (never through a model), like the tool tips: the whole
-# value is that the customer sees their own action reflected back accurately.
-# Says MARKED, never "removed" — same standing rule as V2_BG_INSTRUCTIONS above.
-# Ticking the box sets a flag; nothing is processed, the cap on screen still
-# shows the background, and the knockout happens at render. Claiming otherwise
-# is contradicted by what the customer is looking at as they read it.
-V2_BG_ALREADY_REMOVED = (
-    "I can see you've already marked that logo's background for removal. "
-    "I'll skip that question."
-)
-
 # The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
 # is a sentinel (unlock every tool), not one of the real canvas tools those
 # tips describe.
@@ -1234,7 +1221,9 @@ V2_COLOUR_DISCLAIMER = (
     "exact.\n\n"
     "What you see is a guide. Our team matches your design to the closest "
     "embroidery and print colours.\n\n"
-    "Reference charts — embroidery: {embroidery_url} · print: {print_url}\n\n"
+    "Reference charts:\n"
+    "Embroidery: {embroidery_url}\n"
+    "Print: {print_url}\n\n"
     "Have a specific print colour (CMYK or Pantone) or an embroidery thread "
     "number? Enter it below and we'll use it.\n\n"
     "Any final notes for the team? Type them here, or select "

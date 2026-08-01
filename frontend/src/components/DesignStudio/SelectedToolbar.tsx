@@ -280,7 +280,15 @@ export function SelectedToolbar({ variant = 'stacked' }: { variant?: 'rail' | 's
               <button onClick={() => rotateBy(-ROTATE_STEP)} className={btn}
                 title="Rotate 12.5° left" aria-label="Rotate left 12.5 degrees">⟲</button>
               <input type="number" step={ROTATE_STEP} value={fmtDeg(el.rotation ?? 0)}
-                onChange={e => update(el.id, { rotation: norm360(Number(e.target.value) || 0) })}
+                onChange={e => {
+                  // An in-progress decimal ("12.") reports value === "" for
+                  // input[type=number] — Number('') || 0 would snap the
+                  // rotation to 0 mid-keystroke. Ignore it and let the DOM
+                  // keep the customer's partial input (the `value` prop below
+                  // is unchanged, so React never overwrites what they typed).
+                  if (e.target.value === '') return
+                  update(el.id, { rotation: norm360(Number(e.target.value) || 0) })
+                }}
                 className="w-14 bg-base border border-border rounded px-1 py-0.5 text-xs text-textPrimary"
                 aria-label="Rotation degrees" title="Set an exact rotation in degrees" />
               <button onClick={() => rotateBy(ROTATE_STEP)} className={btn}

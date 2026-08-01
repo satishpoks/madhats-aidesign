@@ -675,8 +675,11 @@ stack has no catalogue sync unless you run the script yourself:
   It persists the **assistant row only** (`_persist(user_message=None)` — a new
   sentinel distinct from `""`, which the GREETING kickoff still uses to write an
   empty user row): a phantom user turn would show in the thread as something the
-  customer never said. Reply = `V2_EMAIL_VERIFIED_ACK` + the next step's copy,
-  one message.
+  customer never said. Reply = `V2_EMAIL_VERIFIED_ACK` + the next step's copy —
+  **two messages, not one** (2026-08-01: sent via `data.extra_replies` so the
+  confirmation lands as its own bubble and can't be read past on the way to
+  the question; `ack=` is deliberately not passed to `reply_for`, which is what
+  would merge them back into one).
   **Frontend** (`ChatColumn`, the only component v2 canvas renders — `ChatPanel`
   is `view==='session'`): `awaitingEmailVerify` → `inputLocked` disables the
   text box, Send, mic, every chip row and the Continue affordance, hides Back
@@ -741,9 +744,12 @@ stack has no catalogue sync unless you run the script yourself:
   before the request, converging onto the chip path. **Any future test of a
   canvas turn must exercise the real button, not `sendMessage` directly** —
   that gap is exactly what hid this.
-  Copy: `V2_BG_ALREADY_REMOVED` says "already **marked** that logo's background
-  for removal" — never "removed". Nothing is removed at tick time and the cap on
-  screen does not change; `test_v2_copy_guards.py` now pins the word.
+  Copy: the announcement that used to accompany the skip (`V2_BG_ALREADY_REMOVED`,
+  "I can see you've already marked that logo's background for removal...") was
+  **removed entirely by owner request (2026-08-01)** — the skip is now silent.
+  `cs.observe_canvas` is still called unconditionally in `orchestrator_v2`; only
+  its return value is now unused (kept, deliberately, for the side effect —
+  see the comment at the call site so it isn't deleted as dead code later).
   Open ticket: if the customer UNTICKS after the auto-mark, `pending_logo["bg"]`
   stays `"removed"` and the step is permanently satisfied, while the render reads
   `el.removeBg` — widening the divergence this file already documents.

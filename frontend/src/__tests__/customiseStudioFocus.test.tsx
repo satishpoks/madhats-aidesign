@@ -73,4 +73,31 @@ describe('CustomiseStudio focus cue', () => {
     render(<CustomiseStudio />)
     expect(screen.getByRole('status').textContent).toMatch(/answer here/i)
   })
+
+  it('suppresses the chat pill at await_email_verify but keeps the ring', () => {
+    // ChatColumn's inputLocked disables the box/Send/mic/chips/Back here, so a
+    // "Your turn — answer here" pill would point at a dead input. The chat IS
+    // still where the customer should be looking (the waiting panel is there),
+    // so the ring/dim cue must stay — only the pill goes.
+    useChatStore.setState({ canvasDirective: null, chatState: 'await_email_verify' } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').dataset.active).toBe('true')
+    expect(screen.getByTestId('chat-column-wrap').className).toContain('ring-2')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText(/your turn/i)).not.toBeInTheDocument()
+  })
+
+  it('suppresses the chat pill during generating (v1-delegated, null directive)', () => {
+    useChatStore.setState({ canvasDirective: null, chatState: 'generating' } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').dataset.active).toBe('true')
+    expect(screen.queryByText(/your turn/i)).not.toBeInTheDocument()
+  })
+
+  it('suppresses the chat pill during regenerating (v1-delegated, null directive)', () => {
+    useChatStore.setState({ canvasDirective: null, chatState: 'regenerating' } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').dataset.active).toBe('true')
+    expect(screen.queryByText(/your turn/i)).not.toBeInTheDocument()
+  })
 })
