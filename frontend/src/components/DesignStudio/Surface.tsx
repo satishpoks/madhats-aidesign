@@ -9,6 +9,7 @@ import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
+import { ReviewDialog } from './ReviewDialog'
 import { Watermark } from './Watermark'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
@@ -78,6 +79,23 @@ export function DesignStudioSurface() {
   const [rendered, setRendered] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [reviewOpen, setReviewOpen] = useState(false)
+  // Open on ARRIVAL at the review, not on every render while there — otherwise
+  // dismissing it would immediately re-open. Leaving the state resets the latch.
+  const wasReviewing = useRef(false)
+  useEffect(() => {
+    const reviewing = chatState === 'review_design'
+    if (reviewing && !wasReviewing.current) setReviewOpen(true)
+    if (!reviewing) setReviewOpen(false)
+    wasReviewing.current = reviewing
+  }, [chatState])
+
+  function sendReview(label: string) {
+    setReviewOpen(false)
+    const sid = useSessionStore.getState().sessionId
+    if (sid) void useChatStore.getState().sendMessage(sid, label)
+  }
 
   // Seed the four face backgrounds from the product reference.
   useEffect(() => {
@@ -394,6 +412,13 @@ export function DesignStudioSurface() {
 
       <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)}
         onPickShape={kind => addShape(kind)} onPickImage={url => void addGraphic(url)} />
+
+      <ReviewDialog
+        open={reviewOpen}
+        onConfirm={() => sendReview('Looks great, send it')}
+        onRework={() => sendReview("I'd like to rework it")}
+        onClose={() => setReviewOpen(false)}
+      />
     </div>
   )
 }
