@@ -14,15 +14,22 @@ function selectedText() {
 }
 
 describe('SelectedToolbar transform controls', () => {
-  test('+45° / −45° rotate and normalise into [0,360)', () => {
+  test('+12.5° / −12.5° rotate and normalise into [0,360)', () => {
     const id = selectedText()
     render(<SelectedToolbar />)
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 45 degrees' }))
-    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(45)
-    // 45 - 45 - 45 wraps: click −45 twice → 45 → 0 → 315
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 45 degrees' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 45 degrees' }))
-    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(315)
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' }))
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(12.5)
+    // 12.5 - 12.5 - 12.5 wraps: 12.5 → 0 → 347.5
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 12.5 degrees' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate left 12.5 degrees' }))
+    expect(useCanvasStore.getState().faces.front.find(e => e.id === id)?.rotation).toBe(347.5)
+  })
+
+  test('the degree readout shows 12.5, never a rounded 13', () => {
+    selectedText()
+    render(<SelectedToolbar />)
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' }))
+    expect((screen.getByLabelText('Rotation degrees') as HTMLInputElement).value).toBe('12.5')
   })
 
   test('custom degree input sets rotation and Reset zeroes it', () => {
@@ -73,7 +80,7 @@ describe('SelectedToolbar transform controls', () => {
     const id = useCanvasStore.getState().faces.front[0].id
     s.select(id)
     render(<SelectedToolbar />)
-    expect(screen.getByRole('button', { name: 'Rotate right 45 degrees' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rotate right 12.5 degrees' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Nudge right' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Increase size' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Decrease size' })).not.toBeInTheDocument()
@@ -125,7 +132,7 @@ describe('SelectedToolbar transform controls', () => {
     selectedText()
     render(<SelectedToolbar />)
     for (const name of [
-      'Rotate left 45 degrees', 'Rotate right 45 degrees', 'Reset rotation',
+      'Rotate left 12.5 degrees', 'Rotate right 12.5 degrees', 'Reset rotation',
       'Nudge left', 'Nudge right', 'Nudge up', 'Nudge down',
       'Increase size', 'Decrease size',
       'Bring forward', 'Send back', 'Duplicate', 'Delete',
@@ -134,5 +141,48 @@ describe('SelectedToolbar transform controls', () => {
       expect(btn.getAttribute('title')).toBeTruthy()
     }
     expect(screen.getByLabelText('Rotation degrees').getAttribute('title')).toBeTruthy()
+  })
+})
+
+describe('SelectedToolbar sections', () => {
+  test('groups the controls into labelled sections', () => {
+    selectedText()
+    render(<SelectedToolbar />)
+    for (const name of ['Content', 'Style', 'Position', 'Layer order', 'Actions']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument()
+    }
+  })
+
+  test('omits a section that has nothing in it for this element type', () => {
+    // An image has no Style controls — an empty captioned block would read as
+    // a broken panel.
+    const s = useCanvasStore.getState()
+    s.addImage('http://x/a.png', 1)
+    s.select(useCanvasStore.getState().faces.front[0].id)
+    render(<SelectedToolbar />)
+    expect(screen.queryByRole('group', { name: 'Style' })).toBeNull()
+    expect(screen.getByRole('group', { name: 'Position' })).toBeInTheDocument()
+  })
+
+  test('Move is a D-pad cross with a recentre in the middle', () => {
+    const id = selectedText()
+    render(<SelectedToolbar />)
+    const pad = screen.getByRole('group', { name: 'Move' })
+    expect(pad.className).toContain('grid-cols-3')
+    fireEvent.click(screen.getByRole('button', { name: 'Centre on the cap' }))
+    const el = useCanvasStore.getState().faces.front.find(e => e.id === id)!
+    expect(el.x).toBe(0.5)
+    expect(el.y).toBe(0.5)
+  })
+
+  test('captions are always shown — no tooltip-only compact mode', () => {
+    // The old panel hid its captions below a measured column width. That mode
+    // existed for the cramped centre column; captions are the point now.
+    selectedText()
+    render(<SelectedToolbar />)
+    const rotate = screen.getByRole('group', { name: 'Position' })
+    const caption = Array.from(rotate.querySelectorAll('span'))
+      .find(s => s.textContent === 'Position')
+    expect(caption?.className).not.toContain('hidden')
   })
 })

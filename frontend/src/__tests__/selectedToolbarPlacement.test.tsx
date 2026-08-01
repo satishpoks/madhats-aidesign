@@ -123,24 +123,18 @@ describe('Adjust panel', () => {
     expect(controls.style.maxHeight).toBe('72px')
   })
 
-  test('drops the group captions to tooltips on a narrow column, keeping them for screen readers', () => {
-    // The captions (ROTATE / MOVE / SIZE …) each add a line above their button
-    // row — measured live at 24px of the panel's height, in a column whose
-    // leftover height is what sizes the cap. They are hidden by a MEASURED
-    // column width rather than a Tailwind breakpoint: `xl:` keys off the
-    // VIEWPORT, but this is a three-column layout, so a 1536px window still
-    // leaves this column ~400-500px — the captions would have stayed visible
-    // exactly where they cost the most. jsdom reports clientWidth 0, i.e. the
-    // narrow case. `role="group"` + `aria-label` are unconditional, so nothing
-    // is lost to assistive tech, and `title` keeps the label discoverable.
+  test('keeps its group captions at every column width (the compact mode is gone)', () => {
+    // The captions used to be hidden below a measured column width, to save
+    // ~24px per group in the cramped centre column. The panel now lives in the
+    // tool rail on desktop and the captions are the point of the restructure,
+    // so they are unconditional.
     selectText()
     render(<SelectedToolbar />)
-    const rotate = screen.getByRole('group', { name: 'Rotate' })
-    const caption = Array.from(rotate.querySelectorAll('span'))
-      .find(s => s.textContent === 'Rotate')
-    expect(caption?.className).toBe('hidden')
-    expect(caption?.className).not.toContain('xl:')
-    expect(rotate.getAttribute('title')).toBe('Rotate')
+    const position = screen.getByRole('group', { name: 'Position' })
+    const caption = Array.from(position.querySelectorAll('span'))
+      .find(s => s.textContent === 'Position')
+    expect(caption).toBeTruthy()
+    expect(caption?.className).not.toContain('hidden')
   })
 
   describe('placement is viewport-dependent (2026-07-28: the panel moved into the rail on desktop)', () => {
