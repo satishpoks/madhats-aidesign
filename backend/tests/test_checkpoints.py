@@ -20,12 +20,49 @@ class _FakeSB:
 
 
 class _FakeTable:
+    """Mirrors postgrest's two-stage builder shape: `sb.table(...)` alone
+    exposes only verbs (select/insert/update) — no filter methods at all,
+    matching the real `SyncRequestBuilder`. `.eq`/`.gt`/`.is_`/`.order`/
+    `.limit`/`.execute` exist only on the builder a verb returns
+    (`SyncFilterRequestBuilder`).
+
+    This two-stage split is load-bearing, not decoration: an earlier version
+    of this fake put every method on one object, so it silently ACCEPTED
+    `.eq(...).gt(...).update(...)` — a call order that raises `AttributeError`
+    against the real client, since `sb.table(...)` has no `.eq` to call in
+    the first place. That bug shipped past every test in this file. See
+    `test_fake_table_rejects_filters_before_a_verb` below, which pins the
+    shape rather than any one call site.
+    """
+
     def __init__(self, sb, name):
-        self.sb, self.name, self.f = sb, name, {}
-        self._gt = None
+        self.sb, self.name = sb, name
 
     def select(self, *a, **k):
-        return self
+        return _FakeQuery(self.sb, self.name, verb="select")
+
+    def update(self, patch):
+        return _FakeQuery(self.sb, self.name, verb="update", payload=patch)
+
+    def insert(self, rows):
+        return _FakeQuery(self.sb, self.name, verb="insert", payload=rows)
+
+
+class _FakeQuery:
+    """The filter-capable builder returned once a verb has been chosen.
+
+    Filters accumulate here and are resolved at `.execute()` time — not when
+    the verb method was called — because the real call order chains filters
+    AFTER the verb (`.update(patch).eq(...).gt(...)`). Applying the patch
+    inside `update()` itself, before any filter has been chained on, would
+    see an empty filter set; that mistake is what let the original
+    verb-order bug slip through (see `_FakeTable`'s docstring).
+    """
+
+    def __init__(self, sb, name, verb, payload=None):
+        self.sb, self.name, self.verb, self.payload = sb, name, verb, payload
+        self.f = {}
+        self._gt = None
 
     def eq(self, col, val):
         self.f[col] = val
@@ -45,22 +82,26 @@ class _FakeTable:
     def limit(self, *a, **k):
         return self
 
-    def insert(self, rows):
-        target = self.sb.rows if self.name == "session_checkpoints" else self.sb.chat
-        target.extend(rows if isinstance(rows, list) else [rows])
-        return self
-
-    def update(self, patch):
-        self.sb.updates.append((self.name, dict(self.f), self._gt, patch))
-        if self.name == "session_checkpoints" and self._gt:
-            for r in self.sb.rows:
-                if r["seq"] > self._gt[1]:
-                    r.update(patch)
-        if self.name == "design_sessions":
-            self.sb.session.update(patch)
-        return self
-
     def execute(self):
+        if self.verb == "insert":
+            target = self.sb.rows if self.name == "session_checkpoints" else self.sb.chat
+            rows = self.payload if isinstance(self.payload, list) else [self.payload]
+            target.extend(rows)
+            return type("R", (), {"data": rows})()
+
+        if self.verb == "update":
+            self.sb.updates.append((self.name, dict(self.f), self._gt, self.payload))
+            if self.name == "session_checkpoints":
+                for r in self.sb.rows:
+                    if self._gt and r["seq"] > self._gt[1]:
+                        r.update(self.payload)
+                    elif not self._gt and "seq" in self.f and r["seq"] == self.f["seq"]:
+                        r.update(self.payload)
+            if self.name == "design_sessions":
+                self.sb.session.update(self.payload)
+            return type("R", (), {"data": []})()
+
+        # select
         if self.name == "session_checkpoints":
             data = [r for r in self.sb.rows
                     if r.get("superseded_at") is None or "superseded_at" not in self.f]
@@ -204,3 +245,25 @@ def test_restoring_an_already_superseded_seq_returns_none():
                         "canvas_design": None, "chat_watermark": None,
                         "superseded_at": "2026-08-01T00:00:00Z"}])
     assert cp.restore(sb, "s1", 1, {}) is None
+
+
+def test_fake_table_rejects_filters_before_a_verb():
+    """Regression guard for a real runtime break, not a style nit.
+
+    `sb.table(...)` returns postgrest's `SyncRequestBuilder`, which has no
+    filter methods at all — `.eq`/`.gt`/`.is_` only exist on the builder a
+    verb (select/insert/update) returns. A production call like
+    `.eq(...).gt(...).update(...)` type-checks against a permissive fake but
+    raises `AttributeError` against the real client. This test pins the
+    fake's shape so that mistake can't ship silently again: if `checkpoints.py`
+    ever calls a filter directly on the bare table object, THIS is the test
+    that fails, not a subtler one three asserts downstream.
+    """
+    sb = _FakeSB()
+    table = sb.table("session_checkpoints")
+    with pytest.raises(AttributeError):
+        table.eq("session_id", "s1")
+    with pytest.raises(AttributeError):
+        table.gt("seq", 1)
+    with pytest.raises(AttributeError):
+        table.execute()

@@ -138,18 +138,22 @@ def restore(sb, session_id: str, seq: int, live_collected: dict) -> dict | None:
     row["collected"] = restored
 
     stamp = _now()
-    # Filters are chained BEFORE `.update()` (not after): the query builder
-    # needs the full filter set in place at the moment the patch is applied.
-    (sb.table("session_checkpoints")
-     .eq("session_id", session_id).gt("seq", seq)
-     .update({"superseded_at": stamp}).execute())
+    # Verb FIRST, filters after: `sb.table(...)` returns postgrest's
+    # `SyncRequestBuilder`, which has no filter methods at all — `.eq`/`.gt`
+    # only exist on the `SyncFilterRequestBuilder` returned by `.update()`/
+    # `.select()`/etc. Every other call site in `app/` (e.g.
+    # `app/api/routes/leads.py`) follows this order; do not "simplify" it to
+    # filters-first, which raises `AttributeError` against the real client.
+    (sb.table("session_checkpoints").update({"superseded_at": stamp})
+     .eq("session_id", session_id).gt("seq", seq).execute())
     watermark = row.get("chat_watermark")
-    chat = sb.table("chat_messages").eq("session_id", session_id)
+    chat = sb.table("chat_messages").update({"superseded_at": stamp}).eq(
+        "session_id", session_id)
     if watermark:
         # Rows written after the snapshot's last message. `id` is a uuid, so
         # ordering is by created_at via the watermark row's timestamp.
         chat = chat.gt("created_at", _created_at_of(sb, watermark))
-    chat.update({"superseded_at": stamp}).execute()
+    chat.execute()
     log.info("checkpoint_restored", seq=seq, kind=row.get("kind"))
     return row
 
