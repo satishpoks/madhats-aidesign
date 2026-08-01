@@ -89,6 +89,31 @@ def test_storefront_returns_the_watermark_text(client, store_headers, monkeypatc
     assert res.json()["watermark_text"] == "ACME PREVIEW"
 
 
+def test_storefront_survives_an_unreadable_app_settings_row(client, store_headers, monkeypatch):
+    """A settings-table failure must not 500 the customer widget's first call.
+
+    `get_settings()` does not catch, so before this the route inherited a brand
+    new hard dependency on `app_settings` being present and reachable — on a hot
+    customer path, for a decorative string that already has a default.
+    `brandStore.init` swallows the error, so the visible effect was a studio
+    with no branding at all.
+    """
+    def _boom() -> dict:
+        raise RuntimeError("app_settings unreachable")
+
+    monkeypatch.setattr(settings_service, "_read_row", _boom)
+    settings_service.invalidate_cache()
+
+    res = client.get("/storefront", headers=store_headers)
+    assert res.status_code == 200
+    # Falls back to the same literal services/watermark.py stamps into the
+    # emailed previews, so canvas and email agree even with settings down.
+    assert res.json()["watermark_text"] == "MADHATS PREVIEW"
+    # The rest of the payload is unaffected — this is a graceful degrade of one
+    # field, not a stubbed-out response.
+    assert res.json()["name"] == "Acme Caps"
+
+
 def test_storefront_never_leaks_the_watermark_asset(client, store_headers, monkeypatch):
     """public_brand's allow-list must still hold: the internal asset URL is not
     a customer-facing field, and adding a watermark key must not smuggle it out."""

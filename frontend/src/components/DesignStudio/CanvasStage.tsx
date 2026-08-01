@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Stage, Layer, Image as KonvaImage, Rect, Line } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
@@ -41,6 +41,9 @@ const FIT_MARGIN = 8
  *
  * `col.clientHeight` is set by the flex row above it (viewport-derived), NOT by
  * its contents, so resizing the stage can never feed back into this number.
+ *
+ * That precondition is only true while `slot` is the centre column's own child
+ * — see the parent-walk warning on `wrapRef` below.
  */
 function availableHeight(slot: HTMLElement): number {
   const col = slot.parentElement
@@ -56,7 +59,21 @@ function availableHeight(slot: HTMLElement): number {
   return inner - used - FIT_MARGIN
 }
 
-export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<Konva.Stage>; locked?: boolean }) {
+export function CanvasStage({ stageRef, locked = false, overlay = null }: {
+  stageRef: RefObject<Konva.Stage>
+  locked?: boolean
+  /**
+   * Plain-DOM chrome drawn OVER the stage (today: the watermark). Rendered
+   * inside this component's own `relative` box, as a SIBLING of the Konva
+   * `<Stage>` — never a Konva child, so it can never enter `stage.toDataURL()`
+   * and therefore never reaches the layout guide the image model conditions on.
+   *
+   * It is a prop rather than a wrapper in the caller because any element
+   * inserted between `wrapRef` and `canvas-stage-wrap` breaks the parent walk
+   * below.
+   */
+  overlay?: ReactNode
+}) {
   const activeFace = useCanvasStore(s => s.activeFace)
   const faces = useCanvasStore(s => s.faces)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -75,6 +92,18 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
   // left over beside the panel/callout/Done button, clamped. The scene graph is
   // untouched — `scale` below maps the fixed 480 logical space onto whatever we
   // can afford on screen.
+  //
+  // WARNING — this sizing walks UP the DOM two levels: `wrapRef` -> its parent
+  // (the `canvas-stage-wrap` slot) -> the centre column, whose other children
+  // (Adjust panel, instruction callout, Done button) are the budget
+  // `availableHeight` subtracts. ANY element inserted between `wrapRef` and
+  // `canvas-stage-wrap` silently breaks BOTH halves of that: the sibling budget
+  // reads zero (the slot becomes the only child of the injected node), and
+  // `col.clientHeight` becomes content-derived — i.e. our own output — so each
+  // measure pass shrinks the stage by FIT_MARGIN and the ResizeObserver
+  // re-fires, a monotone descent to MIN_DISPLAY. jsdom performs no layout and
+  // ships neither observer, so no test can catch it. If you need chrome over
+  // the stage, pass it as `overlay` — do not wrap this component.
   const wrapRef = useRef<HTMLDivElement>(null)
   const [display, setDisplay] = useState(STAGE_W)
   useEffect(() => {
@@ -157,7 +186,13 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
   const livePts = stroke ? stroke.map((p, i) => (i % 2 === 0 ? p * STAGE_W : p * STAGE_H)) : []
 
   return (
-    <div ref={wrapRef} className="w-full flex justify-center">
+    <div ref={wrapRef} data-testid="canvas-stage-slot" className="w-full flex justify-center">
+    {/* `relative` scopes the overlay's `absolute inset-0` to exactly the stage
+        box. It lives INSIDE wrapRef (not around this component) so the
+        parent walk above still reaches the centre column — see the warning
+        there. It shrink-wraps the stage as a flex item, so the overlay covers
+        the cap and nothing else. */}
+    <div className="relative">
     <Stage
       ref={stageRef as never}
       width={display}
@@ -204,6 +239,8 @@ export function CanvasStage({ stageRef, locked = false }: { stageRef: RefObject<
         )}
       </Layer>
     </Stage>
+    {overlay}
+    </div>
     </div>
   )
 }

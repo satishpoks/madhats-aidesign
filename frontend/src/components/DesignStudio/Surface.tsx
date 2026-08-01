@@ -9,7 +9,7 @@ import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
-import { ReviewDialog } from './ReviewDialog'
+import { ReviewDialog, CONFIRM_LABEL, REWORK_LABEL } from './ReviewDialog'
 import { Watermark } from './Watermark'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
@@ -358,14 +358,15 @@ export function DesignStudioSurface() {
             reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
+          {/* The watermark goes in as CanvasStage's `overlay`, NOT as a wrapper
+              around it: CanvasStage sizes itself by walking up from its own
+              root to this slot and on to the centre column, so any element
+              between the two kills the responsive stage (see the warning in
+              CanvasStage). Inside, it is still a plain-DOM sibling of the Konva
+              stage, so it stays out of every toDataURL export. */}
           <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
-            {/* `relative` scopes the watermark's `absolute inset-0` to exactly
-                the stage box. It must wrap ONLY the stage — on the outer column
-                it would tile over the Adjust panel and the Done button too. */}
-            <div className="relative">
-              <CanvasStage stageRef={stageRef} locked={stageLocked} />
-              {watermark && <Watermark text={watermarkText} />}
-            </div>
+            <CanvasStage stageRef={stageRef} locked={stageLocked}
+              overlay={watermark ? <Watermark text={watermarkText} /> : null} />
           </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}
@@ -415,8 +416,10 @@ export function DesignStudioSurface() {
 
       <ReviewDialog
         open={reviewOpen}
-        onConfirm={() => sendReview('Looks great, send it')}
-        onRework={() => sendReview("I'd like to rework it")}
+        // Same constants the buttons are labelled with — the label IS the chip
+        // the backend resolves by identity, so it must have exactly one source.
+        onConfirm={() => sendReview(CONFIRM_LABEL)}
+        onRework={() => sendReview(REWORK_LABEL)}
         onClose={() => setReviewOpen(false)}
       />
     </div>

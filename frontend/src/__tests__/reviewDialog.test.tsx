@@ -123,4 +123,39 @@ describe('ReviewDialog', () => {
     expect(panel.className).toContain('md:h-auto')
     expect(panel.className).toContain('md:max-w-3xl')
   })
+
+  it('escapes a faded ancestor instead of rendering at half opacity', () => {
+    // In the app this mounts inside DesignStudioSurface, which sits inside
+    // CustomiseStudio's `canvas-column-content` — and that wrapper carries
+    // RESTING_CONTENT (`opacity-50`) whenever the canvas is the resting half.
+    // At review_design the directive hands over no tool, so useActiveSurface
+    // always answers 'chat': the canvas column is ALWAYS resting while this
+    // dialog is open.
+    //
+    // CSS composites an `opacity < 1` subtree as a GROUP, `position: fixed`
+    // descendants included, so in place the backdrop rendered at ~30%, the
+    // panel was see-through onto the studio behind it, and the per-face
+    // watermark — already rgb(255 255 255 / 0.42) under mix-blend-overlay —
+    // was halved again on the very surface this gate exists to watermark.
+    // jsdom does no compositing, so the only observable, falsifiable form of
+    // that is the containment relationship: the dialog must not be a
+    // descendant of the faded wrapper.
+    seedTwoDecoratedFaces()
+    render(
+      <div data-testid="resting-wrapper" className="opacity-50">
+        <ReviewDialog open onConfirm={vi.fn()} onRework={vi.fn()} onClose={vi.fn()} />
+      </div>,
+    )
+    const faded = screen.getByTestId('resting-wrapper')
+    const panel = screen.getByRole('dialog')
+    const backdrop = panel.parentElement!
+
+    expect(faded.contains(panel)).toBe(false)
+    // The backdrop too — it is the element carrying bg-black/60, so fading it
+    // is what let the studio show through.
+    expect(faded.contains(backdrop)).toBe(false)
+    // Portalled, not simply unrendered: it is still on screen.
+    expect(document.body.contains(panel)).toBe(true)
+    expect(screen.getAllByTestId('canvas-watermark').length).toBeGreaterThan(0)
+  })
 })

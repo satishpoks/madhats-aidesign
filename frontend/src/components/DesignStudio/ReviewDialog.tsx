@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { FACES, useCanvasStore, type Face } from '../../store/canvasStore'
 import { useBrandStore } from '../../store/brandStore'
 import { FaceStage } from './FaceStage'
@@ -9,9 +10,13 @@ const VIEW_PX = 300
 
 /** Exact chip labels from canvas_steps.REVIEW_DESIGN. resolve_chip matches them
  *  by identity, so a typo here becomes free text the interpreter has to guess
- *  at — which is the whole class of bug Workstream A exists to remove. */
-const CONFIRM_LABEL = 'Looks great, send it'
-const REWORK_LABEL = "I'd like to rework it"
+ *  at — which is the whole class of bug Workstream A exists to remove.
+ *
+ *  Exported because these are BOTH the button text and the message Surface
+ *  posts on click. Two independent literals agreed by luck; one edit to either
+ *  side would have produced a button that says one thing and sends another. */
+export const CONFIRM_LABEL = 'Looks great, send it'
+export const REWORK_LABEL = "I'd like to rework it"
 
 /**
  * The pre-submit confirm gate: every decorated face, watermarked, in one place.
@@ -60,7 +65,17 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
   if (!open) return null
   const decorated = (FACES as Face[]).filter(f => faces[f].length > 0)
 
-  return (
+  // Portalled to <body>, and that is load-bearing, not tidiness. Its mount
+  // point in the tree (DesignStudioSurface) sits inside the resting column's
+  // `opacity-50` content wrapper (CustomiseStudio's RESTING_CONTENT), and at
+  // review_design the directive hands over no tool — so useActiveSurface always
+  // answers 'chat' and the canvas column is ALWAYS resting while this is open.
+  // CSS opacity < 1 composites the whole subtree as a group, `position: fixed`
+  // descendants included, so in place the backdrop rendered at ~30%, the panel
+  // was see-through onto the studio behind it, and the per-face watermark —
+  // already rgb(255 255 255 / 0.42) under mix-blend-overlay — was halved again
+  // on the exact surface this gate exists to watermark.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-0 md:p-6"
       // Backdrop click closes — but only when the click ORIGINATED on the
@@ -144,6 +159,7 @@ export function ReviewDialog({ open, onConfirm, onRework, onClose }: {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

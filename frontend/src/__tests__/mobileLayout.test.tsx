@@ -46,7 +46,10 @@ describe('phone layout', () => {
     // confirmation those fixed-width classes themselves are untouched.
     render(<CustomiseStudio />)
     const chat = screen.getByTestId('chat-column-wrap')
-    expect(chat.className).toContain('shrink')
+    // Matched as a whole class token: `'md:shrink-0'.includes('shrink')` is
+    // true, so a `toContain('shrink')` here stayed green with the bare
+    // `shrink` class deleted — i.e. it asserted nothing its name claims.
+    expect(chat.className).toMatch(/(^|\s)shrink(\s|$)/)
     expect(chat.className).toContain('md:shrink-0')
   })
 

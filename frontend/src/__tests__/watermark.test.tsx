@@ -67,12 +67,46 @@ describe('Watermark overlay', () => {
     expect(useChatStore.getState().watermark).toBe(true)
   })
 
-  it('defaults to watermarked when the backend sends no flag', () => {
-    // A shared-tail state (generating / verify / refine / quote) has no registry
-    // step, so no flag is sent — and the design IS finished in all of them.
+  it('defaults to watermarked on a v2 turn that carries a directive but no flag', () => {
+    // `state_machine_v2.public_data_for` is the only producer of the flag and it
+    // always sends `canvas` alongside — so "directive present, flag absent" is
+    // the shape to be lenient about, and the design is finished by then.
     useChatStore.setState({ watermark: false })
-    useChatStore.getState().applyResponse('hi', 'generating', {})
+    useChatStore.getState().applyResponse('hi', 'generating', {
+      canvas: { allowed_tools: [], target_face: null, auto_open: null, instructions: null },
+    })
     expect(useChatStore.getState().watermark).toBe(true)
+  })
+
+  it('does NOT watermark a payload with no canvas directive at all', () => {
+    // REPLACES an earlier assertion that ANY absent flag meant watermarked.
+    // That default was only ever reasoned about for v2; it also caught every
+    // producer that knows nothing about watermarking:
+    //   - v1's `_public_data` (CANVAS_ORCHESTRATOR_V2=false is the code
+    //     default), which watermarked a v1 canvas session from the greeting
+    //     onward — including `canvas_design`, i.e. across a live design the
+    //     customer is still dragging logos around on;
+    //   - `sessions._public_data`, so ANY resume — a v2 canvas session
+    //     resumed mid-design came back watermarked over its live design.
+    // Both are exactly what the watermark design says must stay clean.
+    useChatStore.setState({ watermark: true })
+    useChatStore.getState().applyResponse('hi', 'canvas_design', { options: ['a'] })
+    expect(useChatStore.getState().watermark).toBe(false)
+  })
+
+  it('still honours an explicit flag when one is sent', () => {
+    // The gate is on the DEFAULT only. An explicit value from any producer
+    // wins, in both directions — REWORK_CANVAS's `false` (reworking IS
+    // editing) and a watermarked step's `true`.
+    useChatStore.setState({ watermark: false })
+    useChatStore.getState().applyResponse('hi', 'request_quote', { watermark: true })
+    expect(useChatStore.getState().watermark).toBe(true)
+
+    useChatStore.getState().applyResponse('hi', 'rework_canvas', {
+      watermark: false,
+      canvas: { allowed_tools: ['upload'], target_face: null, auto_open: null, instructions: null },
+    })
+    expect(useChatStore.getState().watermark).toBe(false)
   })
 
   it('flattenStage/flattenFull tolerate a DOM sibling next to the stage (smoke check, not the safety proof)', () => {
@@ -99,8 +133,9 @@ describe('Watermark overlay', () => {
 
   it('mounting the real <Watermark> beside the real <CanvasStage> adds nothing to the Konva scene graph', () => {
     // The actual safety proof. It renders the REAL components in the exact
-    // structure Surface.tsx uses (`<div className="relative">` wrapping
-    // <CanvasStage> with <Watermark> as a sibling), then inventories the real
+    // structure Surface.tsx uses (the watermark handed to <CanvasStage> as its
+    // `overlay`, which renders it as a plain-DOM sibling of the Konva stage
+    // inside CanvasStage's own `relative` box), then inventories the real
     // Konva scene graph (every Stage/Layer/Group/Shape descendant, via the same
     // Konva `.find()` API flattenStage/flattenFull walk) with and without the
     // watermark mounted.
@@ -117,9 +152,7 @@ describe('Watermark overlay', () => {
 
     const refA = createRef<Konva.Stage>()
     const withoutWatermark = render(
-      <div className="relative">
-        <CanvasStage stageRef={refA} locked={false} />
-      </div>,
+      <CanvasStage stageRef={refA} locked={false} />,
     )
     const stageA = refA.current!
     const namesWithout = stageA.find(() => true).map(n => n.getClassName()).sort()
@@ -128,10 +161,7 @@ describe('Watermark overlay', () => {
 
     const refB = createRef<Konva.Stage>()
     const withWatermark = render(
-      <div className="relative">
-        <CanvasStage stageRef={refB} locked={false} />
-        <Watermark text="MADHATS PREVIEW" />
-      </div>,
+      <CanvasStage stageRef={refB} locked={false} overlay={<Watermark text="MADHATS PREVIEW" />} />,
     )
     const stageB = refB.current!
     const namesWith = stageB.find(() => true).map(n => n.getClassName()).sort()
