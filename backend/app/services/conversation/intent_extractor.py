@@ -676,6 +676,41 @@ async def interpret_turn_v2(step, message: str, collected: dict) -> dict:
     return validate_fields(_parse_json(raw).get("fields") or {})
 
 
+#: An ack is one short courteous sentence (V2_ACK_PROMPT). Anything else is the
+#: model having answered something other than the field dump, and it is
+#: concatenated straight into the customer's bubble — so it is checked, not
+#: trusted. Pure: no network, no state, exhaustively unit-testable.
+_ACK_MAX_WORDS = 20
+_ACK_SELF_REFERENCE = re.compile(
+    r"\b(customer|customers|ricardo|assistant|i'm ready|im ready|practice run)\b",
+    re.IGNORECASE,
+)
+
+
+def _ack_is_sane(text: str) -> bool:
+    """True if `text` is usable as an ack.
+
+    Rejects the four ways the model has actually gone wrong: asking a question,
+    greeting mid-conversation, running long or multi-paragraph, and talking
+    ABOUT the customer/itself rather than to them. Any rejection degrades to
+    "" — the same terse-but-correct reply an outage produces — never to a
+    leaked meta message.
+    """
+    body = (text or "").strip()
+    if not body:
+        return False
+    if "?" in body:
+        return False
+    if len(body.split()) > _ACK_MAX_WORDS:
+        return False
+    if "\n\n" in body:
+        return False
+    if _ACK_SELF_REFERENCE.search(body):
+        return False
+    first = re.sub(r"[^a-z']", "", body.split()[0].casefold())
+    return first not in _GREETING_TOKENS
+
+
 async def write_ack(persona: str, fields: dict) -> str:
     """One warm sentence acknowledging the turn, or "" if unavailable.
 
@@ -697,12 +732,18 @@ async def write_ack(persona: str, fields: dict) -> str:
     try:
         text = await _complete(
             prompts.V2_ACK_PROMPT.format(persona=persona, fields=json.dumps(safe)),
+            system=prompts.ACK_SYSTEM_PROMPT,
             max_tokens=80,
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("v2_ack_failed", err=type(exc).__name__)
         return ""
-    return _strip_meta_preamble(repair_mojibake(text)).strip()
+    ack = _strip_meta_preamble(repair_mojibake(text)).strip()
+    if not _ack_is_sane(ack):
+        # Never log the ack itself: it can carry the customer's own words back.
+        log.warning("v2_ack_rejected", words=len(ack.split()))
+        return ""
+    return ack
 
 
 # ---------------------------------------------------------------------------

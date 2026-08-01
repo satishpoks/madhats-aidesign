@@ -144,3 +144,54 @@ def test_validate_passes_a_free_text_needed_by():
     assert ie.validate_fields({"needed_by": "the 15th of March"}) == {
         "needed_by": "the 15th of March"
     }
+
+
+from app.services.conversation.intent_extractor import _ack_is_sane
+
+
+# Captured verbatim from Haiku on 2026-08-01 with fields={"purpose": "dont say"}.
+LIVE_LEAKS = [
+    "I'm Ricardo, your design assistant at MadHats. What brings you in today?",
+    "I appreciate you sharing that context, but I'm ready to help customers "
+    "design caps whenever they arrive.",
+    "I appreciate you clarifying the setup, but I should let you know I'm ready "
+    "to greet an actual customer now—I don't need a practice run.\n\nOnce a "
+    "customer arrives, I'll acknowledge them warmly in my first message only, "
+    "keep it brief and human, and guide them through their cap design naturally.",
+]
+
+
+@pytest.mark.parametrize("text", LIVE_LEAKS)
+def test_live_ack_leaks_are_rejected(text):
+    assert _ack_is_sane(text) is False
+
+
+@pytest.mark.parametrize("text", [
+    "Got it — 45 caps noted.",
+    "Thank you, that's recorded.",
+    "Noted, we'll use two to four weeks.",
+    "Understood.",
+])
+def test_normal_acks_are_accepted(text):
+    assert _ack_is_sane(text) is True
+
+
+def test_an_empty_ack_is_not_sane():
+    assert _ack_is_sane("") is False
+    assert _ack_is_sane("   ") is False
+
+
+def test_a_question_is_rejected_even_if_short():
+    """V2_ACK_PROMPT forbids questions; an ack that asks one steals the step's
+    own question and confuses the turn."""
+    assert _ack_is_sane("Noted. What size did you want?") is False
+
+
+def test_a_greeting_is_rejected():
+    """RICARDO_SYSTEM_PROMPT forbids greeting after the first message; a greeting
+    here reads as the bot restarting the conversation mid-flow."""
+    assert _ack_is_sane("Hello Satish, that's noted.") is False
+
+
+def test_an_overlong_ack_is_rejected():
+    assert _ack_is_sane(" ".join(["word"] * 25)) is False
