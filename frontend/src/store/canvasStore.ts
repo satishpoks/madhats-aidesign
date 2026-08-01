@@ -98,6 +98,13 @@ interface CanvasState {
   toCanvasDesign: () => CanvasDesign
   /** Load a persisted design back onto the canvas (resuming from the email "edit" link). */
   fromCanvasDesign: (design: CanvasDesign | null | undefined) => void
+  /** Roll the canvas back to a Back-checkpoint snapshot.
+   *  Distinct from `fromCanvasDesign`, which STRIPS `locked` so a reworked
+   *  design comes back editable. A checkpoint restore must PRESERVE locks: v2
+   *  locks each finished element, and lockPlaced / patchPendingLogo /
+   *  observe_canvas all anchor on "the last UNLOCKED element on a face".
+   *  Unlocking everything here would re-point that anchor at an old element. */
+  restoreSnapshot: (design: CanvasDesign | null | undefined) => void
 }
 
 const emptyFaces = (): Record<Face, CanvasElement[]> => ({ front: [], back: [], left: [], right: [] })
@@ -284,6 +291,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     const base = { ...emptyFaces(), ...(design?.faces ?? {}) }
     const faces = { ...emptyFaces() } as Record<Face, CanvasElement[]>
     for (const f of FACES) faces[f] = (base[f] ?? []).map(e => ({ ...e, locked: false }))
+    return {
+      faces,
+      colourway: design?.colourway ?? null,
+      activeFace: 'front' as Face,
+      selectedId: null,
+    }
+  }),
+
+  restoreSnapshot: design => set(() => {
+    const base = { ...emptyFaces(), ...(design?.faces ?? {}) }
+    const faces = { ...emptyFaces() } as Record<Face, CanvasElement[]>
+    for (const f of FACES) faces[f] = (base[f] ?? []).map(e => ({ ...e }))
     return {
       faces,
       colourway: design?.colourway ?? null,
