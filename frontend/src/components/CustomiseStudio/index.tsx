@@ -19,8 +19,10 @@ const CHAT_UNANSWERABLE_STATES = new Set(['await_email_verify', 'generating', 'r
 
 /** The active card lifts off the desk. No outline and no outward glow: a ring
  *  around a whole column is a developer's cue, and the glow bled into the
- *  neighbouring panel. */
-const ACTIVE_CARD = 'shadow-[0_10px_24px_-10px_rgba(28,25,23,0.30),0_2px_6px_-2px_rgba(28,25,23,0.10)] border-border'
+ *  neighbouring panel. Elevation-only — both cards already share the same
+ *  `border border-border` on their base container class, so the active card's
+ *  border is not "stronger", only its shadow differs. */
+const ACTIVE_CARD = 'shadow-[0_10px_24px_-10px_rgba(28,25,23,0.30),0_2px_6px_-2px_rgba(28,25,23,0.10)]'
 const RESTING_CARD = 'bg-surfaceAlt/40'
 /** Applied to the resting column's CONTENT, never its container. The old
  *  blanket `opacity-60` faded live text to grey, so the half read as disabled
@@ -60,7 +62,10 @@ export function CustomiseStudio() {
           className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
           <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} />
-          <div className={`flex min-h-0 min-w-0 flex-1 ${canvasActive ? '' : RESTING_CONTENT}`}>
+          <div
+            data-testid="canvas-column-content"
+            className={`flex min-h-0 min-w-0 flex-1 ${canvasActive ? '' : RESTING_CONTENT}`}
+          >
             <DesignStudioSurface />
           </div>
         </div>
@@ -78,7 +83,10 @@ export function CustomiseStudio() {
             instruction="Your turn — answer here"
             active={!canvasActive && chatAnswerable}
           />
-          <div className={`flex min-h-0 flex-1 flex-col ${!canvasActive ? '' : RESTING_CONTENT}`}>
+          <div
+            data-testid="chat-column-content"
+            className={`flex min-h-0 flex-1 flex-col ${!canvasActive ? '' : RESTING_CONTENT}`}
+          >
             <ChatColumn />
           </div>
         </div>

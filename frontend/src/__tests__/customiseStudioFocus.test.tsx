@@ -74,12 +74,37 @@ describe('CustomiseStudio focus cue', () => {
     expect(screen.getByTestId('canvas-column').className).not.toContain('pointer-events-none')
   })
 
-  it('does not dim the resting column wholesale', () => {
-    // opacity-60 on the container faded live text to grey, so the resting half
-    // read as disabled or mid-error. Only its CONTENT softens now.
+  it('does not dim the resting column wholesale — canvas resting, chat active', () => {
+    // The old blanket opacity-60 sat on the CONTAINER and faded live text to
+    // grey, so the resting half read as disabled or mid-error. Now the
+    // softening lives only on the inner content wrapper. Assert BOTH halves of
+    // that invariant with a value-agnostic pattern (not a literal 'opacity-60'
+    // or 'opacity-50', which would silently stop protecting anything the next
+    // time the value is tuned): the container carries no opacity utility at
+    // all, and the content wrapper does.
     useChatStore.setState({ canvasDirective: directive([]) } as never)
     render(<CustomiseStudio />)
-    expect(screen.getByTestId('canvas-column').className).not.toContain('opacity-60')
+    expect(screen.getByTestId('canvas-column').className).not.toMatch(/(^|\s)opacity-/)
+    expect(screen.getByTestId('canvas-column-content').className).toMatch(/(^|\s)opacity-/)
+  })
+
+  it('does not dim the resting column wholesale — chat resting, canvas active', () => {
+    // Mirrors the case above with the roles swapped, so the invariant is
+    // pinned on BOTH columns, not just whichever one happens to be resting in
+    // the other tests in this file.
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').className).not.toMatch(/(^|\s)opacity-/)
+    expect(screen.getByTestId('chat-column-content').className).toMatch(/(^|\s)opacity-/)
+  })
+
+  it('never blocks pointer events on the resting chat column', () => {
+    // Mirrors "never blocks pointer events on the resting column" with the
+    // roles swapped — the original test being replaced checked both columns
+    // in one case; this restores that coverage for the chat side.
+    useChatStore.setState({ canvasDirective: { ...directive(['upload']), showDone: true } } as never)
+    render(<CustomiseStudio />)
+    expect(screen.getByTestId('chat-column-wrap').className).not.toContain('pointer-events-none')
   })
 
   it('puts the active header on the CHAT column at ASK_LOGO_PLACEMENT — tool allowed, no showDone/autoOpen', () => {
