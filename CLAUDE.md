@@ -1006,6 +1006,31 @@ stack has no catalogue sync unless you run the script yourself:
   to be broken". Objects survive; `git update-ref` fails because it cannot lock an
   unparseable ref. Recover the tip from `.git/logs/refs/heads/<branch>` or
   `.git/logs/HEAD`, `rm` the corrupt ref file, then `git update-ref`.
+- Open ticket: **every chat payload with NO `canvas` directive now renders the
+  canvas UNwatermarked.** `chatStore`'s default is `'watermark' in data ?
+  data.watermark !== false : rawCanvas !== null` (2026-08-01 review-gate batch,
+  final fix wave). Only `state_machine_v2.public_data_for` emits either key, so
+  this covers BOTH the v2 shared tail (generating / verify / refine / quote —
+  `orchestrator_v2` delegates those to v1 verbatim) AND, less obviously, a
+  **resume**: `sessions._public_data` emits no directive, so reloading
+  `?session=<token>` at `review_design` / `ask_final_notes` / `request_quote` /
+  `finalize_canvas` shows an unwatermarked design where a live turn at the same
+  state shows a watermarked one. Live turns at those four states are unaffected
+  — the backend flag is explicit there, so the default is never consulted. Fix
+  = stamp an explicit `watermark` in v1's `_public_data` and
+  `sessions._public_data` for canvas flows (four producers). Scoped and ticketed
+  by owner ruling rather than fixed, to keep the branch mergeable. The comment
+  at `state_machine_v2.py:349-352` claiming the frontend "falls back to its own
+  default — which is `true`" is now STALE and should be fixed with it.
+- Known gap (owner-ruled as a Resend sandbox artifact, 2026-08-01): an email the
+  provider cannot deliver to **strands the customer permanently** at the
+  `AWAIT_EMAIL_VERIFY` hard gate. `leads.is_valid_email` is NOT the constraint —
+  it accepts plus-aliases (`satishpoks+test@gmail.com` verified True). Resend's
+  sandbox 403s any recipient that is not the account owner, `email.py:41-56`
+  deliberately swallows the failure so it cannot crash the already-persisted
+  lead, and the gate ships no chips, no input and no in-chat "resend the link"
+  affordance. In production with a verified sending domain this should not fire;
+  a bounce, typo or blocked domain still would.
 - Open ticket: the mojibake root cause behind `state_machine_v2._norm`'s
   `repair_mojibake` call (2026-08-01 review-gate batch, Task 3) was never
   identified — every layer this repo controls (Python source, wire bytes,
