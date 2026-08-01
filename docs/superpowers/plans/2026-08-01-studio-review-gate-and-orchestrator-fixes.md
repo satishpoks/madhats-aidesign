@@ -777,8 +777,9 @@ def test_storefront_returns_the_watermark_text(client, store_headers):
 def test_storefront_never_leaks_the_watermark_asset(client, store_headers):
     """public_brand's allow-list must still hold: the internal asset URL is not
     a customer-facing field, and adding a watermark key must not smuggle it out."""
-    body = res.text if (res := client.get("/storefront", headers=store_headers)) else ""
-    assert "watermark_asset_url" not in body
+    res = client.get("/storefront", headers=store_headers)
+    assert res.status_code == 200
+    assert "watermark_asset_url" not in res.text
 ```
 
 Match the existing fixtures in `backend/tests/` — inspect a neighbouring route test (e.g. `test_products.py` or `test_admin_stores.py`) for the real `client` / store-header fixture names and use those, rather than inventing them.
