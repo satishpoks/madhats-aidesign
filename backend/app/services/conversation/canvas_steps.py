@@ -36,6 +36,26 @@ class Chip:
 
 
 @dataclass(frozen=True)
+class Checkpoint:
+    """A customer-meaningful moment the Back menu can return to.
+
+    Declared on the step that OPENS it, so an element loop pass is exactly one
+    checkpoint — the face question, the placement and the background question
+    live INSIDE it, not beside it. That is what keeps the menu readable and the
+    maintenance cost at one record per checkpoint.
+
+    `label` and `frozen_when` are pure functions of `collected`: the whole
+    offerable-list computation is testable with plain dicts, no DB, no LLM.
+
+    `label` is rendered at CAPTURE time — before the step is answered — so it
+    must never assume its own slot is set.
+    """
+    kind: str
+    label: Callable[[dict], str]
+    frozen_when: Callable[[dict], bool]
+
+
+@dataclass(frozen=True)
 class Step:
     id: S
     ask: str                                   # format string; ctx = name/persona/intro
@@ -80,15 +100,8 @@ class Step:
     # record for the same reason as `prepare`: the alternative is an
     # `if step.id is ASK_LOGO_BG` branch in the orchestrator.
     ops: Callable[[dict, dict], list[dict]] | None = None
-    # Extra keys (beyond `slots`) a deliberate Back gesture may clear to
-    # re-open this step. Needed for steps that gate on a derived flag rather
-    # than a writable slot directly — e.g. ASK_DECORATION reads
-    # `decoration_done` (set by `_apply_decoration`, not a slot itself), so
-    # clearing only its writable slots never flips its done_when.
-    # `email_captured`/`quote_requested` and any other terminal flag must
-    # NEVER appear here — Back must not be able to un-verify email or
-    # un-submit a quote. See test_no_step_back_clears_email_captured_or_quote_requested.
-    back_clears: tuple[str, ...] = ()
+    # The Back destination this step opens, if any. See Checkpoint.
+    checkpoint: Checkpoint | None = None
     # When the interpreter returns NO value for this step's own slot, bank the
     # raw customer message into it. Set on ASK_PURPOSE only.
     #
@@ -493,6 +506,83 @@ def _direct_email(message: str) -> dict:
     return {"email": email} if email and leads_service.is_valid_email(email) else {}
 
 
+# --- Back checkpoints -------------------------------------------------------
+# Two freeze predicates cover every checkpoint, and both read a flag the
+# customer sets by tapping a chip:
+#   `decor_done`       — "No, that's everything" at ASK_ANYTHING_ELSE.
+#   `design_confirmed` — "Looks great, send it" at REVIEW_DESIGN.
+# Freezing is PER-CHECKPOINT, not a positional floor: `name` freezes on email
+# verification, which happens mid-design, while the logo placed just before the
+# email step stays rewindable. A floor model cannot express that.
+
+def _frozen_on_design_agreed(c: dict) -> bool:
+    return bool(c.get("decor_done"))
+
+
+def _frozen_on_design_confirmed(c: dict) -> bool:
+    return bool(c.get("design_confirmed"))
+
+
+def _frozen_on_email_verified(c: dict) -> bool:
+    return bool(c.get("email_verified"))
+
+
+def _em(value: object) -> str:
+    """An answer for a label, or a placeholder when the step is unanswered
+    (labels render at capture time, before the answer exists)."""
+    return str(value) if value not in (None, "", []) else "not set"
+
+
+def _label_name(c: dict) -> str:
+    return f"Your name — {_em(c.get('name'))}"
+
+
+def _label_has_logo(c: dict) -> str:
+    v = c.get("has_logo")
+    return f"Logo or image — {'yes' if v else 'no' if v is False else 'not set'}"
+
+
+def _label_logo(c: dict) -> str:
+    n = len(c.get("logos") or []) + 1
+    face = _pending(c).get("face")
+    bits = [f"Logo {n}"]
+    if face:
+        bits.append(str(face))
+    if _pending(c).get("bg") == "removed":
+        bits.append("background removed")
+    return bits[0] if len(bits) == 1 else f"{bits[0]} — {', '.join(bits[1:])}"
+
+
+def _label_decor(c: dict) -> str:
+    """Deliberately NOT numbered. Unlike the logo loop, which banks each placed
+    logo into `logos`, the decor loop keeps only scalar slots and
+    `_apply_anything_else` POPS them all on "Add something else" — so nothing
+    accumulates and a pass index cannot be derived from `collected`. Describing
+    the decoration is both achievable and more useful in the menu than a count.
+    """
+    choice = c.get("decor_choice")
+    face = c.get("decor_face")
+    head = str(choice).capitalize() if choice else "Text or graphic"
+    return f"{head} — {face}" if face else head
+
+
+def _label_quantity(c: dict) -> str:
+    return f"Quantity — {_em(c.get('quantity'))}"
+
+
+def _label_decoration(c: dict) -> str:
+    types = c.get("decoration_types") or []
+    return f"Decoration — {', '.join(str(t) for t in types) if types else 'not set'}"
+
+
+def _label_needed_by(c: dict) -> str:
+    return f"Needed by — {_em(c.get('needed_by'))}"
+
+
+def _label_purpose(c: dict) -> str:
+    return f"What it's for — {_em(c.get('purpose'))}"
+
+
 REGISTRY: tuple[Step, ...] = (
     Step(
         id=S.ASK_NAME,
@@ -502,6 +592,8 @@ REGISTRY: tuple[Step, ...] = (
         apply=_apply_name,                     # rejects filler — "ok" is not a name.
         direct_answer=_direct_name,
         done_when=lambda c: bool(c.get("name")),
+        checkpoint=Checkpoint(kind="name", label=_label_name,
+                              frozen_when=_frozen_on_email_verified),
     ),
     Step(
         id=S.SHOW_INTRO,
@@ -526,6 +618,8 @@ REGISTRY: tuple[Step, ...] = (
         # skip on the raw slot; `False` stays unmet until the apply has actually
         # run (which is what `not _logos_open(c)` observes).
         done_when=lambda c: c.get("has_logo") is True or not _logos_open(c),
+        checkpoint=Checkpoint(kind="has_logo", label=_label_has_logo,
+                              frozen_when=_frozen_on_design_agreed),
     ),
     Step(
         id=S.ASK_LOGO_PLACEMENT,
@@ -548,6 +642,8 @@ REGISTRY: tuple[Step, ...] = (
         # answered, or the logo lands on whatever face is already active.
         auto_open=None,
         face_target=True,
+        checkpoint=Checkpoint(kind="logo", label=_label_logo,
+                              frozen_when=_frozen_on_design_agreed),
     ),
     Step(
         id=S.LOGO_ADJUST,
@@ -655,6 +751,8 @@ REGISTRY: tuple[Step, ...] = (
                Chip("No, nothing else", {"decor_done": True})),
         slots=("decor_choice", "decor_done"),
         done_when=lambda c: bool(c.get("decor_done")) or bool(c.get("decor_choice")),
+        checkpoint=Checkpoint(kind="decor", label=_label_decor,
+                              frozen_when=_frozen_on_design_agreed),
     ),
     Step(
         id=S.ASK_DECOR_PLACEMENT,
@@ -715,6 +813,8 @@ REGISTRY: tuple[Step, ...] = (
         # code gated on `quantity not in (None, "")` while the parser fell back
         # to 0, so ANY input advanced and the re-ask branch was dead code.
         done_when=lambda c: "quantity" in c,
+        checkpoint=Checkpoint(kind="quantity", label=_label_quantity,
+                              frozen_when=_frozen_on_design_confirmed),
     ),
     Step(
         id=S.ASK_DECORATION,
@@ -733,12 +833,8 @@ REGISTRY: tuple[Step, ...] = (
         apply=_apply_decoration,
         # A mix IS an answer to this step; ASK_DECORATION_MIX asks what it is.
         done_when=lambda c: bool(c.get("decoration_done") or c.get("decoration_mix")),
-        # `decoration_done`/`decoration_type` are derived flags `_apply_decoration`
-        # sets, not writable slots — Back needs to clear them too, or re-opening
-        # this step via `last_answered_step`/`handle_back` would never flip
-        # done_when back to False. `decoration_options` (store-loaded by
-        # `prepare`) is deliberately NOT cleared — it isn't an answer.
-        back_clears=("decoration_done", "decoration_type"),
+        checkpoint=Checkpoint(kind="decoration", label=_label_decoration,
+                              frozen_when=_frozen_on_design_confirmed),
     ),
     Step(
         id=S.ASK_DECORATION_MIX,
@@ -784,6 +880,8 @@ REGISTRY: tuple[Step, ...] = (
         # on an earlier turn would otherwise satisfy the step and silently skip
         # the question — losing the timeframe sales needs to quote.
         done_when=lambda c: bool(c.get("needed_by")),
+        checkpoint=Checkpoint(kind="needed_by", label=_label_needed_by,
+                              frozen_when=_frozen_on_design_confirmed),
     ),
     Step(
         id=S.ASK_PURPOSE,
@@ -796,6 +894,8 @@ REGISTRY: tuple[Step, ...] = (
         # makes that impossible — whatever they typed becomes the answer.
         accept_verbatim=True,
         done_when=lambda c: bool(c.get("purpose")),
+        checkpoint=Checkpoint(kind="purpose", label=_label_purpose,
+                              frozen_when=_frozen_on_design_confirmed),
     ),
     Step(
         id=S.REVIEW_DESIGN,
@@ -863,9 +963,25 @@ def by_id(state: S) -> Step | None:
     return _BY_ID.get(state)
 
 
+def by_id_value(value: str) -> Step | None:
+    """The Step for a state's persisted string value (e.g. `"ask_name"`), or
+    None for an unknown/shared-tail id. Sibling of `by_id` for callers that
+    only have the string form on hand (e.g. a DB column), such as Task 3's
+    checkpoint-restore lookup."""
+    try:
+        state = S(value)
+    except ValueError:
+        return None
+    return _BY_ID.get(state)
+
+
 def chips_of(step: Step, collected: dict) -> tuple[Chip, ...]:
     """The step's chips — derived from `collected` when they can't be literals."""
     return step.chips_from(collected) if step.chips_from else step.chips
+
+
+CHECKPOINT_STEP_IDS: frozenset[S] = frozenset(
+    s.id for s in REGISTRY if s.checkpoint is not None)
 
 
 # Every slot any step asks for. This is the interpreter's writable set: it may

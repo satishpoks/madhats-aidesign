@@ -748,3 +748,76 @@ def test_accept_verbatim_is_set_on_ask_purpose_only():
     logo_face (an enum) or quantity (an int) and corrupt the design."""
     verbatim = {s.id for s in cs.REGISTRY if s.accept_verbatim}
     assert verbatim == {S.ASK_PURPOSE}
+
+
+def test_exactly_these_steps_open_a_checkpoint():
+    """Guard test: adding a registry step forces a deliberate decision about
+    whether it is a Back destination. See the spec's section 5.1."""
+    assert cs.CHECKPOINT_STEP_IDS == frozenset({
+        S.ASK_NAME, S.ASK_HAS_LOGO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR,
+        S.ASK_QUANTITY, S.ASK_DECORATION, S.NEEDED_BY, S.ASK_PURPOSE,
+    })
+
+
+def test_name_checkpoint_freezes_only_on_email_verification():
+    cp = cs.by_id(S.ASK_NAME).checkpoint
+    assert cp.frozen_when({}) is False
+    assert cp.frozen_when({"decor_done": True}) is False   # design done: still editable
+    assert cp.frozen_when({"email_verified": True}) is True
+
+
+def test_design_checkpoints_freeze_when_the_design_is_agreed():
+    for sid in (S.ASK_HAS_LOGO, S.ASK_LOGO_PLACEMENT, S.ASK_ADD_DECOR):
+        cp = cs.by_id(sid).checkpoint
+        assert cp.frozen_when({}) is False, sid
+        assert cp.frozen_when({"decor_done": True}) is True, sid
+
+
+def test_brief_checkpoints_freeze_only_when_the_design_is_confirmed():
+    for sid in (S.ASK_QUANTITY, S.ASK_DECORATION, S.NEEDED_BY, S.ASK_PURPOSE):
+        cp = cs.by_id(sid).checkpoint
+        assert cp.frozen_when({"decor_done": True}) is False, sid
+        assert cp.frozen_when({"design_confirmed": True}) is True, sid
+
+
+def test_email_steps_are_never_checkpoints():
+    # Verified email must not be re-askable; the verify gate freezes all input
+    # anyway, so there is no window in which an unverified one is editable.
+    assert cs.by_id(S.ASK_EMAIL).checkpoint is None
+    assert cs.by_id(S.AWAIT_EMAIL_VERIFY).checkpoint is None
+
+
+def test_labels_read_as_the_customer_s_own_answer():
+    assert cs.by_id(S.ASK_NAME).checkpoint.label({"name": "Satish"}) == "Your name — Satish"
+    assert cs.by_id(S.ASK_QUANTITY).checkpoint.label({"quantity": 50}) == "Quantity — 50"
+    assert cs.by_id(S.ASK_HAS_LOGO).checkpoint.label({"has_logo": True}) == "Logo or image — yes"
+    assert cs.by_id(S.ASK_HAS_LOGO).checkpoint.label({"has_logo": False}) == "Logo or image — no"
+
+
+def test_labels_never_crash_on_a_missing_or_partial_value():
+    """Labels are rendered at CAPTURE time, i.e. BEFORE the step is answered —
+    so every label function must cope with its own slot being absent."""
+    for sid in cs.CHECKPOINT_STEP_IDS:
+        text = cs.by_id(sid).checkpoint.label({})
+        assert isinstance(text, str) and text
+
+
+def test_logo_label_numbers_the_pass_from_the_banked_collection():
+    logo = cs.by_id(S.ASK_LOGO_PLACEMENT).checkpoint
+    assert logo.label({"logos": [{"face": "front"}]}) == "Logo 2"
+    assert logo.label({"logos": [], "pending_logo": {"face": "front"}}) == "Logo 1 — front"
+
+
+def test_decor_label_is_not_numbered():
+    """There is NO `decor` collection — ASK_ANYTHING_ELSE's apply POPS
+    decor_choice/decor_face/decor_placed on each new pass, so nothing
+    accumulates and a pass index cannot be derived from `collected`. The label
+    describes the decoration instead of counting it."""
+    decor = cs.by_id(S.ASK_ADD_DECOR).checkpoint
+    assert decor.label({"decor_choice": "text", "decor_face": "left"}) == "Text — left"
+    assert decor.label({}) == "Text or graphic"
+
+
+def test_back_clears_is_gone():
+    """Replaced by snapshots — nothing may still declare it."""
+    assert not hasattr(cs.REGISTRY[0], "back_clears")

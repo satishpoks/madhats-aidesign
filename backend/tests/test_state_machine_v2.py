@@ -786,14 +786,6 @@ def test_last_answered_step_can_target_ask_decoration_when_past_it():
     assert v2.last_answered_step(c).id is S.ASK_DECORATION
 
 
-def test_no_step_back_clears_email_captured_or_quote_requested():
-    """Guard: Back must never be able to un-verify email or un-submit a quote.
-    These terminal flags must not appear in ANY step's back_clears."""
-    for step in cs.REGISTRY:
-        assert "email_captured" not in step.back_clears
-        assert "quote_requested" not in step.back_clears
-
-
 def test_back_is_off_once_the_quote_is_committed():
     # A finalize_canvas-shaped collected — everything answered, quote already
     # submitted. quote_requested IS REQUEST_QUOTE's writable done_when slot,
