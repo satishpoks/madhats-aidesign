@@ -218,7 +218,7 @@ async def handle_message(session_id: str, message: str,
         # turn delegates to v1 — but THIS turn must speak, and v2 has no copy
         # for it.
         collected["generation_blocked"] = "daily_limit"
-        reply = f"{prompts.GENERATION_BLOCKED_ASIDE} {prompts.CANVAS_QUOTE_ASK}"
+        reply = f"{prompts.GENERATION_BLOCKED_ASIDE}\n\n{prompts.CANVAS_QUOTE_ASK}"
         data = {"options": ["Yes, request a quote", "No, I'm all set"],
                 "progress": v2.progress_for(cs.by_id(S.FINALIZE_CANVAS))}
         return await _persist(sb, session_id, collected, None, reply, state_before,

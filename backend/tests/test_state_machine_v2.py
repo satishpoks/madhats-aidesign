@@ -378,7 +378,7 @@ def test_logo_adjust_does_not_duplicate_its_tip():
     # "tap the button" instruction implicitly — this step auto-opens the picker.)
     out = _reply(S.LOGO_ADJUST, {"name": "Sam", "has_logo": True, "pending_logo": {"face": "front"}})
     assert prompts.V2_TOOL_TIPS["upload"] not in out
-    assert "drag to move" in out and "Done" in out
+    assert "move it" in out and "Done" in out
 
 
 def test_decor_adjust_reply_matches_its_registry_copy():

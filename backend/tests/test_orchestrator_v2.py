@@ -285,6 +285,27 @@ async def test_daily_cap_reroutes_to_the_quote_ask(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_daily_cap_reply_separates_the_aside_from_the_quote_ask(monkeypatch):
+    """The honesty-gate reply joins two separate customer-facing sentences —
+    the run-on defect every other join site in this file was fixed for."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_PURPOSE.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True, "has_logo": True,
+        "logos_done": True, "decor_done": True, "quantity": 50,
+        "needed_by": "ASAP", "email_captured": True, "email_verified": True, "design_confirmed": True,
+        "final_notes_done": True,
+    }
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: False)
+    monkeypatch.setattr(cs.leads_service, "record_quote_request", lambda s, c: "MH-BCDFGH")
+    _llm_returns(monkeypatch, {"purpose": "team caps"})
+    await o2.handle_message("s1", "for the team")
+    res = await o2.handle_message("s1", "Request a quote")
+    assert res["reply"] == f"{prompts.GENERATION_BLOCKED_ASIDE}\n\n{prompts.CANVAS_QUOTE_ASK}"
+
+
+@pytest.mark.asyncio
 async def test_filler_is_never_stored_as_a_name(monkeypatch):
     """Pins the load-bearing update-then-apply order in handle_message.
 
@@ -659,7 +680,7 @@ async def test_final_notes_ask_shows_disclaimer_links(monkeypatch):
 
     assert store["session"]["state"] == S.ASK_FINAL_NOTES.value
     assert prompts.V2_DEFAULT_COLOUR_EMBROIDERY_URL in out["reply"]
-    assert "match as closely as we can" in out["reply"]
+    assert "we'll use it" in out["reply"]
     assert out["data"]["options"] == ["Nothing to add"]
 
 

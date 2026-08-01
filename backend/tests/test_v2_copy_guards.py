@@ -38,12 +38,15 @@ def _v2_copy_strings() -> list[str]:
     return out
 
 
-def test_no_v2_copy_points_below_the_cap():
-    """The Adjust panel moved ABOVE the cap. Copy saying "under the cap" sends
-    the customer looking at empty space — and on a phone that was exactly the
-    bug this move fixes."""
+def test_no_v2_copy_hard_codes_the_adjust_panels_position():
+    """The panel's position is RESPONSIVE — the tool rail on desktop, above the
+    cap on mobile (see frontend useIsDesktop). Any hard-coded position is wrong
+    in one of the two layouts, so the copy must name the panel and stop there.
+    Supersedes the old "under the cap" check, which only caught one of three."""
     for s in _v2_copy_strings():
-        assert "under the cap" not in s.lower(), f"stale toolbar position in: {s!r}"
+        low = s.lower()
+        for stale in ("above the cap", "below the cap", "under the cap"):
+            assert stale not in low, f"hard-coded panel position {stale!r} in: {s!r}"
 
 
 def test_the_adjust_panel_is_named_where_the_customer_needs_it():
@@ -51,8 +54,8 @@ def test_the_adjust_panel_is_named_where_the_customer_needs_it():
     they placed, and they are concatenated verbatim (never through a model), so
     naming the panel there is what makes it discoverable."""
     for key in ("text", "shape"):
-        assert "Adjust panel above the cap" in prompts.V2_TOOL_TIPS[key]
-    assert "Adjust panel above the cap" in prompts.V2_BG_INSTRUCTIONS
+        assert "Adjust panel" in prompts.V2_TOOL_TIPS[key]
+    assert "Adjust panel" in prompts.V2_BG_INSTRUCTIONS
 
 
 def test_the_background_ack_says_marked_not_removed():

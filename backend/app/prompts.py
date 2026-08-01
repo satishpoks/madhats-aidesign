@@ -1101,21 +1101,20 @@ QUOTE_ERROR_HTML = """\
 # --- v2 step-by-step canvas orchestrator copy ---
 V2_TOOL_TIPS = {
     "upload": (
-        'Select the highlighted "Upload image" button to add your logo. '
-        "Once it's on the cap you can drag it to move it, pull a corner to "
-        "resize, and use the top handle to rotate. Select the logo at any "
-        "time to open the Adjust panel above the cap."
+        'Select the highlighted "Upload image" button to add your logo.\n\n'
+        "Drag to move it. Pull a corner to resize. Use the top handle to "
+        "rotate.\n\n"
+        "Select the logo to open the Adjust panel."
     ),
     "text": (
-        'Select the highlighted "Add text" button, type your wording, then '
-        "drag to position it.\n"
-        "Select the text to open the Adjust panel above the cap, where you "
+        'Select the highlighted "Add text" button, then type your wording.\n\n'
+        "Drag to position it. Select it to open the Adjust panel, where you "
         "can change the font, size and colour."
     ),
     "shape": (
-        'Select the highlighted "Graphics" button to drop in a shape, then '
-        "drag to position and resize it. Select the shape to open the Adjust "
-        "panel above the cap and recolour it."
+        'Select the highlighted "Graphics" button to add a shape.\n\n'
+        "Drag to position and resize it. Select it to open the Adjust panel "
+        "to recolour it."
     ),
 }
 
@@ -1126,9 +1125,10 @@ V2_TOOL_TIPS = {
 # Must not promise processing or a wait: the mark is instant and the canvas
 # does not change. The knockout happens at render.
 V2_BG_INSTRUCTIONS = (
-    "If it does, I'll mark it and we'll knock the background out when we "
-    "render your design — the cap on screen won't change. You can also tick "
-    'or untick "Remove background" yourself in the Adjust panel above the cap.'
+    "If it does, I'll mark it now. We'll knock the background out when we "
+    "render your design, so the cap on screen won't change.\n\n"
+    'You can also tick or untick "Remove background" yourself in the Adjust '
+    "panel."
 )
 
 # Prepended to the next step's copy when the customer ticked "Remove background"
@@ -1140,7 +1140,7 @@ V2_BG_INSTRUCTIONS = (
 # shows the background, and the knockout happens at render. Claiming otherwise
 # is contradicted by what the customer is looking at as they read it.
 V2_BG_ALREADY_REMOVED = (
-    "I can see you've already marked that logo's background for removal, so "
+    "I can see you've already marked that logo's background for removal. "
     "I'll skip that question."
 )
 
@@ -1148,8 +1148,8 @@ V2_BG_ALREADY_REMOVED = (
 # is a sentinel (unlock every tool), not one of the real canvas tools those
 # tips describe.
 V2_REWORK_INSTRUCTIONS = (
-    "Every tool is open again — move, resize, add or remove anything you "
-    "need, then select Done when you're happy with it."
+    "Every tool is open again. Move, resize, add or remove anything you "
+    "need.\n\nSelect Done when you're happy with it."
 )
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
@@ -1157,13 +1157,11 @@ V2_REWORK_INSTRUCTIONS = (
 # keep going." — no greeting, no question — and their reply ("ok") was stored
 # as their name.
 V2_ASK_NAME = (
-    "Welcome! I'm {persona}, your design assistant. I'll help bring your cap "
-    "design to life. May I please know your name?"
+    "Welcome. I'm {persona}, your design assistant.\n\nMay I have your name?"
 )
 
 V2_ASK_NAME_RETRY = (
-    "Apologies, I didn't catch that — what name should I put on your design "
-    "brief?"
+    "Apologies, I didn't catch that. What name should I put on the brief?"
 )
 
 # Shown when the address the customer gave was rejected — a malformed string, or
@@ -1172,13 +1170,13 @@ V2_ASK_NAME_RETRY = (
 # never quotes the address back (PII stays out of the reply the same way it
 # stays out of the logs).
 V2_ASK_EMAIL_RETRY = (
-    "Apologies, that email address doesn't look quite right. Please check it "
-    "and enter it again so I can send your design and quotation."
+    "That email address doesn't look quite right. Please check it and enter "
+    "it again."
 )
 
 V2_DEFAULT_INTRO = (
-    "Let's get started. We'll begin with your logo, then move on to any text "
-    "or graphics, and I'll guide you through each tool along the way."
+    "Let's begin. We'll start with your logo, then add any text or graphics. "
+    "I'll guide you through each tool."
 )
 
 # Shown the instant the customer gives their email at ASK_EMAIL. The address is
@@ -1188,8 +1186,8 @@ V2_DEFAULT_INTRO = (
 # inbox). The address is already in the chat thread (they just typed it), so
 # echoing it here is not new PII — and it is never written to logs.
 V2_EMAIL_VERIFY_NOTICE = (
-    "Thank you. I've sent a verification link to {email} — please open it to "
-    "confirm your address so we can email your finished design there."
+    "Thank you. I've sent a verification link to {email}.\n\n"
+    "Please open it to confirm your address."
 )
 
 # The gate's own copy, appended to the notice above on the turn the link goes
@@ -1197,17 +1195,17 @@ V2_EMAIL_VERIFY_NOTICE = (
 # unmet until collected.email_verified), so this must set that expectation
 # rather than imply the conversation is still moving.
 V2_AWAIT_VERIFY = (
-    "I'll wait here until that's confirmed — the moment you open the link we'll "
-    "carry straight on with your design."
+    "I'll wait here until that's confirmed. The moment you open the link, "
+    "we'll carry on."
 )
 
 # Shown when the customer types at the gate instead of opening the link. The
 # step declares no slots, so nothing they say is interpreted; this is the only
 # reply they can get, which is why it has to be the useful one (spam folder).
 V2_AWAIT_VERIFY_RETRY = (
-    "I do need your address confirmed before we continue. Please open the "
-    "verification link I've sent you — if it hasn't arrived, please check your "
-    "spam folder."
+    "I do need your address confirmed before we continue.\n\n"
+    "Please open the verification link I've sent you. If it hasn't arrived, "
+    "please check your spam folder."
 )
 
 # Shown when a customer turn contains a slur or hate term. The flow does NOT
@@ -1232,13 +1230,13 @@ V2_DEFAULT_COLOUR_EMBROIDERY_URL = "https://example.com/embroidery-chart"
 V2_DEFAULT_COLOUR_PRINT_URL = "https://example.com/print-colour-guide"
 
 V2_COLOUR_DISCLAIMER = (
-    "One note before we send this over, {name} — screen colours aren't "
-    "always exact. What you see is a guide; our team matches your design to "
-    "the closest embroidery and print colours.\n\n"
+    "One note before we send this over, {name}. Screen colours aren't always "
+    "exact.\n\n"
+    "What you see is a guide. Our team matches your design to the closest "
+    "embroidery and print colours.\n\n"
     "Reference charts — embroidery: {embroidery_url} · print: {print_url}\n\n"
-    "If you already have a specific print colour (CMYK or Pantone) or an "
-    "embroidery thread number, please enter it below and we'll use it — "
-    "otherwise we'll match as closely as we can.\n\n"
+    "Have a specific print colour (CMYK or Pantone) or an embroidery thread "
+    "number? Enter it below and we'll use it.\n\n"
     "Any final notes for the team? Type them here, or select "
     '"Nothing to add".'
 )
@@ -1280,7 +1278,7 @@ V2_BACK_RESTART_ACK = (
 
 V2_ACK_PROMPT = """You are {persona}, a professional cap-design assistant.
 
-Write ONE short, courteous sentence acknowledging what the customer just told you. Then stop.
+Write ONE short, courteous sentence of at most 12 words acknowledging what the customer just told you. Then stop.
 
 Keep it businesslike — no slang, no exclamation marks.
 

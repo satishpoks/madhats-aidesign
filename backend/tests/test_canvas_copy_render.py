@@ -20,13 +20,13 @@ def _render(step, collected):
 def test_greeting_introduces_the_persona_by_name():
     out = _render(cs.by_id(S.ASK_NAME), {})
     assert "I'm Ricardo, your design assistant" in out
-    assert "bring your cap design to life" in out
+    assert "May I have your name?" in out
     assert "{" not in out            # every placeholder resolved
 
 
 def test_email_step_greets_the_customer_by_name():
     out = _render(cs.by_id(S.ASK_EMAIL), {"name": "Sam"})
-    assert out.startswith("Great job, Sam.")
+    assert out.startswith("Thank you, Sam.")
     assert "reference code" in out
     assert "{" not in out
 
@@ -35,7 +35,7 @@ def test_email_step_falls_back_when_no_name_was_captured():
     """reply_for defaults `name` to "there" — the step must not render "{name}"
     or crash for a session that somehow reached it without a name."""
     out = _render(cs.by_id(S.ASK_EMAIL), {})
-    assert out.startswith("Great job, there.")
+    assert out.startswith("Thank you, there.")
 
 
 def test_the_greeting_constant_is_the_one_the_step_uses():
