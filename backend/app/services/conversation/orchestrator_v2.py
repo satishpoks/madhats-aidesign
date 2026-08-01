@@ -192,6 +192,15 @@ async def handle_message(session_id: str, message: str,
     collected.update(fields)
     if step.apply:
         step.apply(collected, fields, session)
+    # Labels render at CAPTURE time — before the step they open has been
+    # answered — so the row `step` just entered still carries its "unanswered"
+    # fallback ("Your name — not set") in the DB. Now that `collected` holds
+    # this turn's answer, rewrite the newest live row (the checkpoint the
+    # customer is currently inside) to reflect it. Must run BEFORE `ck.capture`
+    # below: relabel the group being left, then capture the group being entered
+    # — never the other way round, or a same-turn loop advance would relabel
+    # the row `capture` just wrote instead of the one this answer belongs to.
+    ck.relabel(sb, session_id, collected)
     # The customer may have ticked "Remove background" in the Adjust panel
     # themselves. That lives only in the frontend store until finalize, so the
     # live canvas blob (sent on this turn only) is the sole way to see it.

@@ -247,6 +247,70 @@ def test_restoring_an_already_superseded_seq_returns_none():
     assert cp.restore(sb, "s1", 1, {}) is None
 
 
+def test_relabel_rewrites_the_newest_row_once_the_name_is_answered():
+    """Regression for the live bug: every Back-menu entry rendered as
+    'not set' because capture fires on ENTRY to a step, before it is answered.
+    """
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "name", "label": "Your name — not set",
+                        "step_id": S.ASK_NAME.value, "collected": {},
+                        "canvas_design": None, "chat_watermark": None,
+                        "superseded_at": None}])
+    cp.relabel(sb, "s1", {"name": "Satish"})
+    assert sb.rows[0]["label"] == "Your name — Satish"
+
+
+def test_relabel_rewrites_the_has_logo_answer():
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "has_logo",
+                        "label": "Logo or image — not set",
+                        "step_id": S.ASK_HAS_LOGO.value, "collected": {},
+                        "canvas_design": None, "chat_watermark": None,
+                        "superseded_at": None}])
+    cp.relabel(sb, "s1", {"has_logo": True})
+    assert sb.rows[0]["label"] == "Logo or image — yes"
+
+
+def test_relabel_rewrites_the_logo_placement_answer():
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "logo", "label": "Logo 1",
+                        "step_id": S.ASK_LOGO_PLACEMENT.value, "collected": {},
+                        "canvas_design": None, "chat_watermark": None,
+                        "superseded_at": None}])
+    cp.relabel(sb, "s1", {"logos": [], "pending_logo": {"face": "front"}})
+    assert sb.rows[0]["label"] == "Logo 1 — front"
+
+
+def test_relabel_only_touches_the_newest_live_row_not_an_earlier_loop_pass():
+    """Once a second logo's checkpoint is captured, the first logo's label must
+    stay put rather than drifting onto the second pass's answer."""
+    step = cs.by_id(S.ASK_LOGO_PLACEMENT)
+    sb = _FakeSB()
+    cp.capture(sb, "s1", step, S.ASK_HAS_LOGO, {"logos": []}, None)
+    cp.relabel(sb, "s1", {"logos": [], "pending_logo": {"face": "front"}})
+    assert sb.rows[0]["label"] == "Logo 1 — front"
+
+    cp.capture(sb, "s1", step, S.ASK_ANOTHER_LOGO,
+               {"logos": [{"face": "front"}]}, None)
+    cp.relabel(sb, "s1", {"logos": [{"face": "front"}],
+                          "pending_logo": {"face": "back"}})
+
+    assert sb.rows[0]["label"] == "Logo 1 — front"
+    assert sb.rows[1]["label"] == "Logo 2 — back"
+
+
+def test_relabel_with_no_live_rows_is_a_noop():
+    sb = _FakeSB()
+    cp.relabel(sb, "s1", {"name": "Satish"})            # must not raise
+    assert sb.rows == []
+
+
+def test_relabel_skips_the_write_when_the_label_is_unchanged():
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "name", "label": "Your name — Satish",
+                        "step_id": S.ASK_NAME.value, "collected": {},
+                        "canvas_design": None, "chat_watermark": None,
+                        "superseded_at": None}])
+    cp.relabel(sb, "s1", {"name": "Satish"})
+    assert sb.updates == []
+
+
 def test_fake_table_rejects_filters_before_a_verb():
     """Regression guard for a real runtime break, not a style nit.
 

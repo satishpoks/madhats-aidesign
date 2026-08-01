@@ -104,6 +104,46 @@ def capture(sb, session_id: str, step: cs.Step, previous_state,
         log.warning("checkpoint_capture_failed", step=step.id.value)
 
 
+def relabel(sb, session_id: str, collected: dict) -> None:
+    """Re-render the newest live checkpoint's label against the CURRENT collected.
+
+    Labels are rendered at capture time, which is by definition BEFORE the step
+    that opens the checkpoint has been answered — so a freshly captured row
+    always carries its "unanswered" fallback ("Your name — not set"). This runs
+    after each answered turn and rewrites the newest live row, which is the
+    checkpoint currently in progress, so the menu shows the customer's own
+    answer back to them.
+
+    Newest-live is the right anchor: a new group's capture writes a new row that
+    immediately becomes newest, so each group's label stops updating exactly when
+    the customer moves past it — which is what pins a loop pass's label to ITS
+    pass ("Logo 1 — front" stays put once "Logo 2" is captured).
+
+    Best-effort, like capture: a label is a convenience and must never break a turn.
+    """
+    row = None
+    try:
+        rows = live_rows(sb, session_id)
+        if not rows:
+            return
+        row = rows[-1]                       # live_rows orders by seq ascending
+        step = cs.by_id_value(row["step_id"])
+        if step is None or step.checkpoint is None:
+            return
+        new_label = step.checkpoint.label(collected)
+        if new_label == row.get("label"):
+            return
+        # Verb FIRST, filters after — see the note in `restore` above.
+        (sb.table("session_checkpoints").update({"label": new_label})
+         .eq("session_id", session_id).eq("seq", row["seq"]).execute())
+    except Exception:                        # noqa: BLE001 — best effort
+        # Never log the rendered label itself — it can carry the customer's
+        # name (security rule 10). seq/step_id are safe, opaque identifiers.
+        log.warning("checkpoint_relabel_failed",
+                    seq=row.get("seq") if row else None,
+                    step_id=row.get("step_id") if row else None)
+
+
 def _last_chat_id(sb, session_id: str) -> str | None:
     res = (sb.table("chat_messages").select("id")
            .eq("session_id", session_id)
