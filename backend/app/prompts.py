@@ -1098,23 +1098,19 @@ QUOTE_ERROR_HTML = """\
 """
 
 # --- v2 step-by-step canvas orchestrator copy ---
+# Kept to ONE short imperative sentence naming the immediate action — no
+# drag/resize/rotate tutorial, no "select it to open the Adjust panel"
+# trailer. The panel now opens by itself once an element is selected (see
+# test_v2_copy_guards.py::test_the_adjust_panel_is_named_where_the_customer_needs_it
+# for why the panel no longer needs naming here), and this text renders both
+# in the instruction callout above the canvas and, concatenated, in the chat
+# bubble — so it has to stay short on a phone screen. The conditional
+# "Select Done…" line is appended separately, in
+# state_machine_v2.directive_for, not baked in here (see V2_SELECT_DONE).
 V2_TOOL_TIPS = {
-    "upload": (
-        'Select the highlighted "Upload image" button to add your logo.\n\n'
-        "Drag to move it. Pull a corner to resize. Use the top handle to "
-        "rotate.\n\n"
-        "Select the logo to open the Adjust panel."
-    ),
-    "text": (
-        'Select the highlighted "Add text" button, then type your wording.\n\n'
-        "Drag to position it. Select it to open the Adjust panel, where you "
-        "can change the font, size and colour."
-    ),
-    "shape": (
-        'Select the highlighted "Graphics" button to add a shape.\n\n'
-        "Drag to position and resize it. Select it to open the Adjust panel "
-        "to recolour it."
-    ),
+    "upload": 'Select the highlighted "Upload image" button and place your logo on the cap.',
+    "text": 'Select the highlighted "Add text" button and type your wording.',
+    "shape": 'Select the highlighted "Graphics" button and choose a shape.',
 }
 
 # The canvas instruction for ASK_LOGO_BG. Not a V2_TOOL_TIPS entry: those are
@@ -1122,21 +1118,30 @@ V2_TOOL_TIPS = {
 # placed logo selectable (see Step.instructions / the lock note on the step) —
 # the upload tip's "tap Upload image" would be actively wrong here.
 # Must not promise processing or a wait: the mark is instant and the canvas
-# does not change. The knockout happens at render.
+# does not change. The knockout happens at render. Unlike V2_TOOL_TIPS, this
+# one still NAMES the Adjust panel deliberately — it is the one place the
+# customer is told where to find one specific toggle ("Remove background"),
+# and there is no other way to discover it.
 V2_BG_INSTRUCTIONS = (
-    "If it does, I'll mark it now. We'll knock the background out when we "
-    "render your design, so the cap on screen won't change.\n\n"
+    "If it does, I'll mark it now — the cap on screen won't change, and the "
+    "background is knocked out only when we render your design.\n\n"
     'You can also tick or untick "Remove background" yourself in the Adjust '
     "panel."
 )
 
 # The canvas instruction for REWORK_CANVAS. Not a V2_TOOL_TIPS entry: "rework"
 # is a sentinel (unlock every tool), not one of the real canvas tools those
-# tips describe.
-V2_REWORK_INSTRUCTIONS = (
-    "Every tool is open again. Move, resize, add or remove anything you "
-    "need.\n\nSelect Done when you're happy with it."
-)
+# tips describe. The "Select Done…" line is appended separately by
+# directive_for (see V2_SELECT_DONE), not baked in here.
+V2_REWORK_INSTRUCTIONS = "Every tool is open again — move, resize, add or remove anything you need."
+
+# Appended by state_machine_v2.directive_for to a step's instructions ONLY
+# when that step's resolved show_done is true. Not every step renders a Done
+# button (ASK_LOGO_BG explicitly does not, and ASK_LOGO_PLACEMENT has none
+# either), so this can never be baked into a tip — a customer told to press a
+# button that isn't on screen is stuck. One named constant so the sentence
+# can't drift between the tool-step branch and the REWORK_CANVAS branch.
+V2_SELECT_DONE = "Select Done when you're finished."
 
 # The kickoff turn. v2_reply had no ASK_NAME branch and silently fell through
 # to its catch-all, so the customer's first message was answered with "Let's

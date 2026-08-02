@@ -48,11 +48,20 @@ def test_no_v2_copy_hard_codes_the_adjust_panels_position():
 
 
 def test_the_adjust_panel_is_named_where_the_customer_needs_it():
-    """The tool tips are the only place a customer is told how to restyle what
-    they placed, and they are concatenated verbatim (never through a model), so
-    naming the panel there is what makes it discoverable."""
-    for key in ("text", "shape"):
-        assert "Adjust panel" in prompts.V2_TOOL_TIPS[key]
+    """Narrowed 2026-08-02: V2_TOOL_TIPS used to name the Adjust panel so a
+    customer knew where to go after placing an element. That is no longer
+    necessary — the tips are now a single short "select this button and do
+    this" sentence (per owner request: the old drag/resize/rotate tutorial and
+    "select it to open the Adjust panel" trailer ate too much screen,
+    especially on a phone), and the panel opens by itself the moment an
+    element is selected (a mobile bottom-sheet variant of it is separate,
+    parallel work), so a tool tip no longer needs to point at it.
+
+    ASK_LOGO_BG's instructions are the one holdout: that step's whole point is
+    a toggle the customer must find INSIDE the Adjust panel ("Remove
+    background"), and there is no other affordance that tells them where it
+    lives — so it alone still has to name the panel explicitly.
+    """
     assert "Adjust panel" in prompts.V2_BG_INSTRUCTIONS
 
 
