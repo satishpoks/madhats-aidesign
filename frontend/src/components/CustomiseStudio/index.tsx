@@ -6,6 +6,7 @@ import { StoreHeader } from '../StoreHeader'
 import { ChatColumn } from './ChatColumn'
 import { MilestoneBar } from './MilestoneBar'
 import { ColumnHeader } from './ColumnHeader'
+import { RedirectCountdown } from './RedirectCountdown'
 import { useActiveSurface } from '../../lib/useActiveSurface'
 
 /** Chat states where the chat surface is active (per useActiveSurface) but
@@ -103,6 +104,7 @@ export function CustomiseStudio() {
           </div>
         </div>
       </div>
+      <RedirectCountdown />
     </div>
   )
 }

@@ -227,7 +227,12 @@ export function ChatColumn() {
   // to answer a question that no longer moves, which reads as a broken bot.
   // Only pollVerification (above) releases it.
   const awaitingEmailVerify = chatState === 'await_email_verify'
-  const inputLocked = sending || awaitingEmailVerify
+  // The session is over: the quote reference has been issued and there is
+  // nothing left the customer can say that moves anything. An enabled composer
+  // here invites an answer to a question that no longer exists, which reads as
+  // a broken bot — the same reason awaitingEmailVerify locks it.
+  const sessionEnded = chatState === 'quote_requested'
+  const inputLocked = sending || awaitingEmailVerify || sessionEnded
 
   // The backend only sets data.composite_preview: true for the
   // composite_preview state (see orchestrator.py _state_data_extra), so the
@@ -401,7 +406,7 @@ export function ChatColumn() {
     if (speech.error) setError(speech.error)
   }, [speech.error, setError])
 
-  const isStatementOnly = continuable && !sending && !awaitingEmailVerify
+  const isStatementOnly = continuable && !sending && !awaitingEmailVerify && !sessionEnded
 
   // ---------------------------------------------------------------------------
   // Render
@@ -702,7 +707,7 @@ export function ChatColumn() {
             opening it costs no round trip and it can never be stale. No
             targets => no button, which is how "no going back after the design
             is agreed" is expressed — there is no separate disable flag. */}
-        {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && (
+        {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && !sessionEnded && (
           backMenuOpen ? (
             <div className="self-start flex flex-col gap-1.5">
               <span className="text-xs text-textMuted">
@@ -736,7 +741,7 @@ export function ChatColumn() {
         )}
 
         {/* Option chip rows */}
-        {options.length > 0 && colourSwatches.length === 0 && !multiselect && (
+        {options.length > 0 && colourSwatches.length === 0 && !multiselect && !sessionEnded && (
           <div className="flex flex-wrap gap-2">
             {options.map(opt => (
               <button
@@ -751,7 +756,7 @@ export function ChatColumn() {
           </div>
         )}
 
-        {options2.length > 0 && (
+        {options2.length > 0 && !sessionEnded && (
           <div className="flex flex-wrap gap-2">
             {options2.map(opt => (
               <button
@@ -783,7 +788,7 @@ export function ChatColumn() {
             single compact ROW — as a centred stack with halo rings, a big label,
             a kbd chip and an "or type" line it ate ~140px of the chat column,
             which is the scarcest space on this screen. */}
-        {speech.supported && (
+        {speech.supported && !sessionEnded && (
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"

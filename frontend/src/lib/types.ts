@@ -133,6 +133,12 @@ export interface Brand {
   /** Customer's own chat message bubble colour — independent of the site
    *  chrome. Defaults to primary_colour when unset. */
   chat_user_bubble?: string
+  /** Where to send the customer once the quote reference has been shown.
+   *  Absence is the off switch — no URL means no dialog and no timer. */
+  redirect_url?: string
+  /** Countdown before that redirect fires, in seconds. Server-validated to
+   *  5..300; falls back to DEFAULT_REDIRECT_SECONDS when unset. */
+  redirect_seconds?: number
 }
 
 /** Response shape for GET /storefront — store name, persona name, and brand config. */

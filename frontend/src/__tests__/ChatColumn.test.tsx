@@ -44,6 +44,12 @@ function seed() {
 
 beforeEach(() => { vi.clearAllMocks(); seed() })
 
+/** Hydrates the chat store at a given state/data and mounts ChatColumn. */
+function renderColumnAtState(state: string, data: Record<string, unknown> = {}) {
+  useChatStore.getState().hydrate([], state, data)
+  return render(<ChatColumn />)
+}
+
 describe('ChatColumn', () => {
   it('auto-kicks off the intro on mount for a fresh canvas session', async () => {
     render(<ChatColumn />)
@@ -220,5 +226,16 @@ describe('ChatColumn', () => {
     act(() => { useChatStore.setState({ chatState: 'logo_adjust' }) })
 
     expect(screen.getByText('↩ Back')).toBeInTheDocument()
+  })
+
+  it('locks every affordance once the quote reference has been issued', () => {
+    // Nothing the customer types can move a finished session. Leaving the
+    // composer live would invite an answer to a question that no longer exists.
+    renderColumnAtState('quote_requested', { options: ['Something'], continuable: true })
+    expect(screen.getByPlaceholderText(/type your message/i)).toBeDisabled()
+    expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Something' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
   })
 })
