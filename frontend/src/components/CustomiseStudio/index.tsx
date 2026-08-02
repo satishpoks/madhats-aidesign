@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useBrandStore } from '../../store/brandStore'
@@ -7,7 +8,8 @@ import { ChatColumn } from './ChatColumn'
 import { MilestoneBar } from './MilestoneBar'
 import { ColumnHeader } from './ColumnHeader'
 import { RedirectCountdown } from './RedirectCountdown'
-import { useActiveSurface } from '../../lib/useActiveSurface'
+import { useActiveSurface, type ActiveSurface } from '../../lib/useActiveSurface'
+import { useIsDesktop } from '../../lib/useIsDesktop'
 
 /** Chat states where the chat surface is active (per useActiveSurface) but
  *  there is nothing the customer can actually answer: `await_email_verify`
@@ -30,6 +32,45 @@ const RESTING_CARD = 'bg-surfaceAlt/40'
  *  rather than "not your turn". */
 const RESTING_CONTENT = 'opacity-50 transition-opacity duration-300'
 
+/** Phone-only panel switcher. Desktop shows both halves side by side and never
+ *  renders this. The dot marks the half the FLOW wants, which is only ever
+ *  visible after a manual peek — auto-switch keeps them in agreement otherwise. */
+function PanelTabs({ tab, wanted, onPick }: {
+  tab: ActiveSurface
+  wanted: ActiveSurface
+  onPick: (t: ActiveSurface) => void
+}) {
+  const TABS: { id: ActiveSurface; label: string }[] = [
+    { id: 'chat', label: 'Chat' },
+    { id: 'canvas', label: 'Design' },
+  ]
+  return (
+    <div data-testid="panel-tabs" role="tablist" aria-label="Studio panels"
+         className="flex gap-1 border-b border-border bg-base px-2 py-1.5 md:hidden">
+      {TABS.map(t => (
+        <button
+          key={t.id}
+          data-testid={`tab-${t.id}`}
+          role="tab"
+          aria-selected={tab === t.id}
+          onClick={() => onPick(t.id)}
+          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+            tab === t.id
+              ? 'bg-surface text-textPrimary shadow-sm'
+              : 'text-textMuted hover:text-textPrimary'
+          }`}
+        >
+          {t.label}
+          {tab !== t.id && wanted === t.id && (
+            <span aria-label="needs your attention"
+                  className="h-1.5 w-1.5 rounded-full bg-accent" />
+          )}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /**
  * CustomiseStudio — the split-screen canvas experience.
  * LEFT: the full interactive canvas studio (DesignStudioSurface).
@@ -49,18 +90,41 @@ export function CustomiseStudio() {
   const chatState = useChatStore(s => s.chatState)
   const chatAnswerable = !CHAT_UNANSWERABLE_STATES.has(chatState)
   const personaName = useBrandStore(s => s.personaName) || 'Ricardo'
+  const isDesktop = useIsDesktop()
+  const triggerFinalize = useChatStore(s => s.triggerFinalize)
+
+  // Phone: exactly one panel is shown. `tab` follows the backend-derived active
+  // surface, but ONLY when that surface changes — which is what lets a manual
+  // peek stick until the flow actually moves on. There is no second source of
+  // truth: `active` remains the only thing that drives it automatically.
+  const [tab, setTab] = useState<ActiveSurface>('chat')
+  useEffect(() => { setTab(active) }, [active])
+
+  // At FINALIZE_CANVAS the directive hands over no tool, so `active` is 'chat'
+  // and the canvas would be display:none for the whole multi-face flatten loop
+  // in Surface.doRender(). Konva would probably still paint a hidden element,
+  // but a silently blank layout guide is catastrophic and hard to attribute —
+  // so remove the dependency. It also shows the customer their design while it
+  // is being captured. Deliberately NOT folded into useActiveSurface: that hook
+  // answers "where should the customer act", a different question from "what
+  // must be painted".
+  useEffect(() => { if (triggerFinalize) setTab('canvas') }, [triggerFinalize])
+
+  const showCanvas = isDesktop || tab === 'canvas'
+  const showChat = isDesktop || tab === 'chat'
 
   return (
     <div className="h-screen bg-base flex flex-col">
       <StoreHeader title={productRef?.name} />
       <MilestoneBar />
+      {!isDesktop && <PanelTabs tab={tab} wanted={active} onPick={setTab} />}
 
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
       <div className="flex min-h-0 flex-1 flex-col gap-2 bg-base p-2 md:flex-row">
         <div
           data-testid="canvas-column"
           data-active={String(canvasActive)}
-          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
+          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-clip rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showCanvas ? '' : 'hidden'}`}
         >
           <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} tone="customer" />
           <div
@@ -88,7 +152,7 @@ export function CustomiseStudio() {
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
+          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-clip rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showChat ? '' : 'hidden'}`}
         >
           <ColumnHeader
             name={personaName}
