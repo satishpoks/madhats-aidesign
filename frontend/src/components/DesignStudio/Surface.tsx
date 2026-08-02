@@ -7,6 +7,7 @@ import { useBrandStore } from '../../store/brandStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
+import { MobileToolsButton } from './MobileToolsButton'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
 import { ReviewDialog, CONFIRM_LABEL, REWORK_LABEL } from './ReviewDialog'
@@ -94,6 +95,39 @@ export function DesignStudioSurface() {
   const [rendered, setRendered] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Mobile-only tool/adjust visibility — see MobileToolsButton and the close
+  // button in SelectedToolbar. Two independent booleans, not one: the rail
+  // (nothing selected) and the sheet (something selected) are gated by
+  // different questions —
+  //  - `mobileToolsOpen` starts CLOSED (owner: "collapsed by default").
+  //  - `mobileSheetHidden` starts SHOWN (selecting an element must keep
+  //    auto-opening the sheet exactly as it always has — this is only ever
+  //    flipped true by the sheet's own explicit close button).
+  // The floating button targets whichever is contextually relevant this turn
+  // (see `toggleMobilePanel` below) — that contextual dispatch is the "one
+  // button toggles the tools AND the adjustment part" the owner asked for.
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
+  const [mobileSheetHidden, setMobileSheetHidden] = useState(false)
+  // A fresh selection always reopens the sheet, even if the customer closed it
+  // for a different element a moment ago — the close is a "not right now"
+  // gesture about THIS element, not a standing preference. Mirrors
+  // SelectedToolbar's own per-element `collapsed` reset.
+  useEffect(() => { setMobileSheetHidden(false) }, [selectedId])
+  // The floating button is context-sensitive: while something is selected the
+  // relevant panel is the Adjust sheet, otherwise it's the tool rail. This is
+  // what makes one button cover both "the tools" and "the adjustment part".
+  function toggleMobilePanel() {
+    if (selectedId) setMobileSheetHidden(h => !h)
+    else setMobileToolsOpen(o => !o)
+  }
+  const mobilePanelOpen = selectedId ? !mobileSheetHidden : mobileToolsOpen
+  // Pulse the button when it has something to reveal and is currently closed
+  // — most importantly at REWORK_CANVAS, where every tool unlocks at once but
+  // the rail starts collapsed on a phone. Stops the instant it's opened.
+  const mobileHasHiddenTools = !selectedId && toolsVisible && !mobileToolsOpen
+  const mobileHasHiddenSheet = !!selectedId && showAdjust && mobileSheetHidden
+  const mobilePulse = mobileHasHiddenTools || mobileHasHiddenSheet
 
   const [reviewOpen, setReviewOpen] = useState(false)
   // Open on ARRIVAL at the review, not on every render while there — otherwise
@@ -377,7 +411,9 @@ export function DesignStudioSurface() {
             now overlays the bottom of the viewport instead of sharing this
             column's flow — see item 3 of the mobile-adjust-sheet fix. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 pb-80 md:pb-4 overflow-auto min-w-0">
-          {showAdjust && !isDesktop && <SelectedToolbar variant="sheet" />}
+          {showAdjust && !isDesktop && !mobileSheetHidden && (
+            <SelectedToolbar variant="sheet" onClose={() => setMobileSheetHidden(true)} />
+          )}
           {/* The watermark goes in as CanvasStage's `overlay`, NOT as a wrapper
               around it: CanvasStage sizes itself by walking up from its own
               root to this slot and on to the centre column, so any element
@@ -396,7 +432,17 @@ export function DesignStudioSurface() {
           )}
         </div>
 
-        {/* Right rail — tools + render */}
+        {/* Right rail — tools + render. Mobile: collapsed by default behind the
+            floating MobileToolsButton (owner: "the rail should be collapsed
+            ... revealed by this button") — real conditional rendering, not a
+            CSS `hidden` class, so a closed rail is actually out of the DOM
+            rather than merely invisible. Desktop ignores `mobileToolsOpen`
+            entirely and always renders. Unmounting loses nothing: every tool's
+            state (draw mode/colour/width, colourway) lives in canvasStore, not
+            component state. This rail is a SIBLING of the centre column (not a
+            child CanvasStage measures via availableHeight), so toggling it
+            never resizes the cap. */}
+        {(isDesktop || mobileToolsOpen) && (
         <div className="md:border-l border-border overflow-y-auto flex-shrink-0">
           {designerName && (
             <div className="px-3 pt-3 text-xs font-semibold text-textMuted truncate">
@@ -434,7 +480,10 @@ export function DesignStudioSurface() {
             </div>
           )}
         </div>
+        )}
       </div>
+
+      <MobileToolsButton isDesktop={isDesktop} open={mobilePanelOpen} pulse={mobilePulse} onToggle={toggleMobilePanel} />
 
       <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={handleUpload} className="sr-only" aria-label="Upload image" />
 
