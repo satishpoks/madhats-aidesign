@@ -54,7 +54,15 @@ function deleteBtn(variant: SelectedToolbarVariant): string {
  *  real phone. */
 export type SelectedToolbarVariant = 'rail' | 'sheet'
 
-export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolbarVariant } = {}) {
+export function SelectedToolbar({ variant = 'sheet', onClose }: {
+  variant?: SelectedToolbarVariant
+  /** Sheet only: hides the sheet WITHOUT deselecting — see the header close
+   *  button below for why deselecting is not an option here. Surface owns the
+   *  "hidden" state and the way back (the floating mobile tools button); this
+   *  component only ever asks for it to be shown or hidden, never touches
+   *  selection itself. Unused by the `rail` variant (desktop). */
+  onClose?: () => void
+} = {}) {
   const activeFace = useCanvasStore(s => s.activeFace)
   const faces = useCanvasStore(s => s.faces)
   const selectedId = useCanvasStore(s => s.selectedId)
@@ -189,8 +197,23 @@ export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolb
         </button>
       )}
 
-      <div className="bg-canvasAccent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide shrink-0">
-        Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}
+      <div className="bg-canvasAccent text-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide shrink-0 flex items-center justify-between gap-2">
+        <span>Adjust — {ADJUST_LABELS[el.type] ?? 'Element'}</span>
+        {/* Sheet-only explicit close. This is DELIBERATELY not the same
+            action as deselecting: the sheet is the only route to
+            `ask_logo_bg`'s "Remove background" toggle, so a close that
+            deselected would make that step unreachable on a phone. Closing
+            just hides this panel; the floating mobile tools button
+            (MobileToolsButton, rendered by Surface) is the way back — same
+            control the owner asked to "toggle open and close the tools and
+            adjustment part" with. */}
+        {isSheet && onClose && (
+          <button type="button" data-testid="adjust-sheet-close" onClick={onClose}
+            aria-label="Close adjust panel" title="Hide — the tools button brings it back"
+            className="shrink-0 rounded-full px-1.5 leading-none text-white/90 hover:text-white hover:bg-white/10">
+            ✕
+          </button>
+        )}
       </div>
 
       {showControls && (
