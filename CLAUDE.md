@@ -1274,6 +1274,23 @@ stack has no catalogue sync unless you run the script yourself:
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
+- **A narrow viewport IS drivable now — the long-standing "mobile cannot be
+  verified" note is STALE (corrected 2026-08-03).** Every batch up to and
+  including 2026-08-02 recorded that `mcp__claude-in-chrome__resize_window` was
+  a no-op here and the devtools MCP would not attach, so all mobile work rested
+  on jsdom class-string tests that perform no layout. That is no longer true:
+  `resize_window(390, 844)` now really resizes (measured `innerWidth` 384,
+  `matchMedia('(min-width: 768px)').matches === false`, so the `md` branch is
+  genuinely off), and a full v2 canvas walk was driven at that size. **Verify
+  mobile in the browser from now on rather than citing the old limitation.**
+  Two things that make a mobile walk cheap: drive chat turns by setting the
+  input's value through the native `HTMLInputElement` value setter and
+  dispatching `input` + `submit` (React ignores a plain `.value =`), and answer
+  with `"No — text only"` at `ask_has_logo` to reach the decor branch — the logo
+  branch auto-opens a native file dialog, which still blocks the automation
+  channel. Do NOT drive past `REQUEST_QUOTE` casually: `record_quote_request`
+  emails the store's `sales_notification_email`, which for MadHats is a real
+  inbox.
 - **Agent worktrees are created from stale `master`, not your current branch** —
   all four agents in the 2026-07-24 batch had to fast-forward themselves onto the
   work branch. Always check the base before trusting a worktree's results.
