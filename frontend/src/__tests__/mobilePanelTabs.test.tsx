@@ -50,8 +50,15 @@ describe('phone: one panel at a time', () => {
   it('opens on the chat', () => {
     render(<CustomiseStudio />)
     expect(screen.getByTestId('tab-chat')).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByTestId('canvas-column').className).toContain('hidden')
-    expect(screen.getByTestId('chat-column-wrap').className).not.toContain('hidden')
+    // Whole-class-token match, not a substring check: both columns' base
+    // className carries Tailwind's `overflow-hidden`, so
+    // `'overflow-hidden ...'.includes('hidden')` is true regardless of
+    // whether the phone-only `hidden` (display:none) class is present. See
+    // mobileLayout.test.tsx:49-52 for the same lesson learned the other way
+    // round (a `toContain('shrink')` that stayed green after `shrink` was
+    // deleted, because `md:shrink-0` also contains "shrink").
+    expect(screen.getByTestId('canvas-column').className).toMatch(/(^|\s)hidden(\s|$)/)
+    expect(screen.getByTestId('chat-column-wrap').className).not.toMatch(/(^|\s)hidden(\s|$)/)
   })
 
   it('keeps the hidden panel MOUNTED', () => {
@@ -70,7 +77,7 @@ describe('phone: one panel at a time', () => {
       useChatStore.setState({ canvasDirective: directive(['upload'], true) } as never)
     })
     expect(screen.getByTestId('tab-canvas')).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByTestId('canvas-column').className).not.toContain('hidden')
+    expect(screen.getByTestId('canvas-column').className).not.toMatch(/(^|\s)hidden(\s|$)/)
   })
 
   it('lets the customer peek at the other panel, and the peek sticks', async () => {
@@ -92,7 +99,7 @@ describe('phone: one panel at a time', () => {
     render(<CustomiseStudio />)
     act(() => { useChatStore.setState({ triggerFinalize: true } as never) })
     expect(screen.getByTestId('tab-canvas')).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByTestId('canvas-column').className).not.toContain('hidden')
+    expect(screen.getByTestId('canvas-column').className).not.toMatch(/(^|\s)hidden(\s|$)/)
   })
 })
 
@@ -102,7 +109,7 @@ describe('desktop: both panels, no tabs', () => {
   it('renders no tab bar and hides neither panel', () => {
     render(<CustomiseStudio />)
     expect(screen.queryByTestId('panel-tabs')).not.toBeInTheDocument()
-    expect(screen.getByTestId('canvas-column').className).not.toContain('hidden')
-    expect(screen.getByTestId('chat-column-wrap').className).not.toContain('hidden')
+    expect(screen.getByTestId('canvas-column').className).not.toMatch(/(^|\s)hidden(\s|$)/)
+    expect(screen.getByTestId('chat-column-wrap').className).not.toMatch(/(^|\s)hidden(\s|$)/)
   })
 })

@@ -124,7 +124,7 @@ export function CustomiseStudio() {
         <div
           data-testid="canvas-column"
           data-active={String(canvasActive)}
-          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-clip rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showCanvas ? '' : 'hidden'}`}
+          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showCanvas ? '' : 'hidden'}`}
         >
           <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} tone="customer" />
           <div
@@ -152,7 +152,7 @@ export function CustomiseStudio() {
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-clip rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showChat ? '' : 'hidden'}`}
+          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showChat ? '' : 'hidden'}`}
         >
           <ColumnHeader
             name={personaName}
