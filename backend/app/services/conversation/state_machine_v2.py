@@ -19,6 +19,7 @@ from __future__ import annotations
 from app import prompts
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation.canvas_steps import MAX_LOGOS, Step  # noqa: F401 re-export
+from app.services.conversation.intent_extractor import repair_mojibake
 from app.services.conversation.state_machine import ConversationState as S
 
 # Every state a v2 turn may rest on. GREETING is the kickoff (no registry step:
@@ -26,16 +27,33 @@ from app.services.conversation.state_machine import ConversationState as S
 # shared tail state v1 owns — orchestrator_v2 delegates those turns to v1.
 V2_OWNED: frozenset[S] = frozenset({s.id for s in cs.REGISTRY}) | {S.GREETING}
 
-# Submission markers, never volunteered attributes: they record that an
-# irreversible thing HAPPENED (a lead captured, a quote submitted), and the
-# effect that makes them true lives in the owning step's `apply`. `merge_fields`
-# is the only reader — see its docstring for the live regression this prevents.
+# Flags that RECORD something rather than describe a preference: a lead
+# captured, a quote submitted, a design confirmed or sent back for rework, the
+# final-notes step answered. Each is made true by its owning step's `apply` (or
+# its chip), and each satisfies a done_when. `merge_fields` is the only reader.
+#
+# The interpreter sees every WRITABLE_SLOT on every turn, so free text at ANY
+# step can set one of these — and because a truthy write is normally always
+# banked, that makes first-unmet SKIP the owning step, and its apply never runs.
+# Two live regressions: session 766b8361 ("that's it let's go" at
+# ASK_FINAL_NOTES -> quote_requested, so no MH-XXXXXX reference, no customer
+# email, no sales notification) and session bb62d05a ("i need to go back to How
+# many caps" at NEEDED_BY -> design_rework, so the design review was skipped
+# entirely and the customer was dropped into the rework loop unasked).
 #
 # Deliberately NOT `checkpoints.CARRY_FORWARD_KEYS`, which is a wider set
 # (lead_id, email_verified, reference_code) serving a different concern: what a
 # Back restore must not roll back. Conflating them would let the interpreter
 # write, say, reference_code off-step. Two concepts, two constants.
-_TERMINAL_FLAGS: frozenset[str] = frozenset({"email_captured", "quote_requested"})
+#
+# Deliberately NOT extended to the loop-control slots (decor_done, has_logo,
+# another_logo, more_decor, logo_placed, decor_placed): those are MEANT to be
+# volunteerable from an earlier turn — "no, text only" satisfying ASK_HAS_LOGO
+# is the slot-filling flexibility the registry design rests on.
+_STEP_OWNED_FLAGS: frozenset[str] = frozenset({
+    "email_captured", "quote_requested",
+    "design_rework", "design_confirmed", "final_notes_done",
+})
 
 
 def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
@@ -55,20 +73,27 @@ def merge_fields(step: Step, collected: dict, fields: dict) -> dict:
     unset slots pass untouched, keeping slot-filling flexible, and a truthy
     correction (50 -> 100 caps) never un-answers anything, so it passes too.
 
-    A `_TERMINAL_FLAG` is the one exception in the OTHER direction: a truthy
-    write is normally always banked, but volunteering `quote_requested:true`
-    from free text at an earlier step makes first-unmet SKIP REQUEST_QUOTE, so
-    its apply — the only place the MH-XXXXXX reference is minted and the
-    customer/sales quote emails converge — never runs. Live session 766b8361:
-    "that's it let's go" at ASK_FINAL_NOTES produced no reference, no customer
-    email and no sales notification. A terminal flag may only be set on the step
-    that OWNS it (its chip, or the interpreter while that step is current),
-    which is exactly where the apply runs too.
+    A `_STEP_OWNED_FLAG` is the one exception in the OTHER direction: a truthy
+    write is normally always banked, but volunteering one from free text at an
+    earlier step makes first-unmet SKIP the owning step, so its apply never
+    runs. Such a flag may only be set on the step that OWNS it (its chip, or
+    the interpreter while that step is current), which is exactly where the
+    apply runs too. See the constant for the two live regressions.
+
+    "Its chip" is why `own` is not just `step.slots`: ASK_FINAL_NOTES's
+    "Nothing to add" chip sets `final_notes_done` directly, and that flag is
+    deliberately NOT one of the step's slots (so the interpreter can never
+    fabricate it — see `_apply_final_notes`). Reading `own` from `step.slots`
+    alone would make this guard drop the step's own chip write along with
+    everyone else's, which is not "off-step" — it IS the step answering
+    itself. `cs.chips_of` is the existing single read path for a step's chips
+    (dynamic or static), so this reuses it rather than adding a second one.
     """
-    own = set(step.slots)
+    own = set(step.slots) | {k for chip in cs.chips_of(step, collected)
+                              for k in chip.fields}
     return {k: v for k, v in fields.items()
             if (k in own or v or not collected.get(k))
-            and (k not in _TERMINAL_FLAGS or k in own)}
+            and (k not in _STEP_OWNED_FLAGS or k in own)}
 
 
 def effective_registry(config: dict | None) -> tuple[Step, ...]:
@@ -253,7 +278,18 @@ def progress_v2(state: S, collected: dict | None = None) -> dict:
 
 
 def _norm(s: str) -> str:
-    return (s or "").strip().casefold()
+    """Casefolded comparison key for a chip label.
+
+    `repair_mojibake` is applied because a chip label round-trips through the
+    browser and can come back CP1252-mangled — live session bb62d05a posted
+    "2â€“4 weeks" for the en-dash chip "2–4 weeks". Without the repair the
+    exact-label match misses, so a chip tap (designed as a 0-LLM identity
+    lookup on a set we own) burns an interpreter call AND the mangled text is
+    what gets stored, reaching brief_notes and the sales email. Repairing the
+    KEY rather than the value means a matched chip still banks its own clean
+    payload. `repair_mojibake` is a no-op on clean text, so nothing else moves.
+    """
+    return repair_mojibake(s or "").strip().casefold()
 
 
 # The decor branch's steps. They read `decor_face`; the logo branch reads the
@@ -305,6 +341,25 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
     return directive_for(step, collected) if step else None
 
 
+# Once the design is finished it is only ever DISPLAYED, never edited — so from
+# the review onward every pixel on screen carries a watermark. REWORK_CANVAS is
+# the deliberate hole: reworking IS editing, and dragging a logo around under a
+# diagonal watermark reads as a broken app.
+#
+# A shared-tail state (generating / verify / refine / quote) has no registry
+# step, so `canvas_directive` returns None there and the frontend falls back to
+# its own default — which is `true`. That is correct and intentional: the design
+# is finished in every one of those states.
+_WATERMARKED_STEPS: frozenset[S] = frozenset({
+    S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS,
+})
+
+
+def watermark_for(step: Step) -> bool:
+    """True when the canvas must render its watermark overlay."""
+    return step.id in _WATERMARKED_STEPS
+
+
 def public_data_for(step: Step, collected: dict) -> dict:
     data: dict = {}
     chips = cs.chips_of(step, collected)
@@ -320,6 +375,7 @@ def public_data_for(step: Step, collected: dict) -> dict:
         data["trigger_finalize"] = True
     data["canvas"] = directive_for(step, collected)
     data["progress"] = progress_for(step)
+    data["watermark"] = watermark_for(step)
     return data
 
 

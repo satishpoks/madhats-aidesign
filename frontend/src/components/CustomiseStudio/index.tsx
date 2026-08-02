@@ -1,45 +1,33 @@
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
+import { useBrandStore } from '../../store/brandStore'
 import { DesignStudioSurface } from '../DesignStudio/Surface'
 import { StoreHeader } from '../StoreHeader'
 import { ChatColumn } from './ChatColumn'
 import { MilestoneBar } from './MilestoneBar'
-import { useActiveSurface, type ActiveSurface } from '../../lib/useActiveSurface'
+import { ColumnHeader } from './ColumnHeader'
+import { useActiveSurface } from '../../lib/useActiveSurface'
 
 /** Chat states where the chat surface is active (per useActiveSurface) but
  *  there is nothing the customer can actually answer: `await_email_verify`
  *  locks the whole input (ChatColumn's `inputLocked`) behind a waiting panel,
  *  and `generating`/`regenerating` are v1-delegated turns (null directive ->
- *  'chat') with no question pending either. The ring/dim still apply — the
- *  chat IS where to look — but the "Your turn — answer here" pill would
- *  contradict the dead input right below it. The canvas pill is unaffected. */
+ *  'chat') with no question pending either. The active card still lifts — the
+ *  chat IS where to look — but the "Your turn — answer here" header would
+ *  contradict the dead input right below it. The canvas header is unaffected. */
 const CHAT_UNANSWERABLE_STATES = new Set(['await_email_verify', 'generating', 'regenerating'])
 
-/** Ring + glow on the panel the customer should act in; a scrim on the other.
- *  The glow reads `--canvas-accent` so it themes per store independently of
- *  the site chrome, the same way `text-canvasAccent` / `bg-canvasAccent`
- *  already do. */
-const ACTIVE_CLASSES =
-  'ring-2 ring-canvasAccent shadow-[0_0_18px_-4px_var(--canvas-accent,#FF5C00)] ' +
-  'transition-[opacity,box-shadow] duration-300'
-/** Deliberately NOT `pointer-events-none`: dimming is a cue, not a lock. The
- *  real locking is per-affordance (CanvasStage `locked`, ToolRail
- *  `allowedTools`, ChatColumn `inputLocked`). Blocking pointer events here
- *  would also stop the customer scrolling back through the thread or
- *  re-reading the cap, which they must always be able to do. */
-const INACTIVE_CLASSES = 'opacity-60 transition-[opacity,box-shadow] duration-300'
-
-function FocusPill({ surface }: { surface: ActiveSurface }) {
-  return (
-    <div
-      role="status"
-      className="mx-4 mt-3 self-start inline-flex items-center gap-1.5 rounded-full bg-canvasAccent/10 border border-canvasAccent px-3 py-1 text-xs font-semibold text-canvasAccent"
-    >
-      <span aria-hidden="true">▶</span>
-      {surface === 'canvas' ? 'Your turn — design here' : 'Your turn — answer here'}
-    </div>
-  )
-}
+/** The active card lifts off the desk. No outline and no outward glow: a ring
+ *  around a whole column is a developer's cue, and the glow bled into the
+ *  neighbouring panel. Elevation-only — both cards already share the same
+ *  `border border-border` on their base container class, so the active card's
+ *  border is not "stronger", only its shadow differs. */
+const ACTIVE_CARD = 'shadow-[0_10px_24px_-10px_rgba(28,25,23,0.30),0_2px_6px_-2px_rgba(28,25,23,0.10)]'
+const RESTING_CARD = 'bg-surfaceAlt/40'
+/** Applied to the resting column's CONTENT, never its container. The old
+ *  blanket `opacity-60` faded live text to grey, so the half read as disabled
+ *  rather than "not your turn". */
+const RESTING_CONTENT = 'opacity-50 transition-opacity duration-300'
 
 /**
  * CustomiseStudio — the split-screen canvas experience.
@@ -50,8 +38,8 @@ function FocusPill({ surface }: { surface: ActiveSurface }) {
  *
  * The two columns look identical at all times, so a non-technical customer had
  * no cue where to act on a given step. `useActiveSurface` answers that from the
- * backend directive; here it drives a ring + glow on one column and a scrim on
- * the other, plus a named pill (so the cue is never colour-only).
+ * backend directive; here it drives a permanent header on each column — the
+ * active one fills and states the turn, the resting one just names its half.
  */
 export function CustomiseStudio() {
   const productRef = useSessionStore(s => s.productRef)
@@ -59,6 +47,7 @@ export function CustomiseStudio() {
   const canvasActive = active === 'canvas'
   const chatState = useChatStore(s => s.chatState)
   const chatAnswerable = !CHAT_UNANSWERABLE_STATES.has(chatState)
+  const personaName = useBrandStore(s => s.personaName) || 'Ricardo'
 
   return (
     <div className="h-screen bg-base flex flex-col">
@@ -66,27 +55,51 @@ export function CustomiseStudio() {
       <MilestoneBar />
 
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
-      <div className="flex-1 flex flex-col md:flex-row min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 bg-base p-2 md:flex-row">
         <div
           data-testid="canvas-column"
           data-active={String(canvasActive)}
-          className={`flex-1 flex flex-col min-h-0 min-w-0 ${canvasActive ? ACTIVE_CLASSES : INACTIVE_CLASSES}`}
+          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
-          {canvasActive && <FocusPill surface="canvas" />}
-          <div className="flex-1 flex min-h-0 min-w-0">
+          <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} />
+          <div
+            data-testid="canvas-column-content"
+            className={`flex min-h-0 min-w-0 flex-1 ${canvasActive ? '' : RESTING_CONTENT}`}
+          >
             <DesignStudioSurface />
           </div>
         </div>
+
         {/* Chat width scales with the screen: a laptop/iPad keeps roughly the old
             width (the canvas is tight there), a desktop gives the conversation a
-            noticeably bigger share. Mobile (`w-full` + the 45vh split) unchanged. */}
+            noticeably bigger share. Mobile: a hard h-[45vh] reserved the same
+            height whether the thread was two bubbles or twenty; basis-[45vh]
+            with shrink (not flex-none) lets it hand height back to the canvas
+            when the chat is short, which matters most on a phone where both
+            halves share one screen. min-h-0 is what lets the flex child shrink
+            below its content size at all — without it this is inert.
+            md:shrink-0 confines that shrink allowance to the stacked mobile
+            layout: without it, `shrink` still applies at every breakpoint (it
+            is a flex property, not a width class), so the fixed
+            md:w-[360px]/lg:w-[420px]/xl:w-[480px]/2xl:w-[560px] widths could be
+            compressed under desktop space pressure — a behavioural change well
+            outside this task's "mobile sizing only" scope. */}
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`border-t md:border-t-0 md:border-l border-border flex-shrink-0 w-full md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] h-[45vh] md:h-auto flex flex-col min-h-0 ${!canvasActive ? ACTIVE_CLASSES : INACTIVE_CLASSES}`}
+          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
-          {!canvasActive && chatAnswerable && <FocusPill surface="chat" />}
-          <ChatColumn />
+          <ColumnHeader
+            name={personaName}
+            instruction="Your turn — answer here"
+            active={!canvasActive && chatAnswerable}
+          />
+          <div
+            data-testid="chat-column-content"
+            className={`flex min-h-0 flex-1 flex-col ${!canvasActive ? '' : RESTING_CONTENT}`}
+          >
+            <ChatColumn />
+          </div>
         </div>
       </div>
     </div>

@@ -1283,6 +1283,19 @@ We understood: {fields}
 Reply with the sentence only.
 """
 
+# The ack call is a one-line transform over a JSON field dump, NOT a
+# conversational turn. Handing it RICARDO_SYSTEM_PROMPT (a behavioural brief
+# full of hard rules) is what let Haiku answer the BRIEF instead of the
+# customer: at ASK_PURPOSE the field {"purpose": "dont say"} read as an
+# operator instruction and the reply paraphrased the system prompt's own rules
+# back into the customer's chat ("I'll acknowledge them warmly in my first
+# message only…"). This prompt states the role and nothing a model could
+# mistake for an instruction to comply with.
+ACK_SYSTEM_PROMPT = (
+    "You rewrite structured data into a single short sentence of plain English. "
+    "You never ask questions and never introduce yourself."
+)
+
 # Refine on the canvas: read the customer's change into a CLOSED vocabulary.
 # The model never emits a coordinate — canvas_edit.resolve_ops does the maths.
 # An empty list is a real answer: it means "the canvas can't express this",

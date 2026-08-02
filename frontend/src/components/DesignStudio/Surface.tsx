@@ -3,11 +3,14 @@ import type Konva from 'konva'
 import { useSessionStore } from '../../store/sessionStore'
 import { useCanvasStore, FACES, type Face, TEXT_PLACEHOLDER } from '../../store/canvasStore'
 import { useChatStore } from '../../store/chatStore'
+import { useBrandStore } from '../../store/brandStore'
 import { CanvasStage } from './CanvasStage'
 import { ToolRail } from './ToolRail'
 import { SelectedToolbar } from './SelectedToolbar'
 import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
+import { ReviewDialog, CONFIRM_LABEL, REWORK_LABEL } from './ReviewDialog'
+import { Watermark } from './Watermark'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
@@ -32,6 +35,8 @@ export function DesignStudioSurface() {
   // "Design for <Name>" banner — display-only, sourced from the turn's own
   // data (orchestrator_v2._public), never a second fetch and never logged.
   const designerName = useChatStore(s => s.collectedName)
+  const watermark = useChatStore(s => s.watermark)
+  const watermarkText = useBrandStore(s => s.watermarkText)
 
   // v2 = a canvas directive is present (the chat orchestrator is driving the
   // canvas turn-by-turn). Fall back to the legacy whole-rail gating
@@ -74,6 +79,23 @@ export function DesignStudioSurface() {
   const [rendered, setRendered] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [reviewOpen, setReviewOpen] = useState(false)
+  // Open on ARRIVAL at the review, not on every render while there — otherwise
+  // dismissing it would immediately re-open. Leaving the state resets the latch.
+  const wasReviewing = useRef(false)
+  useEffect(() => {
+    const reviewing = chatState === 'review_design'
+    if (reviewing && !wasReviewing.current) setReviewOpen(true)
+    if (!reviewing) setReviewOpen(false)
+    wasReviewing.current = reviewing
+  }, [chatState])
+
+  function sendReview(label: string) {
+    setReviewOpen(false)
+    const sid = useSessionStore.getState().sessionId
+    if (sid) void useChatStore.getState().sendMessage(sid, label)
+  }
 
   // Seed the four face backgrounds from the product reference.
   useEffect(() => {
@@ -336,8 +358,15 @@ export function DesignStudioSurface() {
             reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
           {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
+          {/* The watermark goes in as CanvasStage's `overlay`, NOT as a wrapper
+              around it: CanvasStage sizes itself by walking up from its own
+              root to this slot and on to the centre column, so any element
+              between the two kills the responsive stage (see the warning in
+              CanvasStage). Inside, it is still a plain-DOM sibling of the Konva
+              stage, so it stays out of every toDataURL export. */}
           <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
-            <CanvasStage stageRef={stageRef} locked={stageLocked} />
+            <CanvasStage stageRef={stageRef} locked={stageLocked}
+              overlay={watermark ? <Watermark text={watermarkText} /> : null} />
           </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}
@@ -384,6 +413,15 @@ export function DesignStudioSurface() {
 
       <GraphicsPicker open={graphicsOpen} onClose={() => setGraphicsOpen(false)}
         onPickShape={kind => addShape(kind)} onPickImage={url => void addGraphic(url)} />
+
+      <ReviewDialog
+        open={reviewOpen}
+        // Same constants the buttons are labelled with — the label IS the chip
+        // the backend resolves by identity, so it must have exactly one source.
+        onConfirm={() => sendReview(CONFIRM_LABEL)}
+        onRework={() => sendReview(REWORK_LABEL)}
+        onClose={() => setReviewOpen(false)}
+      />
     </div>
   )
 }

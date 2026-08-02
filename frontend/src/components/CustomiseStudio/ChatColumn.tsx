@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useChatStore } from '../../store/chatStore'
 import { useGenerationStore } from '../../store/generationStore'
+import { useBrandStore } from '../../store/brandStore'
 import { Modal } from '../Modal'
 import { usePushToTalk } from '../../hooks/usePushToTalk'
 import { uploadLogo, postComposite } from '../../lib/api'
@@ -184,6 +185,11 @@ export function ChatColumn() {
   const quoteUrl = useChatStore(s => s.quoteUrl)
   const messagesLen = useChatStore(s => s.messages.length)
   const kickoffDone = useChatStore(s => s.kickoffDone)
+
+  // Per-store persona, used as the assistant's name-line label (Task 9's
+  // precedent in CustomiseStudio/index.tsx): falls back to 'Ricardo' before
+  // /storefront resolves or for an unconfigured store.
+  const personaName = useBrandStore(s => s.personaName) || 'Ricardo'
 
   // Generation store
   const startGeneration = useGenerationStore(s => s.startGeneration)
@@ -448,22 +454,47 @@ export function ChatColumn() {
             Design your cap on the left. Once you hit “See it rendered”, we’ll chat with you here to finish up and send it over.
           </p>
         )}
-        {messages.map(msg => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[80%] md:max-w-md px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
-                msg.role === 'user'
-                  ? 'bg-chatUserBubble text-white rounded-br-sm'
-                  : 'bg-surface text-textPrimary border border-border rounded-bl-sm shadow-sm'
-              }`}
-            >
-              {linkify(msg.text)}
+        {messages.map((msg, i) => {
+          const mine = msg.role === 'user'
+          // The LANE is on every message — it is the per-message identifier.
+          // The NAME only when the speaker changes: v2 routinely emits several
+          // assistant bubbles per turn (data.extra_replies, plus the
+          // reply/instruction split), and repeating an identical header on
+          // consecutive bubbles reads as padding, especially on a phone.
+          const startsRun = i === 0 || messages[i - 1].role !== msg.role
+          return (
+            <div key={msg.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+              <div
+                data-testid="msg-lane"
+                className={`flex max-w-[88%] flex-col gap-1 md:max-w-md ${
+                  mine
+                    ? 'items-end border-r-2 border-chatUserBubble pr-2'
+                    : 'items-start border-l-2 border-canvasAccent pl-2'
+                }`}
+              >
+                {startsRun && (
+                  <span className="text-[11px] font-semibold leading-none text-textMuted">
+                    {mine ? 'You' : (
+                      <>
+                        {personaName}
+                        <span className="font-normal text-textMuted/70"> · Design assistant</span>
+                      </>
+                    )}
+                  </span>
+                )}
+                <div
+                  className={`whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                    mine
+                      ? 'rounded-br-sm bg-chatUserBubble text-white'
+                      : 'rounded-bl-sm border border-border bg-surface text-textPrimary shadow-sm'
+                  }`}
+                >
+                  {linkify(msg.text)}
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
 
         {sending && <TypingIndicator />}
 

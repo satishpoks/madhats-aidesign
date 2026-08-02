@@ -903,3 +903,115 @@ def test_last_answered_step_is_gone():
     """Replaced by snapshot restore."""
     assert not hasattr(v2, "last_answered_step")
     assert not hasattr(v2, "_ELEMENT_ADJUST_STEPS")
+
+
+def test_design_rework_is_dropped_when_written_off_step():
+    """Live session bb62d05a: a free-text 'go back to quantity' at NEEDED_BY made
+    the interpreter fill design_rework:true. It banked, routing didn't move, and
+    two turns later REVIEW_DESIGN's done_when was already satisfied — so the
+    review was skipped and the customer landed in the rework loop unasked."""
+    step = cs.by_id(S.NEEDED_BY)
+    fields = v2.merge_fields(step, {}, {"needed_by": "2-4 weeks", "design_rework": True})
+    assert fields == {"needed_by": "2-4 weeks"}
+
+
+def test_design_rework_is_kept_on_the_step_that_owns_it():
+    step = cs.by_id(S.REVIEW_DESIGN)
+    fields = v2.merge_fields(step, {}, {"design_rework": True})
+    assert fields == {"design_rework": True}
+
+
+def test_rework_canvas_may_still_clear_design_rework():
+    """REWORK_CANVAS declares design_rework as its own slot; clearing it is how
+    'Done' is expressed, so the falsy write must survive both guards."""
+    step = cs.by_id(S.REWORK_CANVAS)
+    fields = v2.merge_fields(step, {"design_rework": True}, {"design_rework": False})
+    assert fields == {"design_rework": False}
+
+
+def test_design_confirmed_is_dropped_when_written_off_step():
+    step = cs.by_id(S.ASK_PURPOSE)
+    fields = v2.merge_fields(step, {}, {"purpose": "staff caps", "design_confirmed": True})
+    assert fields == {"purpose": "staff caps"}
+
+
+def test_final_notes_done_is_dropped_when_written_off_step():
+    """Skipping ASK_FINAL_NOTES would deny the customer the colour-disclaimer copy."""
+    step = cs.by_id(S.ASK_QUANTITY)
+    fields = v2.merge_fields(step, {}, {"quantity": 45, "final_notes_done": True})
+    assert fields == {"quantity": 45}
+
+
+def test_loop_control_slots_stay_volunteerable():
+    """decor_done et al must still be fillable from an earlier turn — that is the
+    slot-filling flexibility the whole registry design rests on."""
+    step = cs.by_id(S.ASK_QUANTITY)
+    fields = v2.merge_fields(step, {}, {"quantity": 45, "decor_done": True})
+    assert fields == {"quantity": 45, "decor_done": True}
+
+
+def test_the_live_bb62d05a_sequence_lands_on_review_not_rework():
+    """End-to-end over the pure router: quantity -> the back-request turn ->
+    purpose must reach REVIEW_DESIGN. Fails on master (lands on rework_canvas)."""
+    collected = {
+        "name": "Satish", "intro_ack": True, "has_logo": True, "logos_done": True,
+        "logo_face": "front", "logo_placed": True, "logo_bg": "removed",
+        "another_logo": False, "pending_logo": None, "decor_done": True,
+        "email_captured": True, "email_verified": True, "quantity": 45,
+        "decoration_options": [], "decoration_done": True,
+    }
+    # The back-request turn at NEEDED_BY: the interpreter returned design_rework.
+    step = cs.by_id(S.NEEDED_BY)
+    collected.update(v2.merge_fields(step, collected, {"design_rework": True}))
+    collected["needed_by"] = "2-4 weeks"
+    collected["purpose"] = "dont say"
+    assert v2.next_step(collected, None).id is S.REVIEW_DESIGN
+
+
+# The exact bytes the browser posted back in live session bb62d05a: an en-dash
+# (U+2013) mis-decoded as CP1252 becomes "â€“" (U+00E2 U+20AC U+201C).
+MANGLED_NEEDED_BY = "2â€“4 weeks"
+
+
+def test_a_mojibake_chip_label_still_resolves_as_a_chip():
+    """Live session bb62d05a: the browser posted the en-dash label back mangled,
+    so the exact-label match missed, the turn burned an interpreter call, and
+    the corrupted string was stored in needed_by -> brief_notes -> sales email."""
+    step = cs.by_id(S.NEEDED_BY)
+    fields = v2.resolve_chip(step, MANGLED_NEEDED_BY, {})
+    assert fields == {"needed_by": "2–4 weeks"}
+
+
+def test_a_clean_chip_label_still_resolves():
+    step = cs.by_id(S.NEEDED_BY)
+    assert v2.resolve_chip(step, "2–4 weeks", {}) == {"needed_by": "2–4 weeks"}
+
+
+def test_free_text_still_falls_through_to_the_interpreter():
+    step = cs.by_id(S.NEEDED_BY)
+    assert v2.resolve_chip(step, "sometime next month I think", {}) is None
+
+
+def test_the_canvas_is_watermarked_from_the_review_onward():
+    for state in (S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS):
+        assert v2.watermark_for(cs.by_id(state)) is True, state
+
+
+def test_the_canvas_is_clean_while_they_are_still_designing():
+    for state in (S.ASK_NAME, S.ASK_HAS_LOGO, S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST,
+                  S.ASK_LOGO_BG, S.ASK_EMAIL, S.AWAIT_EMAIL_VERIFY, S.ASK_ADD_DECOR,
+                  S.DECOR_ADJUST, S.ASK_QUANTITY, S.NEEDED_BY, S.ASK_PURPOSE):
+        assert v2.watermark_for(cs.by_id(state)) is False, state
+
+
+def test_rework_lifts_the_watermark():
+    """Reworking is editing. A customer must not drag a logo around under a
+    diagonal watermark — that reads as a broken app."""
+    assert v2.watermark_for(cs.by_id(S.REWORK_CANVAS)) is False
+
+
+def test_public_data_carries_the_watermark_flag():
+    data = v2.public_data_for(cs.by_id(S.REVIEW_DESIGN), {})
+    assert data["watermark"] is True
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
+    assert data["watermark"] is False

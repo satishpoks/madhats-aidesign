@@ -65,6 +65,11 @@ interface ChatStoreState {
    *  Surface's local state because useActiveSurface must see it — otherwise the
    *  focus cue says "chat" while the canvas is genuinely live. */
   finalizeFailed: boolean
+  /** Whether the on-screen design should be shown watermarked. An explicit flag
+   *  from the backend always wins; absent, it defaults to watermarked only when
+   *  the turn carries a canvas directive (i.e. it came from the one producer
+   *  that knows about watermarking at all). See parseData for why. */
+  watermark: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -137,7 +142,17 @@ function parseData(data: Record<string, unknown>) {
   const extraReplies = Array.isArray(data.extra_replies)
     ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
     : []
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies }
+  // Only `state_machine_v2.public_data_for` ever emits this flag, and it emits
+  // `canvas` alongside it on every turn it owns. So an explicit value always
+  // wins, and the DEFAULT is keyed on the directive: no directive means the
+  // payload came from a producer that knows nothing about watermarking — v1's
+  // `_public_data` (a v1 canvas session, including its `canvas_design` state,
+  // where the customer is actively dragging logos) or `sessions._public_data`
+  // (any resume, mid-design included). Defaulting those to watermarked put a
+  // diagonal overlay across a live, editable design, which reads as a broken
+  // app. Defaulting to `false` there is the only safe read.
+  const watermark = 'watermark' in data ? data.watermark !== false : rawCanvas !== null
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies, watermark }
 }
 
 function uid(): string {
@@ -175,6 +190,9 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   backTargets: [],
   collectedName: null,
   finalizeFailed: false,
+  // Nothing is designed yet at mount — differs from parseData's default
+  // (watermarked) on purpose.
+  watermark: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -442,5 +460,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       backTargets: [],
       collectedName: null,
       finalizeFailed: false,
+      watermark: false,
     }),
 }))
