@@ -191,4 +191,55 @@ describe('BrandingView', () => {
     expect(await screen.findByText('Canvas tool')).toHaveStyle({ background: '#00AA55' })
     expect(screen.getByText("Customer's chat bubble")).toHaveStyle({ background: '#AA0055' })
   })
+
+  // --- Return to shop (redirect after quote) ----------------------------------
+
+  it('rejects a non-http redirect url before saving', async () => {
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByLabelText(/redirect url/i), { target: { value: 'madhats.com.au' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  it('rejects a countdown outside 5-300 seconds', async () => {
+    vi.mocked(api.getStore).mockResolvedValueOnce({
+      id: 's1', slug: 'acme', name: 'Acme',
+      brand: { primary_colour: '#123456', menu_items: [], redirect_url: 'https://madhats.com.au', redirect_seconds: 30 },
+    })
+    renderView()
+    const secs = await screen.findByLabelText(/countdown/i)
+    fireEvent.change(secs, { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/between 5 and 300/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  it('does not block saving on an out-of-range countdown when no redirect url is set', async () => {
+    // The seconds check should only bite when a URL is actually set — an
+    // untouched store with no redirect must not be blocked from saving
+    // unrelated branding changes.
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    const secs = await screen.findByLabelText(/countdown/i)
+    fireEvent.change(secs, { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+  })
+
+  it('allows a blank redirect url as the off switch and saves it', async () => {
+    vi.mocked(api.getStore).mockResolvedValueOnce({
+      id: 's1', slug: 'acme', name: 'Acme',
+      brand: { primary_colour: '#123456', menu_items: [], redirect_url: 'https://madhats.com.au', redirect_seconds: 30 },
+    })
+    renderView()
+    const urlField = await screen.findByLabelText(/redirect url/i)
+    expect(urlField).toHaveValue('https://madhats.com.au')
+    fireEvent.change(urlField, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
+    expect(brand.redirect_url).toBe('')
+  })
 })

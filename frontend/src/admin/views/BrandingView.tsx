@@ -52,6 +52,19 @@ function validate(brand: Brand): string | null {
     const v = brand[k]
     if (v && !/^https?:\/\//i.test(v)) return 'Colour reference links must be full http(s) URLs'
   }
+  // Mirrors branding._validate_redirect. Duplicated on purpose so the admin
+  // sees the error before a round trip; the SERVER remains the source of
+  // truth. A blank redirect_url is valid — it's the off switch, not an error.
+  const rurl = (brand.redirect_url ?? '').trim()
+  if (rurl && !/^https?:\/\/[^/\s]+/i.test(rurl)) {
+    return 'Redirect URL must be an http(s) URL'
+  }
+  if (rurl) {
+    const secs = brand.redirect_seconds ?? 30
+    if (!Number.isInteger(secs) || secs < 5 || secs > 300) {
+      return 'Countdown must be a whole number between 5 and 300 seconds'
+    }
+  }
   return null
 }
 
@@ -219,6 +232,33 @@ export function BrandingView() {
             </span>
           </label>
         ))}
+      </div>
+
+      {/* Return to shop — shown to the customer once their quote reference has
+          been issued. Leaving the URL blank turns the whole thing off; there
+          is no separate enabled flag, on either side of the wire. */}
+      <div className="grid grid-cols-3 gap-4 rounded-xl border border-[#e0e1ea] bg-white p-4">
+        <label className="col-span-2 flex flex-col gap-1 text-[12px] text-[#6b6b80]">
+          Redirect URL (after the quote)
+          <input
+            type="url"
+            placeholder="https://yourstore.com — leave blank for no redirect"
+            value={brand.redirect_url ?? ''}
+            onChange={e => setField('redirect_url', e.target.value)}
+            className="rounded-lg border border-[#e0e1ea] px-3 py-2 text-[13px] text-[#1f2033]"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12px] text-[#6b6b80]">
+          Countdown (seconds)
+          <input
+            type="number"
+            min={5}
+            max={300}
+            value={brand.redirect_seconds ?? 30}
+            onChange={e => { setBrand(b => ({ ...b, redirect_seconds: Number(e.target.value) })); setSaved(false) }}
+            className="rounded-lg border border-[#e0e1ea] px-3 py-2 text-[13px] text-[#1f2033]"
+          />
+        </label>
       </div>
 
       {/* Canvas intro */}
