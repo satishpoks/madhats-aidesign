@@ -343,6 +343,7 @@ stack has no catalogue sync unless you run the script yourself:
   - **Draw tool** — a freehand pen. `canvasStore` adds a `drawing` element type (`points` = normalised x,y pairs; reuses `stroke`/`strokeWidth` stored **normalised**, ×stageW at render) + draw-mode state (`drawMode`/`drawColour`/`drawWidth` + setters + `addDrawing`). `CanvasStage` handles pointer down→move→up while `drawMode` (elements go `listening={!drawMode}` so events reach the stage; `e.evt.preventDefault()` gated to draw-mode so mobile `touchmove` doesn't scroll; in-progress stroke cleared on `activeFace` change; commit at ≥2 points). **On commit `addDrawing` exits draw mode** (`drawMode: false`) and selects the new element, so the stroke is immediately selectable/movable — otherwise the still-listening-disabled layer swallowed the click and the user couldn't select what they'd just drawn (bug fix). To draw another stroke, re-tap Draw. `DrawingNode` (`nodes.tsx`) = a Konva `Line` in a draggable `Group` — **move + rotate + delete** (rotate-only `Transformer`: `rotateEnabled resizeEnabled={false} enabledAnchors={[]}`; `onTransformEnd` persists x/y/rotation since Konva rotates around the stroke's bbox centre by adjusting all three). `ToolRail` has a **✎ Draw** toggle + colour picker + thickness slider; `SelectedToolbar` has a `drawing` stroke-colour control; `FaceThumbnails` renders strokes. `canvas_describe` maps a drawing → a described `graphic` ("a hand-drawn line in {colour}") so it flows through the existing multi-angle pipeline (`element_view`/`render_views`/`build_view_prompt`); the flattened layout PNG carries exact geometry. Deferred ticket: no window-level `mouseup` fallback (releasing the pointer off-stage discards the in-progress stroke). Spec/plan: `docs/superpowers/{specs,plans}/2026-07-13-canvas-bgremove-drawtool*`.
 - **Chat-gated canvas flow (intro Q&A → unlock canvas → decoration → notes → generate):** the canvas Design Studio is now *led* by the chat instead of opening immediately. A canvas session starts at `GREETING` (was `canvas_design`); the split-screen `CustomiseStudio` keeps the canvas **locked behind an overlay** while the chat runs a short intro — `ASK_NAME → SAVE_PROGRESS_EMAIL (email captured right after name; verification fires non-blocking) → ASK_PURPOSE → ASK_QUANTITY`. The canvas **unlocks only at state `canvas_design`** (`DesignStudioSurface` overlay: intro copy before, "finishing up" copy during the outro); the render button reads **"Done designing"** (`ToolRail`, `disabled` until unlocked). `ChatColumn` now **kicks off** the greeting on mount (guarded `!kickoffDone && messagesLen===0`; resumed/hydrated sessions never re-greet). "Done designing" → `canvas-finalize` no longer routes to `generating`; it sets `collected["canvas_finalized"]`, loads the store's active decoration types into `collected["decoration_options"]`, and advances to **`ASK_DECORATION`** (a multi-select of admin-managed decoration types with a **cost caveat when 2+** chosen — chips comma-join into `collected["decoration_types"]`, folded into `brief_notes`; first pick sets the `decoration_type` render-style bucket via exact comma-token match) → **`ASK_NOTES`** (free text or "No, generate", stored in `collected["notes"]`) → `GENERATING`. `CONFIRM_BRIEF` is skipped for `flow_mode=='canvas'` (the notes step is the pre-gen gate). Routing lives in a canvas branch of `goal_planner._canvas_next_goal` + `state_machine` (`CANVAS_DESIGN` rests until `canvas_finalized`; `ASK_DECORATION`/`ASK_NOTES` new states). **Decoration types are a new store-scoped table** (`decoration_types`, migration `20260713000004`) with `services/decoration_types.py`, customer `GET /decoration-types` (active only), admin CRUD `GET/POST/DELETE /admin/decoration-types` (`X-Admin-Secret` + `X-Store-Key`, delete is store-scoped) + the admin **Decorations** view (`admin/views/DecorationTypesView.tsx`). Both entry points (customise `?product_id=` and blank `?mode=blank`) use the same intro/outro; blank keeps its existing colour-swatch + 4-face tooling (per-section colour deferred). Email is still captured in-chat (intro) and gated delivery is unchanged; the non-canvas customise/blank Q&A conversation is untouched (every branch is `flow_mode=='canvas'`-gated). Spec/plan: `docs/superpowers/{specs,plans}/2026-07-13-chat-gated-canvas-flow*`.
 - **Per-store branding & themed emails:** each store configures its own **logo**, **primary colour**, **header bg/text**, and a **≤5-item external main menu** (no sub-menus), applied to the customer studio and to the customer-facing emails — all through the existing global admin console (single `X-Admin-Secret` + store selector; API shaped so a future per-store-owner login can reuse it). Stored in the existing `stores.brand` jsonb (`{logo_url, primary_colour, header_bg, header_text, watermark_asset_url, menu_items:[{label,url}]}`); one comment-only migration `20260714000002`. **Backend:** pure `services/branding.py` (`validate_brand` = source-of-truth for colour-hex + menu rules [≤5, `http(s)`-only, label non-empty ≤40]; `public_brand` = allow-listed customer subset with the logo as a `/media` proxy URL — never leaks `watermark_asset_url`/secrets); customer `GET /storefront` (via `require_store`); admin `GET`/`PATCH /admin/stores/{id}` (id-in-path + `require_admin`, **PATCH read-merges brand so a colour/menu edit never wipes the logo**) + `POST /admin/stores/{id}/logo` (magic-byte-validated, private bucket, merge-not-clobber). **Emails** (`prompts.py`/`email.py`/`delivery.py`/`leads.py`): the preview/delivery email is themed (header bar + buttons use `primary_colour`, logo inlined as a **CID attachment**, store name in header/footer) and verification + resume emails render a branded HTML shell (`BRANDED_EMAIL_HTML`); every customer email path resolves the session's store (preview via `delivery`, verification via `capture_lead_and_verify` **and** the `/leads/verify/send` resend route, resume via `_maybe_send_resume_email`) and falls back to MadHats defaults crash-safely. **Unconfigured stores are byte-identical to before** (the preview email default path was proven old==new). **Frontend:** Tailwind `accent`/`accentHover` promoted to CSS vars with MadHats fallbacks (`var(--brand-primary, #FF5C00)` — every `text-accent`/`bg-accent` becomes themeable for free); `store/brandStore.ts` fetches `/storefront` once on mount and sets `--brand-primary`/`-hover`(derived)/`--brand-header-bg`/`--brand-header-text` on `:root` (init is idempotent + error-swallowing, not run on `/admin`); `components/StoreHeader.tsx` renders the logo (or store-name fallback) + menu links (`target="_blank" rel="noopener noreferrer"`) in `CustomiseStudio`; admin **Branding** view (`admin/views/BrandingView.tsx`, nav "Branding", `?store=` param) with a live preview, logo upload, colour pickers, and a max-5 menu editor whose client `validate()` mirrors the server. Deferred tickets: logo CID always declared `image/png` (mime not carried — clients sniff); `/storefront` brand lags ≤60s after an admin save (stores cache TTL, no bust-on-write); preview-email button box-shadow/edit-button text stay orange under a themed primary (cosmetic); `VERIFICATION`/`RESUME_EMAIL_BODY` copy still says "MadHats" in the body text while the header is themed. Spec/plan: `docs/superpowers/{specs,plans}/2026-07-14-per-store-branding*`.
+  **Two more `stores.brand` fields, added 2026-08-02: `redirect_url` and `redirect_seconds`** (`services/branding.py`, `_PUBLIC_KEYS`/`DEFAULT_REDIRECT_SECONDS=30`/`MIN_REDIRECT_SECONDS=5`/`MAX_REDIRECT_SECONDS=300`). **Absence of `redirect_url` is the off switch — there is no separate enabled flag.** When set, the customer's chat surfaces a countdown dialog at `quote_requested` ("We will take you back to the shop in N seconds") that either times out or is dismissed with "Stay here" (permanent, no further countdown that load) or confirmed early with "Go to the shop now". Edited via the admin Branding view, mirroring the server's `5..300` bounds check client-side. Confirmed the `/storefront` cache TTL applies to these two fields exactly like every other brand key (~60s after an admin `PATCH`, same as the logo/colours).
 - **Step-by-step canvas orchestrator (v2), parallel to the chat-gated flow above:** a second, more directive canvas conversation engine — `backend/app/services/conversation/{state_machine_v2,orchestrator_v2}.py` — selected only when env flag `CANVAS_ORCHESTRATOR_V2` (`settings.canvas_orchestrator_v2`, default **off**) is set **and** the session's `flow_mode == "canvas"`, routed per-turn in `chat.py::_dispatch` (flag-off or non-canvas → the existing v1 `orchestrator.py`, byte-identical, untouched — v1 stays the retained backup). v2 owns a linear front half: `ASK_NAME` → the admin-configured intro (`SHOW_INTRO`, text from `stores.brand.canvas_intro`, edited via the admin **Branding** view, `V2_DEFAULT_INTRO` fallback) → a logo loop (`ASK_LOGO_PLACEMENT`→`LOGO_ADJUST`→`ASK_ANOTHER_LOGO`, capped at `MAX_LOGOS`=4) → a text/shape loop (`ASK_ADD_DECOR`→`DECOR_ADJUST`→`ASK_ANYTHING_ELSE`) → `ASK_QUANTITY` → `ASK_EMAIL` (double opt-in, same as v1) → `ASK_PURPOSE` → `FINALIZE_CANVAS`, which hands off into the **existing shared tail** (`GENERATING` → verify → deliver → refine/quote/upsell) — any state not in v2's owned set (`state_machine_v2.V2_OWNED` — the single source of truth, also driving `canvas_directive`, so routing and the canvas UI can't disagree) delegates the turn straight to v1's `handle_message`, so a canvas session is never stranded post-design. Each v2 state drives the canvas directly via a `canvas` directive blob in the chat response (`state_machine_v2.canvas_directive`: `allowed_tools`/`target_face`/`auto_open`/`instructions`/`show_done`), consumed by `frontend/.../DesignStudio/Surface.tsx` to switch faces, gate `ToolRail` to the one tool in play, show the step's instruction callout, and (when `show_done`) render a Done button that **locks the just-placed element** (`canvasStore.lockPlaced()` — locks every still-unlocked element, called from `postDone()` before sending "done"; each step adds then locks, so "lock all unlocked" == "lock what was just placed"). The face-answer and tool-open are deliberately two separate turns (`ASK_LOGO_PLACEMENT` asks the face with the upload tool merely highlighted/enabled — `auto_open: null`; only `LOGO_ADJUST`, once the face is known, sets `auto_open: "upload"`) — conflating them into one turn was a shipped bug (the file dialog opened before the face was answered, so the logo landed on whatever face was already active). **Every v2-owned state emits a directive** — the tool steps hand over their one tool, every other owned step (intro, mid-design questions, wrap-up, finalize) returns `allowed_tools: []` to lock all tools explicitly; a `null` directive means "not a v2 turn", which makes the frontend fall back to v1's whole-rail gating + status strip (that fallback firing mid-design showed "Design locked in — finishing up" during the design loop). **Flag-flip caveat:** flipping `CANVAS_ORCHESTRATOR_V2` on strands any in-flight v1 canvas session sitting at `canvas_design` — it would skip the deco/notes outro v1 expects, since v2 never reaches that state. Spec/plan: `docs/superpowers/{specs,plans}/2026-07-15-step-by-step-canvas-orchestrator-v2*`.
 - **v2 is registry-driven (2026-07-17).** The flow is declared once as data in
   `services/conversation/canvas_steps.py`: one `Step` per step holding its copy,
@@ -993,6 +994,99 @@ stack has no catalogue sync unless you run the script yourself:
   only evidence for a high-consequence claim, go and look at the artifact.**
   Spec/plan:
   `docs/superpowers/{specs,plans}/2026-08-01-studio-review-gate-and-orchestrator-fixes*`.
+- **Canvas studio flow polish batch (2026-08-02), branch
+  `feat/canvas-studio-flow-polish`.** Eight tasks, all merged and independently
+  verified (Task 9) rather than trusting the implementers' own reports, per the
+  lesson recorded in the entry above.
+  **(1) Tool rail hides when the canvas is not editable.** `ToolRail` takes an
+  optional `toolsVisible` prop (default `true`, so v1 call sites that never
+  pass it are unaffected); `Surface` wires it to `isV2 ? v2Editing : unlocked`.
+  When false the rail renders an **empty** `<div data-testid="tool-rail-empty">`
+  that still carries the full `w-full md:w-44 lg:w-52 xl:w-64` width classes —
+  duplicated deliberately across both `ToolRail` returns rather than hoisted,
+  because the responsive stage (`CanvasStage`) measures this column's rendered
+  width to size itself, so an unstyled empty branch would make the cap jump
+  every time the rail toggles empty/populated. Verified live at `ask_name`: no
+  tool buttons render, and the canvas column keeps the same proportional width
+  before and after.
+  **(2) Watermark persists to the end.** See the FIXED entry above
+  (`watermark_for_state`) — this batch is where that predicate and its two
+  extra call sites (v1 tail turns + resumes) were added; Task 9 re-verified it
+  live plus pixel-inspected the layout guide (below).
+  **(3) End-of-session redirect.** See the `redirect_url`/`redirect_seconds`
+  note under per-store branding above. `RedirectCountdown.tsx` opens at chat
+  state `quote_requested`; `ChatColumn` locks the composer/Send/mic/chips/Back
+  via a `sessionEnded` flag while it's showing. Verified live end to end: the
+  dialog auto-redirected on its own countdown; on a fresh load "Stay here"
+  dismissed it and no redirect fired even after waiting past the configured
+  `redirect_seconds`; on another fresh load "Go to the shop now" navigated
+  immediately. Composer state confirmed via direct DOM inspection at that
+  state: `textarea.disabled === true`, `Send.disabled === true`, no `↩ Back`
+  control in the DOM, no chip buttons rendered.
+  **(4) Colours split.** `ColumnHeader.tsx`'s `tone` prop (`'primary' |
+  'customer'`) picks the ACTIVE fill: the chat column uses `bg-accent` (brand
+  primary) and its assistant message lane matches; the canvas column uses
+  `bg-chatUserBubble` and the customer's own message lane matches. The colour
+  only shows on the currently-ACTIVE half (`useActiveSurface`) — the resting
+  half stays a quiet grey label naming itself. Canvas accent (tool rail/Adjust
+  panel/Done button) is untouched and deliberately never used in a header.
+  Verified live: at `ask_name` the chat header/lane are teal (`#27d0d3`, this
+  store's primary) and the customer's own chip is orange
+  (`chat_user_bubble` `#ff5c00`); once a canvas step becomes active (logo
+  placement) the canvas header fills the same orange.
+  **(5) Mobile one-panel.** Below `md`, `PanelTabs` (`data-testid="panel-tabs"`,
+  `tab-chat`/`tab-canvas`) shows exactly one column; the non-selected column
+  gets `hidden` (display:none) but is **never unmounted** — `Surface.doRender()`
+  flattens every face through `stageRef`, and an unmounted canvas would flatten
+  nothing. `triggerFinalize` force-switches to the canvas tab regardless of
+  which panel the customer was looking at, so the multi-face flatten loop always
+  has a painted (even if visually hidden-by-CSS) stage to read from.
+  **NOT verified in a real browser** — `resize_window` was attempted once this
+  task (per the plan's instruction to try exactly once) and is confirmed still
+  a no-op in this environment: after resizing to 390×844 the page continued
+  rendering the full three-column desktop layout with no tab bar. This matches
+  every prior batch's finding (`devtools MCP` could not attach a sub-768px
+  viewport either). The mobile behaviour therefore rests entirely on jsdom
+  class-string and mount-presence tests (`mobileLayout.test.tsx` and friends),
+  which perform no real layout — treat it as unverified until a real
+  sub-768px browser session is available.
+  **(6) Admin fields.** The Branding view gained `redirect_url`/
+  `redirect_seconds` inputs mirroring the server's validation rules
+  (`branding._validate_redirect`), including the fix (found in review, not by
+  the original implementer) that the client must apply the `5..300` bounds
+  check whenever `redirect_seconds` is present, not only when a URL is also
+  set — `admin_stores.py` validates the raw payload before any merge, so a
+  client that only gated on "URL present" let an out-of-range value 400 on the
+  server with no field flagged client-side.
+  **Watermark reaches neither the image model nor a double-stamped preview —
+  re-verified from a real artifact, not just narration.** Drove a full session
+  live (name → logo upload via injected `File`/`DataTransfer` → email step →
+  synthetic `email_captured`/`email_verified` write in the backend container,
+  mirroring `leads.py`'s `_apply_email`/`_mark_session_verified` exactly, since
+  this environment's Resend key is sandboxed and 422s any non-owner recipient →
+  decoration/quantity/needed-by/purpose → `review_design`, watermark visible in
+  the dialog → confirmed → `request_quote` → reference code `MH-2RQKQV`
+  issued). Downloaded the actual stored
+  `design_sessions.collected.canvas_layouts.front` PNG from its signed URL and
+  inspected it directly: **960×960** (`EXPORT_EDGE_PX` holds), decorations only
+  on a neutral background, and a programmatic scan for semi-transparent
+  whitish pixels (the watermark's signature) across the whole image returned
+  **zero**. `Watermark.tsx` remaining a DOM sibling of the Konva `<Stage>` —
+  never a Konva node — is what makes this true by construction; `watermark.test.tsx`
+  is the standing scene-graph guard.
+  **Test baselines, measured directly (not carried forward from the plan or
+  the ledger) via the exact commands in the plan's Task 9 Step 1:** backend
+  flag-off (`CANVAS_ORCHESTRATOR_V2=false`, full suite) = **1356 passed, 0
+  failed**; the five v2-only suites flag-on (`test_orchestrator_v2`/
+  `test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`)
+  = **378 passed, 0 failed**; frontend `src/__tests__ src/components/StoreHeader.test.tsx`
+  = **395 passed, 0 failing, 56 files**; frontend `src/admin` = **69 passed, 19
+  files**; `npx tsc --noEmit` = clean. All four numbers land exactly on the
+  ledger's own final per-task figures (Task 3's 1356, Task 1's 378, Task 7's
+  395, Task 8's 69) — independent re-measurement corroborates the batch's
+  internal tracking rather than contradicting it, unlike the prior batch's
+  fabricated-narration incident.
+  Spec/plan: `.superpowers/sdd/2026-08-02-canvas-studio-flow-polish/`.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).
@@ -1006,22 +1100,29 @@ stack has no catalogue sync unless you run the script yourself:
   to be broken". Objects survive; `git update-ref` fails because it cannot lock an
   unparseable ref. Recover the tip from `.git/logs/refs/heads/<branch>` or
   `.git/logs/HEAD`, `rm` the corrupt ref file, then `git update-ref`.
-- Open ticket: **every chat payload with NO `canvas` directive now renders the
-  canvas UNwatermarked.** `chatStore`'s default is `'watermark' in data ?
-  data.watermark !== false : rawCanvas !== null` (2026-08-01 review-gate batch,
-  final fix wave). Only `state_machine_v2.public_data_for` emits either key, so
-  this covers BOTH the v2 shared tail (generating / verify / refine / quote —
-  `orchestrator_v2` delegates those to v1 verbatim) AND, less obviously, a
-  **resume**: `sessions._public_data` emits no directive, so reloading
-  `?session=<token>` at `review_design` / `ask_final_notes` / `request_quote` /
-  `finalize_canvas` shows an unwatermarked design where a live turn at the same
-  state shows a watermarked one. Live turns at those four states are unaffected
-  — the backend flag is explicit there, so the default is never consulted. Fix
-  = stamp an explicit `watermark` in v1's `_public_data` and
-  `sessions._public_data` for canvas flows (four producers). Scoped and ticketed
-  by owner ruling rather than fixed, to keep the branch mergeable. The comment
-  at `state_machine_v2.py:349-352` claiming the frontend "falls back to its own
-  default — which is `true`" is now STALE and should be fixed with it.
+- **FIXED (2026-08-02, canvas-studio-flow-polish batch):** the open ticket that
+  used to live here ("every chat payload with NO `canvas` directive now renders
+  the canvas UNwatermarked") is resolved by a single pure predicate,
+  `state_machine_v2.watermark_for_state(state: str, collected: dict) -> bool`,
+  called by all three payload producers — `state_machine_v2.public_data_for`
+  (live v2 registry steps), `orchestrator._public_data` (v1-delegated shared
+  tail turns: generating/verify/refine/quote), and, because `sessions.py`
+  imports and calls that same `orchestrator._public_data`, every **resume**
+  too. One function, one call graph, no frontend default left to drift.
+  Order inside it is load-bearing: `flow_mode != "canvas"` short-circuits False
+  first (v1 session/blank flows stay byte-identical); **`design_rework` is
+  checked BEFORE `design_confirmed`** because `_apply_review` pops the other
+  flag on each tap, but a rework pass that re-reaches `REVIEW_DESIGN` must not
+  re-stamp a canvas the customer is actively editing again — checking
+  `design_confirmed` first would re-arm the watermark mid-edit; `design_confirmed`
+  then covers the whole shared tail and every post-review resume (neither has a
+  registry step to look up); the `_WATERMARKED_STEPS` fallback
+  (`REVIEW_DESIGN`/`ASK_FINAL_NOTES`/`REQUEST_QUOTE`/`FINALIZE_CANVAS`) covers
+  `REVIEW_DESIGN` itself, before either flag is set. Verified live: watermark
+  visible in the review dialog, survives "Looks great, send it" through
+  `request_quote`, and survives a full page reload at `request_quote` — and the
+  uploaded layout-guide PNG that reaches the image model stays watermark-free
+  (see the batch entry below).
 - Known gap (owner-ruled as a Resend sandbox artifact, 2026-08-01): an email the
   provider cannot deliver to **strands the customer permanently** at the
   `AWAIT_EMAIL_VERIFY` hard gate. `leads.is_valid_email` is NOT the constraint —
