@@ -13,11 +13,18 @@ import { useSessionStore } from '../store/sessionStore'
 import { useChatStore } from '../store/chatStore'
 import { CustomiseStudio } from '../components/CustomiseStudio'
 
+// Whole-token match, not `.toContain('bg-accent')`: a plain substring check
+// also matches `bg-accentHover`, the exact class of bug this branch already
+// had to fix once for `hidden` (see mobilePanelTabs.test.tsx). Not ambiguous
+// for ColumnHeader today (it never emits `bg-accentHover`), but the assertion
+// should not depend on that staying true.
+const BG_ACCENT_RE = /(^|\s)bg-accent(\s|$)/
+
 describe('ColumnHeader tone', () => {
   it('fills with the store primary colour for the assistant half', () => {
     render(<ColumnHeader name="Ricardo" instruction="Your turn — answer here"
                          active tone="primary" />)
-    expect(screen.getByRole('status').className).toContain('bg-accent')
+    expect(screen.getByRole('status').className).toMatch(BG_ACCENT_RE)
   })
 
   it('fills with the customer bubble colour for the customer half', () => {
@@ -30,7 +37,7 @@ describe('ColumnHeader tone', () => {
     const { container } = render(
       <ColumnHeader name="Ricardo" instruction="x" active={false} tone="primary" />)
     const el = container.firstElementChild as HTMLElement
-    expect(el.className).not.toContain('bg-accent')
+    expect(el.className).not.toMatch(BG_ACCENT_RE)
     expect(el.className).toContain('bg-surfaceAlt')
   })
 })
@@ -57,7 +64,7 @@ describe('CustomiseStudio assigns each half its own tone', () => {
     } as never)
     render(<CustomiseStudio />)
     // The chat is the active half at a no-tool step, so its header is filled.
-    expect(screen.getByRole('status').className).toContain('bg-accent')
+    expect(screen.getByRole('status').className).toMatch(BG_ACCENT_RE)
   })
 
   it('gives the canvas header the customer bubble colour when it is active', () => {

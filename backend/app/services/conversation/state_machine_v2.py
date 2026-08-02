@@ -17,6 +17,7 @@ which only _apply_email sets and the interpreter cannot write.
 from __future__ import annotations
 
 from app import prompts
+from app.config import settings
 from app.services.conversation import canvas_steps as cs
 from app.services.conversation.canvas_steps import MAX_LOGOS, Step  # noqa: F401 re-export
 from app.services.conversation.intent_extractor import repair_mojibake
@@ -384,6 +385,35 @@ def watermark_for_state(state: str, collected: dict) -> bool:
     return bool(step and step.id in _WATERMARKED_STEPS)
 
 
+def session_ended_for_state(state: str, collected: dict) -> bool:
+    """True once nothing the customer types or taps can move this session on.
+
+    Currently only QUOTE_REQUESTED for a v2 canvas session qualifies. The
+    REQUEST_QUOTE step's single chip ("Request a quote") already captured the
+    decision before `canvas-finalize` wrote this state — v2 has no "no"
+    branch there — so re-asking `wants_quote` (v1's yes/no gate,
+    `state_machine.py`'s QUOTE_REQUESTED -> SESSION_END transition) makes no
+    sense and there is nothing left to submit.
+
+    A v1 canvas session resting at the SAME state string is still answerable
+    (that yes/no gate is exactly how it reaches SESSION_END) and must not be
+    locked. A v2 session's own resume reaches QUOTE_REQUESTED through the
+    identical `orchestrator._public_data` producer a live v1 turn uses, so the
+    two can't be told apart by state or `flow_mode` alone — only
+    `settings.canvas_orchestrator_v2` does, the same selector
+    `chat.py::_is_v2_canvas` already uses for routing.
+
+    Pure, mirroring `watermark_for_state`: both payload producers
+    (`orchestrator._public_data` and `public_data_for` below) call it, which
+    is what stops them drifting apart.
+    """
+    if state != S.QUOTE_REQUESTED.value:
+        return False
+    if collected.get("flow_mode") != "canvas":
+        return False
+    return settings.canvas_orchestrator_v2
+
+
 def public_data_for(step: Step, collected: dict) -> dict:
     data: dict = {}
     chips = cs.chips_of(step, collected)
@@ -400,6 +430,11 @@ def public_data_for(step: Step, collected: dict) -> dict:
     data["canvas"] = directive_for(step, collected)
     data["progress"] = progress_for(step)
     data["watermark"] = watermark_for_state(step.id.value, collected)
+    # No registry step's id is ever the string "quote_requested" (that state
+    # is reached only via sessions.py's canvas-finalize route, outside this
+    # engine), so this is always False here — set explicitly anyway so both
+    # producers visibly agree rather than one merely defaulting to it.
+    data["session_ended"] = session_ended_for_state(step.id.value, collected)
     return data
 
 

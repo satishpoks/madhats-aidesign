@@ -1205,16 +1205,27 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
             data.setdefault("tint_ready", True)
             data.setdefault("tint_hex", (hc.get("hex") if isinstance(hc, dict) else "") or "")
 
-    # The canvas watermark. This function serves v1 turns AND, via
-    # sessions.get_session, every resume — neither carries a v2 canvas
-    # directive, so without this key the frontend defaults to unwatermarked and
-    # a finished design loses its overlay on the next turn and on reload.
-    # Function-local import: state_machine_v2 pulls in canvas_steps, which
-    # reaches back into leads/intent_extractor, and a module-level import here
-    # would close that cycle.
-    from app.services.conversation.state_machine_v2 import watermark_for_state
+    # The canvas watermark + the session-ended lock. This function serves v1
+    # turns AND, via sessions.get_session, every resume — neither carries a v2
+    # canvas directive, so without these keys the frontend defaults to
+    # unwatermarked (a finished design loses its overlay on the next turn and
+    # on reload) and never locks the composer at a v2 QUOTE_REQUESTED (a
+    # customer could re-answer a question v2 already resolved via its
+    # REQUEST_QUOTE chip).
+    #
+    # Function-local import, not for cycle safety (verified: state_machine_v2's
+    # transitive module-level import closure — canvas_steps, prompts,
+    # intent_extractor, leads, and their imports — contains no `orchestrator`,
+    # so a top-level import here would not close a cycle). It stays local so
+    # this module's hot path (every v1 turn, canvas or not) doesn't carry a
+    # module-level dependency on the v2 registry it otherwise never touches.
+    from app.services.conversation.state_machine_v2 import (  # noqa: PLC0415
+        session_ended_for_state,
+        watermark_for_state,
+    )
 
     data["watermark"] = watermark_for_state(state.value, collected)
+    data["session_ended"] = session_ended_for_state(state.value, collected)
     return data
 
 

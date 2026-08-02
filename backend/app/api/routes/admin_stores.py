@@ -47,6 +47,16 @@ async def create_store(body: CreateStoreRequest, ctx: AdminContext = Depends(req
     if sb.table("stores").select("id").eq("slug", body.slug).limit(1).execute().data:
         raise HTTPException(status_code=409, detail="slug already exists")
 
+    # Same gate PATCH applies (validate_brand) — this route used to write
+    # body.brand straight through, so a store could be CREATED with a
+    # redirect_url that isn't http(s), contradicting the "server-validated
+    # only" assumption RedirectCountdown.tsx's scheme guard exists to not
+    # have to rely on alone.
+    try:
+        validated_brand = validate_brand(body.brand)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     row = {
         "slug": body.slug,
         "name": body.name,
@@ -56,7 +66,7 @@ async def create_store(body: CreateStoreRequest, ctx: AdminContext = Depends(req
         "persona_name": body.persona_name,
         "greeting_template": body.greeting_template,
         "sales_notification_email": body.sales_notification_email,
-        "brand": body.brand,
+        "brand": validated_brand,
         "status": "active",
     }
     res = sb.table("stores").insert(row).execute()

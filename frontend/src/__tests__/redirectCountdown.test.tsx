@@ -26,7 +26,9 @@ function open(seconds?: number) {
   useBrandStore.setState({
     brand: { redirect_url: 'https://madhats.com.au', redirect_seconds: seconds },
   } as never)
-  useChatStore.setState({ chatState: 'quote_requested' } as never)
+  // Backend-owned signal, not the raw chat state — see the "does not open for
+  // a v1 canvas session" test below for why that distinction matters.
+  useChatStore.setState({ chatState: 'quote_requested', sessionEnded: true } as never)
   return render(<RedirectCountdown />)
 }
 
@@ -45,7 +47,35 @@ describe('RedirectCountdown', () => {
   it('renders nothing when the store configured no redirect', () => {
     // Absence of the URL is the off switch — an unconfigured store must behave
     // exactly as it did before this feature existed.
-    useChatStore.setState({ chatState: 'quote_requested' } as never)
+    useChatStore.setState({ chatState: 'quote_requested', sessionEnded: true } as never)
+    const { container } = render(<RedirectCountdown />)
+    expect(container).toBeEmptyDOMElement()
+    tick(60)
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('does not open for a v1 canvas session resting at quote_requested', () => {
+    // `quote_requested` is a state STRING shared with v1, where it is an
+    // answerable yes/no gate, not an ending — the backend only sets
+    // `sessionEnded` true for a v2 canvas session. Gating on the raw chat
+    // state (the pre-fix behaviour) yanked a v1 customer to the shop over a
+    // question they could still answer.
+    useBrandStore.setState({ brand: { redirect_url: 'https://madhats.com.au' } } as never)
+    useChatStore.setState({ chatState: 'quote_requested', sessionEnded: false } as never)
+    const { container } = render(<RedirectCountdown />)
+    expect(container).toBeEmptyDOMElement()
+    tick(60)
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('never navigates to a non-http(s) redirect_url', () => {
+    // Defence in depth: even if a stored brand somehow carries an unsafe
+    // scheme (e.g. a pre-validation row, or a future write path that forgets
+    // the admin-route guard), the component must not treat it as configured.
+    useBrandStore.setState({
+      brand: { redirect_url: 'javascript:alert(1)', redirect_seconds: 5 },
+    } as never)
+    useChatStore.setState({ chatState: 'quote_requested', sessionEnded: true } as never)
     const { container } = render(<RedirectCountdown />)
     expect(container).toBeEmptyDOMElement()
     tick(60)

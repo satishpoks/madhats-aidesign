@@ -228,14 +228,39 @@ describe('ChatColumn', () => {
     expect(screen.getByText('↩ Back')).toBeInTheDocument()
   })
 
-  it('locks every affordance once the quote reference has been issued', () => {
+  it('locks every affordance once a v2 canvas session reports session_ended', () => {
     // Nothing the customer types can move a finished session. Leaving the
-    // composer live would invite an answer to a question that no longer exists.
-    renderColumnAtState('quote_requested', { options: ['Something'], continuable: true })
+    // composer live would invite an answer to a question that no longer
+    // exists. `session_ended` is backend-owned (state_machine_v2.
+    // session_ended_for_state) — the state string alone (`quote_requested`)
+    // is shared with v1, where it is still answerable (see the companion
+    // test below), so the lock must key off the explicit flag, not the state.
+    renderColumnAtState('quote_requested', {
+      options: ['Something'], continuable: true, session_ended: true,
+    })
     expect(screen.getByPlaceholderText(/type your message/i)).toBeDisabled()
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Something' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+  })
+
+  it('leaves a v1 canvas session answerable at the same quote_requested state', () => {
+    // A v1 canvas session resting at `quote_requested` is v1's answerable
+    // yes/no gate (orchestrator.py emits "Yes, request a quote" / "No, I'm
+    // all set" chips there and reads `wants_quote` off the reply) — the
+    // backend never sets `session_ended` for it, so the composer and its
+    // chips must stay live. Regression guard for the bug where the frontend
+    // locked on the raw state string alone.
+    renderColumnAtState('quote_requested', {
+      options: ['Yes, request a quote', "No, I'm all set"],
+    })
+    const input = screen.getByPlaceholderText(/type your message/i)
+    expect(input).not.toBeDisabled()
+    // Send is separately gated on non-empty text (`!inputText.trim()`) —
+    // unrelated to the lock this test targets — so type first to isolate it.
+    fireEvent.change(input, { target: { value: 'hello' } })
+    expect(screen.getByRole('button', { name: /send/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Yes, request a quote' })).not.toBeDisabled()
   })
 })

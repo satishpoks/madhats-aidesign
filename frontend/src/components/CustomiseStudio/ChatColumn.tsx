@@ -231,7 +231,20 @@ export function ChatColumn() {
   // nothing left the customer can say that moves anything. An enabled composer
   // here invites an answer to a question that no longer exists, which reads as
   // a broken bot — the same reason awaitingEmailVerify locks it.
-  const sessionEnded = chatState === 'quote_requested'
+  //
+  // Backend-owned, NOT `chatState === 'quote_requested'`: that state string is
+  // shared with v1, where it's an answerable yes/no gate
+  // (state_machine.py:317-318 only advances to SESSION_END after the reply) —
+  // orchestrator.py emits chips there and reads `wants_quote` off the answer.
+  // A v1 canvas session sitting at quote_requested must stay unlocked; only a
+  // v2 canvas session at the same state is genuinely done (its REQUEST_QUOTE
+  // step already captured the decision via its one chip, before finalize ever
+  // wrote this state). The two can't be told apart by state or `flow_mode`
+  // alone — a v2 RESUME reaches quote_requested through the identical
+  // `_public_data` producer a live v1 turn uses — so the backend computes it
+  // (`state_machine_v2.session_ended_for_state`, keyed on
+  // `settings.canvas_orchestrator_v2`) and ships it explicitly.
+  const sessionEnded = useChatStore(s => s.sessionEnded)
   const inputLocked = sending || awaitingEmailVerify || sessionEnded
 
   // The backend only sets data.composite_preview: true for the

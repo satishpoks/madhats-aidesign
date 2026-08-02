@@ -47,7 +47,12 @@ describe('BrandingView', () => {
     const urlInputs = screen.getAllByPlaceholderText(/https/i)
     fireEvent.change(urlInputs[urlInputs.length - 1], { target: { value: 'javascript:alert(1)' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-    expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
+    // This is the MENU-LINK error, not the redirect-url one — tightened from a
+    // bare /http\(s\)/i (which also matches "Redirect URL must be an http(s)
+    // URL" and "Colour reference links must be full http(s) URLs") to the
+    // menu-link message specifically, so this test can't silently pass on the
+    // wrong one of the three surfacing instead.
+    expect(await screen.findByText(/menu links must be/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 
@@ -199,7 +204,11 @@ describe('BrandingView', () => {
     await waitFor(() => expect(api.getStore).toHaveBeenCalled())
     fireEvent.change(await screen.findByLabelText(/redirect url/i), { target: { value: 'madhats.com.au' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-    expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
+    // Tightened from a bare /http\(s\)/i, which also matches the menu-link and
+    // colour-reference error strings ("Menu links must be full http(s) URLs",
+    // "Colour reference links must be full http(s) URLs") — that regex would
+    // pass this test even if `validate()` surfaced the WRONG one of the three.
+    expect(await screen.findByText(/redirect url must be/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 
@@ -255,7 +264,11 @@ describe('BrandingView', () => {
     await waitFor(() => expect(api.getStore).toHaveBeenCalled())
     fireEvent.change(await screen.findByLabelText(/redirect url/i), { target: { value: 'https://?a=b' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
-    expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
+    // Tightened from a bare /http\(s\)/i, which also matches the menu-link and
+    // colour-reference error strings ("Menu links must be full http(s) URLs",
+    // "Colour reference links must be full http(s) URLs") — that regex would
+    // pass this test even if `validate()` surfaced the WRONG one of the three.
+    expect(await screen.findByText(/redirect url must be/i)).toBeInTheDocument()
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 

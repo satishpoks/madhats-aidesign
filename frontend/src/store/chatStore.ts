@@ -70,6 +70,14 @@ interface ChatStoreState {
    *  the turn carries a canvas directive (i.e. it came from the one producer
    *  that knows about watermarking at all). See parseData for why. */
   watermark: boolean
+  /** Backend-owned: true once nothing the customer types or taps can move this
+   *  session on. Only ever true at a v2 canvas session's QUOTE_REQUESTED — v1
+   *  rests at the SAME state string but it's an answerable yes/no gate there,
+   *  so `chatState === 'quote_requested'` alone can't tell the two apart (see
+   *  `state_machine_v2.session_ended_for_state`). Defaults false, which is
+   *  always correct for v1: an absent key never locks a session that can still
+   *  answer. */
+  sessionEnded: boolean
 
   kickoff: (sessionId: string) => Promise<void>
   sendMessage: (sessionId: string, text: string) => Promise<void>
@@ -142,17 +150,25 @@ function parseData(data: Record<string, unknown>) {
   const extraReplies = Array.isArray(data.extra_replies)
     ? (data.extra_replies as string[]).filter(t => typeof t === 'string')
     : []
-  // Only `state_machine_v2.public_data_for` ever emits this flag, and it emits
-  // `canvas` alongside it on every turn it owns. So an explicit value always
-  // wins, and the DEFAULT is keyed on the directive: no directive means the
-  // payload came from a producer that knows nothing about watermarking — v1's
-  // `_public_data` (a v1 canvas session, including its `canvas_design` state,
-  // where the customer is actively dragging logos) or `sessions._public_data`
-  // (any resume, mid-design included). Defaulting those to watermarked put a
-  // diagonal overlay across a live, editable design, which reads as a broken
-  // app. Defaulting to `false` there is the only safe read.
+  // Every current backend response producer sets this key explicitly now:
+  // `state_machine_v2.public_data_for` (every v2-owned turn),
+  // `orchestrator._public_data` (every v1 turn, every v2-delegated shared-tail
+  // turn, AND every resume — `sessions.get_session` calls this same function,
+  // there is no separate `sessions._public_data`), and the three hand-built
+  // dicts in `sessions.py`'s canvas-finalize route (rework / v2 quote-gated /
+  // v1 decoration-outro branches), which used to be silent producers and are
+  // the bug the `session_ended` flag below exists to close a sibling of. So
+  // `rawCanvas !== null` is not known to be reachable from any current
+  // backend path — kept only as a last-resort default in case a future
+  // producer forgets the key, the same way `_public_data` still forgets
+  // nothing today but a next producer might.
   const watermark = 'watermark' in data ? data.watermark !== false : rawCanvas !== null
-  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies, watermark }
+  // Backend-owned lock (state_machine_v2.session_ended_for_state): absent or
+  // false means "still answerable" — the only state that can ever set this is
+  // a v2 canvas session's QUOTE_REQUESTED, so every other response leaves it
+  // at the safe default.
+  const sessionEnded = data.session_ended === true
+  return { options, options2, triggerGeneration, triggerRegeneration, continuable, tintReady, tintHex, colourSwatches, colourPicker, progress, multiselect, selected, quoteUrl, canvasDirective, triggerFinalize, backTargets, collectedName, extraReplies, watermark, sessionEnded }
 }
 
 function uid(): string {
@@ -193,6 +209,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
   // Nothing is designed yet at mount — differs from parseData's default
   // (watermarked) on purpose.
   watermark: false,
+  sessionEnded: false,
 
   kickoff: async (sessionId: string) => {
     if (get().kickoffDone) return
@@ -461,5 +478,6 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       collectedName: null,
       finalizeFailed: false,
       watermark: false,
+      sessionEnded: false,
     }),
 }))

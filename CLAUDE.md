@@ -995,12 +995,15 @@ stack has no catalogue sync unless you run the script yourself:
   Spec/plan:
   `docs/superpowers/{specs,plans}/2026-08-01-studio-review-gate-and-orchestrator-fixes*`.
 - **Canvas studio flow polish batch (2026-08-02), branch
-  `feat/canvas-studio-flow-polish`.** Eight tasks, all merged and independently
-  verified (Task 9) rather than trusting the implementers' own reports, per the
-  lesson recorded in the entry above.
+  `feat/canvas-studio-flow-polish`.** Ten tasks (not eight — this note was
+  never updated after Task 9's own verification pass and Task 10 landed after
+  it; see the fix-wave entry below for both corrections), all merged and
+  independently verified (Task 9) rather than trusting the implementers' own
+  reports, per the lesson recorded in the entry above.
   **(1) Tool rail hides when the canvas is not editable.** `ToolRail` takes an
   optional `toolsVisible` prop (default `true`, so v1 call sites that never
-  pass it are unaffected); `Surface` wires it to `isV2 ? v2Editing : unlocked`.
+  pass it are unaffected); `Surface` originally wired it to `isV2 ? v2Editing :
+  unlocked` — Task 10 (below) added a second condition on top of this.
   When false the rail renders an **empty** `<div data-testid="tool-rail-empty">`
   that still carries the full `w-full md:w-44 lg:w-52 xl:w-64` width classes —
   duplicated deliberately across both `ToolRail` returns rather than hoisted,
@@ -1058,6 +1061,16 @@ stack has no catalogue sync unless you run the script yourself:
   set — `admin_stores.py` validates the raw payload before any merge, so a
   client that only gated on "URL present" let an out-of-range value 400 on the
   server with no field flagged client-side.
+  **(10, landed after Task 9's verification — 2026-08-02) Tool rail ADD buttons
+  hide while an element is selected.** Live feedback: an adjust step (a logo
+  or text element already placed and selected) still showed the rail's ADD
+  buttons alongside the Adjust panel, which reads as "add another" when the
+  step is actually "adjust this one". `Surface.tsx`'s `toolsVisible` gained a
+  second condition — `isV2 ? (v2Editing && !selectedId) : unlocked` — so
+  selecting an element (`canvasStore.selectedId` becoming non-null) hides the
+  rail exactly the way `!v2Editing` already does, leaving only the Adjust
+  panel. Customer-visible, not internal cleanup: this is why `toolsVisible`'s
+  formula above no longer matches item (1)'s original description.
   **Watermark reaches neither the image model nor a double-stamped preview —
   re-verified from a real artifact, not just narration.** Drove a full session
   live (name → logo upload via injected `File`/`DataTransfer` → email step →
@@ -1075,18 +1088,136 @@ stack has no catalogue sync unless you run the script yourself:
   never a Konva node — is what makes this true by construction; `watermark.test.tsx`
   is the standing scene-graph guard.
   **Test baselines, measured directly (not carried forward from the plan or
-  the ledger) via the exact commands in the plan's Task 9 Step 1:** backend
-  flag-off (`CANVAS_ORCHESTRATOR_V2=false`, full suite) = **1356 passed, 0
-  failed**; the five v2-only suites flag-on (`test_orchestrator_v2`/
-  `test_v2_e2e`/`test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`)
+  the ledger) via the exact commands in the plan's Task 9 Step 1, AT THE END
+  OF TASK 9 (before Task 10 landed):** backend flag-off
+  (`CANVAS_ORCHESTRATOR_V2=false`, full suite) = **1356 passed, 0 failed**;
+  the five v2-only suites flag-on (`test_orchestrator_v2`/`test_v2_e2e`/
+  `test_v2_copy_guards`/`test_state_machine_v2`/`test_canvas_steps`)
   = **378 passed, 0 failed**; frontend `src/__tests__ src/components/StoreHeader.test.tsx`
   = **395 passed, 0 failing, 56 files**; frontend `src/admin` = **69 passed, 19
   files**; `npx tsc --noEmit` = clean. All four numbers land exactly on the
   ledger's own final per-task figures (Task 3's 1356, Task 1's 378, Task 7's
   395, Task 8's 69) — independent re-measurement corroborates the batch's
   internal tracking rather than contradicting it, unlike the prior batch's
-  fabricated-narration incident.
+  fabricated-narration incident. Task 10 (above) landed after this measurement
+  and added its own test coverage, moving the frontend figure to 399/56 before
+  the fix-wave batch below added more on top.
   Spec/plan: `.superpowers/sdd/2026-08-02-canvas-studio-flow-polish/`.
+- **Canvas studio flow polish — whole-branch review fix wave (2026-08-02),
+  same branch.** A post-merge review of all ten tasks (this file was stale —
+  see the "Eight tasks"/`toolsVisible` corrections folded into the entry
+  above) found two IMPORTANT correctness gaps and five smaller issues; all
+  seven fixed in one pass.
+  **(Important 1) v1-canvas sessions were dead-ended at `quote_requested`.**
+  `ChatColumn.tsx` locked the composer (and `RedirectCountdown` opened its
+  redirect dialog) on `chatState === 'quote_requested'` alone. That state
+  STRING is shared with v1, where it is an answerable yes/no gate
+  (`state_machine.py`'s QUOTE_REQUESTED -> SESSION_END transition,
+  `orchestrator.py` emits "Yes, request a quote"/"No, I'm all set" chips and
+  reads `wants_quote` off the reply) — so a v1 canvas session reaching that
+  state got both the lock and, if the store had configured a `redirect_url`,
+  yanked to the shop over a question it could no longer answer. Gating on
+  `options.length === 0` does not work either: a v2 RESUME at the same state
+  gets those same v1 chips from the identical `orchestrator._public_data`
+  producer, so the two cases are indistinguishable from the frontend's own
+  state. **Fixed the way this branch already fixed the watermark**: a new
+  pure predicate, `state_machine_v2.session_ended_for_state(state, collected)`
+  (next to `watermark_for_state`, same shape — `flow_mode != "canvas"` ->
+  False, else True only when `state == QUOTE_REQUESTED.value` AND
+  `settings.canvas_orchestrator_v2` is on, the same selector
+  `chat.py::_is_v2_canvas` already uses for routing). Both payload producers
+  now call it: `orchestrator._public_data` (every v1 turn, every
+  v2-delegated shared-tail turn, every resume) and
+  `state_machine_v2.public_data_for` (every v2-owned turn — always False
+  there in practice, since no registry step id is ever `"quote_requested"`,
+  but set explicitly so the two producers visibly agree rather than one
+  merely defaulting to it). `ChatColumn.tsx`'s `sessionEnded` and
+  `RedirectCountdown.tsx`'s `shouldOpen` both now read `chatStore.sessionEnded`
+  (parsed from `data.session_ended === true`, default `false`) instead of
+  comparing `chatState`. Considered the alternative the finding offered
+  (gate the quote chips in `_state_public_data` on
+  `not settings.canvas_orchestrator_v2`) — rejected because it does not
+  address `RedirectCountdown`, which reads `chatState` directly and needed
+  its own fix regardless.
+  **(Important 2) A third watermark producer emitted no flag.**
+  `sessions.py`'s `canvas-finalize` route hand-builds three response `data`
+  dicts (the `reworking` re-render branch, the v2 quote-gated branch, the v1
+  decoration-outro branch) rather than going through `_public_data`/
+  `public_data_for` (it isn't a chat turn). All three were silent on
+  `watermark`, so a LIVE turn at `quote_requested` (this route) showed the
+  design unwatermarked while a RELOAD at the same state (`_public_data`)
+  showed it watermarked — the exact live-vs-resume divergence this batch's
+  Task 2 set out to retire, just moved one state later. Fixed by threading
+  `watermark_for_state(new_state.value, collected)` into all three dicts, plus
+  `session_ended_for_state(...)` into the two that can reach
+  `quote_requested` (the v2 branch always True there since it only runs
+  inside `if settings.canvas_orchestrator_v2`, computed via the shared helper
+  rather than hardcoded so it can't drift from the other two producers).
+  **(3) `orchestrator.py`'s local-import comment asserted a false import
+  cycle.** Verified: `state_machine_v2`'s transitive module-level import
+  closure (`canvas_steps`, `prompts`, `intent_extractor`, `leads`, and their
+  own imports) contains no `orchestrator` — `canvas_steps.py`'s two
+  `watermark_for_state` imports are already function-local for an unrelated
+  reason. The import stays local (hoisting it WOULD create a new,
+  previously-absent coupling of v1's hot path to the v2 registry at import
+  time), but the comment now says that instead of claiming a cycle; added the
+  `# noqa: PLC0415` the file's other local imports carry.
+  **(4) `chatStore.ts`'s watermark comment was stale.** It said v1's
+  `_public_data` and `sessions._public_data` "know nothing about
+  watermarking" and that the latter exists as a separate function — neither
+  was true even before this fix wave (`sessions.py` imports orchestrator's
+  `_public_data`; there is no `sessions._public_data`), and after Important 2
+  every current backend response producer sets `watermark` explicitly.
+  Reworded to say so, and to note the `rawCanvas !== null` fallback is not
+  known to be reachable from any current backend path — kept only in case a
+  future producer forgets the key.
+  **(5) This file.** "Eight tasks" -> ten, `toolsVisible`'s formula corrected,
+  Task 10 documented, and this whole entry.
+  **(6) Two ambiguous test assertions tightened**, both examples of the same
+  bug class this branch already had to fix once for `hidden` (bare substring
+  matching a Tailwind variant/sibling class): `BrandingView.test.tsx`'s two
+  redirect-url-rejection tests used `findByText(/http\(s\)/i)`, which also
+  matches the menu-link and colour-reference error strings — tightened to
+  `/redirect url must be/i` (and, since `replace_all` also touched an
+  unrelated third occurrence testing the MENU-link error, that one was
+  corrected to `/menu links must be/i` rather than left matching the wrong
+  message). `columnHeaderTone.test.tsx`'s `toContain('bg-accent')` is a
+  substring of `bg-accentHover` — not ambiguous today (`ColumnHeader` never
+  emits the Hover class), but tightened to the whole-token regex style
+  `mobilePanelTabs.test.tsx` already established (`/(^|\s)bg-accent(\s|$)/`)
+  so the assertion doesn't depend on that staying true.
+  **(7) `RedirectCountdown.tsx` hardening.** `POST /admin/stores`
+  (`admin_stores.py`'s create route) wrote `body.brand` straight through with
+  no `validate_brand` call — unlike the PATCH route — so the "server-
+  validated only" assumption behind navigating to `redirect_url` wasn't
+  actually true; fixed the create route (one `validate_brand` call, same 400-
+  on-`ValueError` shape as PATCH) AND added a defensive client-side scheme
+  guard (`isSafeRedirectUrl`, `/^https?:\/\//i`) so the component itself never
+  navigates anywhere non-http(s) regardless of which route or version wrote
+  the stored value. Separately, `window.location.assign(url)` lived INSIDE the
+  countdown's `setLeft` function-updater — React Strict Mode calls a function
+  updater twice in dev specifically to catch impurities like this, so every
+  tick double-navigated. Fixed by making the updater pure (plain decrement,
+  clamped at 0) and moving the navigation into its own effect keyed on
+  `left === 0`, which — being a genuine update, not the initial mount — is not
+  double-invoked under Strict Mode.
+  **Deliberately not fixed** (reviewer-deferred): `branding.py`'s explicit-
+  `null` `redirect_url` handling; the duplicated watermark tests in
+  `test_state_machine_v2.py`; `RedirectCountdown`'s `cancelled` never
+  resetting; `PanelTabs`' missing `role="tabpanel"`/`aria-controls`; the
+  unused backend `DEFAULT_REDIRECT_SECONDS`.
+  **Test counts after this fix wave** (same commands as above): backend
+  flag-off = **1380 passed, 0 failed** (+24: `test_session_ended.py`,
+  `session_ended_for_state` coverage added to `test_state_machine_v2.py`,
+  one new `test_canvas_routes.py` case for the rework branch's watermark
+  flag); the five v2-only suites flag-on = **392 passed, 0 failed** (+14, all
+  in `test_state_machine_v2.py`); frontend `src/__tests__
+  src/components/StoreHeader.test.tsx` = **402 passed, 0 failing, 56 files**
+  (+3: a v1-answerable regression guard in `ChatColumn.test.tsx`, two new
+  cases in `redirectCountdown.test.tsx`); frontend `src/admin` = **69 passed,
+  19 files** (unchanged — Finding 6 only tightened existing assertions);
+  `npx tsc --noEmit` = clean.
+  Report: `.superpowers/sdd/2026-08-02-canvas-studio-flow-polish/fix-wave-report.md`.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
   Frontend admin subset: `cd frontend && npx vitest run src/admin` (40 passing).

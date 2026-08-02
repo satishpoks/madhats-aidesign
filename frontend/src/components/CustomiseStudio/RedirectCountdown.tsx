@@ -7,9 +7,16 @@ import { useChatStore } from '../../store/chatStore'
  *  left the duration blank. */
 export const DEFAULT_REDIRECT_SECONDS = 30
 
-/** The one chat state that ends a v2 canvas session: `sessions.finalize_canvas`
- *  returns it with the MH-XXXXXX reference in the reply. */
-const END_STATE = 'quote_requested'
+/** Server-validated is not enough to trust blindly: `POST /admin/stores`
+ *  (unlike the PATCH route) used to write `body.brand` straight through with
+ *  no call to `validate_brand` at all, and `redirect_url` is the first brand
+ *  field this component ever hands to `window.location.assign`. The create
+ *  route is now fixed to validate too, but this guard stays regardless — it
+ *  is what makes "only ever navigates to an http(s) URL" true independent of
+ *  which backend route (or version) produced the stored value. */
+function isSafeRedirectUrl(url: string | undefined | null): url is string {
+  return typeof url === 'string' && /^https?:\/\//i.test(url)
+}
 
 /**
  * The end-of-session hand-off: the quote is in, so offer the customer their way
@@ -23,12 +30,18 @@ const END_STATE = 'quote_requested'
  * enabled flag to fall out of step with it.
  */
 export function RedirectCountdown() {
-  const chatState = useChatStore(s => s.chatState)
+  // Backend-owned, not a raw chatState comparison: `quote_requested` is a
+  // state STRING shared with v1, where it is an answerable yes/no gate, not
+  // an ending. Keying this dialog off the same `sessionEnded` flag
+  // `ChatColumn` uses for its composer lock is what stops a v1 canvas session
+  // (which can still answer) from being yanked to the shop mid-question — the
+  // exact bug `session_ended_for_state` was added to close.
+  const sessionEnded = useChatStore(s => s.sessionEnded)
   const brand = useBrandStore(s => s.brand)
-  const url = brand.redirect_url
+  const url = isSafeRedirectUrl(brand.redirect_url) ? brand.redirect_url : undefined
   const total = brand.redirect_seconds ?? DEFAULT_REDIRECT_SECONDS
 
-  const shouldOpen = chatState === END_STATE && !!url
+  const shouldOpen = sessionEnded && !!url
   const [cancelled, setCancelled] = useState(false)
   const [left, setLeft] = useState(total)
   const panelRef = useRef<HTMLDivElement>(null)
@@ -44,20 +57,23 @@ export function RedirectCountdown() {
 
   // The tick. Cleared on close AND on unmount — a cancelled countdown that kept
   // running would yank the customer away from the design they chose to stay for.
+  // The updater is PURE (no side effect, just the decrement) — React Strict
+  // Mode calls a function updater twice in dev to catch impurities, and the
+  // previous version's `if (url) window.location.assign(url)` lived INSIDE
+  // this updater, so it double-navigated. Navigation is a separate effect
+  // below, reacting to `left` hitting 0, which is a genuine update (not the
+  // initial mount) and so is not double-invoked.
   useEffect(() => {
     if (!open) return
     const id = setInterval(() => {
-      setLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(id)
-          if (url) window.location.assign(url)
-          return 0
-        }
-        return prev - 1
-      })
+      setLeft(prev => (prev > 0 ? prev - 1 : 0))
     }, 1000)
     return () => clearInterval(id)
-  }, [open, url])
+  }, [open])
+
+  useEffect(() => {
+    if (open && left === 0 && url) window.location.assign(url)
+  }, [open, left, url])
 
   // Focus the low-cost control, not the one that navigates away — same rule the
   // ReviewDialog follows for its close button.

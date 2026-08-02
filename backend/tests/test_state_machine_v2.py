@@ -1081,3 +1081,51 @@ def test_public_data_for_uses_the_shared_predicate():
     step = cs.by_id(S.REVIEW_DESIGN)
     data = v2.public_data_for(step, _seed())
     assert data["watermark"] is True
+
+
+# --- session_ended_for_state --------------------------------------------------
+# Mirrors watermark_for_state's test shape: one pure predicate, so a live v2
+# turn, a v1-delegated tail turn and a resume can never disagree.
+
+def test_session_ended_true_only_for_a_v2_canvas_session_at_quote_requested(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.session_ended_for_state("quote_requested", _seed()) is True
+
+
+def test_session_ended_false_for_v1_canvas_at_the_same_state(monkeypatch):
+    # `quote_requested` is v1's answerable yes/no gate (state_machine.py's
+    # QUOTE_REQUESTED -> SESSION_END transition) — the state string alone must
+    # not be enough to lock the composer, only the v2 flag.
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", False)
+    assert v2.session_ended_for_state("quote_requested", _seed()) is False
+
+
+def test_session_ended_false_for_a_non_canvas_flow(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    c = {"flow_mode": "session"}
+    assert v2.session_ended_for_state("quote_requested", c) is False
+
+
+@pytest.mark.parametrize("state", [
+    "review_design", "ask_final_notes", "request_quote", "finalize_canvas",
+    "generating", "offer_refine", "verify_email", "ask_quantity", "ask_name",
+])
+def test_session_ended_false_for_every_other_state(monkeypatch, state):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.session_ended_for_state(state, _seed(design_confirmed=True)) is False
+
+
+def test_session_ended_ignores_an_unknown_state(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.session_ended_for_state("no_such_state", _seed()) is False
+
+
+def test_public_data_for_carries_the_session_ended_flag_and_it_is_always_false():
+    # No registry step's persisted state string is ever "quote_requested" (that
+    # state only exists downstream of the registry, via sessions.py's
+    # canvas-finalize route) — so this producer can never legitimately answer
+    # True, but it must still emit the key so the frontend never has to guess.
+    data = v2.public_data_for(cs.by_id(S.REVIEW_DESIGN), _seed(design_confirmed=True))
+    assert data["session_ended"] is False
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), _seed())
+    assert data["session_ended"] is False
