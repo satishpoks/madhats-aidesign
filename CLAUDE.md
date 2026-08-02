@@ -1004,6 +1004,30 @@ stack has no catalogue sync unless you run the script yourself:
   optional `toolsVisible` prop (default `true`, so v1 call sites that never
   pass it are unaffected); `Surface` originally wired it to `isV2 ? v2Editing :
   unlocked` — Task 10 (below) added a second condition on top of this.
+  **Follow-up (2026-08-02, `fix/canvas-mobile-dead-tools`), found only on a real
+  phone: `toolsVisible` is all-or-nothing, and that was not enough.** On an
+  EDITING step with nothing selected it is `true`, so the rail rendered every
+  tool with the three the step does not offer greyed out — the exact
+  "column of dead buttons reads as broken" problem this work existed to remove,
+  surviving at a different moment in the flow. Root cause: `allowedTools` gated
+  the **disabled** state, never **presence**. Now `showTool(t) = allowedTools ===
+  undefined || allowedTools.has(t)` gates presence, and `railGated` likewise
+  hides Draw + the cap-colour swatches in v2 rather than rendering them disabled
+  (they were already unusable there — `drawOrColourDisabled` has always included
+  `railGated` — so this removes dead chrome, it does not remove a working
+  control, including for blank-hat sessions). Separately `hideRender` moved from
+  `canvasDirective?.unlockAll === true` to plain `isV2`: v2's finalize is
+  chat-driven via `triggerFinalize`, so `rendered={isV2 ? true : rendered}` had
+  made that button permanently inert, and a dead "Design saved ✓" is dead chrome
+  too. `isV2` is a strict superset of the old condition (`unlock_all` is only
+  ever set on a v2 directive), so no case was lost. **Why this also shrank the
+  cap on a phone:** `Surface`'s inner layout is `flex-col` below `md`, so the
+  rail is a `flex-shrink-0` sibling stacked *below* the centre column, and
+  `CanvasStage` sizes itself from that column's measured leftover height — every
+  dead button's height came straight out of the cap. v1 is untouched throughout
+  (`allowedTools === undefined` ⇒ `showTool` always true, `railGated` false,
+  `hideRender` false): v1's rail button is the real submit path and must stay
+  visible-but-disabled.
   When false the rail renders an **empty** `<div data-testid="tool-rail-empty">`
   that still carries the full `w-full md:w-44 lg:w-52 xl:w-64` width classes —
   duplicated deliberately across both `ToolRail` returns rather than hoisted,

@@ -72,7 +72,11 @@ test('unlocked leaves the tools enabled', () => {
   expect(screen.getByRole('button', { name: /add text/i })).not.toBeDisabled()
 })
 
-test('only allowed tool is enabled and highlighted', () => {
+test('only the allowed tool renders (the rest are absent, not merely disabled) and it is highlighted', () => {
+  // A disabled column of every other tool next to the one live tool reads as
+  // broken chrome — especially on mobile, where the rail is a sibling stacked
+  // below the canvas and every dead button's height comes straight out of
+  // the cap. v2 (allowedTools set) renders ONLY the tools the step offers.
   render(
     <ToolRail
       onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
@@ -80,18 +84,19 @@ test('only allowed tool is enabled and highlighted', () => {
       allowedTools={new Set(['text'])} highlightTool="text" />,
   )
   const text = screen.getByText('+ Add text')
-  const upload = screen.getByText('↑ Upload image')
   expect(text).not.toBeDisabled()
-  expect(upload).toBeDisabled()
   expect(text.className).toMatch(/animate-pulse|ring-2/)
+  expect(screen.queryByText('↑ Upload image')).not.toBeInTheDocument()
+  expect(screen.queryByText('◈ Graphics')).not.toBeInTheDocument()
 })
 
-test('IMPORTANT 4: Draw + cap-colour are disabled in v2 even though neither is a `Tool`', () => {
+test('IMPORTANT 4: Draw + cap-colour are ABSENT in v2 even though neither is a `Tool`', () => {
   // v2 never lists "draw" or a colourway swatch in allowedTools (they aren't
   // part of the Tool union at all), so they must be gated on
   // `allowedTools !== undefined` too — not just `locked` — otherwise they
-  // stay enabled through every v2 step, including ones where the backend's
-  // directive is `allowed_tools: []` ("everything locked").
+  // render (previously: enabled; now: hidden is correct either way) through
+  // every v2 step, including ones where the backend's directive is
+  // `allowed_tools: []` ("everything locked").
   render(
     <ToolRail
       onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
@@ -99,8 +104,59 @@ test('IMPORTANT 4: Draw + cap-colour are disabled in v2 even though neither is a
       rendering={false} rendered={false} locked={false}
       allowedTools={new Set([])} highlightTool={null} />,
   )
-  expect(screen.getByRole('button', { name: /draw/i })).toBeDisabled()
-  expect(screen.getByRole('button', { name: 'Red' })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: /draw/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Red' })).not.toBeInTheDocument()
+})
+
+test('v2 with an empty allowed set renders no tool buttons and no render button', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked={false} hideRender
+      allowedTools={new Set([])} highlightTool={null} />,
+  )
+  expect(screen.queryByRole('button', { name: /add text/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /upload image/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /graphics/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /draw/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Red' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /done designing|design saved/i })).not.toBeInTheDocument()
+})
+
+test('v2 with allowedTools={upload}: only Upload image renders; render button absent (mirrors Surface hideRender={isV2})', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked={false} hideRender
+      allowedTools={new Set(['upload'])} highlightTool={null} />,
+  )
+  expect(screen.getByRole('button', { name: /upload image/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /upload image/i })).not.toBeDisabled()
+  expect(screen.queryByRole('button', { name: /add text/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /graphics/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /draw/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Red' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /done designing|design saved/i })).not.toBeInTheDocument()
+})
+
+test('v1 (allowedTools undefined) renders every control, still disabled when locked — v1 is untouched', () => {
+  render(
+    <ToolRail
+      onAddText={() => {}} onUploadClick={() => {}} onGraphicsClick={() => {}}
+      colourways={[{ name: 'Red', hex: '#c00' }]} onRender={() => {}}
+      rendering={false} rendered={false} locked
+    />,
+  )
+  for (const name of [/add text/i, /upload image/i, /graphics/i, /draw/i, /done designing/i]) {
+    const btn = screen.getByRole('button', { name })
+    expect(btn).toBeInTheDocument()
+    expect(btn).toBeDisabled()
+  }
+  const red = screen.getByRole('button', { name: 'Red' })
+  expect(red).toBeInTheDocument()
+  expect(red).toBeDisabled()
 })
 
 test('v1 (no allowedTools, not locked): Draw + cap-colour stay enabled', () => {
