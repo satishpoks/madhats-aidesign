@@ -161,7 +161,21 @@ export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolb
   const panel = (
     <div ref={rootRef} data-testid="adjust-panel"
       className={isSheet
-        ? 'fixed inset-x-0 bottom-0 z-30 w-full shrink-0 flex flex-col bg-surface border-t border-canvasAccent rounded-t-2xl shadow-xl'
+        // Translucent + blurred (owner: "the adjustment screen is blocking the
+        // whole view of the cap ... may be a transparent overlay"): the cap
+        // stays visible through the sheet so a change reads as affecting the
+        // real design, not a screen the customer has to dismiss first to
+        // check. The blur is what keeps the controls/text legible over
+        // whatever busy artwork happens to be under them — a flat opacity
+        // alone would make white-on-accent and dark text both hard to read
+        // once the cap's colours show through. `backdrop-blur` is applied
+        // HERE, on the sheet's own fixed root, not on some ancestor — putting
+        // it upstream would create a containing block for fixed descendants
+        // and silently break the viewport-relative positioning this sheet
+        // depends on (see the portal comment below). The rail variant (desktop)
+        // is untouched — opaque `bg-surface`, no blur — it sits beside the cap,
+        // never over it, so there is nothing to see through.
+        ? 'fixed inset-x-0 bottom-0 z-30 w-full shrink-0 flex flex-col bg-surface/80 backdrop-blur-md border-t border-canvasAccent rounded-t-2xl shadow-xl'
         : 'w-full shrink-0 bg-surface border border-canvasAccent rounded-xl overflow-hidden shadow-sm'}>
 
       {isSheet && (
@@ -169,7 +183,7 @@ export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolb
           onClick={() => setCollapsed(c => !c)}
           aria-expanded={!collapsed}
           aria-label={collapsed ? 'Expand adjust panel' : 'Collapse adjust panel'}
-          title="Drag or tap to collapse/expand"
+          title="Select to collapse or expand"
           className="w-full shrink-0 flex justify-center py-2 touch-none">
           <span aria-hidden="true" className="h-1.5 w-10 rounded-full bg-border" />
         </button>
@@ -181,7 +195,14 @@ export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolb
 
       {showControls && (
         <div data-testid="adjust-controls"
-          className={`flex flex-col px-2 overflow-y-auto${isSheet ? ' max-h-[45vh] pb-3' : ''}`}>
+          // Trimmed from 45vh to 38vh (quick fix, not a re-tune): the owner's
+          // complaint was specifically that the sheet blocks the cap, and this
+          // leaves more of it in view above the sheet on a short phone screen
+          // even with the translucency. Still a plain Tailwind vh class, not a
+          // measured value — see the "correct now that the sheet is
+          // position:fixed" test note above for why vh (not a measured
+          // ResizeObserver height) is right here.
+          className={`flex flex-col px-2 overflow-y-auto${isSheet ? ' max-h-[38vh] pb-3' : ''}`}>
 
           {hasContent && (
             <Section label="Content">
@@ -360,23 +381,41 @@ export function SelectedToolbar({ variant = 'sheet' }: { variant?: SelectedToolb
     </div>
   )
 
-  // The sheet is rendered through a portal to document.body, deliberately NOT
-  // as a normal child of the centre column, for a correctness reason beyond
-  // styling: CanvasStage's `availableHeight` walks `col.children` and sums
-  // each sibling's OWN `getBoundingClientRect().height` to work out how much
-  // room is left for the cap. A `position: fixed` element still reports its
-  // real rendered height from that call — fixed positioning takes it out of
-  // normal *layout* flow, but not out of the DOM the sibling-height loop
-  // walks — so left in place as a `col` child, the sheet would still be
-  // subtracted from the cap's budget even though it no longer visually
-  // occupies any of the column's space. Portalling it out of `col` entirely
-  // is what makes "taking the panel out of flow gives the cap more room"
-  // literally true rather than merely visually true. It does not need to be a
-  // child of the centre column for anything else: `fixed` positions against
-  // the viewport regardless of DOM ancestry (nothing between here and
-  // `document.body` sets `transform`/`filter`/`contain`, which are the only
-  // things that would change that).
-  return isSheet ? createPortal(panel, document.body) : panel
+  // The sheet is rendered through a portal, deliberately NOT as a normal
+  // child of the centre column, for a correctness reason beyond styling:
+  // CanvasStage's `availableHeight` walks `col.children` and sums each
+  // sibling's OWN `getBoundingClientRect().height` to work out how much room
+  // is left for the cap. A `position: fixed` element still reports its real
+  // rendered height from that call — fixed positioning takes it out of normal
+  // *layout* flow, but not out of the DOM the sibling-height loop walks — so
+  // left in place as a `col` child, the sheet would still be subtracted from
+  // the cap's budget even though it no longer visually occupies any of the
+  // column's space. Portalling it out of `col` entirely is what makes "taking
+  // the panel out of flow gives the cap more room" literally true rather than
+  // merely visually true.
+  //
+  // The portal TARGET is `#canvas-column` (CustomiseStudio's outer card for
+  // the design half), not `document.body`, falling back to `document.body`
+  // when that node doesn't exist (every test that mounts this component, or
+  // `DesignStudioSurface`, standalone). This is load-bearing, not cosmetic:
+  // on mobile, `CustomiseStudio` shows one panel at a time by putting
+  // `display:none` (via the `hidden` class) on the OTHER column's outer
+  // container while both stay mounted (see PanelTabs there). A portal to
+  // `document.body` sits outside that container entirely, so switching to the
+  // Chat tab never hid the sheet — it stayed painted over the bottom of the
+  // viewport, on top of exactly the chat input/chips/Send button a step like
+  // `ask_logo_bg` deliberately routes the answer to (the tool stays open there
+  // so the just-placed logo stays selected, but the QUESTION is answered in
+  // chat). Portalling into `#canvas-column` instead means that ancestor's own
+  // `hidden` class hides the sheet for free when the customer leaves the
+  // canvas tab — no new state needed. `fixed` still positions against the
+  // viewport once inside it: neither `#canvas-column` nor anything between it
+  // and the document root sets `transform`/`filter`/`perspective`/
+  // `backdrop-filter`/`will-change: transform` (the only things that would
+  // give it a containing block other than the viewport) — verified by reading
+  // every ancestor's class list and `index.css`, not assumed.
+  const portalTarget = document.getElementById('canvas-column') ?? document.body
+  return isSheet ? createPortal(panel, portalTarget) : panel
 }
 
 /** One captioned block of the panel. The caption is unconditional — the old

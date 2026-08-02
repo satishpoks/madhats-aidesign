@@ -37,9 +37,10 @@ def _v2_copy_strings() -> list[str]:
 
 
 def test_no_v2_copy_hard_codes_the_adjust_panels_position():
-    """The panel's position is RESPONSIVE — the tool rail on desktop, above the
-    cap on mobile (see frontend useIsDesktop). Any hard-coded position is wrong
-    in one of the two layouts, so the copy must name the panel and stop there.
+    """The panel's position is RESPONSIVE — the tool rail on desktop, a
+    translucent bottom sheet overlaying the cap on mobile (see frontend
+    useIsDesktop / SelectedToolbar). Any hard-coded position is wrong in one
+    of the two layouts, so the copy must name the panel and stop there.
     Supersedes the old "under the cap" check, which only caught one of three."""
     for s in _v2_copy_strings():
         low = s.lower()

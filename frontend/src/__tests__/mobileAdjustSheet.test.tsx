@@ -28,7 +28,7 @@ describe('mobile Adjust sheet', () => {
     expect(screen.queryByTestId('adjust-panel')).not.toBeInTheDocument()
   })
 
-  it('is portalled directly into document.body, not left in the render tree', () => {
+  it('falls back to document.body when no #canvas-column ancestor exists (e.g. this standalone render), not left in the render tree', () => {
     useCanvasStore.getState().addText(TEXT_PLACEHOLDER)
     useCanvasStore.getState().select(useCanvasStore.getState().faces.front[0].id)
     const { container } = render(<SelectedToolbar variant="sheet" />)
@@ -37,6 +37,52 @@ describe('mobile Adjust sheet', () => {
     // ...and specifically NOT inside the component's own render container,
     // which is where an un-portalled node would land.
     expect(container.contains(panel)).toBe(false)
+  })
+
+  it('portals into #canvas-column when it exists, so that column\'s own `hidden` class hides the sheet for free when the customer switches to the Chat tab on mobile', () => {
+    // This is the real target in production: CustomiseStudio's outer canvas
+    // card carries id="canvas-column" and gets `display:none` (the `hidden`
+    // class) when the mobile panel switcher shows Chat instead. Before this
+    // fix the sheet portalled to document.body, which sits outside that
+    // container, so it stayed painted over the chat input/chips/Send button
+    // after switching tabs.
+    const col = document.createElement('div')
+    col.id = 'canvas-column'
+    document.body.appendChild(col)
+    try {
+      useCanvasStore.getState().addText(TEXT_PLACEHOLDER)
+      useCanvasStore.getState().select(useCanvasStore.getState().faces.front[0].id)
+      render(<SelectedToolbar variant="sheet" />)
+      const panel = screen.getByTestId('adjust-panel')
+      expect(panel.parentElement).toBe(col)
+    } finally {
+      col.remove()
+    }
+  })
+
+  it('is translucent with a background blur on the sheet itself, so the cap shows through', () => {
+    // jsdom performs no layout, so this cannot observe the cap actually
+    // showing through — it pins the class contract that produces that effect:
+    // a partial-opacity background plus a backdrop blur, applied to the
+    // panel's own fixed root (not some ancestor, which would instead create a
+    // containing block for fixed descendants and break the portal's
+    // viewport-relative positioning).
+    useCanvasStore.getState().addText(TEXT_PLACEHOLDER)
+    useCanvasStore.getState().select(useCanvasStore.getState().faces.front[0].id)
+    render(<SelectedToolbar variant="sheet" />)
+    const panel = screen.getByTestId('adjust-panel')
+    expect(panel.className).toMatch(/(^|\s)bg-surface\/\d+(\s|$)/)
+    expect(panel.className).toMatch(/(^|\s)backdrop-blur(-\w+)?(\s|$)/)
+  })
+
+  it('the rail (desktop) variant stays fully opaque with no blur — it sits beside the cap, never over it', () => {
+    useCanvasStore.getState().addText(TEXT_PLACEHOLDER)
+    useCanvasStore.getState().select(useCanvasStore.getState().faces.front[0].id)
+    render(<SelectedToolbar variant="rail" />)
+    const panel = screen.getByTestId('adjust-panel')
+    expect(panel.className).not.toMatch(/backdrop-blur/)
+    // Plain "bg-surface", not "bg-surface/NN" — fully opaque.
+    expect(panel.className).toMatch(/(^|\s)bg-surface(\s|$)/)
   })
 
   it('carries the fixed bottom-sheet class contract', () => {

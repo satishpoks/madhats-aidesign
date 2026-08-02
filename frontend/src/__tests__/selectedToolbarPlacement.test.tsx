@@ -219,4 +219,20 @@ describe('Adjust panel', () => {
       desktop.unmount()
     })
   })
+
+  describe('centre column mobile bottom padding (2026-08: the sheet now overlays the bottom of the viewport instead of sharing this column\'s in-flow space, so the Done button + tool rail below it need room to scroll clear of it)', () => {
+    // jsdom performs no layout — this cannot observe the Done button actually
+    // clearing the sheet on screen. It pins the class contract: an extra
+    // mobile-only bottom-padding utility on the centre column, reset back to
+    // the base padding at `md:` and up (desktop never shows the sheet at all).
+    test('centre column carries mobile-only bottom padding, reset on desktop', () => {
+      selectText()
+      render(<DesignStudioSurface />)
+      const centre = screen.getByTestId('canvas-stage-wrap').parentElement!
+      // A bare "pb-<n>" token distinct from the "md:pb-4" reset below — must
+      // not be satisfied by the shorthand "p-4" the column also carries.
+      expect(centre.className).toMatch(/(^|\s)pb-\d+(\s|$)/)
+      expect(centre.className).toMatch(/(^|\s)md:pb-4(\s|$)/)
+    })
+  })
 })
