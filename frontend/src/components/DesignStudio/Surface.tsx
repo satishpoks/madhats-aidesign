@@ -372,7 +372,7 @@ export function DesignStudioSurface() {
             phone; it returns null until an element is selected, so nothing is
             reserved when there is nothing to adjust. */}
         <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
+          {showAdjust && !isDesktop && <SelectedToolbar variant="sheet" />}
           {/* The watermark goes in as CanvasStage's `overlay`, NOT as a wrapper
               around it: CanvasStage sizes itself by walking up from its own
               root to this slot and on to the centre column, so any element

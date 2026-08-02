@@ -77,50 +77,54 @@ describe('Adjust panel', () => {
     expect(screen.getByText('Adjust — Image')).toBeInTheDocument()
   })
 
-  test('its root is sticky so it stays visible while the canvas column scrolls', () => {
+  test('its root is FIXED to the viewport (the sheet), not sticky in-flow', () => {
+    // 2026-08-02: the default variant changed from the old in-flow "stacked"
+    // panel (sticky, sharing the centre column with the cap) to a fixed
+    // bottom sheet — see SelectedToolbar's variant doc comment.
     selectText()
     render(<SelectedToolbar />)
-    expect(screen.getByTestId('adjust-panel').className).toContain('sticky')
+    expect(screen.getByTestId('adjust-panel').className).toMatch(/(^|\s)fixed(\s|$)/)
   })
 
-  test('its root does not shrink in the flex column (jsdom performs no layout, so this pins the class that prevents the collapse rather than the collapse itself)', () => {
-    // The centre column in Surface.tsx is a flex column whose other child, the
-    // canvas-stage wrapper, contains a fixed-size Konva stage that resists
-    // shrinking. Flex items default to shrink:1, so without `shrink-0` the
-    // flex algorithm squashes this panel — the shrinkable sibling — down to
-    // near-zero height (it rendered as a ~2px accent line in the browser).
-    // jsdom never runs layout, so no test here can observe the squashed
-    // height directly; this pins the class responsible instead.
+  test('carries shrink-0 regardless of variant (retained defensively; not load-bearing for the fixed sheet)', () => {
+    // History: this class mattered when the mobile panel was in-flow inside
+    // the centre column's flex column (the pre-2026-08-02 "stacked" variant) —
+    // without it, the flex algorithm squashed the panel down to near-zero
+    // height beside the fixed-size Konva stage (it rendered as a ~2px accent
+    // line in the browser). The sheet variant is now `position: fixed` and
+    // portalled to `document.body`, so it is no longer a flex participant at
+    // all and cannot be squashed regardless of this class — it is kept for
+    // parity with the rail variant's classes, which must stay byte-identical
+    // to before this change.
     selectText()
     render(<SelectedToolbar />)
     expect(screen.getByTestId('adjust-panel').className).toContain('shrink-0')
   })
 
-  test('bounds the controls region by MEASURING its column, not by a breakpoint class', () => {
-    // The clamp used to be `max-h-[9rem] md:max-h-[45vh]`, and neither half
-    // could be right: `vh` is a fraction of the VIEWPORT, but this panel lives
-    // in a column shorter than the viewport by the chat and two header bars, so
-    // `45vh` exceeded the region it was bounding — and the root is `sticky`, so
-    // an over-cap panel stays pinned and the cap never comes back. The cap is
-    // now a measured share of the parent column, which needs no breakpoint.
+  test('bounds the controls region with a viewport-relative (vh) class — correct now that the sheet is position:fixed', () => {
+    // 2026-08-02: this used to be the opposite assertion, for the old in-flow
+    // "stacked" variant — `vh` was WRONG there because that panel shared a
+    // column shorter than the viewport (the chat + two header bars), so a flat
+    // 45vh cap exceeded the region it was meant to bound, and the sticky root
+    // kept it pinned so the cap never came back. The sheet variant is
+    // `position: fixed` and portalled to `document.body` — it is no longer
+    // constrained by any ancestor column at all, it IS sized against the
+    // viewport, so `vh` is now the correct unit rather than the wrong one.
+    // There is nothing left to MEASURE (no ResizeObserver over a parent
+    // column), which is why this is a plain Tailwind class rather than an
+    // inline style computed in an effect.
     selectText()
-    render(<SelectedToolbar />)
-    const controls = screen.getByTestId('adjust-panel').querySelector('.overflow-y-auto')
-    expect(controls).toBeTruthy()
-    expect(controls?.className).not.toContain('max-h-[9rem]')
-    expect(controls?.className).not.toContain('45vh')
+    render(<SelectedToolbar variant="sheet" />)
+    const controls = screen.getByTestId('adjust-controls')
+    expect(controls.className).toMatch(/max-h-\[\d+vh\]/)
   })
 
-  test('falls back to the MIN floor when the column reports no height (jsdom reports 0 for every element, which is exactly the degenerate case)', () => {
-    // jsdom performs no layout, so `clientHeight` is 0 — the measured share is
-    // 0 and the floor is what survives. That makes this the one piece of the
-    // clamp arithmetic jsdom CAN verify: that a zero/unknown column can never
-    // produce a zero-height, unusable controls region.
+  test('the rail variant applies no vh-based cap either — its column scrolls itself, same as before', () => {
     selectText()
-    render(<SelectedToolbar />)
-    const controls = screen.getByTestId('adjust-panel')
-      .querySelector('.overflow-y-auto') as HTMLElement
-    expect(controls.style.maxHeight).toBe('72px')
+    render(<SelectedToolbar variant="rail" />)
+    const controls = screen.getByTestId('adjust-controls')
+    expect(controls.className).not.toMatch(/max-h-\[\d+vh\]/)
+    expect(controls.style.maxHeight).toBe('')
   })
 
   test('keeps its group captions at every column width (the compact mode is gone)', () => {
@@ -144,7 +148,17 @@ describe('Adjust panel', () => {
       delete window.matchMedia
     })
 
-    test('MOBILE: renders ABOVE the cap, not below it (small screens hid it under the fold)', () => {
+    test('MOBILE: renders as a FIXED bottom sheet, not in-flow above the cap (2026-08-02 redesign)', () => {
+      // Superseded assertion, kept as history: this used to check DOM ORDER
+      // (panel precedes the cap) because the old "stacked" panel was in-flow,
+      // sticky at the top of the centre column, so document order was visual
+      // order. The sheet variant is `position: fixed` and rendered through a
+      // portal straight into `document.body` — document order no longer
+      // reflects on-screen position at all (a `fixed` element's box is
+      // computed from the viewport, not from where it sits in the tree). What
+      // is verifiable in jsdom (which performs no layout) is the mechanism
+      // that makes the overlay work: the fixed positioning classes, and that
+      // it is NOT nested inside the cap's own wrapper (portalled out).
       setMatchMedia(false)   // md query does not match -> useIsDesktop() === false
       useChatStore.setState({
         chatState: 'logo_adjust',
@@ -154,8 +168,16 @@ describe('Adjust panel', () => {
       render(<DesignStudioSurface />)
       const panel = screen.getByTestId('adjust-panel')
       const stage = screen.getByTestId('canvas-stage-wrap')
-      // DOCUMENT_POSITION_FOLLOWING means `stage` comes after `panel` in the document.
-      expect(panel.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(panel.className).toMatch(/(^|\s)fixed(\s|$)/)
+      expect(panel.className).toMatch(/(^|\s)bottom-0(\s|$)/)
+      expect(stage.contains(panel)).toBe(false)
+      // Portalled straight to document.body, not left as a child of the
+      // centre column — the correctness reason (not just styling) is in
+      // SelectedToolbar's portal comment: CanvasStage.availableHeight sums
+      // each sibling's real getBoundingClientRect().height, which a `fixed`
+      // element still reports non-zero even though it occupies no flow space,
+      // so leaving it as a `col` child would still shrink the cap's budget.
+      expect(panel.parentElement).toBe(document.body)
     })
 
     test('DESKTOP: renders in the tool rail, AFTER the cap', () => {
