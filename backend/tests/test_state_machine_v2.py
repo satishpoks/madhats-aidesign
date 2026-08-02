@@ -994,24 +994,90 @@ def test_free_text_still_falls_through_to_the_interpreter():
 
 def test_the_canvas_is_watermarked_from_the_review_onward():
     for state in (S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS):
-        assert v2.watermark_for(cs.by_id(state)) is True, state
+        assert v2.watermark_for_state(state.value, _seed(design_confirmed=True)) is True, state
 
 
 def test_the_canvas_is_clean_while_they_are_still_designing():
     for state in (S.ASK_NAME, S.ASK_HAS_LOGO, S.ASK_LOGO_PLACEMENT, S.LOGO_ADJUST,
                   S.ASK_LOGO_BG, S.ASK_EMAIL, S.AWAIT_EMAIL_VERIFY, S.ASK_ADD_DECOR,
                   S.DECOR_ADJUST, S.ASK_QUANTITY, S.NEEDED_BY, S.ASK_PURPOSE):
-        assert v2.watermark_for(cs.by_id(state)) is False, state
+        assert v2.watermark_for_state(state.value, _seed()) is False, state
 
 
 def test_rework_lifts_the_watermark():
     """Reworking is editing. A customer must not drag a logo around under a
     diagonal watermark — that reads as a broken app."""
-    assert v2.watermark_for(cs.by_id(S.REWORK_CANVAS)) is False
+    assert v2.watermark_for_state(S.REWORK_CANVAS.value, _seed(design_rework=True)) is False
 
 
 def test_public_data_carries_the_watermark_flag():
-    data = v2.public_data_for(cs.by_id(S.REVIEW_DESIGN), {})
+    data = v2.public_data_for(cs.by_id(S.REVIEW_DESIGN), _seed())
     assert data["watermark"] is True
-    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), {})
+    data = v2.public_data_for(cs.by_id(S.ASK_QUANTITY), _seed())
     assert data["watermark"] is False
+
+
+# --- watermark_for_state -----------------------------------------------------
+# One pure predicate answers for a live v2 turn, a v1-delegated tail turn and a
+# resume, so the three can never disagree. `state` is the persisted string.
+
+def test_watermark_on_at_the_review_with_neither_flag_set():
+    # Covers a RESUME landing on review_design: design_confirmed is not set yet,
+    # so only the step fallback can answer True here.
+    assert v2.watermark_for_state("review_design", _seed()) is True
+
+
+def test_watermark_off_while_reworking():
+    # Reworking IS editing — a diagonal overlay over a design the customer is
+    # dragging reads as a broken app.
+    assert v2.watermark_for_state("rework_canvas", _seed(design_rework=True)) is False
+
+
+def test_watermark_off_at_review_when_rework_was_just_tapped():
+    # design_rework is checked BEFORE design_confirmed on purpose: a rework pass
+    # that re-reaches review_design must not re-stamp a canvas about to be edited.
+    c = _seed(design_confirmed=True, design_rework=True)
+    assert v2.watermark_for_state("review_design", c) is False
+
+
+@pytest.mark.parametrize("state", [
+    "ask_final_notes", "request_quote", "finalize_canvas",
+])
+def test_watermark_on_for_the_remaining_owned_steps(state):
+    assert v2.watermark_for_state(state, _seed(design_confirmed=True)) is True
+
+
+@pytest.mark.parametrize("state", [
+    "generating", "verify_email", "offer_refine", "quote_requested",
+])
+def test_watermark_on_through_the_shared_tail(state):
+    # These states have NO registry step (v1 owns them), which is exactly why
+    # the step lookup cannot be the only source — design_confirmed carries it.
+    assert v2.watermark_for_state(state, _seed(design_confirmed=True)) is True
+
+
+@pytest.mark.parametrize("state", [
+    "ask_name", "show_intro", "ask_has_logo", "logo_adjust", "ask_quantity",
+])
+def test_watermark_off_while_still_designing(state):
+    assert v2.watermark_for_state(state, _seed(name="Sam")) is False
+
+
+@pytest.mark.parametrize("state", [
+    "review_design", "ask_final_notes", "request_quote", "finalize_canvas",
+    "generating", "quote_requested",
+])
+def test_watermark_never_fires_for_a_non_canvas_flow(state):
+    # v1 session/blank flows must be byte-identical. flow_mode is the guard.
+    c = {"flow_mode": "session", "design_confirmed": True}
+    assert v2.watermark_for_state(state, c) is False
+
+
+def test_watermark_ignores_an_unknown_state():
+    assert v2.watermark_for_state("no_such_state", _seed()) is False
+
+
+def test_public_data_for_uses_the_shared_predicate():
+    step = cs.by_id(S.REVIEW_DESIGN)
+    data = v2.public_data_for(step, _seed())
+    assert data["watermark"] is True

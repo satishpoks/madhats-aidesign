@@ -346,18 +346,42 @@ def canvas_directive(state: S, collected: dict) -> dict | None:
 # the deliberate hole: reworking IS editing, and dragging a logo around under a
 # diagonal watermark reads as a broken app.
 #
-# A shared-tail state (generating / verify / refine / quote) has no registry
-# step, so `canvas_directive` returns None there and the frontend falls back to
-# its own default — which is `true`. That is correct and intentional: the design
-# is finished in every one of those states.
+# This set alone is NOT enough, and that was a shipped bug. A shared-tail state
+# (generating / verify / refine / quote) has no registry step, and neither does
+# a resume — both are served by `orchestrator._public_data`. Use
+# `watermark_for_state` below, which covers all three producers.
 _WATERMARKED_STEPS: frozenset[S] = frozenset({
     S.REVIEW_DESIGN, S.ASK_FINAL_NOTES, S.REQUEST_QUOTE, S.FINALIZE_CANVAS,
 })
 
 
-def watermark_for(step: Step) -> bool:
-    """True when the canvas must render its watermark overlay."""
-    return step.id in _WATERMARKED_STEPS
+def watermark_for_state(state: str, collected: dict) -> bool:
+    """True when the on-screen canvas must carry its watermark overlay.
+
+    Pure — a function of the persisted state string plus `collected` — so it
+    answers identically for a live v2 turn, a v1-delegated tail turn and a
+    resume. Both payload producers call it, which is what stops them drifting.
+
+    Order is load-bearing:
+
+    * `flow_mode` first: v1 session/blank flows never watermark, and this guard
+      is what keeps them byte-identical.
+    * `design_rework` BEFORE `design_confirmed`: `_apply_review` pops the other
+      flag on each tap, but a rework pass that re-reaches REVIEW_DESIGN must not
+      re-stamp a canvas the customer is about to edit again.
+    * `design_confirmed` carries the whole shared tail and every resume after
+      the review — neither has a registry step to look up.
+    * The step fallback is what covers REVIEW_DESIGN itself, where neither flag
+      is set yet, including a resume landing there.
+    """
+    if collected.get("flow_mode") != "canvas":
+        return False
+    if collected.get("design_rework"):
+        return False
+    if collected.get("design_confirmed"):
+        return True
+    step = cs.by_id_value(state)
+    return bool(step and step.id in _WATERMARKED_STEPS)
 
 
 def public_data_for(step: Step, collected: dict) -> dict:
@@ -375,7 +399,7 @@ def public_data_for(step: Step, collected: dict) -> dict:
         data["trigger_finalize"] = True
     data["canvas"] = directive_for(step, collected)
     data["progress"] = progress_for(step)
-    data["watermark"] = watermark_for(step)
+    data["watermark"] = watermark_for_state(step.id.value, collected)
     return data
 
 
