@@ -55,13 +55,23 @@ function validate(brand: Brand): string | null {
   // Mirrors branding._validate_redirect. Duplicated on purpose so the admin
   // sees the error before a round trip; the SERVER remains the source of
   // truth. A blank redirect_url is valid — it's the off switch, not an error.
+  // Requires a real host (excludes '/', '?', '#' and whitespace after the
+  // scheme) so `https://?a=b` — which urlparse(...).netloc reads as empty —
+  // is rejected client-side too, not just server-side.
   const rurl = (brand.redirect_url ?? '').trim()
-  if (rurl && !/^https?:\/\/[^/\s]+/i.test(rurl)) {
+  if (rurl && !/^https?:\/\/[^/\s?#]+/i.test(rurl)) {
     return 'Redirect URL must be an http(s) URL'
   }
-  if (rurl) {
-    const secs = brand.redirect_seconds ?? 30
-    if (!Number.isInteger(secs) || secs < 5 || secs > 300) {
+  // redirect_seconds is checked whenever the key is present at all — same as
+  // the server (`"redirect_seconds" not in cleaned: return`) — independent of
+  // whether a URL is set. An untouched store never carries this key (GET
+  // /admin/stores/{id} returns the raw stored brand with no default
+  // injected, and the Countdown input's `?? 30` is a display fallback only,
+  // never written into `brand` state), so this cannot block saving unrelated
+  // changes on a store that has never touched the redirect fields.
+  if ('redirect_seconds' in brand) {
+    const secs = brand.redirect_seconds
+    if (!Number.isInteger(secs) || (secs as number) < 5 || (secs as number) > 300) {
       return 'Countdown must be a whole number between 5 and 300 seconds'
     }
   }

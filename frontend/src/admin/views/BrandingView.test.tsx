@@ -216,16 +216,47 @@ describe('BrandingView', () => {
     expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 
-  it('does not block saving on an out-of-range countdown when no redirect url is set', async () => {
-    // The seconds check should only bite when a URL is actually set — an
-    // untouched store with no redirect must not be blocked from saving
-    // unrelated branding changes.
+  it('rejects an out-of-range countdown even when no redirect url is set', async () => {
+    // Mirrors the server: `_validate_redirect` checks redirect_seconds
+    // whenever the key is present in the payload at all, independent of
+    // redirect_url. Editing the Countdown field is what puts the key in
+    // `brand` state, so this reproduces the real admin sequence: type a
+    // countdown, leave the URL blank, save — and the server would 400.
     renderView()
     await waitFor(() => expect(api.getStore).toHaveBeenCalled())
     const secs = await screen.findByLabelText(/countdown/i)
     fireEvent.change(secs, { target: { value: '2' } })
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/between 5 and 300/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
+  })
+
+  it('does not block saving unrelated changes on a store with no redirect configured', async () => {
+    // An untouched store's `brand` never carries a `redirect_seconds` key —
+    // GET /admin/stores/{id} returns the raw stored brand with nothing
+    // injected, and the Countdown input's `?? 30` is a display fallback
+    // only, never written into state. Leaving the field untouched must not
+    // block saving an unrelated change.
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByRole('textbox', { name: 'primary_colour' }), { target: { value: '#654321' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
     await waitFor(() => expect(api.updateStoreBrand).toHaveBeenCalled())
+    const brand = vi.mocked(api.updateStoreBrand).mock.calls[0][1]
+    expect(brand.primary_colour).toBe('#654321')
+    expect('redirect_seconds' in brand).toBe(false)
+  })
+
+  it('rejects a redirect url with no real host (empty netloc)', async () => {
+    // Server-fidelity case: urlparse('https://?a=b').netloc is '', so
+    // branding.py rejects it. The client regex must too, not just the
+    // scheme prefix.
+    renderView()
+    await waitFor(() => expect(api.getStore).toHaveBeenCalled())
+    fireEvent.change(await screen.findByLabelText(/redirect url/i), { target: { value: 'https://?a=b' } })
+    fireEvent.click(screen.getByRole('button', { name: /^save$/i }))
+    expect(await screen.findByText(/http\(s\)/i)).toBeInTheDocument()
+    expect(api.updateStoreBrand).not.toHaveBeenCalled()
   })
 
   it('allows a blank redirect url as the off switch and saves it', async () => {
