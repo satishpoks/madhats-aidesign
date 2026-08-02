@@ -406,10 +406,17 @@ export function DesignStudioSurface() {
             // so it can't be used to jump ahead of the directive walkthrough.
             rendered={isV2 ? true : rendered}
             locked={isV2 ? false : !unlocked}
-            // REWORK_CANVAS: the per-step Done button is the only submit — the
-            // render/"Done designing" button must not be clickable (it would
-            // finalize -> quote prematurely), so hide it entirely.
-            hideRender={canvasDirective?.unlockAll === true}
+            // Any v2 turn: finalize is chat-driven (`triggerFinalize`), so this
+            // button can never act — showing it permanently disabled
+            // ("Design saved ✓") is the same dead-chrome problem as a greyed-out
+            // tool, and on mobile its height comes straight out of the cap's
+            // own space (the rail is a sibling stacked below the canvas
+            // column). `isV2` alone covers REWORK_CANVAS too (unlockAll is
+            // only ever set on a v2 directive), so there is no separate case
+            // to keep track of. Computed here, not inside ToolRail, because
+            // `isV2` is derived from `canvasDirective` and already lives in
+            // this component — ToolRail stays a dumb prop-driven renderer.
+            hideRender={isV2}
             allowedTools={allowedTools} highlightTool={highlightTool} toolsVisible={toolsVisible} />
           {/* Desktop home for the Adjust panel: the free space below "Design
               saved". The rail root is content-sized (no h-full — adding one

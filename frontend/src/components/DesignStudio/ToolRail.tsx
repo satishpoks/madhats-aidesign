@@ -14,10 +14,16 @@ interface ToolRailProps {
   /** Canvas is view-only (chat not at canvas_design) — disable every tool so
    *  no modification can be made, without blurring the panel. */
   locked?: boolean
-  /** REWORK_CANVAS: hide the render/"Done designing" button entirely — the
-   *  per-step Done button is the only submit during a rework pass. */
+  /** Hide the render/"Done designing" button entirely rather than rendering
+   *  it permanently disabled. Two callers: REWORK_CANVAS (the per-step Done
+   *  button is the only submit during a rework pass) and, more broadly, ANY
+   *  v2 turn — v2's finalize is chat-driven (`triggerFinalize`), so this
+   *  button can never act there and a permanently-inert "Design saved ✓"
+   *  button is dead chrome, same as a disabled tool. */
   hideRender?: boolean
-  /** v2: when set, ONLY these tool buttons are enabled. */
+  /** v2: when set, ONLY these tool buttons are rendered at all (not merely
+   *  enabled) — a disabled column of every other tool reads as broken chrome,
+   *  and on mobile its height comes straight out of the cap's own space. */
   allowedTools?: Set<Tool>
   /** v2: the tool to visually highlight (accent glow + pulse). */
   highlightTool?: Tool | null
@@ -37,11 +43,19 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   const drawWidth = useCanvasStore(s => s.drawWidth)
   const setDrawWidth = useCanvasStore(s => s.setDrawWidth)
 
-  // A tool is disabled if the whole rail is locked, or (v2) it's not in the
-  // allowed set. When allowedTools is undefined we fall back to the legacy
-  // `locked` behaviour so v1 is unaffected.
-  const toolDisabled = (t: Tool) =>
-    !!locked || (allowedTools !== undefined && !allowedTools.has(t))
+  // v1 (allowedTools undefined) renders every tool, disabled-not-hidden while
+  // `locked` — that button IS the real submit path and must stay visible so
+  // the customer can see what's coming. v2 (allowedTools set) renders ONLY
+  // the tools the current step actually offers: a disabled "+ Add text" /
+  // "Graphics" / "Draw" column next to the one live tool reads as a broken
+  // app on a phone, where the rail's dead-chrome height is taken directly out
+  // of the cap (Surface.tsx's mobile layout stacks the rail below the canvas
+  // column). A rendered v2 tool is never locked — Surface always passes
+  // `locked={false}` for a v2 turn — but `toolDisabled` still folds in
+  // `locked` so a future caller that DID lock a v2 turn wouldn't accidentally
+  // ship an enabled button.
+  const showTool = (t: Tool) => allowedTools === undefined || allowedTools.has(t)
+  const toolDisabled = (t: Tool) => !!locked || !showTool(t)
   // A3: the upload tool is intentionally NOT emphasised in the main flow — the
   // chips do the real work, and ask_logo_bg only holds the tool open (to keep
   // the just-placed logo selectable) without wanting to draw the eye to it.
@@ -74,16 +88,28 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
     // Narrower on a laptop/iPad so the cap keeps the width it needs; full 16rem
     // back on a large desktop.
     <div className="flex flex-col gap-2.5 p-3 xl:p-4 w-full md:w-44 lg:w-52 xl:w-64">
-      <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
-      <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
-      <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
-      <button onClick={() => setDrawMode(!drawMode)} disabled={drawOrColourDisabled}
-        className={`px-4 py-2 border rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-          drawMode ? 'border-canvasAccent bg-canvasAccent/10 text-canvasAccent' : 'bg-surface border-border text-textPrimary hover:border-canvasAccent'
-        }`}>
-        ✎ Draw{drawMode ? ' (on)' : ''}
-      </button>
-      {drawMode && !drawOrColourDisabled && (
+      {showTool('text') && (
+        <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
+      )}
+      {showTool('upload') && (
+        <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
+      )}
+      {showTool('shape') && (
+        <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
+      )}
+      {/* Draw + cap colour have no `Tool` entry in `allowedTools` — v2 never
+          offers either, so `railGated` (v2 is driving this turn) hides them
+          outright rather than rendering them disabled. v1 (railGated false)
+          renders them exactly as before, disabled only while `locked`. */}
+      {!railGated && (
+        <button onClick={() => setDrawMode(!drawMode)} disabled={drawOrColourDisabled}
+          className={`px-4 py-2 border rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            drawMode ? 'border-canvasAccent bg-canvasAccent/10 text-canvasAccent' : 'bg-surface border-border text-textPrimary hover:border-canvasAccent'
+          }`}>
+          ✎ Draw{drawMode ? ' (on)' : ''}
+        </button>
+      )}
+      {!railGated && drawMode && !drawOrColourDisabled && (
         <div className="flex items-center gap-3 px-1">
           <label className="flex items-center gap-1 text-xs text-textMuted" title="Draw colour">
             <span>Colour</span>
@@ -98,7 +124,7 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
         </div>
       )}
 
-      {colourways.length > 0 && (
+      {!railGated && colourways.length > 0 && (
         <div>
           <p className="text-xs text-textMuted mb-1.5">Cap colour</p>
           <div className="flex flex-wrap gap-2">
