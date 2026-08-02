@@ -21,9 +21,13 @@ interface ToolRailProps {
   allowedTools?: Set<Tool>
   /** v2: the tool to visually highlight (accent glow + pulse). */
   highlightTool?: Tool | null
+  /** False while the canvas is not editable on this turn: render an empty rail
+   *  rather than a column of disabled buttons. Defaults to true so v1 call
+   *  sites (which never pass it) are unaffected. */
+  toolsVisible?: boolean
 }
 
-export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, hideRender, allowedTools, highlightTool }: ToolRailProps) {
+export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, hideRender, allowedTools, highlightTool, toolsVisible }: ToolRailProps) {
   const colourway = useCanvasStore(s => s.colourway)
   const setColourway = useCanvasStore(s => s.setColourway)
   const drawMode = useCanvasStore(s => s.drawMode)
@@ -57,6 +61,14 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
   // `allowedTools` prop) is unaffected.
   const railGated = allowedTools !== undefined
   const drawOrColourDisabled = !!locked || railGated
+
+  // Width classes are duplicated deliberately between the two returns rather
+  // than hoisted: they are the load-bearing part of the empty branch (the
+  // responsive stage measures this column), and a shared constant is easy to
+  // "clean up" out of the branch that needs it most.
+  if (toolsVisible === false) {
+    return <div data-testid="tool-rail-empty" className="flex flex-col gap-2.5 p-3 xl:p-4 w-full md:w-44 lg:w-52 xl:w-64" />
+  }
 
   return (
     // Narrower on a laptop/iPad so the cap keeps the width it needs; full 16rem

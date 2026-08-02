@@ -61,6 +61,11 @@ export function DesignStudioSurface() {
 
   const isDesktop = useIsDesktop()
   const showAdjust = isV2 ? v2Editing : unlocked
+  // The tool rail's controls render only when the canvas is actually editable
+  // this turn. Every other v2 step is a chat question, so a column of disabled
+  // buttons there reads as broken rather than as "not yet". Same predicate as
+  // showAdjust — the Adjust panel and the tools appear and disappear together.
+  const toolsVisible = isV2 ? v2Editing : unlocked
 
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)
@@ -395,7 +400,7 @@ export function DesignStudioSurface() {
             // render/"Done designing" button must not be clickable (it would
             // finalize -> quote prematurely), so hide it entirely.
             hideRender={canvasDirective?.unlockAll === true}
-            allowedTools={allowedTools} highlightTool={highlightTool} />
+            allowedTools={allowedTools} highlightTool={highlightTool} toolsVisible={toolsVisible} />
           {/* Desktop home for the Adjust panel: the free space below "Design
               saved". The rail root is content-sized (no h-full — adding one
               would push this off-screen via mt-auto on the Done button), so
