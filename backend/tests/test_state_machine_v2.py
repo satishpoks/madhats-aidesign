@@ -400,14 +400,32 @@ def test_reply_defaults_the_name_when_unknown():
     assert "there" in _reply(S.ASK_HAS_LOGO, {})
 
 
-def test_logo_adjust_does_not_duplicate_its_tip():
-    # LOGO_ADJUST is the one step excluded from the tip append: its `ask` copy
-    # already carries the drag/resize/rotate instructions inline, so appending
-    # V2_TOOL_TIPS["upload"] would say it all twice. (The customer still gets the
-    # "tap the button" instruction implicitly — this step auto-opens the picker.)
+def test_logo_adjust_reply_is_the_short_action_plus_exactly_one_done_prompt():
+    """Rewritten 2026-08-02 (was test_logo_adjust_does_not_duplicate_its_tip).
+
+    LOGO_ADJUST's `ask` used to inline a full drag/resize/rotate tutorial, so
+    `reply_for` special-cased the step out of its tip-append path (appending
+    V2_TOOL_TIPS["upload"] on top would have said it all twice). Per owner
+    request the tutorial is gone: `ask` is now one short action line and
+    `tip` holds the "Select Done" prompt instead of a duplicate of `ask` — so
+    the step no longer needs the special case, and the reply is exactly the
+    action plus exactly one Done prompt (not zero, not two)."""
     out = _reply(S.LOGO_ADJUST, {"name": "Sam", "has_logo": True, "pending_logo": {"face": "front"}})
+    step = cs.by_id(S.LOGO_ADJUST)
+    assert out == f"{step.ask}\n\n{prompts.V2_SELECT_DONE}"
+    assert out.count("Select Done") == 1
     assert prompts.V2_TOOL_TIPS["upload"] not in out
-    assert "move it" in out and "Done" in out
+
+
+def test_logo_adjust_canvas_instructions_also_carry_exactly_one_done_prompt():
+    """The other surface: directive_for's `instructions` (the canvas callout)
+    must independently carry exactly one Done prompt too — via the shared
+    conditional V2_SELECT_DONE append (show_done=True), not a second copy
+    baked into the step's `instructions` literal."""
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST),
+                          {"has_logo": True, "pending_logo": {"face": "front"}})
+    assert d["instructions"].count("Select Done") == 1
+    assert d["instructions"] == f"{cs._LOGO_ADJUST_ACTION}\n\n{prompts.V2_SELECT_DONE}"
 
 
 def test_decor_adjust_reply_matches_its_registry_copy():

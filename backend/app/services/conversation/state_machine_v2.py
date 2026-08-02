@@ -475,7 +475,12 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
             intro=intro,
             colour_note=colour_note,
         )
-        if step.tip and step.id is not S.LOGO_ADJUST:
+        # LOGO_ADJUST used to be excluded here: its `ask` inlined the tip's
+        # drag/resize/rotate guidance, so appending step.tip too said it all
+        # twice. Since 2026-08-02 `ask` is a short action line and `tip` holds
+        # the "Select Done" prompt instead — different content, so the
+        # append is correct for this step now, same as every other tool step.
+        if step.tip:
             body = f"{body}\n\n{step.tip}"
     return f"{ack}\n\n{body}".strip() if ack else body
 

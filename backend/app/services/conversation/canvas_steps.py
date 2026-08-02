@@ -602,6 +602,12 @@ def _label_purpose(c: dict) -> str:
     return f"What it's for — {_em(c.get('purpose'))}"
 
 
+# LOGO_ADJUST's action, shared between `ask` (chat) and `instructions` (canvas
+# callout) below so the two surfaces say the same thing about what to do right
+# now — one string, not two copies that can drift.
+_LOGO_ADJUST_ACTION = "Drag your logo to position it on the cap."
+
+
 REGISTRY: tuple[Step, ...] = (
     Step(
         id=S.ASK_NAME,
@@ -666,18 +672,34 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.LOGO_ADJUST,
-        ask=("I've opened the image picker for you.\n\n"
-             "Drag your logo to move it, pull a corner to resize, or rotate "
-             "it.\n\n"
-             "Select it to open the Adjust panel — the background-removal "
-             "toggle is there too.\n\n"
-             "Select Done when the placement looks right."),
+        # Shortened 2026-08-02 (was four blank-line-separated paragraphs: an
+        # FYI the picker was open, a drag/resize/rotate tutorial, a pointer to
+        # the Adjust panel's background-removal toggle, and a "select Done"
+        # line). Per owner: one short line, the immediate action only.
+        #
+        # The background-removal mention is dropped as redundant: ASK_LOGO_BG
+        # is the step that actually asks about it, and its own copy
+        # (V2_BG_INSTRUCTIONS) still names the Adjust panel — nothing is lost.
+        #
+        # "Select Done" is NOT baked into this literal (or into `instructions`
+        # below). It reaches the customer exactly once per surface instead:
+        # on the canvas via directive_for's conditional V2_SELECT_DONE append
+        # (this step has show_done=True), and in chat via `tip` — reply_for no
+        # longer special-cases this step out of its tip-append path, because
+        # `tip` now holds the Done prompt rather than duplicating `ask`.
+        ask=_LOGO_ADJUST_ACTION,
         chips=(Chip("Done", {"logo_placed": True}),),
         slots=("logo_placed",),
         apply=_apply_logo_placed,
         done_when=lambda c: not _logos_open(c) or bool(_pending(c).get("placed")),
         tool="upload",
-        tip=prompts.V2_TOOL_TIPS["upload"],
+        tip=prompts.V2_SELECT_DONE,
+        # Was unset, falling back to V2_TOOL_TIPS["upload"] ("select the
+        # Upload image button…") — stale here, since by this step the button
+        # has already been used and the customer is dragging, not choosing a
+        # file. Set explicitly so the canvas callout matches the actual
+        # in-progress action instead of re-showing the pre-upload prompt.
+        instructions=_LOGO_ADJUST_ACTION,
         auto_open="upload",
         show_done=True,
         face_target=True,
