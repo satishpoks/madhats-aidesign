@@ -1204,6 +1204,17 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
         if hc:
             data.setdefault("tint_ready", True)
             data.setdefault("tint_hex", (hc.get("hex") if isinstance(hc, dict) else "") or "")
+
+    # The canvas watermark. This function serves v1 turns AND, via
+    # sessions.get_session, every resume — neither carries a v2 canvas
+    # directive, so without this key the frontend defaults to unwatermarked and
+    # a finished design loses its overlay on the next turn and on reload.
+    # Function-local import: state_machine_v2 pulls in canvas_steps, which
+    # reaches back into leads/intent_extractor, and a module-level import here
+    # would close that cycle.
+    from app.services.conversation.state_machine_v2 import watermark_for_state
+
+    data["watermark"] = watermark_for_state(state.value, collected)
     return data
 
 
