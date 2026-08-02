@@ -172,9 +172,11 @@ describe('Adjust panel', () => {
       // document — the rail mount sits after ToolRail, in the third column.
       expect(panel.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
       // And it really is inside the rail column, not just later in the DOM by
-      // accident: it shares a parent with the "+ Add text" tool button.
-      const toolRailButton = screen.getByText('+ Add text')
-      expect(toolRailButton.closest('.md\\:border-l')?.contains(panel)).toBe(true)
+      // accident. Can't anchor on a rail tool button here (Task 10: those are
+      // hidden while an element is selected — this very test selects one), so
+      // find the rail column directly by its own structural class instead.
+      const railColumn = document.querySelector('.md\\:border-l')
+      expect(railColumn?.contains(panel)).toBe(true)
     })
 
     test('exactly one adjust-panel node exists at a time, in both viewports', () => {

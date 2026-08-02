@@ -61,11 +61,21 @@ export function DesignStudioSurface() {
 
   const isDesktop = useIsDesktop()
   const showAdjust = isV2 ? v2Editing : unlocked
+  const selectedId = useCanvasStore(s => s.selectedId)
   // The tool rail's controls render only when the canvas is actually editable
   // this turn. Every other v2 step is a chat question, so a column of disabled
-  // buttons there reads as broken rather than as "not yet". Same predicate as
-  // showAdjust — the Adjust panel and the tools appear and disappear together.
-  const toolsVisible = isV2 ? v2Editing : unlocked
+  // buttons there reads as broken rather than as "not yet".
+  //
+  // While an element is SELECTED in v2, the rail shows ONLY the Adjust panel —
+  // the default buttons are ADD affordances, and during an adjust step they
+  // invite a second element and crowd out the panel the step is actually
+  // about. Deselecting brings them straight back.
+  //
+  // v2 ONLY. In v1 the rail's "Done designing" button is the real submit, and
+  // hiding it whenever something is selected would force the customer to
+  // deselect before they could finish. v2's submit is the per-step Done button
+  // in the centre column, so nothing is lost there.
+  const toolsVisible = isV2 ? (v2Editing && !selectedId) : unlocked
 
   const setActiveFace = useCanvasStore(s => s.setActiveFace)
   const faceImages = useCanvasStore(s => s.faceImages)

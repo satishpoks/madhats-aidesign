@@ -288,6 +288,77 @@ test('a FAILED finalize re-opens the canvas so the rejected text can be edited',
   expect(screen.getByLabelText('Text content')).toBeInTheDocument()
 })
 
+test('v2: default tool buttons show while editing with nothing selected', () => {
+  useChatStore.setState({
+    chatState: 'logo_adjust',
+    canvasDirective: { allowedTools: ['upload'], targetFace: 'front', autoOpen: null, instructions: 'Drag it', showDone: true },
+  } as never)
+  render(<DesignStudioSurface />)
+  expect(screen.getByRole('button', { name: /upload image/i })).toBeInTheDocument()
+  expect(screen.queryByLabelText('Text content')).not.toBeInTheDocument()
+})
+
+test('v2: selecting an element hides the default tool buttons and shows only the Adjust panel', () => {
+  // Customer feedback: "its still showing - even for individual elements just
+  // show adjustment tools not the default tools like upload image and more."
+  // The rail's ADD affordances (Add text/Upload image/Graphics/Draw/cap colour)
+  // invite a second element and crowd out the Adjust panel while one is
+  // already selected — the panel is what the step is actually about.
+  useChatStore.setState({
+    chatState: 'text_adjust',
+    canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: 'Style your text', showDone: false },
+  } as never)
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().select(id)
+  render(<DesignStudioSurface />)
+
+  expect(screen.queryByRole('button', { name: /add text/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /upload image/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /graphics/i })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /draw/i })).not.toBeInTheDocument()
+  // Adjust panel is still reachable.
+  expect(screen.getByLabelText('Text content')).toBeInTheDocument()
+})
+
+test('v2: ask_logo_bg keeps the Adjust panel reachable (background-removal toggle) even though tool buttons hide', () => {
+  // ask_logo_bg declares tool="upload" specifically so the just-placed logo
+  // stays UNLOCKED and therefore selectable — the only way the "Remove
+  // background" toggle in the Adjust panel is reachable. Hiding the rail
+  // BUTTONS must not touch that mechanism.
+  useChatStore.setState({
+    chatState: 'ask_logo_bg',
+    // targetFace: null — the active face is already 'front' by default, and
+    // setActiveFace() unconditionally clears selectedId even when the face
+    // doesn't change, which would immediately undo the select() below.
+    canvasDirective: { allowedTools: ['upload'], targetFace: null, autoOpen: null, instructions: 'Does it have a background?', showDone: false },
+  } as never)
+  useCanvasStore.getState().addImage('logo.png', 1)
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().select(id)
+  render(<DesignStudioSurface />)
+
+  expect(screen.queryByRole('button', { name: /upload image/i })).not.toBeInTheDocument()
+  expect(screen.getByLabelText(/remove background/i)).toBeInTheDocument()
+})
+
+test('v1: default tool buttons stay visible when an element is selected (the rail button IS the submit)', () => {
+  // v1 has no canvasDirective; its "Done designing" button is the real
+  // submit, so the tool buttons must never disappear on selection alone.
+  useChatStore.setState({
+    chatState: 'canvas_design',
+    canvasDirective: null,
+  } as never)
+  useCanvasStore.getState().addText('hi')
+  const id = useCanvasStore.getState().faces.front[0].id
+  useCanvasStore.getState().select(id)
+  render(<DesignStudioSurface />)
+
+  expect(screen.getByRole('button', { name: /add text/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /upload image/i })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /done designing/i })).toBeInTheDocument()
+})
+
 test('a second trigger_finalize re-arms and fires again', async () => {
   // The refine confirm step fires trigger_finalize a SECOND time. The ref guard
   // was never re-armed, so the re-render was silently swallowed.
