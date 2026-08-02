@@ -400,14 +400,32 @@ def test_reply_defaults_the_name_when_unknown():
     assert "there" in _reply(S.ASK_HAS_LOGO, {})
 
 
-def test_logo_adjust_does_not_duplicate_its_tip():
-    # LOGO_ADJUST is the one step excluded from the tip append: its `ask` copy
-    # already carries the drag/resize/rotate instructions inline, so appending
-    # V2_TOOL_TIPS["upload"] would say it all twice. (The customer still gets the
-    # "tap the button" instruction implicitly — this step auto-opens the picker.)
+def test_logo_adjust_reply_is_the_short_action_plus_exactly_one_done_prompt():
+    """Rewritten 2026-08-02 (was test_logo_adjust_does_not_duplicate_its_tip).
+
+    LOGO_ADJUST's `ask` used to inline a full drag/resize/rotate tutorial, so
+    `reply_for` special-cased the step out of its tip-append path (appending
+    V2_TOOL_TIPS["upload"] on top would have said it all twice). Per owner
+    request the tutorial is gone: `ask` is now one short action line and
+    `tip` holds the "Select Done" prompt instead of a duplicate of `ask` — so
+    the step no longer needs the special case, and the reply is exactly the
+    action plus exactly one Done prompt (not zero, not two)."""
     out = _reply(S.LOGO_ADJUST, {"name": "Sam", "has_logo": True, "pending_logo": {"face": "front"}})
+    step = cs.by_id(S.LOGO_ADJUST)
+    assert out == f"{step.ask}\n\n{prompts.V2_SELECT_DONE}"
+    assert out.count("Select Done") == 1
     assert prompts.V2_TOOL_TIPS["upload"] not in out
-    assert "move it" in out and "Done" in out
+
+
+def test_logo_adjust_canvas_instructions_also_carry_exactly_one_done_prompt():
+    """The other surface: directive_for's `instructions` (the canvas callout)
+    must independently carry exactly one Done prompt too — via the shared
+    conditional V2_SELECT_DONE append (show_done=True), not a second copy
+    baked into the step's `instructions` literal."""
+    d = v2.directive_for(cs.by_id(S.LOGO_ADJUST),
+                          {"has_logo": True, "pending_logo": {"face": "front"}})
+    assert d["instructions"].count("Select Done") == 1
+    assert d["instructions"] == f"{cs._LOGO_ADJUST_ACTION}\n\n{prompts.V2_SELECT_DONE}"
 
 
 def test_decor_adjust_reply_matches_its_registry_copy():
@@ -519,13 +537,22 @@ def test_the_second_logo_does_not_repeat_the_first_ask_verbatim():
     assert "this one" in second.lower()
 
 
-def test_the_text_tip_puts_the_styling_instruction_on_its_own_line():
-    """The tip already named font/size/colour, but as a trailing clause the
-    customer read straight past it."""
-    tip = prompts.V2_TOOL_TIPS["text"]
-    lines = [l for l in tip.split("\n") if l.strip()]
-    assert len(lines) == 2
-    assert "size" in lines[1] and "colour" in lines[1]
+def test_the_tool_tips_are_a_single_short_action_sentence():
+    """Rewritten 2026-08-02 (was test_the_text_tip_puts_the_styling_instruction_on_its_own_line).
+
+    The old tip was a two-line drag/resize/rotate tutorial ending in a
+    trailing "select it to open the Adjust panel, where you can change the
+    font, size and colour" clause the customer read straight past — and on a
+    phone it ate a large share of the screen. Per owner request the tips are
+    now ONE short imperative sentence naming just the immediate action; the
+    "Select Done…" line is appended separately (only when a Done button is
+    actually on screen) by directive_for, never baked into the tip itself."""
+    for key in ("upload", "text", "shape"):
+        tip = prompts.V2_TOOL_TIPS[key]
+        assert "\n" not in tip, f"{key} tip should be one line: {tip!r}"
+        assert tip.count(".") == 1, f"{key} tip should be one sentence: {tip!r}"
+        assert "Adjust panel" not in tip
+        assert "Select Done" not in tip
 
 
 # --- merge_fields: the interpreter must never un-answer an answered step -------

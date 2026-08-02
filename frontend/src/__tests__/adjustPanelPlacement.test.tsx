@@ -49,14 +49,23 @@ describe('SelectedToolbar variants', () => {
     useCanvasStore.getState().addText(TEXT_PLACEHOLDER)
   })
 
-  it('is sticky in the stacked (mobile) variant, where it shares a column with the cap', () => {
-    render(<SelectedToolbar variant="stacked" />)
-    expect(screen.getByTestId('adjust-panel').className).toContain('sticky')
+  // 2026-08-02: the mobile "stacked" variant (sticky, in-flow, sharing the
+  // centre column with the cap) was replaced with a fixed bottom sheet,
+  // rendered through a portal to document.body — see SelectedToolbar.tsx's
+  // portal comment for why a portal specifically. `sticky` is gone; the panel
+  // is now `fixed` to the viewport regardless of where it sits in the flow.
+  it('is FIXED to the viewport in the sheet (mobile) variant, not sticky in-flow', () => {
+    render(<SelectedToolbar variant="sheet" />)
+    const panel = screen.getByTestId('adjust-panel')
+    expect(panel.className).toMatch(/(^|\s)fixed(\s|$)/)
+    expect(panel.className).not.toMatch(/(^|\s)sticky(\s|$)/)
   })
 
-  it('is NOT sticky in the rail variant — the rail column scrolls itself', () => {
+  it('is NOT fixed in the rail variant — it is ordinary in-flow content in the tool rail column', () => {
     render(<SelectedToolbar variant="rail" />)
-    expect(screen.getByTestId('adjust-panel').className).not.toContain('sticky')
+    const panel = screen.getByTestId('adjust-panel')
+    expect(panel.className).not.toMatch(/(^|\s)fixed(\s|$)/)
+    expect(panel.className).not.toMatch(/(^|\s)sticky(\s|$)/)
   })
 
   it('applies no height cap in the rail variant, where it competes with nothing', () => {
@@ -65,9 +74,9 @@ describe('SelectedToolbar variants', () => {
     expect(controls.style.maxHeight).toBe('')
   })
 
-  it('defaults to stacked when no variant is given', () => {
+  it('defaults to the sheet variant when no variant is given', () => {
     render(<SelectedToolbar />)
-    expect(screen.getByTestId('adjust-panel').className).toContain('sticky')
+    expect(screen.getByTestId('adjust-panel').className).toMatch(/(^|\s)fixed(\s|$)/)
   })
 
   // I6: the rail panel mounts BELOW ToolRail inside an overflow-y-auto column
@@ -90,10 +99,10 @@ describe('SelectedToolbar variants', () => {
       expect(spy).toHaveBeenCalledWith({ block: 'nearest' })
     })
 
-    it('does not scroll the stacked variant, which is sticky at the top already', () => {
+    it('does not scroll the sheet variant — it is fixed to the viewport, there is no "into view" for it to reach', () => {
       const spy = vi.fn()
       Element.prototype.scrollIntoView = spy
-      render(<SelectedToolbar variant="stacked" />)
+      render(<SelectedToolbar variant="sheet" />)
       expect(spy).not.toHaveBeenCalled()
     })
 

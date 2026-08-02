@@ -367,12 +367,17 @@ export function DesignStudioSurface() {
           <FaceThumbnails />
         </div>
 
-        {/* Centre — Adjust panel (sticky, ABOVE the cap) then the canvas.
-            The panel is rendered first so it is the first thing in view on a
-            phone; it returns null until an element is selected, so nothing is
-            reserved when there is nothing to adjust. */}
-        <div className="flex-1 flex flex-col items-center gap-3 p-4 overflow-auto min-w-0">
-          {showAdjust && !isDesktop && <SelectedToolbar variant="stacked" />}
+        {/* Centre — the canvas, plus (mobile) the per-step Done button below it.
+            On mobile the Adjust panel is a fixed bottom sheet, portalled out of
+            this column entirely (see SelectedToolbar's portal comment) — it is
+            invoked here for JSX purposes only and renders nothing in place, so
+            it reserves no space whether or not something is selected. `pb-80`
+            (mobile only, reset at `md:`) leaves scroll room below the Done
+            button/tool rail so they can be scrolled clear of the sheet, which
+            now overlays the bottom of the viewport instead of sharing this
+            column's flow — see item 3 of the mobile-adjust-sheet fix. */}
+        <div className="flex-1 flex flex-col items-center gap-3 p-4 pb-80 md:pb-4 overflow-auto min-w-0">
+          {showAdjust && !isDesktop && <SelectedToolbar variant="sheet" />}
           {/* The watermark goes in as CanvasStage's `overlay`, NOT as a wrapper
               around it: CanvasStage sizes itself by walking up from its own
               root to this slot and on to the centre column, so any element

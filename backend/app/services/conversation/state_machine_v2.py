@@ -312,6 +312,16 @@ def _decor_tool(collected: dict) -> str:
     return "shape" if collected.get("decor_choice") == "shape" else "text"
 
 
+def _with_done(instructions: str, show_done: bool) -> str:
+    """Appends the "Select Done…" sentence ONLY when this step actually
+    renders a Done button. Not every tool step does (ASK_LOGO_BG explicitly
+    does not; ASK_LOGO_PLACEMENT has none either), so the sentence can never
+    be baked into a tip itself — that would tell the customer to press a
+    button that isn't on screen. One helper so the tool-step branch and the
+    REWORK_CANVAS branch can't grow two copies of the same line."""
+    return f"{instructions}\n\n{prompts.V2_SELECT_DONE}" if show_done else instructions
+
+
 def directive_for(step: Step, collected: dict) -> dict:
     """The canvas-control blob for a step. EVERY owned step returns one: the
     tool steps hand over their single tool, every other step locks all tools
@@ -320,17 +330,19 @@ def directive_for(step: Step, collected: dict) -> dict:
     locked in — finishing up" mid-design."""
     if step.id is S.REWORK_CANVAS:
         return {"allowed_tools": ["upload", "text", "shape"], "target_face": None,
-                "auto_open": None, "instructions": prompts.V2_REWORK_INSTRUCTIONS,
+                "auto_open": None,
+                "instructions": _with_done(prompts.V2_REWORK_INSTRUCTIONS, True),
                 "show_done": True, "unlock_all": True}
     if step.tool is None:
         return {"allowed_tools": [], "target_face": None, "auto_open": None,
                 "instructions": None, "show_done": False, "unlock_all": False}
     tool = _decor_tool(collected) if step.id in _DECOR_STEPS else step.tool
+    instructions = step.instructions or prompts.V2_TOOL_TIPS[tool]
     return {
         "allowed_tools": [tool],
         "target_face": _face(step, collected) if step.face_target else None,
         "auto_open": tool if step.auto_open else None,
-        "instructions": step.instructions or prompts.V2_TOOL_TIPS[tool],
+        "instructions": _with_done(instructions, step.show_done),
         "show_done": step.show_done,
         "unlock_all": False,
     }
@@ -463,7 +475,12 @@ def reply_for(step: Step, collected: dict, *, persona: str, intro: str,
             intro=intro,
             colour_note=colour_note,
         )
-        if step.tip and step.id is not S.LOGO_ADJUST:
+        # LOGO_ADJUST used to be excluded here: its `ask` inlined the tip's
+        # drag/resize/rotate guidance, so appending step.tip too said it all
+        # twice. Since 2026-08-02 `ask` is a short action line and `tip` holds
+        # the "Select Done" prompt instead — different content, so the
+        # append is correct for this step now, same as every other tool step.
+        if step.tip:
             body = f"{body}\n\n{step.tip}"
     return f"{ack}\n\n{body}".strip() if ack else body
 

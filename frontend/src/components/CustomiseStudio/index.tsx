@@ -122,6 +122,7 @@ export function CustomiseStudio() {
       {/* Desktop: canvas (flex-1) left, chat (fixed) right. Mobile: stacked. */}
       <div className="flex min-h-0 flex-1 flex-col gap-2 bg-base p-2 md:flex-row">
         <div
+          id="canvas-column"
           data-testid="canvas-column"
           data-active={String(canvasActive)}
           className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showCanvas ? '' : 'hidden'}`}
