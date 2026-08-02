@@ -469,7 +469,7 @@ export function ChatColumn() {
                 className={`flex max-w-[88%] flex-col gap-1 md:max-w-md ${
                   mine
                     ? 'items-end border-r-2 border-chatUserBubble pr-2'
-                    : 'items-start border-l-2 border-canvasAccent pl-2'
+                    : 'items-start border-l-2 border-accent pl-2'
                 }`}
               >
                 {startsRun && (

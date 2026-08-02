@@ -61,7 +61,7 @@ export function CustomiseStudio() {
           data-active={String(canvasActive)}
           className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 ${canvasActive ? ACTIVE_CARD : RESTING_CARD}`}
         >
-          <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} />
+          <ColumnHeader name="Your design" instruction="Your turn — design here" active={canvasActive} tone="customer" />
           <div
             data-testid="canvas-column-content"
             className={`flex min-h-0 min-w-0 flex-1 ${canvasActive ? '' : RESTING_CONTENT}`}
@@ -93,6 +93,7 @@ export function CustomiseStudio() {
             name={personaName}
             instruction="Your turn — answer here"
             active={!canvasActive && chatAnswerable}
+            tone="primary"
           />
           <div
             data-testid="chat-column-content"
