@@ -43,4 +43,19 @@ describe('chat attribution', () => {
     expect(screen.getByText('You')).toBeInTheDocument()
     expect(screen.queryByText(/Satish/)).not.toBeInTheDocument()
   })
+
+  it('lanes the assistant in the brand primary and the customer in their own colour', () => {
+    // The two speakers must be told apart by more than position. Ricardo carries
+    // the store's primary colour; the customer carries the bubble colour the
+    // admin set for them. Canvas accent belongs to the design tools only.
+    seed([
+      { role: 'assistant', text: 'Hello' },
+      { role: 'user', text: 'Hi' },
+    ])
+    render(<ChatColumn />)
+    const lanes = screen.getAllByTestId('msg-lane')
+    expect(lanes[0].className).toContain('border-accent')
+    expect(lanes[0].className).not.toContain('border-canvasAccent')
+    expect(lanes[1].className).toContain('border-chatUserBubble')
+  })
 })

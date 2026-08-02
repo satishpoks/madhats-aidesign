@@ -283,6 +283,11 @@ def test_finalize_routes_to_decoration(client, seeded_store_headers, canvas_sess
     assert body["state"] == "ask_decoration"
     assert body["data"]["multiselect"] is True
     assert body["data"]["options"] == ["Embroidery", "Print"]
+    # v1 canvas never watermarks (design_confirmed is a v2-only flag, never set
+    # on this path) — this producer is a hand-built dict, not
+    # `orchestrator._public_data`/`public_data_for`, so it has to be checked
+    # separately for the same uniformity those two already guarantee.
+    assert body["data"]["watermark"] is False
     elements, _ = canvas_to_elements(design)
     assert elements[0]["content"] == "HI"
 
@@ -294,6 +299,40 @@ def test_finalize_routes_to_decoration(client, seeded_store_headers, canvas_sess
     assert row["collected"]["hat_colour"] == {"name": "Navy", "hex": "#1e3a8a"}
 
 
+def test_rework_finalize_carries_the_watermark_flag(
+        client, seeded_store_headers, canvas_session_id, monkeypatch):
+    """The rework branch ("Rework on the canvas" from OFFER_REFINE) is the
+    second of the three hand-built `data` dicts in this route — it also used
+    to emit no `watermark` key at all. A confirmed design going through the
+    old `reworking` re-render path must still report its watermark state
+    explicitly, the same as the other two branches."""
+    import app.services.conversation.intent_extractor as ie
+
+    async def _reply(*a, **k):
+        return "Putting your changes together…"
+
+    monkeypatch.setattr(ie, "generate_reply", _reply)
+
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    row["collected"] = {**(row.get("collected") or {}),
+                        "reworking": True, "design_confirmed": True}
+
+    design = {"colourway": None, "faces": {"front": [], "back": [], "left": [], "right": []}}
+    r = client.post(f"/sessions/{canvas_session_id}/canvas-finalize",
+                    json={"canvas_design": design}, headers=seeded_store_headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["state"] == "regenerating"
+    assert body["data"]["trigger_regeneration"] is True
+    assert body["data"]["watermark"] is True
+    # regenerating is never the terminal quote_requested state.
+    assert body["data"]["session_ended"] is False
+
+    row = client._fake.design_sessions.rows[canvas_session_id]
+    assert row["state"] == "regenerating"
+    assert "reworking" not in row["collected"]
+
+
 def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_headers, canvas_session_id, monkeypatch):
     """Under the v2 orchestrator flag, canvas-finalize is QUOTE-GATED (C1/C4):
     it must skip the v1 decoration/notes outro AND never trigger a render or a
@@ -302,7 +341,11 @@ def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_hea
     monkeypatch.setattr("app.api.routes.sessions.settings.canvas_orchestrator_v2", True)
     row = client._fake.design_sessions.rows[canvas_session_id]
     row["collected"] = {**(row.get("collected") or {}),
-                        "quote_requested": True, "reference_code": "MH-BCDFGH"}
+                        "quote_requested": True, "reference_code": "MH-BCDFGH",
+                        # REVIEW_DESIGN's "Looks great, send it" precedes
+                        # REQUEST_QUOTE in the registry, so a real session
+                        # reaching here always carries this.
+                        "design_confirmed": True}
 
     design = {"colourway": {"name": "Navy", "hex": "#1e3a8a"},
               "faces": {"front": [{"id": "e1", "type": "text", "content": "HI",
@@ -320,6 +363,16 @@ def test_v2_finalize_is_quote_gated_and_never_generates(client, seeded_store_hea
     # The quote-gated flow never renders from finalize and never offers options.
     assert "trigger_generation" not in body["data"]
     assert "options" not in body["data"]
+    # This is the third hand-built `data` dict in this route — it used to be a
+    # silent producer of both flags (Finding: a live turn here showed the
+    # canvas unwatermarked while a reload of the exact same state, served by
+    # `_public_data`, showed it watermarked; and the frontend had no signal to
+    # lock the composer other than the state string, which v1 shares as an
+    # answerable gate). The design was confirmed to get here at all (REVIEW_
+    # DESIGN precedes REQUEST_QUOTE in the registry), so it must watermark;
+    # and this IS the terminal state for v2, so it must end the session.
+    assert body["data"]["watermark"] is True
+    assert body["data"]["session_ended"] is True
 
     row = client._fake.design_sessions.rows[canvas_session_id]
     assert row["state"] == "quote_requested"

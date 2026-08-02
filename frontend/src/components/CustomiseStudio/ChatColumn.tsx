@@ -227,7 +227,25 @@ export function ChatColumn() {
   // to answer a question that no longer moves, which reads as a broken bot.
   // Only pollVerification (above) releases it.
   const awaitingEmailVerify = chatState === 'await_email_verify'
-  const inputLocked = sending || awaitingEmailVerify
+  // The session is over: the quote reference has been issued and there is
+  // nothing left the customer can say that moves anything. An enabled composer
+  // here invites an answer to a question that no longer exists, which reads as
+  // a broken bot — the same reason awaitingEmailVerify locks it.
+  //
+  // Backend-owned, NOT `chatState === 'quote_requested'`: that state string is
+  // shared with v1, where it's an answerable yes/no gate
+  // (state_machine.py:317-318 only advances to SESSION_END after the reply) —
+  // orchestrator.py emits chips there and reads `wants_quote` off the answer.
+  // A v1 canvas session sitting at quote_requested must stay unlocked; only a
+  // v2 canvas session at the same state is genuinely done (its REQUEST_QUOTE
+  // step already captured the decision via its one chip, before finalize ever
+  // wrote this state). The two can't be told apart by state or `flow_mode`
+  // alone — a v2 RESUME reaches quote_requested through the identical
+  // `_public_data` producer a live v1 turn uses — so the backend computes it
+  // (`state_machine_v2.session_ended_for_state`, keyed on
+  // `settings.canvas_orchestrator_v2`) and ships it explicitly.
+  const sessionEnded = useChatStore(s => s.sessionEnded)
+  const inputLocked = sending || awaitingEmailVerify || sessionEnded
 
   // The backend only sets data.composite_preview: true for the
   // composite_preview state (see orchestrator.py _state_data_extra), so the
@@ -401,7 +419,7 @@ export function ChatColumn() {
     if (speech.error) setError(speech.error)
   }, [speech.error, setError])
 
-  const isStatementOnly = continuable && !sending && !awaitingEmailVerify
+  const isStatementOnly = continuable && !sending && !awaitingEmailVerify && !sessionEnded
 
   // ---------------------------------------------------------------------------
   // Render
@@ -409,8 +427,12 @@ export function ChatColumn() {
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      {/* Chat header — Ricardo identity + online status */}
-      <div className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-border bg-surfaceAlt/40 flex-shrink-0">
+      {/* Chat header — Ricardo identity + online status. py-2 on mobile (was
+          py-3 at every breakpoint): this row is fixed chrome that never
+          scrolls, so on a phone — where the whole column now fills the row
+          (see CustomiseStudio/index.tsx) — every px here is a px the message
+          list doesn't get. */}
+      <div className="flex items-center gap-3 px-4 md:px-6 py-2 md:py-3 border-b border-border bg-surfaceAlt/40 flex-shrink-0">
         <span className="w-9 h-9 rounded-full bg-accent flex-shrink-0" aria-hidden="true" />
         <div className="leading-tight">
           <p className="text-sm font-semibold text-textPrimary">Ricardo — MadHats AI</p>
@@ -469,7 +491,7 @@ export function ChatColumn() {
                 className={`flex max-w-[88%] flex-col gap-1 md:max-w-md ${
                   mine
                     ? 'items-end border-r-2 border-chatUserBubble pr-2'
-                    : 'items-start border-l-2 border-canvasAccent pl-2'
+                    : 'items-start border-l-2 border-accent pl-2'
                 }`}
               >
                 {startsRun && (
@@ -504,7 +526,11 @@ export function ChatColumn() {
       {/* ------------------------------------------------------------------ */}
       {/* Bottom panel: special states, chips, input                         */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-4 border-t border-border">
+      {/* pb-4 pt-3 on mobile (was pb-6 pt-4 at every breakpoint) — same
+          reasoning as the header above: this panel is fixed chrome, so a
+          smaller reserved margin on a phone hands more room to the scrolling
+          message list. */}
+      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-4 pt-3 md:pb-6 md:pt-4 border-t border-border">
         {/* Special state: logo upload — surfaced as a prominent modal dialog.
             Dismissible so the customer can instead type a different reply (e.g.
             "actually I'll describe it"); a reopen button keeps the uploader
@@ -702,7 +728,7 @@ export function ChatColumn() {
             opening it costs no round trip and it can never be stale. No
             targets => no button, which is how "no going back after the design
             is agreed" is expressed — there is no separate disable flag. */}
-        {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && (
+        {sessionId && backTargets.length > 0 && !sending && !awaitingEmailVerify && !sessionEnded && (
           backMenuOpen ? (
             <div className="self-start flex flex-col gap-1.5">
               <span className="text-xs text-textMuted">
@@ -736,7 +762,7 @@ export function ChatColumn() {
         )}
 
         {/* Option chip rows */}
-        {options.length > 0 && colourSwatches.length === 0 && !multiselect && (
+        {options.length > 0 && colourSwatches.length === 0 && !multiselect && !sessionEnded && (
           <div className="flex flex-wrap gap-2">
             {options.map(opt => (
               <button
@@ -751,7 +777,7 @@ export function ChatColumn() {
           </div>
         )}
 
-        {options2.length > 0 && (
+        {options2.length > 0 && !sessionEnded && (
           <div className="flex flex-wrap gap-2">
             {options2.map(opt => (
               <button
@@ -783,7 +809,7 @@ export function ChatColumn() {
             single compact ROW — as a centred stack with halo rings, a big label,
             a kbd chip and an "or type" line it ate ~140px of the chat column,
             which is the scarcest space on this screen. */}
-        {speech.supported && (
+        {speech.supported && !sessionEnded && (
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"

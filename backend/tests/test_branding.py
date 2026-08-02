@@ -252,3 +252,56 @@ def test_validate_brand_without_canvas_flow_is_untouched():
     # Baseline invariant: a brand with no canvas_flow key comes back identical.
     cleaned = branding.validate_brand({"primary_colour": "#FF5C00"})
     assert "canvas_flow" not in cleaned
+
+
+# --- end-of-session redirect --------------------------------------------------
+
+def test_validate_brand_accepts_a_redirect():
+    cleaned = branding.validate_brand({
+        "redirect_url": "  https://madhats.com.au/collections/caps  ",
+        "redirect_seconds": 45,
+    })
+    assert cleaned["redirect_url"] == "https://madhats.com.au/collections/caps"
+    assert cleaned["redirect_seconds"] == 45
+
+
+def test_validate_brand_clears_an_empty_redirect_url():
+    # An empty string is how the admin form turns the redirect OFF. Dropping the
+    # key (rather than storing "") is what makes `public_brand` omit it and the
+    # dialog never mount.
+    assert "redirect_url" not in branding.validate_brand({"redirect_url": "   "})
+
+
+@pytest.mark.parametrize("url", [
+    "javascript:alert(1)", "ftp://madhats.com.au", "madhats.com.au", "https://",
+])
+def test_validate_brand_rejects_a_non_http_redirect(url):
+    with pytest.raises(ValueError):
+        branding.validate_brand({"redirect_url": url})
+
+
+@pytest.mark.parametrize("secs", [4, 301, 0, -1, "30", 30.5, True, None])
+def test_validate_brand_rejects_out_of_range_seconds(secs):
+    # `True` is rejected explicitly: bool is a subclass of int in Python, so a
+    # bare isinstance(x, int) check would accept it and store `true` as a delay.
+    with pytest.raises(ValueError):
+        branding.validate_brand({"redirect_seconds": secs})
+
+
+@pytest.mark.parametrize("secs", [5, 30, 300])
+def test_validate_brand_accepts_the_range_bounds(secs):
+    assert branding.validate_brand({"redirect_seconds": secs})["redirect_seconds"] == secs
+
+
+def test_public_brand_publishes_the_redirect():
+    out = branding.public_brand(
+        {"redirect_url": "https://madhats.com.au", "redirect_seconds": 20}, "http://api/")
+    assert out["redirect_url"] == "https://madhats.com.au"
+    assert out["redirect_seconds"] == 20
+
+
+def test_public_brand_omits_an_unconfigured_redirect():
+    # No URL => the frontend mounts no dialog and starts no timer. Absence is
+    # the off switch; there is no separate enabled flag.
+    assert branding.public_brand({"primary_colour": "#FF5C00"}, "http://api/") == {
+        "primary_colour": "#FF5C00"}

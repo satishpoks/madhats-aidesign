@@ -270,6 +270,10 @@ async def finalize_canvas(
     from app.services.conversation import intent_extractor as ie
     from app.services.conversation.state_machine import ConversationState as S
     from app.services.conversation.state_machine import progress as sm_progress
+    from app.services.conversation.state_machine_v2 import (
+        session_ended_for_state,
+        watermark_for_state,
+    )
 
     persona = store.get("persona_name") or settings.chatbot_persona_name
 
@@ -288,7 +292,17 @@ async def finalize_canvas(
         return {
             "reply": reply,
             "state": new_state.value,
-            "data": {"trigger_regeneration": True, "progress": sm_progress(new_state, collected)},
+            "data": {
+                "trigger_regeneration": True,
+                "progress": sm_progress(new_state, collected),
+                # This route builds its own `data` dict rather than going
+                # through `_public_data`/`public_data_for` (it isn't a chat
+                # turn), so it must set these two itself — a third producer
+                # that stayed silent on the canvas watermark is exactly the
+                # bug this key exists to close (see state_machine_v2.py).
+                "watermark": watermark_for_state(new_state.value, collected),
+                "session_ended": session_ended_for_state(new_state.value, collected),
+            },
         }
 
     # v2 step-by-step orchestrator: the design phase already happened in chat and
@@ -332,7 +346,17 @@ async def finalize_canvas(
         return {
             "reply": reply,
             "state": new_state.value,
-            "data": {"reference_code": reference, "progress": progress_v2(new_state, collected)},
+            "data": {
+                "reference_code": reference,
+                "progress": progress_v2(new_state, collected),
+                "watermark": watermark_for_state(new_state.value, collected),
+                # Always True here (this branch only runs when
+                # settings.canvas_orchestrator_v2 is on, and new_state is
+                # QUOTE_REQUESTED) — computed via the shared helper rather
+                # than hardcoded so this stays in lockstep with the other two
+                # producers instead of being a fourth place that could drift.
+                "session_ended": session_ended_for_state(new_state.value, collected),
+            },
         }
 
     active = deco_svc.list_types(store["id"], active_only=True)
@@ -353,6 +377,7 @@ async def finalize_canvas(
             "multiselect": True,
             "selected": [],
             "progress": sm_progress(new_state, collected),
+            "watermark": watermark_for_state(new_state.value, collected),
         },
     }
 

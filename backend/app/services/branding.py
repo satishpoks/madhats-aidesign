@@ -4,7 +4,8 @@ serializer for the customer storefront. No DB, no network — trivially testable
 Brand shape (all keys optional) stored in stores.brand jsonb:
     { logo_url, primary_colour, header_bg, header_text,
       canvas_accent, chat_user_bubble,
-      watermark_asset_url (internal), menu_items: [{label, url}] }
+      watermark_asset_url (internal), menu_items: [{label, url}],
+      redirect_url, redirect_seconds }
 
 canvas_accent colours the canvas design surface (tool rail, Adjust panel,
 focus ring, Done button); chat_user_bubble colours the customer's own chat
@@ -27,10 +28,17 @@ _COLOUR_KEYS = (
     "primary_colour", "header_bg", "header_text",
     "canvas_accent", "chat_user_bubble",
 )
+# End-of-session redirect: after the quote reference is shown, the customer is
+# offered a countdown back to the store's own shop. Absence of `redirect_url` is
+# the off switch — there is no separate enabled flag.
+DEFAULT_REDIRECT_SECONDS = 30
+MIN_REDIRECT_SECONDS = 5
+MAX_REDIRECT_SECONDS = 300
 # Fields exposed to the public storefront (watermark_asset_url is internal).
 _PUBLIC_KEYS = (
     "logo_url", "primary_colour", "header_bg", "header_text",
     "canvas_accent", "chat_user_bubble",
+    "redirect_url", "redirect_seconds",
 )
 
 
@@ -91,6 +99,41 @@ def _validate_canvas_flow(raw) -> dict:
     return {"steps": cleaned}
 
 
+def _validate_redirect(cleaned: dict) -> None:
+    """In-place validation of the two redirect fields. Mutates `cleaned`:
+    a blank URL is REMOVED rather than stored as "", because `public_brand`
+    skips falsy values and the frontend keys "no redirect" off the key's
+    absence.
+
+    `redirect_seconds` has no such clearing convention — it is checked by
+    presence (`"redirect_seconds" in cleaned`), not `.get() is None`, so a
+    key the caller never mentioned is left alone, but a key explicitly set to
+    `None` is treated as the non-int it is and rejected.
+    """
+    url = cleaned.get("redirect_url")
+    if url is not None:
+        url = str(url).strip()
+        if not url:
+            cleaned.pop("redirect_url", None)
+        else:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError("redirect_url must be an http(s) URL")
+            cleaned["redirect_url"] = url
+
+    if "redirect_seconds" not in cleaned:
+        return
+    secs = cleaned["redirect_seconds"]
+    # bool is a subclass of int, so `isinstance(secs, int)` alone would accept
+    # True and store it as a one-second delay.
+    if isinstance(secs, bool) or not isinstance(secs, int):
+        raise ValueError("redirect_seconds must be a whole number of seconds")
+    if not MIN_REDIRECT_SECONDS <= secs <= MAX_REDIRECT_SECONDS:
+        raise ValueError(
+            f"redirect_seconds must be between {MIN_REDIRECT_SECONDS} "
+            f"and {MAX_REDIRECT_SECONDS}")
+
+
 def validate_brand(brand: dict) -> dict:
     """Return a cleaned copy of ``brand``. Raise ValueError on invalid input.
     Unknown keys are preserved (e.g. watermark_asset_url set by other flows)."""
@@ -121,6 +164,7 @@ def validate_brand(brand: dict) -> dict:
         parsed = urlparse(val)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             raise ValueError(f"{key} must be an http(s) URL")
+    _validate_redirect(cleaned)
     return cleaned
 
 
