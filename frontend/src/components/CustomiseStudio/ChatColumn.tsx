@@ -427,8 +427,12 @@ export function ChatColumn() {
 
   return (
     <div className="flex flex-col min-h-0 h-full">
-      {/* Chat header — Ricardo identity + online status */}
-      <div className="flex items-center gap-3 px-4 md:px-6 py-3 border-b border-border bg-surfaceAlt/40 flex-shrink-0">
+      {/* Chat header — Ricardo identity + online status. py-2 on mobile (was
+          py-3 at every breakpoint): this row is fixed chrome that never
+          scrolls, so on a phone — where the whole column now fills the row
+          (see CustomiseStudio/index.tsx) — every px here is a px the message
+          list doesn't get. */}
+      <div className="flex items-center gap-3 px-4 md:px-6 py-2 md:py-3 border-b border-border bg-surfaceAlt/40 flex-shrink-0">
         <span className="w-9 h-9 rounded-full bg-accent flex-shrink-0" aria-hidden="true" />
         <div className="leading-tight">
           <p className="text-sm font-semibold text-textPrimary">Ricardo — MadHats AI</p>
@@ -522,7 +526,11 @@ export function ChatColumn() {
       {/* ------------------------------------------------------------------ */}
       {/* Bottom panel: special states, chips, input                         */}
       {/* ------------------------------------------------------------------ */}
-      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-6 pt-4 border-t border-border">
+      {/* pb-4 pt-3 on mobile (was pb-6 pt-4 at every breakpoint) — same
+          reasoning as the header above: this panel is fixed chrome, so a
+          smaller reserved margin on a phone hands more room to the scrolling
+          message list. */}
+      <div className="flex-shrink-0 flex flex-col gap-3 px-4 md:px-6 pb-4 pt-3 md:pb-6 md:pt-4 border-t border-border">
         {/* Special state: logo upload — surfaced as a prominent modal dialog.
             Dismissible so the customer can instead type a different reply (e.g.
             "actually I'll describe it"); a reopen button keeps the uploader

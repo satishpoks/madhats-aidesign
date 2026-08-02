@@ -137,22 +137,25 @@ export function CustomiseStudio() {
 
         {/* Chat width scales with the screen: a laptop/iPad keeps roughly the old
             width (the canvas is tight there), a desktop gives the conversation a
-            noticeably bigger share. Mobile: a hard h-[45vh] reserved the same
-            height whether the thread was two bubbles or twenty; basis-[45vh]
-            with shrink (not flex-none) lets it hand height back to the canvas
-            when the chat is short, which matters most on a phone where both
-            halves share one screen. min-h-0 is what lets the flex child shrink
-            below its content size at all — without it this is inert.
-            md:shrink-0 confines that shrink allowance to the stacked mobile
-            layout: without it, `shrink` still applies at every breakpoint (it
-            is a flex property, not a width class), so the fixed
-            md:w-[360px]/lg:w-[420px]/xl:w-[480px]/2xl:w-[560px] widths could be
-            compressed under desktop space pressure — a behavioural change well
-            outside this task's "mobile sizing only" scope. */}
+            noticeably bigger share. Mobile: this used to be a hard `basis-[45vh]
+            grow-0`, left over from when BOTH halves stacked on one screen at
+            once and the chat was deliberately capped so the canvas got the
+            rest. Since panels became one-at-a-time on mobile (PanelTabs, the
+            other column gets `hidden` and contributes no height), that cap no
+            longer has anything to share space WITH — it just pinned the chat
+            to 45% of the row and left the other 55% empty under it, which is
+            what "messages are barely visible" was reporting. `flex-1` (grow +
+            shrink + basis-0) lets the shown panel fill the whole row instead.
+            min-h-0 is what lets the flex child shrink below its content size
+            at all — without it the message list cannot scroll.
+            `md:flex-none` cancels ALL of grow/shrink/basis at md and up (not
+            just shrink) so the explicit
+            md:w-[360px]/lg:w-[420px]/xl:w-[480px]/2xl:w-[560px] widths are
+            exactly what the desktop columns use, unchanged. */}
         <div
           data-testid="chat-column-wrap"
           data-active={String(!canvasActive)}
-          className={`flex basis-[45vh] grow-0 shrink w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:basis-auto md:shrink-0 md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showChat ? '' : 'hidden'}`}
+          className={`flex flex-1 w-full min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-surface transition-shadow duration-300 md:flex-none md:w-[360px] lg:w-[420px] xl:w-[480px] 2xl:w-[560px] ${!canvasActive ? ACTIVE_CARD : RESTING_CARD} ${showChat ? '' : 'hidden'}`}
         >
           <ColumnHeader
             name={personaName}

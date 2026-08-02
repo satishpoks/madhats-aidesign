@@ -66,7 +66,7 @@ export function MilestoneBar() {
   return (
     <nav
       aria-label="Design progress"
-      className="w-full border-b border-border bg-base px-4 py-3"
+      className="w-full border-b border-border bg-base px-4 py-2 md:py-3"
     >
       {/* The stepper keeps its own max-width and stays centred in the leftover
           space; the restart control sits hard right and never shrinks it. */}
