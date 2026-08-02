@@ -123,3 +123,16 @@ def test_storefront_never_leaks_the_watermark_asset(client, store_headers, monke
     res = client.get("/storefront", headers=store_headers)
     assert res.status_code == 200
     assert "watermark_asset_url" not in res.text
+
+
+def test_storefront_publishes_the_redirect_config(client, store_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.branding.media_url", lambda p, base: f"http://api/media/{p}")
+    monkeypatch.setitem(_STORE["brand"], "redirect_url", "https://acme.example")
+    monkeypatch.setitem(_STORE["brand"], "redirect_seconds", 15)
+    body = client.get("/storefront", headers=store_headers).json()
+    assert body["brand"]["redirect_url"] == "https://acme.example"
+    assert body["brand"]["redirect_seconds"] == 15
+    # Still no leaks alongside the new fields.
+    assert "watermark_asset_url" not in body["brand"]
+    assert "sales_notification_email" not in body
