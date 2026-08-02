@@ -65,10 +65,14 @@ describe('phone layout', () => {
   it('keeps the desktop fixed-width classes intact', () => {
     render(<CustomiseStudio />)
     const chat = screen.getByTestId('chat-column-wrap')
-    expect(chat.className).toContain('md:w-[360px]')
-    expect(chat.className).toContain('lg:w-[420px]')
-    expect(chat.className).toContain('xl:w-[480px]')
-    expect(chat.className).toContain('2xl:w-[560px]')
+    // Whole-class-token regexes, not toContain — a substring match on a
+    // bracketed pixel value is not the live-bug-prone case `overflow-hidden`/
+    // `hidden` was (these values are effectively unique), but this file is
+    // the one place that documents the rule, so stay consistent with it.
+    expect(chat.className).toMatch(/(^|\s)md:w-\[360px\](\s|$)/)
+    expect(chat.className).toMatch(/(^|\s)lg:w-\[420px\](\s|$)/)
+    expect(chat.className).toMatch(/(^|\s)xl:w-\[480px\](\s|$)/)
+    expect(chat.className).toMatch(/(^|\s)2xl:w-\[560px\](\s|$)/)
   })
 
   it("gives the canvas column the same flex-1 fill when it's the shown panel", () => {

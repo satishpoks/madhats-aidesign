@@ -1206,17 +1206,46 @@ stack has no catalogue sync unless you run the script yourself:
   `test_state_machine_v2.py`; `RedirectCountdown`'s `cancelled` never
   resetting; `PanelTabs`' missing `role="tabpanel"`/`aria-controls`; the
   unused backend `DEFAULT_REDIRECT_SECONDS`.
+  **(8) `chat-column-wrap` was still pinned to 45vh after the one-panel-at-a-
+  time layout shipped (same branch, commit `ae38a7e`).** `basis-[45vh]
+  grow-0 shrink` dated from when a phone STACKED both halves on one screen at
+  once — the chat was deliberately capped so the canvas kept the rest of the
+  row. Once `PanelTabs` shipped (Finding-era work earlier in this same
+  batch), the non-selected column gets `hidden` and contributes zero height,
+  so the sole VISIBLE panel was still pinned to 45% of the row and left
+  roughly half the viewport empty underneath it — reported by the owner as
+  "chat messages are barely visible". Fixed with `flex-1` on mobile (fills
+  the row) plus **`md:flex-none`** to cancel it at desktop — not the
+  `md:shrink-0` the fixed-width era used, and that distinction is the whole
+  fix: `flex-1` is shorthand for `flex: 1 1 0%`, so cancelling only `shrink`
+  would leave `grow: 1` active at `md`+ and let the column expand past its
+  fixed `md:w-[360px]/lg:[420px]/xl:[480px]/2xl:[560px]` widths under desktop
+  space pressure. `min-h-0` on both the column and its inner content wrapper
+  is load-bearing, not decorative — it's what lets a flex child shrink below
+  its content size; without it the message list cannot scroll at all.
+  Mobile-only chrome trims layered on top, each restored via `md:` back to
+  its pre-batch value so desktop spacing is byte-identical:
+  `ChatColumn`'s persona header `py-3` → `py-2 md:py-3`, its bottom panel
+  `pb-6 pt-4` → `pb-4 pt-3 md:pb-6 md:pt-4`, `MilestoneBar` `py-3` →
+  `py-2 md:py-3`. **Stated plainly: this was never verified in a real
+  browser.** `resize_window` is a no-op in this environment and the devtools
+  MCP could not attach a sub-768px viewport for any task in this whole
+  batch, including this fix. It rests entirely on CSS reasoning plus jsdom
+  class-string tests (which perform no real layout) — a genuine narrow-
+  viewport check is still outstanding.
   **Test counts after this fix wave** (same commands as above): backend
   flag-off = **1380 passed, 0 failed** (+24: `test_session_ended.py`,
   `session_ended_for_state` coverage added to `test_state_machine_v2.py`,
   one new `test_canvas_routes.py` case for the rework branch's watermark
   flag); the five v2-only suites flag-on = **392 passed, 0 failed** (+14, all
   in `test_state_machine_v2.py`); frontend `src/__tests__
-  src/components/StoreHeader.test.tsx` = **402 passed, 0 failing, 56 files**
-  (+3: a v1-answerable regression guard in `ChatColumn.test.tsx`, two new
-  cases in `redirectCountdown.test.tsx`); frontend `src/admin` = **69 passed,
-  19 files** (unchanged — Finding 6 only tightened existing assertions);
-  `npx tsc --noEmit` = clean.
+  src/components/StoreHeader.test.tsx` = **404 passed, 0 failing, 56 files**
+  (+3 from Finding 7's regression guards, +2 more from the `chat-column-wrap`
+  fix's `mobileLayout.test.tsx` coverage above — one of those two was
+  subsequently tightened from `toContain` to a whole-token regex for
+  consistency with this file's own `hidden`-substring lesson, no count
+  change); frontend `src/admin` = **69 passed, 19 files** (unchanged —
+  Finding 6 only tightened existing assertions); `npx tsc --noEmit` = clean.
   Report: `.superpowers/sdd/2026-08-02-canvas-studio-flow-polish/fix-wave-report.md`.
 - **Docker down?** Backend tests run fine off the local venv without the stack:
   `cd backend && CANVAS_ORCHESTRATOR_V2=false ./.venv/Scripts/python.exe -m pytest -q`.
