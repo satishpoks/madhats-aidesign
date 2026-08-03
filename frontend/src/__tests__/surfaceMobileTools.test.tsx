@@ -99,6 +99,34 @@ test('mobile: the tool rail is collapsed by default and the floating button reve
   expect(screen.getByTestId('mobile-tools-toggle')).toBeInTheDocument()
 })
 
+test('mobile: adding/selecting an element does NOT auto-open the Adjust sheet; the tools button opens it (owner fix, 2026-08-03)', () => {
+  setMatchMedia(false)
+  useChatStore.setState({
+    chatState: 'text_adjust',
+    canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+  } as never)
+  selectText()
+  const id = useCanvasStore.getState().selectedId
+  expect(id).toBeTruthy()
+
+  render(<DesignStudioSurface />)
+  // Sheet stays closed even though something is selected — this is the bug
+  // fix: previously the sheet auto-opened whenever `selectedId` changed,
+  // which meant every element a step's tool placed (auto-selected on add)
+  // sprang the sheet open unasked.
+  expect(screen.queryByTestId('adjust-panel')).not.toBeInTheDocument()
+
+  // The floating button is the only way to reveal it, and it pulses to say
+  // so — this is `ask_logo_bg`'s whole discoverability story on a phone: the
+  // step's copy points at the Adjust panel's "Remove background" toggle, and
+  // the customer needs a reason to go looking for it.
+  const toggle = screen.getByTestId('mobile-tools-toggle')
+  expect(toggle.className).toMatch(/(^|\s)animate-pulse(\s|$)/)
+  fireEvent.click(toggle)
+  expect(screen.getByLabelText('Text content')).toBeInTheDocument()
+  expect(toggle.className).not.toMatch(/(^|\s)animate-pulse(\s|$)/)
+})
+
 test('mobile: the Adjust sheet close button hides the sheet WITHOUT deselecting, and the tools button brings it back', () => {
   setMatchMedia(false)
   useChatStore.setState({
@@ -110,7 +138,8 @@ test('mobile: the Adjust sheet close button hides the sheet WITHOUT deselecting,
   expect(id).toBeTruthy()
 
   render(<DesignStudioSurface />)
-  // Sheet is auto-visible on selection, same as before this change.
+  // Sheet starts closed (see the test above) — open it explicitly first.
+  fireEvent.click(screen.getByTestId('mobile-tools-toggle'))
   expect(screen.getByLabelText('Text content')).toBeInTheDocument()
 
   fireEvent.click(screen.getByTestId('adjust-sheet-close'))
@@ -158,7 +187,7 @@ test('mobile: no pulse when there is nothing to open', () => {
   expect(toggle.className).not.toMatch(/(^|\s)animate-pulse(\s|$)/)
 })
 
-test('mobile: closing the sheet and reselecting a different element shows the sheet again (no stale close)', async () => {
+test('mobile: closing the sheet, then selecting a different element, leaves it closed (owner: only the tools button opens it — not selection)', () => {
   setMatchMedia(false)
   useChatStore.setState({
     chatState: 'text_adjust',
@@ -170,9 +199,37 @@ test('mobile: closing the sheet and reselecting a different element shows the sh
   useCanvasStore.getState().select(first)
 
   render(<DesignStudioSurface />)
+  // Opened, then closed, for the first element.
+  fireEvent.click(screen.getByTestId('mobile-tools-toggle'))
+  expect(screen.getByTestId('adjust-panel')).toBeInTheDocument()
   fireEvent.click(screen.getByTestId('adjust-sheet-close'))
   expect(screen.queryByTestId('adjust-panel')).not.toBeInTheDocument()
 
+  // Selecting a DIFFERENT element must not resurrect it — this is the
+  // opposite of the pre-fix behaviour (which reset `mobileSheetHidden` to
+  // false on every `selectedId` change).
+  act(() => { useCanvasStore.getState().select(second) })
+  expect(screen.queryByTestId('adjust-panel')).not.toBeInTheDocument()
+})
+
+test('mobile: once explicitly opened, the sheet stays open across a selection change (the less-surprising choice — see task report)', () => {
+  setMatchMedia(false)
+  useChatStore.setState({
+    chatState: 'text_adjust',
+    canvasDirective: { allowedTools: ['text'], targetFace: null, autoOpen: null, instructions: null, showDone: false },
+  } as never)
+  useCanvasStore.getState().addText('one')
+  useCanvasStore.getState().addText('two')
+  const [first, second] = useCanvasStore.getState().faces.front.map(e => e.id)
+  useCanvasStore.getState().select(first)
+
+  render(<DesignStudioSurface />)
+  fireEvent.click(screen.getByTestId('mobile-tools-toggle'))
+  expect(screen.getByTestId('adjust-panel')).toBeInTheDocument()
+
+  // Switching to a different element while the sheet is open must not hide
+  // it — the customer explicitly asked to see the panel and is plausibly
+  // about to adjust the next element too.
   act(() => { useCanvasStore.getState().select(second) })
   expect(screen.getByTestId('adjust-panel')).toBeInTheDocument()
 })

@@ -4,7 +4,7 @@ import {
   Rect, Ellipse, RegularPolygon, Star, Line, Arrow,
 } from 'react-konva'
 import type Konva from 'konva'
-import { type CanvasElement, LINE_SHAPES } from '../../store/canvasStore'
+import { useCanvasStore, type CanvasElement, LINE_SHAPES } from '../../store/canvasStore'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { ensureFont } from '../../lib/fonts'
 import {
@@ -94,6 +94,11 @@ export function TextNode({ el, stageW, stageH, isSelected, onSelect, onChange }:
     draggable: !locked,
     onClick: locked ? undefined : onSelect,
     onTap: locked ? undefined : onSelect,
+    // Double-click (desktop) / double-tap (mobile) opens the in-place editor
+    // — see TextEditOverlay for the overlay itself and why it is safe to
+    // never hide this node while editing.
+    onDblClick: locked ? undefined : () => useCanvasStore.getState().startEditingText(el.id),
+    onDblTap: locked ? undefined : () => useCanvasStore.getState().startEditingText(el.id),
     onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) =>
       onChange(topLeftFromCenterPx(e.target.x(), e.target.y(), halfW, halfH, stageW, stageH)),
     onTransformEnd: (e: Konva.KonvaEventObject<Event>) => {
