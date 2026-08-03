@@ -1,0 +1,85 @@
+# Build the frontend image and push it to Amazon ECR.
+#
+# Runs only when frontend/ changed (or this file did) — see `paths` below.
+#
+# NOTE: this build passes NO build arguments and needs NO application secrets.
+# The bundle is built with placeholder sentinels for VITE_API_BASE_URL and
+# VITE_STORE_KEY, which frontend/docker-entrypoint.sh substitutes from the
+# environment at CONTAINER START. That is what makes one image deployable to
+# staging and production alike; do not reintroduce `build-args` here, or the
+# image becomes locked to a single API URL again.
+#
+# Required repository configuration (Settings -> Secrets and variables ->
+# Actions):
+#   secrets.AWS_ACCESS_KEY_ID       IAM user scoped to ECR push
+#   secrets.AWS_SECRET_ACCESS_KEY
+#   vars.AWS_REGION                 e.g. ap-southeast-2
+#   vars.ECR_FRONTEND_REPOSITORY    e.g. madhats-frontend (must already exist —
+#                                   ECR does NOT create a repository on push)
+
+name: Frontend image → ECR
+
+on:
+  push:
+    branches: ["master"]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/frontend-image.yml"
+  # Rebuild without a code change (e.g. after rotating credentials).
+  workflow_dispatch:
+
+concurrency:
+  # Two pushes in quick succession would race to move :latest. Cancel the older
+  # one; its :<sha> tag is not worth the minutes.
+  group: frontend-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile # not Dockerfile.dev (the HMR dev server)
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}:latest
+          # Scoped per service so the backend's cache cannot evict this one.
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+      - name: Summary
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/${{ vars.ECR_FRONTEND_REPOSITORY }}"
+          {
+            echo "### Frontend image pushed"
+            echo ""
+            echo '```'
+            echo "$IMAGE:${{ github.sha }}"
+            echo "$IMAGE:latest"
+            echo '```'
+            echo ""
+            echo "Run it with \`-e VITE_API_BASE_URL=…\` — the URL is injected at container start."
+          } >> "$GITHUB_STEP_SUMMARY"

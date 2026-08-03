@@ -1388,11 +1388,32 @@ stack has no catalogue sync unless you run the script yourself:
 > replaces any client-supplied value; relaying one instead is a rate-limit
 > bypass. Both files document this at length; read them before touching either.
 
-**Golden rule — the frontend API URL is a BUILD-TIME value.** Vite inlines every
-`VITE_*` var into the JS bundle when it builds; a hosted frontend never reads a
-runtime `.env`. So `VITE_API_BASE_URL` must be correct *when the image is built*.
-Symptom of getting this wrong: the browser calls `http://localhost:8000` or a
-stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked in.
+**The frontend API URL is a START-TIME value as of 2026-08-03 — it used to be a
+BUILD-TIME one, and every older note claiming that is stale.** Vite still inlines
+every `VITE_*` var into the JS bundle when it builds, so the bundle now bakes the
+*placeholder* `__RUNTIME_API_BASE_URL__` (and `__RUNTIME_STORE_KEY__`), which
+`frontend/docker-entrypoint.sh` replaces from the container's environment on
+every start before `serve` runs. One image is therefore deployable to staging and
+production alike — which is the whole point, since CI now pushes it to ECR.
+
+Consequences:
+- **Changing `VITE_API_BASE_URL` needs a RECREATE, not a rebuild:**
+  `docker compose -f docker-compose.prod.yml up -d --force-recreate frontend`.
+  A `restart` is NOT enough — Docker fixes a container's environment at
+  *creation*, and `docker compose restart` does not re-read `.env`.
+- **Unset `VITE_API_BASE_URL` now aborts the container at start**, loudly, with
+  an explanatory message. It never falls back to `http://localhost:8000`. The
+  `${VITE_API_BASE_URL:?…}` build-arg guard that used to live in
+  `docker-compose.prod.yml` moved into the entrypoint.
+- A *stale* value still starts happily. Inspecting the served bundle remains the
+  only thing that catches that; the symptom is the browser calling
+  `http://localhost:8000` or an old dev IP.
+- The application source is untouched — `src/lib/api.ts` and
+  `src/admin/adminApi.ts` still just read `import.meta.env`, so dev, the test
+  suite and `Dockerfile.dev` (the HMR dev server) are unaffected.
+- Do **not** pass `--build-arg VITE_API_BASE_URL=…` when building an image for a
+  registry. It works (the entrypoint then finds no sentinel and substitutes
+  nothing) and silently restores the single-environment lock-in.
 
 **Two ways the frontend can run:**
 
@@ -1400,7 +1421,7 @@ stale dev IP (e.g. a Tailscale `100.103.149.17:8000`) — that value was baked i
 |---|---|---|
 | Frontend | Vite dev server + HMR (`Dockerfile.dev`) | static build (`frontend/Dockerfile`, `serve -s dist`) |
 | Host check | needs `ALLOWED_HOSTS` (set `*` behind a proxy) | **none** (static server doesn't host-check) |
-| API URL | runtime env, re-bakeable on restart | **compiled in** — rebuild to change |
+| API URL | runtime env, re-bakeable on restart | injected at container **start** by `docker-entrypoint.sh` — recreate to change |
 | Backend | `uvicorn --reload` + source bind-mount | image CMD (no reload), no mount |
 
 **Prod deploy (static build; nginx terminates TLS):**
@@ -1409,7 +1430,7 @@ git pull
 # project-root .env must have (prod values):
 #   STUDIO_HOST=madhats.getaiconsult.com.au        # hostnames Caddy ROUTES on;
 #   API_HOST=api.madhats.getaiconsult.com.au       # must equal nginx server_name
-#   VITE_API_BASE_URL=https://api.madhats.getaiconsult.com.au   # baked into the bundle
+#   VITE_API_BASE_URL=https://api.madhats.getaiconsult.com.au   # injected at container START
 #   EMAIL_VERIFY_BASE_URL=https://api.madhats.getaiconsult.com.au
 #   STUDIO_BASE_URL=https://madhats.getaiconsult.com.au
 #   (staging uses mhstaging.* / api.mhstaging.* in all five — they must agree)
@@ -1424,8 +1445,9 @@ git pull
 # also miss the prod project's containers and leave them up.
 docker compose -f docker-compose.prod.yml down
 docker compose -f docker-compose.prod.yml up -d --build
-# after ANY VITE_API_BASE_URL change, REBUILD the frontend (it's compiled in):
-docker compose -f docker-compose.prod.yml up -d --build frontend
+# after ANY VITE_API_BASE_URL change, RECREATE the frontend (injected at start,
+# no rebuild needed — but a `restart` will NOT pick it up, see the note above):
+docker compose -f docker-compose.prod.yml up -d --force-recreate frontend
 ```
 
 **nginx side (one-time, then only on config change):**
@@ -1546,9 +1568,12 @@ frontend`. Env is only read at container **start**, so always
   deliberately adjacent; never re-add one without removing the other.
   (`frontend` sets no `TRUSTED_PROXY_HOSTS` — it is a static file server — so
   re-exposing it is a cleartext problem only.)
-- **Mixed-content errors after deploy** → the frontend was recreated but not
-  rebuilt, so the old `http://` API URL is still compiled into the bundle.
-  `up -d --build frontend`.
+- **Mixed-content errors after deploy** → the frontend container is serving an
+  old `http://` API URL. Since 2026-08-03 that value is injected at container
+  start, so the fix is `up -d --force-recreate frontend` with the right value in
+  `.env` — NOT a rebuild, and NOT a `restart` (which reuses the container's
+  original environment). Check what it actually resolved with
+  `docker compose -f docker-compose.prod.yml logs frontend | grep VITE_API_BASE_URL`.
 - **Testing proxy behaviour empirically** (how the header/hostname invariants
   above were actually proven, rather than reasoned about): run an isolated
   `caddy:2.8-alpine` + `mendhak/http-https-echo:31` pair on a spare loopback
@@ -1577,6 +1602,49 @@ frontend`. Env is only read at container **start**, so always
   **On the prod box the ports are guaranteed taken** — nginx holds 80 and 443 —
   which is one more reason the dev stack must never be run there. The prod stack
   is unaffected: its Caddy binds `127.0.0.1:8480` instead.
+- **Building the PROD frontend on a dev machine clobbers the DEV frontend
+  image** (pre-existing, hit and confirmed 2026-08-03). Both compose files
+  default to the same image tag — `madhats-aidesign-frontend` — so
+  `docker compose -f docker-compose.prod.yml build frontend` overwrites the
+  `Dockerfile.dev` image. The dev container then starts the *prod* image, whose
+  bind mount of the host `frontend/` over `/app` hides `/app/dist-template`, and
+  it dies with `cp: cannot stat '/app/dist-template'`. Recreating does not fix
+  it; you must REBUILD: `docker compose up -d --no-deps --build frontend`. Same
+  trap in reverse. Note the two compose files also share container names, so a
+  prod-file `up` on a dev box silently replaces running dev containers.
+
+---
+
+## 13d. CI — images pushed to Amazon ECR
+
+Pushes to `master` build and push Docker images to ECR. Two workflows, split so
+the services version independently:
+
+| Workflow | Runs when | Pushes |
+|---|---|---|
+| `.github/workflows/backend-image.yml` | `backend/**` changed | `<repo>:<git-sha>` + `:latest` |
+| `.github/workflows/frontend-image.yml` | `frontend/**` changed | `<repo>:<git-sha>` + `:latest` |
+
+Both also expose `workflow_dispatch` for a manual rebuild. Path filtering is
+GitHub's native `on.push.paths` — no third-party action. Pushes are
+**unconditional**: no test gate, so a red commit on master still produces an
+image.
+
+Auth is an access key + secret in repo **secrets**
+(`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`); region and repository names are
+repo **variables** (`AWS_REGION`, `ECR_BACKEND_REPOSITORY`,
+`ECR_FRONTEND_REPOSITORY`). The registry host comes from the `amazon-ecr-login`
+step's output, so no AWS account ID is stored in this repo. ECR does **not**
+create a repository on push — both must exist first.
+
+**The frontend build passes no build args and needs no secrets**, and must stay
+that way: the image is environment-agnostic only because the API URL is injected
+at container start (see the start-time note in §13c). Adding `build-args` back
+silently re-locks the image to one environment.
+
+Nothing here deploys — the pipeline pushes and stops. `docker-compose.prod.yml`
+still builds on the box; switching it to `image:` pulls is a separate change.
+Spec: `docs/superpowers/specs/2026-08-03-ecr-image-pipeline-design.md`.
 
 ---
 
