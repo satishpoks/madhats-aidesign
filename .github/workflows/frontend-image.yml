@@ -40,6 +40,11 @@ permissions:
 jobs:
   build-push:
     runs-on: ubuntu-latest
+    # REQUIRED, not decorative: the AWS credentials and the vars.* below are
+    # scoped to this ENVIRONMENT, not to the repository. Without this line
+    # `vars.AWS_REGION` resolves to empty and the run dies at the first step
+    # with "Input required and not supplied: aws-region".
+    environment: Production
     steps:
       - uses: actions/checkout@v4
 
