@@ -13,6 +13,7 @@ import structlog
 from app import prompts
 from app.config import settings
 from app.services import design_summary
+from app import storage
 
 log = structlog.get_logger()
 
@@ -63,13 +64,121 @@ def _send(to: str, subject: str, body: str) -> bool:
     return _dispatch(to, subject, html)
 
 
-def _branded(store_name: str, primary_colour: str, body_html: str) -> str:
-    """Wrap pre-rendered safe body HTML in the store-branded transactional shell."""
+# Content-ID for the store logo inlined into the transactional shell's header.
+_BRAND_LOGO_CID = "madhats-brand-logo"
+
+_DEFAULT_PRIMARY = "#ff5c00"
+
+
+def brand_kit(store: dict | None) -> dict:
+    """The store's brand values as keyword arguments for the email senders.
+
+    One resolver so verification, resume and quote-reference emails cannot drift
+    apart on what "branded" means. Callers pass it straight through:
+    ``send_verification_email(..., **brand_kit(store))``.
+
+    The logo is downloaded HERE rather than in `branding.py`, which is
+    deliberately pure (no DB, no network). This module is already the impure
+    boundary — it talks to Resend — so the one storage read belongs on this side.
+    Failures degrade to no logo: a branding lookup must never stop a
+    verification email, which is the only way a customer can finish the flow.
+    """
+    brand = (store or {}).get("brand") or {}
+    logo_bytes = None
+    path = brand.get("logo_url")
+    if path:
+        try:
+            logo_bytes = storage.download_asset(path)
+        except Exception as exc:  # noqa: BLE001 — cosmetics never block a send
+            log.warning("brand_logo_download_failed", error_type=type(exc).__name__)
+    return {
+        "store_name": (store or {}).get("name") or "MadHats",
+        "primary_colour": brand.get("primary_colour") or _DEFAULT_PRIMARY,
+        "header_bg": brand.get("header_bg") or None,
+        "header_text": brand.get("header_text") or None,
+        "logo_bytes": logo_bytes,
+    }
+
+
+def _logo_attachment(logo_bytes: bytes | None) -> tuple[str | None, list[dict]]:
+    """(cid, attachments) for the header logo — ("", []) when there is none."""
+    if not logo_bytes:
+        return None, []
+    return _BRAND_LOGO_CID, [
+        {
+            "filename": "logo.png",
+            "content": base64.b64encode(logo_bytes).decode("ascii"),
+            "content_type": "image/png",
+            "content_id": _BRAND_LOGO_CID,
+        }
+    ]
+
+
+def _branded(
+    store_name: str,
+    primary_colour: str,
+    body_html: str,
+    *,
+    header_bg: str | None = None,
+    header_text: str | None = None,
+    logo_cid: str | None = None,
+) -> str:
+    """Wrap pre-rendered safe body HTML in the store-branded transactional shell.
+
+    `header_bg` defaults to `primary_colour`, which is what an unconfigured store
+    rendered before these arguments existed — so nothing moves for a store that
+    has only set a primary colour.
+    """
+    name = store_name or "MadHats"
+    if logo_cid:
+        header_html = (
+            f'<img src="cid:{logo_cid}" alt="{html_lib.escape(name, quote=True)}" '
+            'style="max-height:36px;display:block;" />'
+        )
+    else:
+        header_html = (
+            f'<div style="font-size:20px;font-weight:bold;'
+            f'color:{header_text or "#ffffff"};">{html_lib.escape(name)}</div>'
+        )
     return Template(prompts.BRANDED_EMAIL_HTML).substitute(
-        store_name=html_lib.escape(store_name or "MadHats"),
-        primary_colour=primary_colour or "#ff5c00",
+        header_bg=header_bg or primary_colour or _DEFAULT_PRIMARY,
+        header_html=header_html,
         body_html=body_html,
     )
+
+
+def _cta_button(url: str, label: str, colour: str) -> str:
+    return (
+        f"<p style='margin:20px 0;'><a href='{html_lib.escape(url, quote=True)}' "
+        f"style='display:inline-block;background:{colour or _DEFAULT_PRIMARY};"
+        f"color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 22px;"
+        f"border-radius:8px;'>{html_lib.escape(label)}</a></p>"
+    )
+
+
+def _body_with_cta(text: str, url: str, label: str, colour: str) -> str:
+    """Render a plain-text body with the CTA button standing IN PLACE of the URL.
+
+    The templates put their link mid-body, straight after the sentence that
+    explains it ("…confirm your email so we can send your design across:") and
+    BEFORE the expiry note and the signature. The old renderer deleted the URL
+    from the escaped text and appended the button after the whole message — so
+    the button landed under the signature, reading as an afterthought, with a
+    blank gap left where the link had been. Splitting on the URL restores the
+    reading order the copy was written for.
+
+    Falls back to appending when the URL isn't in the text (a template that lost
+    its placeholder must still ship a reachable button, not lose the CTA).
+    """
+    before, sep, after = text.partition(url)
+    button = _cta_button(url, label, colour)
+    if not sep:
+        return f"<p style='white-space:pre-wrap;margin:0'>{html_lib.escape(text)}</p>{button}"
+    out = f"<p style='white-space:pre-wrap;margin:0'>{html_lib.escape(before.strip())}</p>{button}"
+    tail = after.strip()
+    if tail:
+        out += f"<p style='white-space:pre-wrap;margin:0'>{html_lib.escape(tail)}</p>"
+    return out
 
 
 def send_verification_email(
@@ -78,16 +187,20 @@ def send_verification_email(
     verify_url: str,
     store_name: str = "MadHats",
     primary_colour: str = "#ff5c00",
+    header_bg: str | None = None,
+    header_text: str | None = None,
+    logo_bytes: bytes | None = None,
 ) -> bool:
     text = prompts.VERIFICATION_EMAIL_BODY.format(name=name, verify_url=verify_url)
-    esc = html_lib.escape(text).replace(html_lib.escape(verify_url), "")
-    body = (
-        f"<p style='white-space:pre-wrap'>{esc}</p>"
-        f"<p><a href='{html_lib.escape(verify_url, quote=True)}' "
-        f"style='display:inline-block;background:{primary_colour or '#ff5c00'};color:#fff;"
-        f"text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px;'>Verify my email</a></p>"
+    body = _body_with_cta(text, verify_url, "Verify my email", primary_colour)
+    cid, attachments = _logo_attachment(logo_bytes)
+    return _dispatch(
+        to,
+        prompts.VERIFICATION_EMAIL_SUBJECT,
+        _branded(store_name, primary_colour, body, header_bg=header_bg,
+                 header_text=header_text, logo_cid=cid),
+        attachments=attachments or None,
     )
-    return _dispatch(to, prompts.VERIFICATION_EMAIL_SUBJECT, _branded(store_name, primary_colour, body))
 
 
 def send_resume_email(
@@ -96,17 +209,21 @@ def send_resume_email(
     resume_url: str,
     store_name: str = "MadHats",
     primary_colour: str = "#ff5c00",
+    header_bg: str | None = None,
+    header_text: str | None = None,
+    logo_bytes: bytes | None = None,
 ) -> bool:
     """Email a link back into the chat when the design isn't ready yet."""
     text = prompts.RESUME_EMAIL_BODY.format(name=name, resume_url=resume_url)
-    esc = html_lib.escape(text).replace(html_lib.escape(resume_url), "")
-    body = (
-        f"<p style='white-space:pre-wrap'>{esc}</p>"
-        f"<p><a href='{html_lib.escape(resume_url, quote=True)}' "
-        f"style='display:inline-block;background:{primary_colour or '#ff5c00'};color:#fff;"
-        f"text-decoration:none;font-weight:bold;padding:12px 20px;border-radius:8px;'>Pick up where I left off</a></p>"
+    body = _body_with_cta(text, resume_url, "Pick up where I left off", primary_colour)
+    cid, attachments = _logo_attachment(logo_bytes)
+    return _dispatch(
+        to,
+        prompts.RESUME_EMAIL_SUBJECT,
+        _branded(store_name, primary_colour, body, header_bg=header_bg,
+                 header_text=header_text, logo_cid=cid),
+        attachments=attachments or None,
     )
-    return _dispatch(to, prompts.RESUME_EMAIL_SUBJECT, _branded(store_name, primary_colour, body))
 
 
 # Content-ID for the inline preview image (referenced as cid:<this> in the HTML).
@@ -293,6 +410,9 @@ def send_quote_reference_email(
     reference_code: str,
     store_name: str = "MadHats",
     primary_colour: str = "#ff5c00",
+    header_bg: str | None = None,
+    header_text: str | None = None,
+    logo_bytes: bytes | None = None,
 ) -> bool:
     """Email the customer their tracking reference — quote-gated flow, no image."""
     text = prompts.QUOTE_REFERENCE_EMAIL_BODY.format(name=name, reference_code=reference_code)
@@ -301,10 +421,13 @@ def send_quote_reference_email(
         f'<strong style="font-size:18px;letter-spacing:1px;">{html_lib.escape(reference_code)}</strong>',
     )
     body = f"<p style='white-space:pre-wrap'>{esc}</p>"
+    cid, attachments = _logo_attachment(logo_bytes)
     return _dispatch(
         to,
         prompts.QUOTE_REFERENCE_EMAIL_SUBJECT,
-        _branded(store_name, primary_colour, body),
+        _branded(store_name, primary_colour, body, header_bg=header_bg,
+                 header_text=header_text, logo_cid=cid),
+        attachments=attachments or None,
     )
 
 

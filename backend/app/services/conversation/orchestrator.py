@@ -1220,12 +1220,19 @@ def _public_data(state: ConversationState, collected: dict) -> dict:
     # this module's hot path (every v1 turn, canvas or not) doesn't carry a
     # module-level dependency on the v2 registry it otherwise never touches.
     from app.services.conversation.state_machine_v2 import (  # noqa: PLC0415
+        resume_chips_for_state,
         session_ended_for_state,
         watermark_for_state,
     )
 
     data["watermark"] = watermark_for_state(state.value, collected)
     data["session_ended"] = session_ended_for_state(state.value, collected)
+    # A v2 canvas resume gets no chips from this v1 producer. That is tolerable
+    # everywhere the customer can still type, and not at the email-verification
+    # gate, which locks the composer — see resume_chips_for_state.
+    chips = resume_chips_for_state(state.value, collected)
+    if chips:
+        data["options"] = chips
     return data
 
 

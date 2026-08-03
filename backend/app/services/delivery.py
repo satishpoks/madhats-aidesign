@@ -481,13 +481,11 @@ def maybe_send_quote_confirmation(session_id: str) -> bool:
         return False
 
     store = get_store(session.get("store_id")) if session.get("store_id") else None
-    brand = (store or {}).get("brand") or {}
     store_name = (store or {}).get("name") or "MadHats"
-    primary = brand.get("primary_colour") or "#ff5c00"
 
     customer_ok = email_service.send_quote_reference_email(
         lead["email"], lead.get("name") or "there", lead["reference_code"],
-        store_name=store_name, primary_colour=primary,
+        **email_service.brand_kit(store),
     )
 
     # Build component attachments (base64), reusing the download primitive.

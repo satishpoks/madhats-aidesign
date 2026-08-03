@@ -42,11 +42,22 @@ def test_chips_may_set_slots_plus_trusted_flags_the_llm_cannot():
     # not something the model should ever infer from free text. final_notes_done
     # is chip-only too: it must not be interpreter-writable (see
     # test_final_notes_done_is_not_interpreter_writable), but the "Nothing to
-    # add" chip we authored is allowed to set it directly.
-    allowed = cs.WRITABLE_SLOTS | {"quantity_unsure", "final_notes_done"}
+    # add" chip we authored is allowed to set it directly. change_email is the
+    # same shape and matters MORE: it un-captures a verified-pending address, so
+    # an interpreter that could write it would let free text anywhere in the flow
+    # dismantle the double opt-in. Chip-only, and the gate declares no slots.
+    allowed = cs.WRITABLE_SLOTS | {"quantity_unsure", "final_notes_done",
+                                   "change_email"}
     for step in cs.REGISTRY:
         for chip in step.chips:
             assert set(chip.fields) <= allowed, f"{step.id}: {chip.label}"
+
+
+def test_change_email_is_never_interpreter_writable():
+    """The one field that can undo an email capture must reach `collected` only
+    via the gate's own chip — never from free text the model interpreted."""
+    assert "change_email" not in cs.WRITABLE_SLOTS
+    assert cs.by_id(S.AWAIT_EMAIL_VERIFY).slots == ()
 
 
 def test_terminal_flags_are_not_interpreter_writable():
@@ -790,7 +801,7 @@ def test_email_steps_are_never_checkpoints():
 def test_labels_read_as_the_customer_s_own_answer():
     assert cs.by_id(S.ASK_NAME).checkpoint.label({"name": "Satish"}) == "Your name — Satish"
     assert cs.by_id(S.ASK_QUANTITY).checkpoint.label({"quantity": 50}) == "Quantity — 50"
-    assert cs.by_id(S.ASK_HAS_LOGO).checkpoint.label({"has_logo": True}) == "Logo or image — yes"
+    assert cs.by_id(S.ASK_HAS_LOGO).checkpoint.label({"has_logo": True}) == "Logo or image 1"
     assert cs.by_id(S.ASK_HAS_LOGO).checkpoint.label({"has_logo": False}) == "Logo or image — no"
 
 
@@ -804,8 +815,23 @@ def test_labels_never_crash_on_a_missing_or_partial_value():
 
 def test_logo_label_numbers_the_pass_from_the_banked_collection():
     logo = cs.by_id(S.ASK_LOGO_PLACEMENT).checkpoint
-    assert logo.label({"logos": [{"face": "front"}]}) == "Logo 2"
-    assert logo.label({"logos": [], "pending_logo": {"face": "front"}}) == "Logo 1 — front"
+    assert logo.label({"logos": [{"face": "front"}]}) == "Logo or image 2"
+    assert logo.label({"logos": [], "pending_logo": {"face": "front"}}) == "Logo or image 1 — front"
+
+
+def test_one_logo_element_is_one_checkpoint_shared_by_both_openers():
+    """ASK_HAS_LOGO opens logo 1 (so Back returns to "do you have a logo?");
+    ASK_LOGO_PLACEMENT opens logo 2 onward. Both render the SAME label function
+    so the menu reads as one numbered series, not two unrelated entries for the
+    same element."""
+    first = cs.by_id(S.ASK_HAS_LOGO).checkpoint
+    later = cs.by_id(S.ASK_LOGO_PLACEMENT).checkpoint
+    assert first.kind == later.kind == "logo"
+    assert first.label is later.label
+    # Logo 1 is opened by ASK_HAS_LOGO, so placement adds nothing on that pass.
+    assert first.opens_when is None
+    assert later.opens_when({"logos": []}) is False
+    assert later.opens_when({"logos": [{"face": "front"}]}) is True
 
 
 def test_decor_label_is_not_numbered():

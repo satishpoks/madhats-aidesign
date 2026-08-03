@@ -138,11 +138,40 @@ def test_a_second_loop_pass_captures_its_own_row():
     This is why capture keys on the transition rather than on a loop index
     derived from `collected` — the decor loop banks no collection to count."""
     sb = _FakeSB()
-    cp.capture(sb, "s1", cs.by_id(S.ASK_LOGO_PLACEMENT), S.ASK_HAS_LOGO,
-               {"logos": []}, None)
+    cp.capture(sb, "s1", cs.by_id(S.ASK_HAS_LOGO), S.SHOW_INTRO, {}, None)
     cp.capture(sb, "s1", cs.by_id(S.ASK_LOGO_PLACEMENT), S.ASK_ANOTHER_LOGO,
                {"logos": [{"face": "front"}]}, None)
     assert [r["seq"] for r in sb.rows] == [1, 2]
+
+
+# --- one logo element == one checkpoint --------------------------------------
+
+def test_the_first_logo_is_one_checkpoint_not_two():
+    """Live bug: "do you have a logo?" and "which part of the cap?" each wrote a
+    row, so ONE logo showed as two Back entries ("Logo or image — yes" and
+    "Logo 1 — front"). The element opens at ASK_HAS_LOGO; ASK_LOGO_PLACEMENT
+    must add nothing on the first pass."""
+    sb = _FakeSB()
+    cp.capture(sb, "s1", cs.by_id(S.ASK_HAS_LOGO), S.SHOW_INTRO, {}, None)
+    cp.capture(sb, "s1", cs.by_id(S.ASK_LOGO_PLACEMENT), S.ASK_HAS_LOGO,
+               {"has_logo": True, "logos": []}, None)
+    assert [r["step_id"] for r in sb.rows] == [S.ASK_HAS_LOGO.value]
+
+
+def test_the_first_logo_checkpoint_restores_to_the_do_you_have_a_logo_question():
+    sb = _FakeSB()
+    cp.capture(sb, "s1", cs.by_id(S.ASK_HAS_LOGO), S.SHOW_INTRO, {}, None)
+    assert sb.rows[0]["step_id"] == S.ASK_HAS_LOGO.value
+    assert sb.rows[0]["kind"] == "logo"
+
+
+def test_the_second_logo_opens_its_own_checkpoint():
+    sb = _FakeSB()
+    cp.capture(sb, "s1", cs.by_id(S.ASK_HAS_LOGO), S.SHOW_INTRO, {}, None)
+    cp.capture(sb, "s1", cs.by_id(S.ASK_LOGO_PLACEMENT), S.ASK_ANOTHER_LOGO,
+               {"logos": [{"face": "front"}]}, None)
+    assert [r["step_id"] for r in sb.rows] == [
+        S.ASK_HAS_LOGO.value, S.ASK_LOGO_PLACEMENT.value]
 
 
 def test_a_second_decor_pass_captures_its_own_row():
@@ -259,41 +288,55 @@ def test_relabel_rewrites_the_newest_row_once_the_name_is_answered():
     assert sb.rows[0]["label"] == "Your name — Satish"
 
 
-def test_relabel_rewrites_the_has_logo_answer():
-    sb = _FakeSB(rows=[{"seq": 1, "kind": "has_logo",
-                        "label": "Logo or image — not set",
+def test_relabel_rewrites_the_declined_logo_answer():
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "logo",
+                        "label": "Logo or image 1",
                         "step_id": S.ASK_HAS_LOGO.value, "collected": {},
                         "canvas_design": None, "chat_watermark": None,
                         "superseded_at": None}])
-    cp.relabel(sb, "s1", {"has_logo": True})
-    assert sb.rows[0]["label"] == "Logo or image — yes"
+    cp.relabel(sb, "s1", {"has_logo": False})
+    assert sb.rows[0]["label"] == "Logo or image — no"
+
+
+def test_relabel_grows_the_first_logo_row_as_the_element_is_answered():
+    """The first logo's row is opened at ASK_HAS_LOGO and stays the newest live
+    row for the whole pass, so relabel keeps enriching it as the face and the
+    background answer land."""
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "logo", "label": "Logo or image 1",
+                        "step_id": S.ASK_HAS_LOGO.value, "collected": {},
+                        "canvas_design": None, "chat_watermark": None,
+                        "superseded_at": None}])
+    cp.relabel(sb, "s1", {"has_logo": True, "logos": [],
+                          "pending_logo": {"face": "front"}})
+    assert sb.rows[0]["label"] == "Logo or image 1 — front"
 
 
 def test_relabel_rewrites_the_logo_placement_answer():
-    sb = _FakeSB(rows=[{"seq": 1, "kind": "logo", "label": "Logo 1",
+    sb = _FakeSB(rows=[{"seq": 1, "kind": "logo", "label": "Logo or image 2",
                         "step_id": S.ASK_LOGO_PLACEMENT.value, "collected": {},
                         "canvas_design": None, "chat_watermark": None,
                         "superseded_at": None}])
-    cp.relabel(sb, "s1", {"logos": [], "pending_logo": {"face": "front"}})
-    assert sb.rows[0]["label"] == "Logo 1 — front"
+    cp.relabel(sb, "s1", {"logos": [{"face": "front"}],
+                          "pending_logo": {"face": "back"}})
+    assert sb.rows[0]["label"] == "Logo or image 2 — back"
 
 
 def test_relabel_only_touches_the_newest_live_row_not_an_earlier_loop_pass():
     """Once a second logo's checkpoint is captured, the first logo's label must
     stay put rather than drifting onto the second pass's answer."""
-    step = cs.by_id(S.ASK_LOGO_PLACEMENT)
     sb = _FakeSB()
-    cp.capture(sb, "s1", step, S.ASK_HAS_LOGO, {"logos": []}, None)
-    cp.relabel(sb, "s1", {"logos": [], "pending_logo": {"face": "front"}})
-    assert sb.rows[0]["label"] == "Logo 1 — front"
+    cp.capture(sb, "s1", cs.by_id(S.ASK_HAS_LOGO), S.SHOW_INTRO, {}, None)
+    cp.relabel(sb, "s1", {"has_logo": True, "logos": [],
+                          "pending_logo": {"face": "front"}})
+    assert sb.rows[0]["label"] == "Logo or image 1 — front"
 
-    cp.capture(sb, "s1", step, S.ASK_ANOTHER_LOGO,
+    cp.capture(sb, "s1", cs.by_id(S.ASK_LOGO_PLACEMENT), S.ASK_ANOTHER_LOGO,
                {"logos": [{"face": "front"}]}, None)
     cp.relabel(sb, "s1", {"logos": [{"face": "front"}],
                           "pending_logo": {"face": "back"}})
 
-    assert sb.rows[0]["label"] == "Logo 1 — front"
-    assert sb.rows[1]["label"] == "Logo 2 — back"
+    assert sb.rows[0]["label"] == "Logo or image 1 — front"
+    assert sb.rows[1]["label"] == "Logo or image 2 — back"
 
 
 def test_relabel_with_no_live_rows_is_a_noop():
