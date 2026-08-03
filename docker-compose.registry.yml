@@ -1,0 +1,195 @@
+# Production stack that PULLS pre-built images from Amazon ECR.
+#
+# This is a THIRD compose file, alongside — not replacing — the other two:
+#   docker-compose.yml           dev: Vite HMR + uvicorn --reload, builds locally
+#   docker-compose.prod.yml      prod: builds backend/frontend ON THE BOX
+#   docker-compose.registry.yml  prod: PULLS backend/frontend from ECR  <- this
+#
+# The only difference from docker-compose.prod.yml is where the backend and
+# frontend images come from: `image:` from ECR instead of `build:` from source.
+# caddy, watchdog and catalogue-sync are byte-identical to the prod file, and
+# every security note in them applies here unchanged.
+#
+# WHY THIS EXISTS: CI (.github/workflows/*-image.yml) builds and pushes on every
+# push to master, so the box no longer needs a toolchain, a source checkout, or
+# the several minutes an `npm ci` + `vite build` costs. Deploys become a pull.
+#
+# ---------------------------------------------------------------------------
+# ONE-TIME on the box: authenticate docker to ECR
+# ---------------------------------------------------------------------------
+#   aws ecr get-login-password --region "$AWS_REGION" \
+#     | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+#
+# The token EXPIRES AFTER 12 HOURS. A deploy that has been working for weeks
+# will one day fail with "no basic auth credentials" or "denied: Your
+# authorization token has expired" — that is this, not a broken image. Re-run
+# the login. On a box that deploys unattended, put it in the deploy script (it
+# is idempotent and takes a second), not in a cron job you will forget.
+#
+# ---------------------------------------------------------------------------
+# DEPLOY
+# ---------------------------------------------------------------------------
+#   docker compose -f docker-compose.registry.yml pull
+#   docker compose -f docker-compose.registry.yml up -d
+#
+#   # roll back to a specific build (any tag CI pushed — the git SHA):
+#   IMAGE_TAG=07d1eede98dc1921f6a592c9f9482a127787300b \
+#     docker compose -f docker-compose.registry.yml up -d
+#
+# NOTE the -f on EVERY command. A bare `docker compose down` loads the DEV file,
+# which must never run on the prod box (it binds :80/:443 under the tls profile
+# and serves an untrusted-CA localhost site), and would also miss this project's
+# containers and leave them running.
+#
+# ---------------------------------------------------------------------------
+# Required in the project-root .env (in ADDITION to everything docker-compose.prod.yml
+# already requires — SUPABASE_URL/keys, ADMIN_SECRET, provider keys, STUDIO_HOST,
+# API_HOST, EMAIL_VERIFY_BASE_URL, STUDIO_BASE_URL, ALLOWED_ORIGINS …)
+# ---------------------------------------------------------------------------
+#   ECR_REGISTRY        <account-id>.dkr.ecr.<region>.amazonaws.com
+#                       NOT defaulted here on purpose: this repository is PUBLIC
+#                       and an AWS account ID does not belong in it.
+#   IMAGE_TAG           optional, defaults to `latest`. Set to a git SHA to pin
+#                       or roll back.
+#   VITE_API_BASE_URL   as ever — but now INJECTED AT CONTAINER START into the
+#                       pulled frontend image (see frontend/docker-entrypoint.sh),
+#                       which is exactly what makes one registry image usable in
+#                       staging and production. Changing it needs
+#                       `up -d --force-recreate frontend`, NOT a restart.
+
+services:
+  backend:
+    # Built and pushed by .github/workflows/backend-image.yml.
+    image: ${ECR_REGISTRY:?set ECR_REGISTRY in .env, e.g. 123456789012.dkr.ecr.ap-southeast-2.amazonaws.com - it is not committed because this repo is public}/${ECR_BACKEND_REPOSITORY:-designstudio/backend}:${IMAGE_TAG:-latest}
+    # `latest` is a MOVING tag: without this, `up -d` reuses whatever `latest`
+    # resolved to the first time it was pulled and a deploy silently does
+    # nothing. Harmless when IMAGE_TAG is pinned to a SHA (already immutable).
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      # Safe ONLY because this service publishes no ports: no external caller
+      # can reach 8000 — only containers on this compose network can, and Caddy
+      # overwrites X-Forwarded-For on the way through. (`watchdog` also calls
+      # backend:8000 directly; it sends no X-Forwarded-For, so it is unaffected.
+      # The boundary is "nothing off this network", not "only Caddy".)
+      # Re-add a `ports:` mapping and this line becomes a rate-limit bypass — a
+      # direct caller could rotate the header for a fresh bucket per request.
+      TRUSTED_PROXY_HOSTS: "*"
+    env_file: .env
+    # host.docker.internal is available if SUPABASE_URL points at a Supabase
+    # running on the host; harmless when SUPABASE_URL is a hosted URL.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    # Built and pushed by .github/workflows/frontend-image.yml.
+    #
+    # This image is ENVIRONMENT-AGNOSTIC: the bundle ships the placeholder
+    # __RUNTIME_API_BASE_URL__ and docker-entrypoint.sh substitutes
+    # VITE_API_BASE_URL / VITE_STORE_KEY from `env_file` below at START. The
+    # same image tag therefore runs staging and production.
+    #
+    # The entrypoint REFUSES TO START if VITE_API_BASE_URL is unset rather than
+    # falling back to http://localhost:8000 — a fallback there is a total outage
+    # that presents as a backend fault.
+    image: ${ECR_REGISTRY:?set ECR_REGISTRY in .env, e.g. 123456789012.dkr.ecr.ap-southeast-2.amazonaws.com - it is not committed because this repo is public}/${ECR_FRONTEND_REPOSITORY:-designstudio/frontend}:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    env_file: .env # static server (serve -s) listens on 5173
+    depends_on:
+      - backend
+
+  # Hostname routing for both web services. The ONLY container publishing ports.
+  #
+  # NOT the TLS terminator: the host's existing nginx owns :80/:443 and
+  # terminates TLS, then proxies to 127.0.0.1:8480 here. Caddy issues no
+  # certificates and needs no ACME_EMAIL.
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      # 8480, NOT the conventional 8080: on the production box 8080 was already
+      # taken. The number is arbitrary and internal — it only has to match
+      # `proxy_pass` in the nginx vhost (nginx/madhats.conf.example). Change
+      # both together or nginx 502s.
+      #
+      # LOOPBACK-BOUND ON PURPOSE. Only the host's nginx should reach this.
+      # Dropping the 127.0.0.1 prefix ("8480:80") would publish an unencrypted
+      # copy of the whole site — and, because the backend runs
+      # TRUSTED_PROXY_HOSTS=*, would also let a direct caller spoof
+      # X-Forwarded-For for a fresh rate-limit bucket per request.
+      - "127.0.0.1:8480:80"
+      # These two stay PUBLIC: they are redirect-only, nginx does not own them,
+      # and already-delivered customer email links point at them.
+      - "8000:8000" # legacy redirect only — see Caddyfile.prod
+      - "5173:5173" # legacy redirect only — see Caddyfile.prod
+    environment:
+      # The hostnames Caddy routes on. NOT optional and NOT defaulted: Caddy
+      # matches by hostname, and a wrong value does NOT 404 — it returns HTTP
+      # 200 with an EMPTY BODY, so you get blank pages while nginx looks
+      # perfectly healthy, a failure that reads as "nginx isn't forwarding to
+      # docker" and sends you debugging the wrong layer.
+      #
+      # These MUST EXACTLY match the `server_name` in the nginx vhost AND the
+      # host part of VITE_API_BASE_URL / EMAIL_VERIFY_BASE_URL / STUDIO_BASE_URL.
+      #
+      #   staging: mhstaging.getaiconsult.com.au / api.mhstaging.getaiconsult.com.au
+      #   prod:    madhats.getaiconsult.com.au   / api.madhats.getaiconsult.com.au
+      STUDIO_HOST: ${STUDIO_HOST:?set STUDIO_HOST in .env - the studio hostname Caddy routes on, e.g. mhstaging.getaiconsult.com.au. It must match the nginx server_name exactly}
+      API_HOST: ${API_HOST:?set API_HOST in .env - the backend hostname Caddy routes on, e.g. api.mhstaging.getaiconsult.com.au. It must match the nginx server_name exactly}
+    volumes:
+      # Bind-mounted from the checkout, NOT baked into an image — so the box
+      # still needs this repository present, even though backend/frontend no
+      # longer build from it. Same for scripts/catalogue-sync.sh below.
+      - ./caddy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+  # Periodically triggers the generation watchdog (reap stalled renders) and the
+  # delivery backfill (retry undelivered previews) — both are admin self-heal
+  # endpoints that need an external scheduler. $${ADMIN_SECRET} is a literal `$`
+  # + ${ADMIN_SECRET} so the SHELL expands it at runtime from .env, not compose.
+  watchdog:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - backend
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        while true; do
+        curl -fsS -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/generations/reap-stuck > /dev/null 2>&1 || true;
+        curl -fsS -X POST -H "X-Admin-Secret: $${ADMIN_SECRET}"
+        http://backend:8000/admin/deliveries/backfill > /dev/null 2>&1 || true;
+        sleep 180;
+        done
+
+  # Catalogue FETCH arm — this container does the Shopify request, because the
+  # backend's HTTP client is refused by Shopify's edge from a hosting ASN while
+  # this image's curl is not (same droplet, same IP; measured 2026-07-29 —
+  # backend burst 6x429, this image burst 6x200). See scripts/catalogue-sync.sh
+  # and app/services/catalogue_ingest.py for the full measurements.
+  #
+  # It carries no schedule: no tzdata in this image, so it cannot know when
+  # midnight Sydney is. The backend decides who is due; this polls and fetches.
+  #
+  # The image's ENTRYPOINT is curl itself, hence the explicit override.
+  catalogue-sync:
+    image: curlimages/curl:8.11.1
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - backend
+    volumes:
+      - ./scripts/catalogue-sync.sh:/usr/local/bin/catalogue-sync.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/catalogue-sync.sh"]
+
+volumes:
+  caddy_data:
+  caddy_config:

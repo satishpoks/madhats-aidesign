@@ -1642,9 +1642,50 @@ that way: the image is environment-agnostic only because the API URL is injected
 at container start (see the start-time note in §13c). Adding `build-args` back
 silently re-locks the image to one environment.
 
-Nothing here deploys — the pipeline pushes and stops. `docker-compose.prod.yml`
-still builds on the box; switching it to `image:` pulls is a separate change.
 Spec: `docs/superpowers/specs/2026-08-03-ecr-image-pipeline-design.md`.
+
+### Deploying the pushed images — `docker-compose.registry.yml`
+
+There are now **three** compose files, and `docker-compose.prod.yml` is
+deliberately unchanged (it still builds on the box — keep it as the fallback for
+when ECR or CI is unavailable):
+
+| File | Backend/frontend come from |
+|---|---|
+| `docker-compose.yml` | built locally, Vite HMR + `uvicorn --reload` (dev) |
+| `docker-compose.prod.yml` | **built on the box** from source |
+| `docker-compose.registry.yml` | **pulled from ECR** |
+
+`caddy`, `watchdog` and `catalogue-sync` are identical across the two prod
+files. The registry file still needs the repository checked out on the box —
+`caddy/Caddyfile.prod` and `scripts/catalogue-sync.sh` are bind-mounted, not
+baked into any image.
+
+```bash
+# ONE-TIME per box, and again whenever the token expires (12h):
+aws ecr get-login-password --region "$AWS_REGION" \
+  | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+
+docker compose -f docker-compose.registry.yml pull
+docker compose -f docker-compose.registry.yml up -d
+
+# roll back to any CI-pushed build:
+IMAGE_TAG=<git-sha> docker compose -f docker-compose.registry.yml up -d
+```
+
+Extra `.env` keys beyond what `docker-compose.prod.yml` needs: `ECR_REGISTRY`
+(`<account>.dkr.ecr.<region>.amazonaws.com` — **not** defaulted in the file,
+because this repository is public and an AWS account ID does not belong in it)
+and optionally `IMAGE_TAG` (defaults to `latest`).
+
+Two traps this file already handles, worth not undoing:
+- **`pull_policy: always`** on backend/frontend. `latest` is a moving tag;
+  without it `up -d` reuses whatever `latest` resolved to on first pull and a
+  deploy silently does nothing.
+- **The ECR login token expires after 12 hours.** A deploy that has worked for
+  weeks will one day fail with `no basic auth credentials` / `authorization
+  token has expired` — that is the token, not a broken image. Put the login in
+  the deploy script; it is idempotent.
 
 ---
 
