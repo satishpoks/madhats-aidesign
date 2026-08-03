@@ -211,16 +211,40 @@ def send_verification(lead: dict, store: dict | None = None) -> bool:
         }
     ).execute()
     verify_url = f"{settings.email_verify_base_url}/leads/verify/{token}"
-    brand = (store or {}).get("brand") or {}
     sent = email_service.send_verification_email(
         lead["email"],
         lead["name"],
         verify_url,
-        store_name=(store or {}).get("name") or "MadHats",
-        primary_colour=brand.get("primary_colour") or "#ff5c00",
+        **email_service.brand_kit(store),
     )
     log.info("verification_email_dispatched", lead_id=lead["id"], sent=bool(sent))  # no PII
     return bool(sent)
+
+
+def abandon_verification(lead_id: str | None) -> None:
+    """Burn any unopened verification links for a lead the customer replaced.
+
+    Called when the customer says the address they gave is wrong. The token they
+    were sent stays cryptographically valid for the rest of its TTL, so without
+    this a later click on the old link would verify the session against an
+    address the customer has explicitly disowned — and the design would be
+    released to it. Marking the rows `used_at` makes the route render its
+    already-used page instead.
+
+    Best-effort and PII-safe (lead id only): failing to burn a token must never
+    block the customer from giving us a working address, which is the whole
+    point of the step that calls this.
+    """
+    if not lead_id:
+        return
+    try:
+        (get_supabase().table("email_verifications")
+         .update({"used_at": datetime.now(timezone.utc).isoformat()})
+         .eq("lead_id", lead_id).is_("used_at", "null").execute())
+        log.info("verification_tokens_abandoned", lead_id=lead_id)  # no PII
+    except Exception as exc:  # noqa: BLE001
+        log.warning("verification_abandon_failed",
+                    lead_id=lead_id, error_type=type(exc).__name__)
 
 
 def capture_lead_and_verify(session: dict, collected: dict, email: str) -> tuple[str | None, bool]:

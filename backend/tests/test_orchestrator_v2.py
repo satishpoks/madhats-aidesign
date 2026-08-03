@@ -887,8 +887,9 @@ async def test_giving_the_email_parks_the_flow_at_the_verification_gate(monkeypa
     assert store["session"]["collected"]["email_captured"] is True
     # The address is echoed once, in the notice prepended to the gate's copy.
     assert "sam@example.com" in res["reply"]
-    # Nothing to answer and no tool: the customer cannot act their way past it.
-    assert res["data"].get("options") is None
+    # No tool, and the ONLY offered action is correcting the address — nothing
+    # the customer can do here confirms the email except opening the link.
+    assert res["data"]["options"] == [prompts.V2_CHANGE_EMAIL_CHIP]
     assert res["data"]["canvas"]["allowed_tools"] == []
 
 
@@ -915,6 +916,76 @@ async def test_typing_at_the_gate_never_advances_and_never_calls_the_llm(monkeyp
     # The retry copy is what a typed reply gets (the first render already said
     # a link was sent).
     assert res["reply"] == prompts.V2_AWAIT_VERIFY_RETRY
+
+
+@pytest.mark.asyncio
+async def test_the_gate_offers_a_way_to_correct_a_wrong_address(monkeypatch):
+    """Reported live: a customer who realises they mistyped their address is
+    stranded — the gate takes no typed answer and the link can never arrive.
+    The chip re-opens ASK_EMAIL by clearing the capture; first-unmet walks back
+    on its own, with no back-edge."""
+    store = _at_email_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"].update(
+        {"email_captured": True, "lead_id": "lead-1",
+         "_asked": [S.ASK_EMAIL.value, S.AWAIT_EMAIL_VERIFY.value]})
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    burnt = []
+    monkeypatch.setattr(cs.leads_service, "abandon_verification", burnt.append)
+
+    calls = []
+
+    async def _spy(*a, **k):
+        calls.append(a)
+        return {}
+    monkeypatch.setattr(o2.ie, "interpret_turn_v2", _spy)
+
+    res = await o2.handle_message("s1", prompts.V2_CHANGE_EMAIL_CHIP)
+
+    assert res["state"] == S.ASK_EMAIL.value
+    collected = store["session"]["collected"]
+    assert "email_captured" not in collected
+    assert "lead_id" not in collected
+    # The outstanding link is burnt: it stays valid for 15 more minutes, and
+    # opening it would verify the address the customer just disowned.
+    assert burnt == ["lead-1"]
+    # A chip resolves by exact label — no model call, even on the gate.
+    assert calls == []
+    # The full ask, not ASK_EMAIL's malformed-address retry copy: nothing was
+    # wrong with what they typed, they simply want a different address.
+    assert res["reply"] != prompts.V2_ASK_EMAIL_RETRY
+    assert S.ASK_EMAIL.value not in collected.get("_asked", [])
+
+
+@pytest.mark.asyncio
+async def test_a_new_address_at_the_gate_re_arms_the_whole_double_opt_in(monkeypatch):
+    """Correcting the address must not weaken the gate: the replacement goes
+    through the same capture, and the session parks at the gate again."""
+    store = _at_email_store()
+    store["session"]["state"] = S.AWAIT_EMAIL_VERIFY.value
+    store["session"]["collected"].update({"email_captured": True, "lead_id": "lead-1"})
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    monkeypatch.setattr(o2, "_can_start_design", lambda _sid: True)
+    monkeypatch.setattr(cs.leads_service, "abandon_verification", lambda _lid: None)
+    monkeypatch.setattr(cs.leads_service, "capture_lead_and_verify",
+                        lambda s, c, e: ("lead-2", True))
+    _no_llm(monkeypatch)
+
+    await o2.handle_message("s1", prompts.V2_CHANGE_EMAIL_CHIP)
+    res = await o2.handle_message("s1", "right@example.com")
+
+    assert res["state"] == S.AWAIT_EMAIL_VERIFY.value
+    assert store["session"]["collected"]["email_captured"] is True
+    assert store["session"]["collected"]["lead_id"] == "lead-2"
+
+
+@pytest.mark.asyncio
+async def test_free_text_at_the_gate_still_reaches_no_interpreter(monkeypatch):
+    """The chip adds an ANSWER but not a slot — so typed turns are still read by
+    nobody and still cannot move the flow."""
+    step = cs.by_id(S.AWAIT_EMAIL_VERIFY)
+    assert step.slots == ()
+    assert [c.label for c in step.chips] == [prompts.V2_CHANGE_EMAIL_CHIP]
 
 
 @pytest.mark.asyncio
@@ -1250,6 +1321,60 @@ async def test_every_v2_turn_ships_the_back_menu(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_the_back_menu_never_offers_the_question_on_screen(monkeypatch):
+    """Reported live: at "Would you like to add text or a shape?" the menu
+    offered "Text or graphic" — the checkpoint that question had just opened.
+    Restoring it cannot move the conversation, so it must not be listed."""
+    store = _new_store()
+    store["session"]["state"] = S.ASK_ANYTHING_ELSE.value
+    store["session"]["collected"] = {
+        "flow_mode": "canvas", "name": "Sam", "intro_ack": True,
+        "has_logo": True, "logos": [{"face": "front", "placed": True}],
+        "logos_done": True, "email_captured": True, "email_verified": True,
+        "decor_choice": "text", "decor_face": "front", "decor_placed": True,
+    }
+    store["checkpoints"] = [
+        _ckpt(seq=1, kind="logo", label="Logo or image 1 — front",
+              step_id=S.ASK_HAS_LOGO.value, collected={"flow_mode": "canvas"}),
+        _ckpt(seq=2, kind="decor", label="Text — front",
+              step_id=S.ASK_ADD_DECOR.value, collected={"flow_mode": "canvas"}),
+    ]
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+
+    res = await o2.handle_message("s1", "Add something else")
+
+    # The turn lands back on ASK_ADD_DECOR, which opens a SECOND decor group.
+    # That newest row is the question now on screen and must be hidden — while
+    # the FIRST decoration and the logo element both stay real destinations.
+    assert res["state"] == S.ASK_ADD_DECOR.value
+    newest = max(store["checkpoints"], key=lambda r: r["seq"])
+    assert newest["step_id"] == S.ASK_ADD_DECOR.value      # the one just opened
+    offered = {t["seq"] for t in res["data"]["back_targets"]}
+    assert newest["seq"] not in offered
+    assert offered == {1, 2}
+
+
+@pytest.mark.asyncio
+async def test_one_logo_element_is_one_back_entry(monkeypatch):
+    """Reported live: "Logo or image — yes" AND "Logo 1 — front" both listed for
+    a single logo. The element is one moment, so it is one entry, and it returns
+    to the "do you have a logo?" question that opens it."""
+    store = _new_store()
+    monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
+    _no_llm(monkeypatch)
+    await o2.handle_message("s1", "")                    # GREETING -> ASK_NAME
+    await o2.handle_message("s1", "Satish")              # -> SHOW_INTRO
+    await o2.handle_message("s1", "ok")                  # -> ASK_HAS_LOGO
+    res = await o2.handle_message("s1", "Yes, I have a logo")   # -> placement
+
+    assert res["state"] == S.ASK_LOGO_PLACEMENT.value
+    logo_rows = [r for r in store["checkpoints"] if r["kind"] == "logo"]
+    assert len(logo_rows) == 1
+    assert logo_rows[0]["step_id"] == S.ASK_HAS_LOGO.value
+
+
+@pytest.mark.asyncio
 async def test_entering_a_checkpoint_step_captures_exactly_one_row(monkeypatch):
     store = _new_store()
     monkeypatch.setattr(o2, "get_supabase", lambda: _FakeSB(store))
@@ -1455,8 +1580,8 @@ def _one_logo_placed_store():
         "pending_logo": {"face": "front", "placed": True, "bg": "removed"},
     }
     store["checkpoints"] = [
-        _ckpt(seq=1, kind="logo", label="Logo 1",
-              step_id=S.ASK_LOGO_PLACEMENT.value, collected={"flow_mode": "canvas"}),
+        _ckpt(seq=1, kind="logo", label="Logo or image 1",
+              step_id=S.ASK_HAS_LOGO.value, collected={"flow_mode": "canvas"}),
     ]
     return store
 
@@ -1464,7 +1589,7 @@ def _one_logo_placed_store():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("answer", ["Yes, another logo", "No, that's all"])
 async def test_closing_the_logo_loop_labels_the_pass_being_left(monkeypatch, answer):
-    """Either chip must leave the finished pass reading `Logo 1 — …`.
+    """Either chip must leave the finished pass reading `Logo or image 1 — …`.
 
     Before the fix both answers rewrote it to `Logo 2`: a two-logo session
     showed two entries both reading "Logo 2", and picking the wrong one
@@ -1477,7 +1602,7 @@ async def test_closing_the_logo_loop_labels_the_pass_being_left(monkeypatch, ans
     await o2.handle_message("s1", answer)
 
     rows = sorted(store["checkpoints"], key=lambda r: r["seq"])
-    assert rows[0]["label"] == "Logo 1 — front, background removed"
+    assert rows[0]["label"] == "Logo or image 1 — front, background removed"
 
 
 @pytest.mark.asyncio
@@ -1491,7 +1616,8 @@ async def test_a_second_logo_pass_is_labelled_logo_2_not_logo_1(monkeypatch):
     await o2.handle_message("s1", "Yes, another logo")
 
     rows = sorted(store["checkpoints"], key=lambda r: r["seq"])
-    assert [r["label"] for r in rows] == ["Logo 1 — front, background removed", "Logo 2"]
+    assert [r["label"] for r in rows] == [
+        "Logo or image 1 — front, background removed", "Logo or image 2"]
 
 
 @pytest.mark.asyncio

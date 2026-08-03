@@ -156,16 +156,26 @@ def effective_registry(config: dict | None) -> tuple[Step, ...]:
     return tuple(s for s in result if s is not None)
 
 
-def back_targets(collected: dict, rows: list[dict]) -> list[dict]:
+def back_targets(collected: dict, rows: list[dict],
+                 current_step_id: str | None = None) -> list[dict]:
     """The Back destinations offerable right now, newest first.
 
-    PURE: a function of (collected, rows) — the caller does the DB read, so the
-    whole menu is testable with plain dicts.
+    PURE: a function of (collected, rows, current_step_id) — the caller does the
+    DB read, so the whole menu is testable with plain dicts.
 
     A row is offerable unless its checkpoint's own `frozen_when` says otherwise.
     Freezing is per-checkpoint rather than a positional floor, which is what
     lets `name` freeze at email verification (mid-design) while the logo placed
     just before the email step stays rewindable.
+
+    `current_step_id` is the step the customer is standing on RIGHT NOW, and the
+    newest live row is dropped when it belongs to that step. `capture` fires on
+    ENTRY to a checkpoint opener, so the row for the question currently on
+    screen is already live — offering it reads as a destination that does
+    nothing, since restoring to the step you are already on cannot move the
+    conversation. Only the NEWEST matching row is dropped, deliberately: two
+    live rows can share a step_id (logo 2 and logo 3 both open at
+    ASK_LOGO_PLACEMENT), and the earlier pass is a real destination.
 
     An empty list is how "no going back" is expressed — there is no separate
     disable flag to keep in sync with this one.
@@ -174,8 +184,13 @@ def back_targets(collected: dict, rows: list[dict]) -> list[dict]:
         # Submitted: the reference is minted and sales has been emailed. Nothing
         # before it is undoable.
         return []
+    newest = max(rows, key=lambda r: r["seq"], default=None)
+    skip_seq = (newest["seq"] if current_step_id and newest
+                and newest.get("step_id") == current_step_id else None)
     out: list[dict] = []
     for row in rows:
+        if row["seq"] == skip_seq:
+            continue
         step = cs.by_id_value(row.get("step_id"))
         cp = step.checkpoint if step else None
         if cp is None or cp.frozen_when(collected):
@@ -424,6 +439,39 @@ def session_ended_for_state(state: str, collected: dict) -> bool:
     if collected.get("flow_mode") != "canvas":
         return False
     return settings.canvas_orchestrator_v2
+
+
+def resume_chips_for_state(state: str, collected: dict) -> list[str]:
+    """The chips a page RELOAD must still render for a v2 canvas session.
+
+    `sessions.get_session` serves every resume through v1's `_public_data`,
+    which knows nothing about this registry — so a reloaded v2 session shows no
+    chips at all (the documented v2 resume gap). That is survivable wherever the
+    customer can still type, and NOT survivable at AWAIT_EMAIL_VERIFY, which
+    deliberately locks the composer: its one chip is the only way out for a
+    customer whose address is wrong, and reloading is precisely what someone
+    waiting on an email that never arrives does. Without this the escape hatch
+    disappears for exactly the customer it exists for.
+
+    Scoped to that one state on purpose. Rehydrating the whole registry on
+    resume is the real fix for the wider gap (it would also restore the canvas
+    directive), but it changes every resumed turn and needs its own verification
+    pass — this does not.
+
+    Pure, and keyed the same way `watermark_for_state` /
+    `session_ended_for_state` are, so all three agree about what "a v2 canvas
+    session" means.
+    """
+    if state != S.AWAIT_EMAIL_VERIFY.value:
+        return []
+    if collected.get("flow_mode") != "canvas" or not settings.canvas_orchestrator_v2:
+        return []
+    step = cs.by_id(S.AWAIT_EMAIL_VERIFY)
+    if step is None or step.done_when(collected):
+        # Verified already, or no address captured — the gate isn't holding
+        # anyone, so there is nothing to escape from.
+        return []
+    return [c.label for c in cs.chips_of(step, collected)]
 
 
 def public_data_for(step: Step, collected: dict) -> dict:

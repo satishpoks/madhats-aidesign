@@ -100,6 +100,11 @@ def capture(sb, session_id: str, step: cs.Step, previous_state,
     if step.checkpoint is None or previous_state is step.id:
         return
     cpt = step.checkpoint
+    if cpt.opens_when is not None and not cpt.opens_when(collected):
+        # A step that only SOMETIMES opens its checkpoint — the first logo's row
+        # is opened one step earlier, at ASK_HAS_LOGO, so that one element is one
+        # menu entry. See Checkpoint.opens_when.
+        return
     try:
         # Max over ALL rows, superseded included — `seq` is monotonic for the
         # life of the session. Counting only live rows would reissue a seq a

@@ -200,6 +200,30 @@ describe('ChatColumn', () => {
       }
     })
 
+    it('still offers the backend chip that corrects a mistyped address', async () => {
+      // The gate locks the composer, but a customer who realises they typed the
+      // wrong address must not be stranded — the backend ships exactly one chip
+      // there, and it has to stay clickable. Everything else stays dead.
+      useChatStore.getState().hydrate(
+        [{ role: 'assistant', content: 'I have sent a verification link' }] as never,
+        'await_email_verify',
+        { canvas: { allowed_tools: [] }, options: ['Use a different email address'] },
+      )
+      render(<ChatColumn />)
+
+      const chip = screen.getByRole('button', { name: 'Use a different email address' })
+      expect(chip).not.toBeDisabled()
+      expect(screen.getByPlaceholderText(/type your message/i)).toBeDisabled()
+
+      fireEvent.click(chip)
+      // The third argument is the live canvas blob every v2 turn carries (the
+      // hydrate above ships a canvas directive), so only the turn itself is
+      // pinned here.
+      await waitFor(() => expect(sendChat).toHaveBeenCalled())
+      expect(vi.mocked(sendChat).mock.calls[0].slice(0, 2)).toEqual(
+        ['sess-1', 'Use a different email address'])
+    })
+
     it('re-enables the composer once verification releases the gate', () => {
       atTheGate()
       const { rerender } = render(<ChatColumn />)

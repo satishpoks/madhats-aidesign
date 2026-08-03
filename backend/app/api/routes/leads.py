@@ -284,15 +284,12 @@ def _maybe_send_resume_email(sb, session_id: str, lead: dict) -> None:
         from app.services.stores import get_store
 
         store = get_store(store_id)
-    store_name = (store or {}).get("name") or "MadHats"
-    primary_colour = ((store or {}).get("brand") or {}).get("primary_colour") or "#ff5c00"
 
     email_service.send_resume_email(
         lead["email"],
         lead.get("name") or "there",
         resume_url,
-        store_name=store_name,
-        primary_colour=primary_colour,
+        **email_service.brand_kit(store),
     )
     collected["resume_email_sent"] = True
     sb.table("design_sessions").update({"collected": collected}).eq("id", session_id).execute()

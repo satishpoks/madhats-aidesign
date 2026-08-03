@@ -865,6 +865,48 @@ def test_request_quote_promises_the_design_and_the_quote():
     assert "quote" in out
 
 
+# --- resume_chips_for_state: the gate's escape hatch survives a reload -------
+
+_AT_GATE = {"flow_mode": "canvas", "email_captured": True}
+
+
+def test_a_reload_at_the_gate_still_offers_the_change_email_chip(monkeypatch):
+    """The gate locks the composer, so its one chip is the only way out — and
+    reloading is exactly what a customer waiting on an email that never arrives
+    does. v1's `_public_data` serves every resume and knows no v2 chips."""
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.resume_chips_for_state(S.AWAIT_EMAIL_VERIFY.value, _AT_GATE) == [
+        prompts.V2_CHANGE_EMAIL_CHIP]
+
+
+def test_no_resume_chips_once_the_gate_has_been_released(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.resume_chips_for_state(
+        S.AWAIT_EMAIL_VERIFY.value, {**_AT_GATE, "email_verified": True}) == []
+
+
+def test_no_resume_chips_before_an_address_was_ever_captured(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.resume_chips_for_state(
+        S.AWAIT_EMAIL_VERIFY.value, {"flow_mode": "canvas"}) == []
+
+
+def test_resume_chips_are_scoped_to_the_gate_alone(monkeypatch):
+    """Deliberately NOT a general registry rehydrate — the wider v2 resume gap
+    is separate work with its own verification."""
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    for state in (S.ASK_QUANTITY, S.ASK_HAS_LOGO, S.ASK_EMAIL, S.REVIEW_DESIGN):
+        assert v2.resume_chips_for_state(state.value, _AT_GATE) == [], state
+
+
+def test_no_resume_chips_for_a_non_canvas_or_flag_off_session(monkeypatch):
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", True)
+    assert v2.resume_chips_for_state(
+        S.AWAIT_EMAIL_VERIFY.value, {"email_captured": True}) == []
+    monkeypatch.setattr(v2.settings, "canvas_orchestrator_v2", False)
+    assert v2.resume_chips_for_state(S.AWAIT_EMAIL_VERIFY.value, _AT_GATE) == []
+
+
 # --- back_targets: the offerable Back menu (pure) ----------------------------
 
 def _rows(*specs):
@@ -924,6 +966,36 @@ def test_a_session_with_no_rows_offers_nothing():
 
 def test_an_unknown_step_id_is_skipped_not_crashed():
     assert v2.back_targets({}, _rows((1, "gone", "Gone", "no_such_step"))) == []
+
+
+# --- the current step is not a Back destination ------------------------------
+
+def test_the_step_the_customer_is_standing_on_is_not_offered():
+    """Capture fires on ENTRY to a checkpoint opener, so the row for the
+    question currently on screen is already live. Offering it back reads as a
+    fourth option that does nothing — the live bug in the reported screenshot,
+    where 'Text or graphic' appeared in the menu while ASK_ADD_DECOR was the
+    question being asked."""
+    out = v2.back_targets({}, ROWS, current_step_id=S.ASK_QUANTITY.value)
+    assert [t["seq"] for t in out] == [3, 2, 1]
+
+
+def test_only_the_newest_row_is_treated_as_the_current_one():
+    """Two live rows can share a step_id — logo 2 and logo 3 both open at
+    ASK_LOGO_PLACEMENT. Standing on that step must hide the pass being entered
+    (the newest), never the earlier pass the customer may well want back."""
+    rows = _rows(
+        (1, "logo", "Logo or image 1 — front", S.ASK_HAS_LOGO.value),
+        (2, "logo", "Logo or image 2 — back", S.ASK_LOGO_PLACEMENT.value),
+        (3, "logo", "Logo or image 3", S.ASK_LOGO_PLACEMENT.value),
+    )
+    out = v2.back_targets({}, rows, current_step_id=S.ASK_LOGO_PLACEMENT.value)
+    assert [t["seq"] for t in out] == [2, 1]
+
+
+def test_a_current_step_that_opened_no_checkpoint_hides_nothing():
+    out = v2.back_targets({}, ROWS, current_step_id=S.LOGO_ADJUST.value)
+    assert [t["seq"] for t in out] == [4, 3, 2, 1]
 
 
 def test_last_answered_step_is_gone():

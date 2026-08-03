@@ -609,9 +609,14 @@ PIN_ANNOTATION_TEMPLATE = """Customer placement note on the {view} view at appro
 # Email body templates
 # ---------------------------------------------------------------------------
 
-# Branded shell for short transactional emails (verification / resume). Inline
-# styles only. $store_name and $primary_colour are HTML-escaped by the caller;
-# $body_html is pre-rendered safe HTML.
+# Branded shell for short transactional emails (verification / resume / quote
+# reference). Inline styles only — no <style> block, no flexbox: Gmail and
+# Outlook strip the first and ignore the second.
+#
+# $header_html is pre-rendered safe HTML (the store's logo as a CID image, or
+# its escaped name); $header_bg is a validated colour; $body_html is
+# pre-rendered safe HTML. All escaping happens in app.services.email — nothing
+# raw is interpolated here.
 BRANDED_EMAIL_HTML = """\
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8" />
@@ -620,8 +625,8 @@ BRANDED_EMAIL_HTML = """\
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0;">
     <tr><td align="center">
       <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;">
-        <tr><td style="background:$primary_colour;padding:14px 24px;">
-          <div style="font-size:20px;font-weight:bold;color:#ffffff;">$store_name</div>
+        <tr><td style="background:$header_bg;padding:14px 24px;">
+          $header_html
         </td></tr>
         <tr><td style="padding:24px 28px;color:#1a1a2e;font-size:14px;line-height:22px;">
           $body_html
@@ -1197,8 +1202,15 @@ V2_DAILY_LIMIT_NOTICE = (
 # rather than imply the conversation is still moving.
 V2_AWAIT_VERIFY = (
     "I'll wait here until that's confirmed. The moment you open the link, "
-    "we'll carry on."
+    "we'll carry on.\n\n"
+    "If that address isn't right, you can change it below."
 )
+
+# The gate's one escape hatch. Without it a customer who mistyped their address
+# — or gave one they can't reach — is stranded: the step takes no typed answer,
+# and the verification link can never arrive. Resolves by exact label match, so
+# it costs no model call.
+V2_CHANGE_EMAIL_CHIP = "Use a different email address"
 
 # Shown when the customer types at the gate instead of opening the link. The
 # step declares no slots, so nothing they say is interpreted; this is the only
@@ -1206,7 +1218,7 @@ V2_AWAIT_VERIFY = (
 V2_AWAIT_VERIFY_RETRY = (
     "I do need your address confirmed before we continue.\n\n"
     "Please open the verification link I've sent you. If it hasn't arrived, "
-    "please check your spam folder."
+    "please check your spam folder — or change the address below."
 )
 
 # Shown when a customer turn contains a slur or hate term. The flow does NOT

@@ -246,6 +246,14 @@ export function ChatColumn() {
   // `settings.canvas_orchestrator_v2`) and ships it explicitly.
   const sessionEnded = useChatStore(s => s.sessionEnded)
   const inputLocked = sending || awaitingEmailVerify || sessionEnded
+  // Offered CHIPS are not locked by the verification gate, only by a send in
+  // flight or a finished session. The backend is the authority on what is
+  // answerable, and at the gate it ships exactly one chip — "Use a different
+  // email address" — the escape hatch for a mistyped or unreachable address.
+  // Everything else there stays locked (typing, voice, Continue): the gate
+  // declares no slots, so those genuinely cannot move it, but a chip the
+  // backend offered always can.
+  const chipsLocked = sending || sessionEnded
 
   // The backend only sets data.composite_preview: true for the
   // composite_preview state (see orchestrator.py _state_data_extra), so the
@@ -398,7 +406,7 @@ export function ChatColumn() {
   }
 
   function handleChip(text: string) {
-    if (!sessionId || inputLocked) return
+    if (!sessionId || chipsLocked) return
     void sendMessage(sessionId, text)
   }
 
@@ -583,7 +591,8 @@ export function ChatColumn() {
               <p className="text-xs text-textMuted">
                 Open the verification link we've just sent you and we'll carry on
                 from here — no need to reload. If it hasn't arrived, please check
-                your spam folder.
+                your spam folder, or use the button below to send it to a
+                different address.
               </p>
             </div>
           </div>
@@ -761,14 +770,17 @@ export function ChatColumn() {
           )
         )}
 
-        {/* Option chip rows */}
+        {/* Option chip rows. Gated on `chipsLocked`, not `inputLocked`: at the
+            verification gate the composer is deliberately dead but the one chip
+            the backend offers there ("Use a different email address") is the
+            only way out for a customer who mistyped their address. */}
         {options.length > 0 && colourSwatches.length === 0 && !multiselect && !sessionEnded && (
           <div className="flex flex-wrap gap-2">
             {options.map(opt => (
               <button
                 key={opt}
                 onClick={() => handleChip(opt)}
-                disabled={inputLocked}
+                disabled={chipsLocked}
                 className="px-4 py-2 bg-surface border border-border rounded-full text-sm text-textPrimary hover:border-accent hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {opt}

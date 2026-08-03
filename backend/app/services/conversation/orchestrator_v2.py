@@ -123,7 +123,8 @@ async def handle_message(session_id: str, message: str,
                               current, user_message=message,
                               data=_public(step, collected,
                                           targets=v2.back_targets(
-                                              collected, ck.live_rows(sb, session_id))))
+                                              collected, ck.live_rows(sb, session_id),
+                                              step.id.value)))
 
     # Severe abuse (slurs / hate terms) is declined WITHOUT advancing: re-render
     # the current step exactly as the blank-turn guard above does, ingesting
@@ -145,7 +146,8 @@ async def handle_message(session_id: str, message: str,
                               state_before, current, user_message=message,
                               data=_public(step, collected,
                                           targets=v2.back_targets(
-                                              collected, ck.live_rows(sb, session_id))))
+                                              collected, ck.live_rows(sb, session_id),
+                                              step.id.value)))
 
     ack = ""
 
@@ -269,7 +271,8 @@ async def handle_message(session_id: str, message: str,
             reply = f"{prompts.V2_DAILY_LIMIT_NOTICE.format(name=name)}\n\n{reply}".strip()
             cs.leads_service.flag_over_daily_limit(collected.get("lead_id"))
     data = _public(next_, collected,
-                   targets=v2.back_targets(collected, ck.live_rows(sb, session_id)))
+                   targets=v2.back_targets(collected, ck.live_rows(sb, session_id),
+                                           next_.id.value))
     if canvas_ops:
         data["canvas_ops"] = canvas_ops
     return await _persist(sb, session_id, collected, next_, reply, state_before,
@@ -307,7 +310,7 @@ async def handle_back(session_id: str, seq: int) -> dict:
     # not the store's configurable-flow registry — so there is no canvas_flow
     # to thread through this call, unlike `next_step`/`effective_registry`.
     offerable = {t["seq"] for t in v2.back_targets(
-        collected, ck.live_rows(sb, session_id))}
+        collected, ck.live_rows(sb, session_id), session["state"])}
     if seq not in offerable:
         raise ck.CheckpointUnavailable(f"seq {seq} is not offerable")
 
@@ -321,7 +324,7 @@ async def handle_back(session_id: str, seq: int) -> dict:
                          colour_note=colour_note)
     data = _public(step, restored,
                    targets=v2.back_targets(
-                       restored, ck.live_rows(sb, session_id)))
+                       restored, ck.live_rows(sb, session_id), step.id.value))
     # ALWAYS emitted, including for an empty/absent snapshot. Omitting it made
     # `chatStore.goBackTo` skip `restoreSnapshot` entirely, and "no canvas was
     # captured" is only true at capture time — by restore time the customer may
@@ -384,7 +387,8 @@ async def check_verification(session_id: str) -> dict:
         return {"reply": None, "state": current.value,
                 "data": _public(step, collected,
                                 targets=v2.back_targets(
-                                    collected, ck.live_rows(sb, session_id)))}
+                                    collected, ck.live_rows(sb, session_id),
+                                    step.id.value))}
 
     persona = (store or {}).get("persona_name") or settings.chatbot_persona_name
     next_ = v2.next_step(collected, flow_config)
@@ -475,7 +479,8 @@ async def _persist(sb, session_id, collected, step, reply, state_before, new_sta
     if data is None:
         data = _public(step, collected,
                        targets=v2.back_targets(
-                           collected, ck.live_rows(sb, session_id))) if step else {}
+                           collected, ck.live_rows(sb, session_id),
+                           step.id.value)) if step else {}
     if extra_replies:
         data["extra_replies"] = list(extra_replies)
     return {"reply": reply, "state": new_state.value, "data": data}

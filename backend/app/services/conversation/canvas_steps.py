@@ -49,10 +49,19 @@ class Checkpoint:
 
     `label` is rendered at CAPTURE time — before the step is answered — so it
     must never assume its own slot is set.
+
+    `opens_when` is how a checkpoint that CAN be opened by more than one step
+    says which of them actually opens it. Only ASK_LOGO_PLACEMENT uses it: the
+    FIRST logo is opened one step earlier, at ASK_HAS_LOGO, because "do you have
+    a logo?" is the first question of that element, not a separate moment — so
+    Back on logo 1 must return there. Without this the customer saw two entries
+    for one logo ("Logo or image — yes" then "Logo 1 — front"), which is the
+    same element twice. Default None = always opens.
     """
     kind: str
     label: Callable[[dict], str]
     frozen_when: Callable[[dict], bool]
+    opens_when: Callable[[dict], bool] | None = None
 
 
 @dataclass(frozen=True)
@@ -356,6 +365,38 @@ def _apply_email(c: dict, f: dict, s: dict) -> None:
     c.pop("email", None)   # the lead owns the address; don't persist it here too
 
 
+def _apply_change_email(c: dict, f: dict, s: dict) -> None:
+    """Abandon the captured address so ASK_EMAIL asks for another one.
+
+    The verification gate is otherwise absolute: it takes no typed answer and
+    only an out-of-band link click releases it — so a customer who mistyped
+    their address, or gave one they cannot reach, was stranded with no way
+    forward. Clearing `email_captured` is what re-opens ASK_EMAIL (its done_when
+    reads exactly that flag) AND satisfies AWAIT_EMAIL_VERIFY's own `not
+    email_captured` half, so first-unmet routing walks back by itself. No
+    back-edge, same shape as the logo loop's slot-clearing.
+
+    `email_verified` is cleared too, defensively: the customer is telling us the
+    address is wrong, so any verification standing against it must not carry
+    forward and release the gate for an address they have disowned.
+
+    The outstanding link is burnt (best-effort) rather than left live — it is
+    valid for 15 more minutes, and opening it would verify the session against
+    the address the customer just replaced. `_asked` is rewound so the re-ask
+    uses the full question rather than ASK_EMAIL's malformed-address retry copy,
+    which would wrongly blame the customer's typing.
+    """
+    if not f.get("change_email"):
+        return
+    c.pop("change_email", None)
+    leads_service.abandon_verification(c.get("lead_id"))
+    for key in ("email_captured", "email_verified", "lead_id"):
+        c.pop(key, None)
+    asked = c.get("_asked")
+    if isinstance(asked, list) and S.ASK_EMAIL.value in asked:
+        asked.remove(S.ASK_EMAIL.value)
+
+
 MIX_CHIP_LABEL = "I want a mix"
 
 
@@ -556,20 +597,39 @@ def _label_name(c: dict) -> str:
     return f"Your name — {_em(c.get('name'))}"
 
 
-def _label_has_logo(c: dict) -> str:
-    v = c.get("has_logo")
-    return f"Logo or image — {'yes' if v else 'no' if v is False else 'not set'}"
-
-
 def _label_logo(c: dict) -> str:
-    n = len(c.get("logos") or []) + 1
+    """ONE entry per logo ELEMENT, shared by both steps that can open one.
+
+    An element is a single customer-meaningful moment, so it gets a single menu
+    row — the face question and the background question happen INSIDE it, not
+    beside it. Logo 1's row is opened at ASK_HAS_LOGO (see Checkpoint.opens_when),
+    so restoring it lands back on "do you have a logo or image?"; logo 2 onward
+    open at ASK_LOGO_PLACEMENT. Both render through here so the two rows read as
+    a numbered series rather than two unrelated labels.
+
+    `has_logo is False` is the one non-element answer this row can carry (the
+    customer declined a logo entirely), so it names itself instead of counting.
+    """
+    if c.get("has_logo") is False:
+        return "Logo or image — no"
+    bits = [f"Logo or image {len(c.get('logos') or []) + 1}"]
     face = _pending(c).get("face")
-    bits = [f"Logo {n}"]
     if face:
         bits.append(str(face))
     if _pending(c).get("bg") == "removed":
         bits.append("background removed")
     return bits[0] if len(bits) == 1 else f"{bits[0]} — {', '.join(bits[1:])}"
+
+
+def _opens_from_the_second_logo(c: dict) -> bool:
+    """ASK_LOGO_PLACEMENT opens a checkpoint only from logo 2 onward.
+
+    On the first pass `logos` is empty and ASK_HAS_LOGO has already opened this
+    element's checkpoint one step earlier. `logos` is the right reading because
+    `_apply_another_logo` banks the finished pending logo into it before the
+    router walks back to this step, so it is exactly "how many logos are done".
+    """
+    return bool(c.get("logos"))
 
 
 def _label_decor(c: dict) -> str:
@@ -643,7 +703,10 @@ REGISTRY: tuple[Step, ...] = (
         # skip on the raw slot; `False` stays unmet until the apply has actually
         # run (which is what `not _logos_open(c)` observes).
         done_when=lambda c: c.get("has_logo") is True or not _logos_open(c),
-        checkpoint=Checkpoint(kind="has_logo", label=_label_has_logo,
+        # Opens the FIRST logo element's checkpoint: this question is that
+        # element's opening beat, so Back on logo 1 returns here rather than to
+        # the face question one step later.
+        checkpoint=Checkpoint(kind="logo", label=_label_logo,
                               frozen_when=_frozen_on_design_agreed),
     ),
     Step(
@@ -668,7 +731,8 @@ REGISTRY: tuple[Step, ...] = (
         auto_open=None,
         face_target=True,
         checkpoint=Checkpoint(kind="logo", label=_label_logo,
-                              frozen_when=_frozen_on_design_agreed),
+                              frozen_when=_frozen_on_design_agreed,
+                              opens_when=_opens_from_the_second_logo),
     ),
     Step(
         id=S.LOGO_ADJUST,
@@ -758,14 +822,21 @@ REGISTRY: tuple[Step, ...] = (
     ),
     Step(
         id=S.AWAIT_EMAIL_VERIFY,
-        # A wait, not a question: no chips and no slots, so there is nothing for
-        # the customer to answer and nothing for the interpreter to read. Any
-        # typed turn re-renders this step (see ask_retry), which is exactly the
-        # "cannot move past" the double opt-in needs. It clears only when
-        # leads.py flips collected.email_verified out-of-band and the frontend's
-        # verification poll advances the flow (orchestrator_v2.check_verification).
+        # A wait, not a question: NO SLOTS, so nothing the customer types is
+        # interpreted and any typed turn just re-renders this step (see
+        # ask_retry) — which is exactly the "cannot move past" the double opt-in
+        # needs. It clears when leads.py flips collected.email_verified
+        # out-of-band and the frontend's verification poll advances the flow
+        # (orchestrator_v2.check_verification).
+        #
+        # The ONE chip is the escape hatch for an address that can never be
+        # confirmed (a typo, or an inbox the customer can't reach): it resolves
+        # by exact label match, so it still costs no model call, and because
+        # `slots` stays empty free text never reaches the interpreter either.
         ask=prompts.V2_AWAIT_VERIFY,
         ask_retry=prompts.V2_AWAIT_VERIFY_RETRY,
+        chips=(Chip(prompts.V2_CHANGE_EMAIL_CHIP, {"change_email": True}),),
+        apply=_apply_change_email,
         # `not email_captured` is LOAD-BEARING, not defensive. ASK_EMAIL is
         # deliberately SATISFIED early in the design (nothing placed yet, see its
         # done_when), so a gate reading email_verified alone would become
