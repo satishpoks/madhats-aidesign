@@ -12,6 +12,7 @@ import { FaceThumbnails } from './FaceThumbnails'
 import { GraphicsPicker } from './GraphicsPicker'
 import { ReviewDialog, CONFIRM_LABEL, REWORK_LABEL } from './ReviewDialog'
 import { Watermark } from './Watermark'
+import { BusyOverlay } from './BusyOverlay'
 import { flattenStage, flattenFull, dataUrlToFile } from '../../lib/canvasFlatten'
 import { uploadLogo, uploadCanvasLayouts, finalizeCanvas } from '../../lib/api'
 import { loadImage } from '../../lib/imageCache'
@@ -95,6 +96,10 @@ export function DesignStudioSurface() {
   const [rendered, setRendered] = useState(false)
   const [graphicsOpen, setGraphicsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // An image is being uploaded (or its natural size read back). Customer artwork
+  // is routinely multi-megabyte, so this window is seconds long on a phone
+  // connection — with no indicator the tap reads as "nothing happened".
+  const [uploading, setUploading] = useState(false)
 
   // Mobile-only tool/adjust visibility — see MobileToolsButton and the close
   // button in SelectedToolbar. Two independent booleans, not one: the rail
@@ -272,6 +277,12 @@ export function DesignStudioSurface() {
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !sessionId) return
+    // Covers BOTH round trips, not just the POST: the aspect read below fetches
+    // the stored image back, and on a large file that second leg is as slow as
+    // the first. Clearing after the POST alone would drop the indicator while
+    // the cap was still visibly empty.
+    setUploading(true)
+    setError(null)
     try {
       const { asset_url, asset_path } = await uploadLogo(sessionId, file)
       // Read the image's natural aspect so it inserts undistorted (preserved
@@ -284,6 +295,8 @@ export function DesignStudioSurface() {
       addImage(asset_url, aspect, asset_path)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
     }
     // Allow re-selecting the same file later (onChange won't fire otherwise).
     e.target.value = ''
@@ -429,8 +442,18 @@ export function DesignStudioSurface() {
               CanvasStage). Inside, it is still a plain-DOM sibling of the Konva
               stage, so it stays out of every toDataURL export. */}
           <div data-testid="canvas-stage-wrap" className="w-full shrink-0 flex justify-center">
+            {/* Both overlays are plain DOM siblings of the Konva stage (see
+                CanvasStage's `overlay` prop) — never Konva nodes, so neither can
+                reach a toDataURL export. The busy scrim is the primary upload
+                feedback: it sits where the customer is already looking, and it
+                shows even when the tool rail is collapsed (mobile default). */}
             <CanvasStage stageRef={stageRef} locked={stageLocked}
-              overlay={watermark ? <Watermark text={watermarkText} /> : null} />
+              overlay={(watermark || uploading) ? (
+                <>
+                  {watermark && <Watermark text={watermarkText} />}
+                  {uploading && <BusyOverlay label="Uploading image…" />}
+                </>
+              ) : null} />
           </div>
           {canvasDirective?.showDone && (
             <button onClick={postDone}
@@ -476,7 +499,8 @@ export function DesignStudioSurface() {
             // `isV2` is derived from `canvasDirective` and already lives in
             // this component — ToolRail stays a dumb prop-driven renderer.
             hideRender={isV2}
-            allowedTools={allowedTools} highlightTool={highlightTool} toolsVisible={toolsVisible} />
+            allowedTools={allowedTools} highlightTool={highlightTool} toolsVisible={toolsVisible}
+            uploading={uploading} />
           {/* Desktop home for the Adjust panel: the free space below "Design
               saved". The rail root is content-sized (no h-full — adding one
               would push this off-screen via mt-auto on the Done button), so

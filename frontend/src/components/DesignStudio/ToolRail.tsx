@@ -31,9 +31,13 @@ interface ToolRailProps {
    *  rather than a column of disabled buttons. Defaults to true so v1 call
    *  sites (which never pass it) are unaffected. */
   toolsVisible?: boolean
+  /** An image upload is in flight. Large artwork can take several seconds, and
+   *  a button that looks idle invites a second click (and a second upload) —
+   *  so the button reports progress and stops accepting clicks meanwhile. */
+  uploading?: boolean
 }
 
-export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, hideRender, allowedTools, highlightTool, toolsVisible }: ToolRailProps) {
+export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways, onRender, rendering, rendered, locked, hideRender, allowedTools, highlightTool, toolsVisible, uploading }: ToolRailProps) {
   const colourway = useCanvasStore(s => s.colourway)
   const setColourway = useCanvasStore(s => s.setColourway)
   const drawMode = useCanvasStore(s => s.drawMode)
@@ -92,7 +96,14 @@ export function ToolRail({ onAddText, onUploadClick, onGraphicsClick, colourways
         <button onClick={onAddText} disabled={toolDisabled('text')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('text')}`}>+ Add text</button>
       )}
       {showTool('upload') && (
-        <button onClick={onUploadClick} disabled={toolDisabled('upload')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>↑ Upload image</button>
+        <button onClick={onUploadClick} disabled={toolDisabled('upload') || !!uploading} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('upload')}`}>
+          {uploading ? (
+            <span className="inline-flex items-center justify-center gap-2">
+              <span className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              Uploading…
+            </span>
+          ) : '↑ Upload image'}
+        </button>
       )}
       {showTool('shape') && (
         <button onClick={onGraphicsClick} disabled={toolDisabled('shape')} className={`px-4 py-2 bg-surface border border-border rounded-lg text-sm text-textPrimary hover:border-canvasAccent transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-border${hi('shape')}`}>◈ Graphics</button>
