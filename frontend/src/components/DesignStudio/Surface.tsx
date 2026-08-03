@@ -101,19 +101,27 @@ export function DesignStudioSurface() {
   // (nothing selected) and the sheet (something selected) are gated by
   // different questions —
   //  - `mobileToolsOpen` starts CLOSED (owner: "collapsed by default").
-  //  - `mobileSheetHidden` starts SHOWN (selecting an element must keep
-  //    auto-opening the sheet exactly as it always has — this is only ever
-  //    flipped true by the sheet's own explicit close button).
-  // The floating button targets whichever is contextually relevant this turn
-  // (see `toggleMobilePanel` below) — that contextual dispatch is the "one
-  // button toggles the tools AND the adjustment part" the owner asked for.
+  //  - `mobileSheetHidden` starts HIDDEN (owner, 2026-08-03: "do not open the
+  //    tool bar by default when element is added — on mobile. only open when
+  //    the user taps or clicks the tool bar"). Adding an element auto-selects
+  //    it (canvasStore's addText/addImage/addShape/addDrawing all return
+  //    `selectedId: el.id`), so a sheet that auto-opened on `selectedId`
+  //    changing sprang open the instant a step's tool placed something — the
+  //    exact behaviour the owner asked to remove.
+  // Deliberately NOT reset on selection change in either direction: the sheet
+  // stays exactly as the customer left it (hidden, or open) as they select
+  // different elements. It only ever changes via an explicit action — the
+  // floating tools button (`toggleMobilePanel`) or the sheet's own close
+  // button — matching "only open when the user taps or clicks the tool bar"
+  // literally, in both directions, not just the "opening" one: a sheet closed
+  // for element A must not spring back open just because the customer then
+  // taps element B. This is the less surprising choice — once the customer
+  // has explicitly opened the panel to make adjustments, forcing them to
+  // reopen it after every single selection change (or, symmetrically,
+  // resurrecting a panel they just dismissed) would be far more disruptive
+  // than leaving it exactly where they put it.
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
-  const [mobileSheetHidden, setMobileSheetHidden] = useState(false)
-  // A fresh selection always reopens the sheet, even if the customer closed it
-  // for a different element a moment ago — the close is a "not right now"
-  // gesture about THIS element, not a standing preference. Mirrors
-  // SelectedToolbar's own per-element `collapsed` reset.
-  useEffect(() => { setMobileSheetHidden(false) }, [selectedId])
+  const [mobileSheetHidden, setMobileSheetHidden] = useState(true)
   // The floating button is context-sensitive: while something is selected the
   // relevant panel is the Adjust sheet, otherwise it's the tool rail. This is
   // what makes one button cover both "the tools" and "the adjustment part".

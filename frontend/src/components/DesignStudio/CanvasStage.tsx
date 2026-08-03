@@ -3,6 +3,7 @@ import { Stage, Layer, Image as KonvaImage, Rect, Line } from 'react-konva'
 import type Konva from 'konva'
 import { useCanvasStore } from '../../store/canvasStore'
 import { TextNode, ImageNode, ShapeNode, DrawingNode } from './nodes'
+import { TextEditOverlay } from './TextEditOverlay'
 import { getCachedImage, loadImage } from '../../lib/imageCache'
 import { STAGE_W, STAGE_H } from '../../lib/canvasGeometry'
 
@@ -78,6 +79,7 @@ export function CanvasStage({ stageRef, locked = false, overlay = null }: {
   const faces = useCanvasStore(s => s.faces)
   const faceImages = useCanvasStore(s => s.faceImages)
   const selectedId = useCanvasStore(s => s.selectedId)
+  const editingTextId = useCanvasStore(s => s.editingTextId)
   const select = useCanvasStore(s => s.select)
   const updateElement = useCanvasStore(s => s.updateElement)
   const colourway = useCanvasStore(s => s.colourway)
@@ -154,6 +156,13 @@ export function CanvasStage({ stageRef, locked = false, overlay = null }: {
   }, [bgUrl])
 
   const els = [...faces[activeFace]].sort((a, b) => a.zIndex - b.zIndex)
+  // Defensive re-checks (type/locked/face) even though the only way to set
+  // editingTextId — canvasStore.startEditingText — already guards all three:
+  // this is what makes CanvasStage correct on its own, not merely because its
+  // one caller happens to be careful.
+  const editingEl = editingTextId
+    ? els.find(e => e.id === editingTextId && e.type === 'text' && !e.locked)
+    : undefined
 
   useEffect(() => { setStroke(null) }, [activeFace])
 
@@ -239,6 +248,9 @@ export function CanvasStage({ stageRef, locked = false, overlay = null }: {
         )}
       </Layer>
     </Stage>
+    {editingEl && (
+      <TextEditOverlay el={editingEl} scale={scale} stageW={STAGE_W} stageH={STAGE_H} />
+    )}
     {overlay}
     </div>
     </div>

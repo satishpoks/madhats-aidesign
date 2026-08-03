@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 
 // Same shape as adjustPanelPlacement.test.tsx's helper — kept local to this
 // file rather than shared, since each caller must remember to clean it up in
@@ -166,6 +166,10 @@ describe('Adjust panel', () => {
       } as never)
       selectText()
       render(<DesignStudioSurface />)
+      // 2026-08-03: the sheet no longer auto-opens on selection (owner fix,
+      // see surfaceMobileTools.test.tsx) — open it explicitly via the
+      // floating tools button before asserting on its placement.
+      fireEvent.click(screen.getByTestId('mobile-tools-toggle'))
       const panel = screen.getByTestId('adjust-panel')
       const stage = screen.getByTestId('canvas-stage-wrap')
       expect(panel.className).toMatch(/(^|\s)fixed(\s|$)/)
@@ -210,6 +214,9 @@ describe('Adjust panel', () => {
 
       setMatchMedia(false)
       const mobile = render(<DesignStudioSurface />)
+      // 2026-08-03: the sheet no longer auto-opens on selection — open it
+      // explicitly first (see the MOBILE placement test above).
+      fireEvent.click(screen.getByTestId('mobile-tools-toggle'))
       expect(screen.getAllByTestId('adjust-panel')).toHaveLength(1)
       mobile.unmount()
 

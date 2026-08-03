@@ -53,6 +53,12 @@ interface CanvasState {
   faces: Record<Face, CanvasElement[]>
   activeFace: Face
   selectedId: string | null
+  /** Id of the text element currently being edited in place on the canvas
+   *  (double-click/double-tap), or null. Deliberately store-level, not local
+   *  component state — TextNode (inside the Konva tree) is what triggers it
+   *  and CanvasStage (a DOM-level sibling) is what renders the overlay for
+   *  it, and the two have no other shared channel. */
+  editingTextId: string | null
   colourway: Colourway | null
   faceImages: Record<Face, string>
   drawMode: boolean
@@ -70,6 +76,15 @@ interface CanvasState {
   removeElement: (id: string) => void
   reorder: (id: string, dir: 'up' | 'down') => void
   select: (id: string | null) => void
+  /** Open the in-place text editor over `id` — a no-op (state unchanged) unless
+   *  the element exists on the ACTIVE face, is a text element, and is unlocked.
+   *  The guard lives here too (not just at the TextNode call site) so no future
+   *  caller can bypass it. Also selects the element, matching a normal click. */
+  startEditingText: (id: string) => void
+  /** Close the in-place text editor. Deliberately leaves `selectedId` alone —
+   *  closing the editor (blur/Enter/Escape) is not the same gesture as
+   *  deselecting; the Adjust panel should still show the element afterwards. */
+  stopEditingText: () => void
   setColourway: (c: Colourway | null) => void
   setDrawMode: (v: boolean) => void
   setDrawColour: (c: string) => void
@@ -114,6 +129,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   faces: emptyFaces(),
   activeFace: 'front',
   selectedId: null,
+  editingTextId: null,
   colourway: null,
   faceImages: { front: '', back: '', left: '', right: '' },
   drawMode: false,
@@ -121,7 +137,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   drawWidth: 0.01,
 
   setFaceImages: imgs => set(s => ({ faceImages: { ...s.faceImages, ...imgs } })),
-  setActiveFace: f => set({ activeFace: f, selectedId: null }),
+  // Switching faces closes any open in-place text editor on the old face —
+  // its element is no longer even rendered, and leaving the id set would let
+  // CanvasStage resolve a stale/wrong element if the same id ever reappeared.
+  setActiveFace: f => set({ activeFace: f, selectedId: null, editingTextId: null }),
 
   addText: text => set(s => {
     const el: CanvasElement = {
@@ -187,6 +206,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   removeElement: id => set(s => ({
     faces: { ...s.faces, [s.activeFace]: s.faces[s.activeFace].filter(e => e.id !== id) },
     selectedId: s.selectedId === id ? null : s.selectedId,
+    editingTextId: s.editingTextId === id ? null : s.editingTextId,
   })),
 
   patchElement: (face, id, patch) => set(s => ({
@@ -195,6 +215,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   removeElementOn: (face, id) => set(s => ({
     faces: { ...s.faces, [face]: s.faces[face].filter(e => e.id !== id) },
+    editingTextId: s.editingTextId === id ? null : s.editingTextId,
   })),
 
   patchPendingLogo: (face, patch) => set(s => {
@@ -222,6 +243,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return {
       faces: { ...s.faces, [face]: next },
       selectedId: s.selectedId === removed.id ? null : s.selectedId,
+      editingTextId: s.editingTextId === removed.id ? null : s.editingTextId,
     }
   }),
 
@@ -235,7 +257,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     return { faces: { ...s.faces, [s.activeFace]: arr } }
   }),
 
-  select: id => set({ selectedId: id }),
+  // Selecting a different element (or deselecting) while an editor is open
+  // must close that editor — otherwise the overlay would stay positioned over
+  // whatever text element the customer just clicked away from.
+  select: id => set({ selectedId: id, editingTextId: null }),
+
+  startEditingText: id => set(s => {
+    const el = s.faces[s.activeFace].find(e => e.id === id)
+    if (!el || el.locked || el.type !== 'text') return s
+    return { selectedId: id, editingTextId: id }
+  }),
+  stopEditingText: () => set({ editingTextId: null }),
+
   setColourway: c => set({ colourway: c }),
   setDrawMode: v => set({ drawMode: v, selectedId: null }),
   setDrawColour: c => set({ drawColour: c }),
@@ -256,7 +289,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   lockAll: () => set(s => {
     const faces = { ...s.faces }
     for (const f of FACES) faces[f] = faces[f].map(e => ({ ...e, locked: true }))
-    return { faces, selectedId: null }
+    return { faces, selectedId: null, editingTextId: null }
   }),
 
   lockPlaced: () => set(s => {
@@ -264,16 +297,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     for (const f of FACES) {
       faces[f] = faces[f].map(e => (e.locked ? e : { ...e, locked: true }))
     }
-    return { faces, selectedId: null }
+    return { faces, selectedId: null, editingTextId: null }
   }),
 
   unlockAll: () => set(s => {
     const faces = { ...s.faces }
     for (const f of FACES) faces[f] = faces[f].map(e => ({ ...e, locked: false }))
-    return { faces, selectedId: null }
+    return { faces, selectedId: null, editingTextId: null }
   }),
 
-  reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, colourway: null,
+  reset: () => set({ faces: emptyFaces(), activeFace: 'front', selectedId: null, editingTextId: null,
+    colourway: null,
     faceImages: { front: '', back: '', left: '', right: '' },
     drawMode: false, drawColour: '#111827', drawWidth: 0.01 }),
 
@@ -296,6 +330,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       colourway: design?.colourway ?? null,
       activeFace: 'front' as Face,
       selectedId: null,
+      editingTextId: null,
     }
   }),
 
@@ -308,6 +343,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       colourway: design?.colourway ?? null,
       activeFace: 'front' as Face,
       selectedId: null,
+      editingTextId: null,
     }
   }),
 }))
